@@ -1,0 +1,29 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+upstreams:
+  - name: "github"
+    url: "https://api.github.com/mcp"
+    headers:
+      Authorization: "Bearer ${GITHUB_TOKEN}"
+    timeout: "30s"
+
+  - name: "jira"
+    url: "https://jira.example.com/mcp"
+    headers:
+      Authorization: "Bearer ${JIRA_TOKEN}"
+    timeout: "30s"
+
+  - name: "internal-docs"
+    url: "http://docs.internal:9000/mcp"
+    timeout: "15s"
+
+codemode:
+  execution_timeout: "30s"
+  max_memory_mb: 64
+
+auth:
+  enabled: true
+  jwks_url: "https://auth.example.com/.well-known/jwks.json"
+  audience: "limen"
