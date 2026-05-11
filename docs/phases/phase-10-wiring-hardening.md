@@ -1,0 +1,221 @@
+# Phase 10 — Wiring, verification, hardening
+
+**Depends on**: every previous phase
+**Unblocks**: shipping
+
+## Goal
+
+Tie everything together in [cmd/gateway/main.go](../../cmd/gateway/main.go), refresh [config.yaml](../../config.yaml) and [AGENTS.md](../../AGENTS.md), run the full integration matrix, and apply the round of hardening that's only realistic after the parts are in place: timeouts, structured errors at boundaries, audit logging hooks, and a runbook section for operators.
+
+This phase ships no new feature surface. Anything missed earlier gets caught here.
+
+## Design
+
+### `cmd/gateway/main.go` startup order
+
+```
+1. parse flags + load config (substitute ${ENV}, validate)
+2. dispatch CLI subcommands (-create-tenant, -invite-user, -create-upstream) → exit
+3. open storage.Store (appDB + adminDB pools, Phase 1/3)
+4. run AutoMigrate (Phase 1) using adminDB
+5. run RLS migration (Phase 3) using adminDB
+6. initialize crypto.Cipher and call crypto.SetCipher (Phase 2)
+7. construct Zitadel Management client (Phase 5) using the configured PAT
+8. construct OIDC RelyingParty (Phase 4) for portal login
+9. construct upstream.Registry, register strategies (mcp_spec, none) (Phase 7)
+10. start upstream.Refresher goroutine (Phase 7)
+11. construct DBAuthProvider (Phase 8)
+12. construct UpstreamManager + Gateway (Phase 8)
+13. construct oauthproxy handlers (metadata + DCR proxy + redirector) (Phase 5)
+14. construct JWKSResolver + auth.Middleware against the Zitadel issuer (Phase 6)
+15. construct PortalService (Phase 9)
+16. assemble chi router with the full route tree (below)
+17. start HTTP server with read/write/idle timeouts and graceful shutdown
+```
+
+### Final route tree
+
+```
+/                                                    (operator landing or 404)
+/healthz                                              health check
+/auth/login                                          OIDC start (state + redirect to Zitadel)
+/auth/callback                                       OIDC callback → set portal session
+/auth/logout                                         portal logout → Zitadel end_session
+/t/{tenant}/                                          RequireTenant
+  /portal/                                           SPA static + fallback
+    /api/portal.v1.PortalService/*                   Connect-RPC (interceptors)
+  /oauth/
+    /.well-known/openid-configuration                public (rewritten Zitadel metadata)
+    /.well-known/oauth-authorization-server          public (rewritten Zitadel metadata)
+    /authorize, /userinfo, /jwks, /end_session       302 redirect to Zitadel
+    /token, /revoke, /introspect                     307 redirect (or proxy) to Zitadel
+    /register, /register/{id}                        DCR proxy → Zitadel Management API
+  /mcp/.well-known/oauth-protected-resource          public
+  /mcp, /mcp/                                         RequireMCPAuth → Gateway
+  /upstream/{name}/{connect,callback,disconnect}     RequirePortalSession
+```
+
+### Config example (`config.yaml`)
+
+The shipped example is full but commented:
+
+```yaml
+server:
+  bind: ":8080"
+  base_url: "${LIMEN_BASE_URL}"
+  read_timeout: 30s
+  write_timeout: 30s
+  idle_timeout: 120s
+  shutdown_timeout: 15s
+
+database:
+  driver: postgres
+  dsn: "${LIMEN_DB_DSN}"
+  owner_dsn: "${LIMEN_DB_OWNER_DSN}"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+security:
+  token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
+  portal_session_cookie_name: "limen_portal"
+  portal_session_cookie_secure: true
+  portal_session_cache_ttl: 60s # local positive cache for Zitadel SessionService.GetSession
+
+oidc:
+  issuer: "${LIMEN_OIDC_ISSUER}" # e.g. https://auth.limen.example.com
+  portal_client_id: "${LIMEN_OIDC_PORTAL_CLIENT_ID}"
+  portal_client_secret: "${LIMEN_OIDC_PORTAL_CLIENT_SECRET}" # empty for PKCE public client
+  redirect_uri: "${LIMEN_BASE_URL}/auth/callback"
+  scopes: ["openid", "profile", "email", "offline_access"]
+  mcp_rs_audience: "${LIMEN_OIDC_MCP_RS_AUDIENCE}" # Zitadel project audience id
+
+oauth_proxy:
+  dcr_enabled: true
+  dcr_initial_access_token: "" # if set, /register requires it
+  zitadel_project_id: "${LIMEN_OIDC_PROJECT_ID}"
+  zitadel_management_pat: "${LIMEN_OIDC_MGMT_PAT}" # service account PAT
+
+upstream_refresher:
+  interval: 2m
+  refresh_window: 5m
+
+codemode:
+  enabled: true
+  max_execution_ms: 5000
+
+logging:
+  level: info
+  encoding: json
+```
+
+The old `upstreams:` block and the old `auth:` block are **removed**. Upstreams now live in the DB (created via CLI or portal); inbound auth is JWT-validated per request against Zitadel's JWKS.
+
+### `AGENTS.md` updates
+
+The current `AGENTS.md` is rewritten in the following sections (not the whole file):
+
+- **Architecture** — extend with `internal/storage/`, `internal/crypto/`, `internal/tenancy/`, `internal/auth/`, `internal/oauthproxy/`, `internal/mcprs/`, `internal/upstream/`, `internal/portal/`, `web/`, `proto/`.
+- **Build & Test Commands** — add `buf generate`, `pnpm install`, `pnpm build`, `docker compose -f compose.dev.yaml up -d` (Phase 0), integration-test commands.
+- **Setup** — Postgres role provisioning snippet (`limen_admin` + `limen_app`); Zitadel bootstrap script (Phase 0).
+- **Testing** — describe `testcontainers-go` setup, the integration test scenarios listed below.
+- **Security** — production posture (RLS, Zitadel JWKS, AAD-bound encryption, delegated identity).
+
+### CLI subcommands (recap)
+
+Implemented in Phase 4, finalized here:
+
+```
+limen -create-tenant slug=acme name="Acme Corp" owner-email=admin@acme.com
+limen -invite-user tenant=acme email=alice@acme.com role=member
+limen -create-upstream tenant=acme name=atlassian strategy=mcp_spec url=https://mcp.atlassian.com/v1/mcp/authv2
+limen -migrate                                       # run schema + RLS migrations and exit
+limen                                                # normal server start
+```
+
+`-create-tenant` and `-invite-user` go through the Zitadel Management API (Phase 4 / 5). Password resets are performed via Zitadel's hosted self-service UI — not via a Limen CLI. `-create-upstream` runs `Strategy.Provision` (which performs DCR against external MCP servers like Atlassian for `mcp_spec`) and writes the upstream rows.
+
+### Hardening pass
+
+- **HTTP timeouts** on the server (read/write/idle) — defaults above.
+- **Outbound HTTP timeouts** on every `http.Client` (upstreams, JWKS, DCR). Defaults: 30 s for upstream calls, 3 s for JWKS, 10 s for DCR.
+- **Graceful shutdown**: catch `SIGTERM`/`SIGINT`, stop accepting new connections, wait `shutdown_timeout`, then force-close.
+- **Goroutine accounting**: the refresher, janitor (session cleanup, expired auth-code/refresh-token cleanup) all run via a `*errgroup.Group` with a top-level ctx; shutdown cancels them.
+- **Structured logging**: every handler logs `tenant_id`, `user_id`, `request_id` (via `chi/middleware.RequestID` + a custom field injector). Errors logged at `Error`; informational events at `Info`; tracing detail at `Debug`.
+- **Health endpoint**: `GET /healthz` returns 200 if `Store.Ping()` succeeds, 503 otherwise.
+- **No panics**: chi's `Recoverer` middleware is mounted globally; panic logs include the request ID.
+- **Audit hooks**: a small event emitter in `internal/audit/` writes records for sensitive events (`tenant_created`, `user_invited`, `dcr_succeeded`, `upstream_linked`, `upstream_disconnected`, `mcp_client_revoked`, `portal_login`, `portal_logout`). v1 writes them to the structured logger; a DB table or external sink is future work. Zitadel's own audit log covers identity-side events (logins, MFA, password resets).
+
+### Integration test matrix
+
+All under `tests/integration/` using `testcontainers-go` for Postgres. A `make test-integration` target spins them.
+
+| #   | Scenario                                                                                                                               |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Inbound discovery chain: 401 → PRM → AS metadata → DCR proxy → authorize on Zitadel → token → /mcp 200 (against dev Zitadel container) |
+| 2   | Cross-tenant rejection: valid Zitadel token whose `org_id` is tenant A used at `/t/B/mcp` → 403                                        |
+| 3   | Cross-tenant DB isolation under Postgres RLS                                                                                           |
+| 4   | `mcp_spec` connect: DCR against the upstream happens once per (tenant, upstream); user connect lands an `UpstreamLink`                 |
+| 5   | `none` upstream: tools visible without a link; calls succeed without bearer to upstream                                                |
+| 6   | Tool visibility: `mcp_spec` upstream hidden until link exists; reappears after connect; disappears after disconnect                    |
+| 7   | Refresher: a near-expiring `UpstreamLink` is refreshed in-place                                                                        |
+| 8   | Portal role enforcement: matrix of (role × RPC) returns expected `permission_denied`/`ok`                                              |
+| 9   | Cross-tenant portal cookie: cookie for tenant A on tenant B path → unauthenticated                                                     |
+| 10  | OIDC login flow: tenant slug in state → callback validated → portal cookie set with correct Path                                       |
+| 11  | DCR proxy: registering creates a Zitadel app in the tenant's org and a `ZitadelApp` mirror row; deleting via RFC 7592 removes both     |
+| 12  | Full Atlassian Rovo manual smoke (documented runbook, not automated)                                                                   |
+
+All scenarios run against the `postgres:18.2-alpine` testcontainer ([Phase 0](phase-00-dev-environment.md)'s dev stack mirrors the same image).
+
+### Operator runbook (new section in `docs/`)
+
+Out of scope for the docs Phase 10 ships, but the checklist below tracks "create runbook" so it's not forgotten. Topics:
+
+- Generating the encryption key.
+- Provisioning Postgres roles + database with the right ownership (matches the [Phase 11](phase-11-production-deployment.md) compose).
+- Bootstrapping Zitadel: instance setup, project + apps creation, service account PAT issuance.
+- Creating the first tenant + owner.
+- Rotating the encryption key and the Zitadel PAT.
+- Backup/restore expectations (encrypted columns are useless without the master key; Zitadel data is separately backed up).
+- Monitoring: which log fields to alert on (DCR proxy 5xx rate, JWKS fetch failures, upstream refresh failure rate).
+
+## Deliverables
+
+- Updated `cmd/gateway/main.go` orchestrating all components.
+- Updated `config.yaml` example.
+- Updated `AGENTS.md`.
+- New `internal/audit/` skeleton (just an emitter interface + log sink in v1).
+- Optional new `internal/cli/create_upstream.go`.
+- `tests/integration/` package with the scenarios above.
+- `docs/runbook.md` skeleton.
+
+## Verification
+
+- All integration scenarios pass on the CI Postgres container.
+- Manual smoke against the real Atlassian Rovo MCP server end-to-end: portal connect → VS Code MCP client → tool listing → tool call.
+- `go vet ./...` clean. `golangci-lint` (if configured) clean.
+- `pnpm lint` and `pnpm typecheck` clean.
+
+## Risks
+
+- **Integration test runtime**: 12 scenarios with testcontainers can grow slow. Parallelize where independent; keep DB fixtures minimal.
+- **Atlassian-specific drift**: a future change in their MCP/OAuth spec compliance might require small adjustments — keep the `mcp_spec` strategy lenient on optional fields.
+- **`AGENTS.md` divergence**: easy to forget to update. Add a CI lint that fails if `AGENTS.md`'s "Architecture" section enumerates a directory that doesn't exist (or vice versa) — optional, but cheap insurance.
+
+## Checklist
+
+- [ ] `cmd/gateway/main.go` rewritten to wire all components in the documented order
+- [ ] CLI dispatch (`-create-tenant`, `-reset-password`, optional `-create-upstream`) implemented and tested
+- [ ] HTTP server has read/write/idle timeouts from config
+- [ ] Graceful shutdown via SIGTERM/SIGINT; background goroutines cancel via errgroup
+- [ ] `/healthz` endpoint added
+- [ ] Chi `Recoverer` and `RequestID` middleware mounted globally
+- [ ] Structured logger injects `tenant_id`, `user_id`, `request_id` per request
+- [ ] `internal/audit/` skeleton with sensitive-event emitter (log sink in v1)
+- [ ] `config.yaml` example updated with all sections; old `upstreams:` / `auth:` blocks removed
+- [ ] `AGENTS.md` architecture, build, setup, testing, security sections updated
+- [ ] `docs/runbook.md` drafted (encryption key, Postgres roles, first-tenant, signing-key rotation, backup, monitoring)
+- [ ] Integration test scenarios 1–12 implemented and passing on Postgres
+- [ ] Manual Atlassian Rovo smoke documented in the runbook
+- [ ] `go vet ./...` clean
+- [ ] `pnpm typecheck && pnpm lint` clean in `web/`
+- [ ] CI workflow runs: lint + Go tests + integration tests + SPA build
