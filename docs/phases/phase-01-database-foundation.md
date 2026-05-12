@@ -220,21 +220,21 @@ internal/storage/
 
 ## Checklist
 
-- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
-- [ ] `internal/ids/ids.go` exports `New(prefix)`, `Parse`, `MustParse`; prefix list in `internal/ids/prefixes.go`
-- [ ] `internal/storage/storage.go` exports `Open(cfg)` with Postgres pool tuning
-- [ ] `internal/storage/models.go` defines `Base` (`ID int64`, `PublicID string`, `CreatedAt`, `UpdatedAt`, `DeletedAt gorm.DeletedAt`) and embeds it in every model
-- [ ] All audit columns are `timestamptz`; `CreatedAt`/`UpdatedAt` default to `now()`; `DeletedAt` indexed
-- [ ] Composite unique indexes are partial (`WHERE deleted_at IS NULL`) so soft-deletes don't block re-creation
-- [ ] Every new row sets `PublicID = ids.New(<prefix>)` via a `BeforeCreate` GORM hook (or explicit assignment in repository code)
-- [ ] `crypto.SecretField` stubbed as a `[]byte` alias for Phase 1 (Phase 2 replaces the impl, not the type)
-- [ ] `internal/storage/migrate.go` exports `Migrate(ctx)` running `AutoMigrate`
-- [ ] `internal/storage/tenant.go` exports `WithTenant`, `TenantFromCtx`, `Session`, `WithSuperuser`, `RawDB`
-- [ ] `DatabaseConfig` added to `internal/config/config.go`
-- [ ] Integration tests cover CRUD for every model against a `postgres:18.2-alpine` testcontainer, asserting `PublicID` round-trips and has the expected prefix
-- [ ] Test verifies ULID lexicographic ordering matches insertion order
-- [ ] Test verifies soft-deleted rows are invisible to default queries and visible under `Unscoped()`
-- [ ] Test verifies a soft-deleted row does not block re-insertion of a new row with the same logical key (partial-unique-index behavior)
-- [ ] Test verifies `Session(ctx)` scopes queries to the tenant in ctx
-- [ ] Test verifies `(tenant_id, email)` and `(tenant_id, name)` unique constraints fire as expected
-- [ ] `go build ./...` and `go vet ./...` clean
+- [x] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
+- [x] `internal/ids/ids.go` exports `New(prefix)`, `Parse`, `MustParse`; prefix list in `internal/ids/prefixes.go`
+- [x] `internal/storage/storage.go` exports `Open(cfg)` with Postgres pool tuning
+- [x] `internal/storage/models.go` defines `Base` (`ID int64`, `PublicID string`, `CreatedAt`, `UpdatedAt`, `DeletedAt gorm.DeletedAt`) and embeds it in every model
+- [x] All audit columns are `timestamptz`; `CreatedAt`/`UpdatedAt` default to `now()`; `DeletedAt` indexed
+- [x] Composite unique indexes are partial (`WHERE deleted_at IS NULL`) so soft-deletes don't block re-creation
+- [x] Every new row sets `PublicID = ids.New(<prefix>)` via a `BeforeCreate` GORM hook (or explicit assignment in repository code)
+- [x] `crypto.SecretField` stubbed as a `[]byte` alias for Phase 1 (Phase 2 replaces the impl, not the type)
+- [x] `internal/storage/migrate.go` exports `Migrate(ctx)` running `AutoMigrate`
+- [x] `internal/storage/tenant.go` exports `WithTenant`, `TenantFromCtx`, `Session`, `WithSuperuser`, `RawDB`
+- [x] `DatabaseConfig` added to `internal/config/config.go`
+- [x] Integration tests cover CRUD for every model against a `postgres:18.2-alpine` testcontainer, asserting `PublicID` round-trips and has the expected prefix
+- [x] Test verifies ULID lexicographic ordering matches insertion order
+- [x] Test verifies soft-deleted rows are invisible to default queries and visible under `Unscoped()`
+- [x] Test verifies a soft-deleted row does not block re-insertion of a new row with the same logical key (partial-unique-index behavior)
+- [x] Test verifies `Session(ctx)` scopes queries to the tenant in ctx
+- [x] Test verifies `(tenant_id, email)` and `(tenant_id, name)` unique constraints fire as expected
+- [x] `go build ./...` and `go vet ./...` clean

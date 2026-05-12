@@ -18,8 +18,8 @@ Limen becomes a multi-tenant B2B MCP gateway:
 
 | #   | Phase                                                                               | Depends on | Status |
 | --- | ----------------------------------------------------------------------------------- | ---------- | ------ |
-| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)             | —          | ☐      |
-| 1   | [Database foundation](phase-01-database-foundation.md)                              | —          | ☐      |
+| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)             | —          | ✅     |
+| 1   | [Database foundation](phase-01-database-foundation.md)                              | —          | ✅     |
 | 2   | [Crypto + config](phase-02-crypto-config.md)                                        | —          | ☐      |
 | 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                             | 1          | ☐      |
 | 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)    | 0, 1, 2, 3 | ☐      |
@@ -39,24 +39,24 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 0 — Development environment
 
-- [ ] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
-- [ ] Postgres images pinned to `postgres:18.2-alpine`; Zitadel image pinned to a specific tag
-- [ ] Named volumes for both Postgres instances; data persists across `up`/`down`
-- [ ] `scripts/zitadel-bootstrap/` idempotently ensures Limen project + Portal app + MCP RS app + sample org
-- [ ] `.env.example` documents every Limen env var the dev workflow needs
-- [ ] `make dev` / `make dev-reset` targets bring the stack up and tear it down cleanly
-- [ ] `docs/development.md` explains the first-run flow (MailHog UI included)
-- [ ] CI smoke job runs `docker compose up` + a basic OIDC discovery probe against Zitadel
+- [x] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
+- [x] Postgres images pinned to `postgres:18.2-alpine`; Zitadel image pinned to a specific tag
+- [x] Named volumes for both Postgres instances; data persists across `up`/`down`
+- [x] `scripts/zitadel-bootstrap/` idempotently ensures Limen project + Portal app + MCP RS app + sample org
+- [x] `.env.example` documents every Limen env var the dev workflow needs
+- [x] `make dev` / `make dev-reset` targets bring the stack up and tear it down cleanly
+- [x] `docs/development.md` explains the first-run flow (MailHog UI included)
+- [x] CI smoke job runs `docker compose up` + a basic OIDC discovery probe against Zitadel
 
 ### Phase 1 — Database foundation
 
-- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
-- [ ] `internal/ids/` exports `New(prefix)` / `Parse` / `MustParse` with prefix constants (`tnt_`, `usr_`, `ups_`, …)
-- [ ] `internal/storage/storage.go` (`Open(cfg)` opens Postgres pool with sane defaults)
-- [ ] `internal/storage/models.go` — `Base` struct (`ID`, `PublicID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`) embedded in every model; `Tenant` (with `ZitadelOrgID`), `User` (with `ZitadelSubject`, no password), `Upstream`, `UpstreamStrategyConfig`, `UpstreamRegistration`, `UpstreamLink`, `ZitadelApp`. Composite uniques are partial (`WHERE deleted_at IS NULL`). Invitations and portal sessions live in Zitadel (no Limen tables).
-- [ ] `internal/storage/migrate.go` (`AutoMigrate` for portable parts)
-- [ ] `internal/storage/tenant.go` (`WithTenant`, `TenantFromCtx`, `Session(ctx)`, `WithSuperuser(ctx)`)
-- [ ] Integration CRUD tests against a `postgres:18.2-alpine` testcontainer
+- [x] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
+- [x] `internal/ids/` exports `New(prefix)` / `Parse` / `MustParse` with prefix constants (`tnt_`, `usr_`, `ups_`, …)
+- [x] `internal/storage/storage.go` (`Open(cfg)` opens Postgres pool with sane defaults)
+- [x] `internal/storage/models.go` — `Base` struct (`ID`, `PublicID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`) embedded in every model; `Tenant` (with `ZitadelOrgID`), `User` (with `ZitadelSubject`, no password), `Upstream`, `UpstreamStrategyConfig`, `UpstreamRegistration`, `UpstreamLink`, `ZitadelApp`. Composite uniques are partial (`WHERE deleted_at IS NULL`). Invitations and portal sessions live in Zitadel (no Limen tables).
+- [x] `internal/storage/migrate.go` (`AutoMigrate` for portable parts)
+- [x] `internal/storage/tenant.go` (`WithTenant`, `TenantFromCtx`, `Session(ctx)`, `WithSuperuser(ctx)`)
+- [x] Integration CRUD tests against a `postgres:18.2-alpine` testcontainer
 
 ### Phase 2 — Crypto + config
 

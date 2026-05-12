@@ -180,14 +180,14 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 
 ## Checklist
 
-- [ ] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
-- [ ] Postgres images pinned to `postgres:18.2-alpine`
-- [ ] Zitadel image pinned to a specific tag (not `latest`) once chosen
-- [ ] Named volumes for both Postgres instances; data persists across `up`/`down`
-- [ ] `scripts/zitadel-bootstrap/` ensures Limen project + Portal app + MCP RS app + sample org
-- [ ] Bootstrap is idempotent
-- [ ] `.env.example` documents every Limen env var the dev workflow needs
-- [ ] `make dev` brings the stack up and runs Limen against it
-- [ ] `make dev-reset` cleanly wipes volumes
-- [ ] `docs/development.md` explains the first-run flow (incl. MailHog UI URL)
-- [ ] CI smoke job runs `docker compose up` + a basic OIDC discovery probe against Zitadel
+- [x] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
+- [x] Postgres images pinned to `postgres:18.2-alpine`
+- [x] Zitadel image pinned to a specific tag (not `latest`) once chosen
+- [x] Named volumes for both Postgres instances; data persists across `up`/`down`
+- [x] `scripts/zitadel-bootstrap/` ensures Limen project + Portal app + MCP RS app + sample org
+- [x] Bootstrap is idempotent
+- [x] `.env.example` documents every Limen env var the dev workflow needs
+- [x] `make dev` brings the stack up and runs Limen against it
+- [x] `make dev-reset` cleanly wipes volumes
+- [x] `docs/development.md` explains the first-run flow (incl. MailHog UI URL)
+- [x] CI smoke job runs `docker compose up` + a basic OIDC discovery probe against Zitadel
