@@ -41,11 +41,21 @@ type ServerConfig struct {
 	BaseURL string `yaml:"base_url"`
 }
 
-// DatabaseConfig configures the Postgres connection used by internal/storage.
-// DSN is required; the pool sizing fields fall back to sensible defaults
-// (25 / 5) when zero.
+// DatabaseConfig configures the Postgres connections used by
+// internal/storage.
+//
+// DSN authenticates the request-path pool; the runtime role should be
+// limen_app (no BYPASSRLS) so the Phase 3 row-level-security policies
+// actually fire.
+//
+// AdminDSN authenticates the migration / WithSuperuser pool; the role should
+// be limen_admin (BYPASSRLS). When empty it falls back to DSN — the
+// dev / single-role shortcut. Production deployments must set both.
+//
+// Pool sizing fields fall back to sensible defaults (25 / 5) when zero.
 type DatabaseConfig struct {
 	DSN             string        `yaml:"dsn"`
+	AdminDSN        string        `yaml:"admin_dsn"`
 	MaxOpenConns    int           `yaml:"max_open_conns"`
 	MaxIdleConns    int           `yaml:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
@@ -200,6 +210,12 @@ func (d DatabaseConfig) Validate() error {
 	}
 	if !strings.Contains(d.DSN, "postgres") && !strings.Contains(d.DSN, "postgresql") && !strings.HasPrefix(d.DSN, "host=") {
 		return errors.New("dsn does not look like a Postgres connection string")
+	}
+	if d.AdminDSN != "" &&
+		!strings.Contains(d.AdminDSN, "postgres") &&
+		!strings.Contains(d.AdminDSN, "postgresql") &&
+		!strings.HasPrefix(d.AdminDSN, "host=") {
+		return errors.New("admin_dsn does not look like a Postgres connection string")
 	}
 	if d.MaxOpenConns < 0 {
 		return errors.New("max_open_conns must be >= 0")

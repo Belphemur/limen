@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/config"
@@ -51,10 +53,54 @@ func startPostgres(t *testing.T) string {
 	return dsn
 }
 
+func provisionRoles(t *testing.T, bootstrapDSN string) (appDSN, adminDSN string) {
+	t.Helper()
+	db, err := gorm.Open(gormpostgres.Open(bootstrapDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open bootstrap: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	stmts := []string{
+		`DROP ROLE IF EXISTS limen_app`,
+		`DROP ROLE IF EXISTS limen_admin`,
+		`CREATE ROLE limen_admin LOGIN PASSWORD 'admin_pw' BYPASSRLS`,
+		`CREATE ROLE limen_app   LOGIN PASSWORD 'app_pw'`,
+		// Membership lets the admin role SET ROLE limen_app for in-test
+		// downgrades that exercise the policy from the app role's perspective.
+		`GRANT limen_app TO limen_admin`,
+		`GRANT ALL PRIVILEGES ON DATABASE limen TO limen_admin`,
+		`GRANT CREATE, USAGE ON SCHEMA public TO limen_admin`,
+		`ALTER SCHEMA public OWNER TO limen_admin`,
+	}
+	for _, q := range stmts {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatalf("provision (%s): %v", q, err)
+		}
+	}
+	return rewriteUser(t, bootstrapDSN, "limen_app", "app_pw"),
+		rewriteUser(t, bootstrapDSN, "limen_admin", "admin_pw")
+}
+
+func rewriteUser(t *testing.T, dsn, user, password string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	u.User = url.UserPassword(user, password)
+	return u.String()
+}
+
 func openMigrated(t *testing.T) *storage.Store {
 	t.Helper()
-	dsn := startPostgres(t)
-	s, err := storage.Open(config.DatabaseConfig{DSN: dsn})
+	bootstrap := startPostgres(t)
+	appDSN, adminDSN := provisionRoles(t, bootstrap)
+	s, err := storage.Open(config.DatabaseConfig{DSN: appDSN, AdminDSN: adminDSN})
 	if err != nil {
 		t.Fatalf("storage.Open: %v", err)
 	}
