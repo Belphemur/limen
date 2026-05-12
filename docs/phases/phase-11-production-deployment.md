@@ -272,6 +272,7 @@ The init script reads the passwords from secrets (mounted via env / `docker secr
 ## Migration strategy
 
 - Limen schema migration runs as a **one-shot service** (`limen-migrate`) with `restart: "no"` and `condition: service_completed_successfully` gating the long-running `limen` service. This ensures schema is up-to-date before traffic flows.
+- The same `limen-migrate` one-shot **also ensures the `_staff` tenant row exists** (see [Phase 12](phase-12-staff-backoffice.md)) by `INSERT ... ON CONFLICT DO NOTHING` against `tenants` with kind=`staff`, slug=`_staff`, linked to the Zitadel org id passed in via `LIMEN_STAFF_ZITADEL_ORG_ID`. In prod the migrate container refuses to start if this env var is missing — the deploy script sources it from `secrets/`. The Zitadel side (org + `super_admin` role + bootstrap user) is provisioned out-of-band by the Phase 0 bootstrap script run against the prod Zitadel instance.
 - Zitadel migrations run automatically inside the Zitadel container; no separate service needed.
 - Rolling deploys: `limen-migrate` is run with the new image version _before_ the `limen` service is updated, manually or via the deploy script.
 
@@ -326,6 +327,7 @@ The init script reads the passwords from secrets (mounted via env / `docker secr
 - [ ] Postgres images are `postgres:18.2-alpine`
 - [ ] All secrets sourced from `docker secret` files (never inline env values)
 - [ ] `limen-migrate` runs as a one-shot, gates `limen` via `condition: service_completed_successfully`
+- [ ] `limen-migrate` ensures the `_staff` tenant row exists (Phase 12) and refuses to start in prod without `LIMEN_STAFF_ZITADEL_ORG_ID`
 - [ ] Healthchecks on every long-running service; `restart: unless-stopped`
 - [ ] Caddyfile configured for both `limen.example.com` and `auth.limen.example.com` with HSTS
 - [ ] `deploy/postgres/limen-init.sql` provisions `limen_admin` and `limen_app` roles with passwords from secrets

@@ -23,6 +23,12 @@ Every tenant-scoped route lives under `/t/{slug}/...`. The slug regex is `^[a-z0
 api, oauth, oidc, portal, t, admin, static, mcp, .well-known, public, health, metrics, login, logout, register, robots.txt, favicon.ico, auth
 ```
 
+A single underscore-prefixed slug is also reserved for the operator's backoffice:
+
+```
+_staff   # see Phase 12 — SaaS-operator tenant; structurally outside the customer regex (`_` is not in [a-z0-9]) so collisions are impossible by construction
+```
+
 Reserved checks fire at tenant creation (CLI / admin RPC), not at resolution time — once a tenant exists, the slug is safe by construction.
 
 ### Tenant ↔ Zitadel organization

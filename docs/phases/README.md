@@ -1,6 +1,6 @@
 # Implementation Phases
 
-This folder breaks the multi-tenant MCP gateway work into twelve phases (0 through 11). Each phase has its own file with detailed design notes, file-level deliverables, verification steps, and a per-phase checklist. This README is the **global index + checklist** — use it as the source of truth for overall progress.
+This folder breaks the multi-tenant MCP gateway work into thirteen phases (0 through 12). Each phase has its own file with detailed design notes, file-level deliverables, verification steps, and a per-phase checklist. This README is the **global index + checklist** — use it as the source of truth for overall progress.
 
 ## TL;DR of the work
 
@@ -13,25 +13,27 @@ Limen becomes a multi-tenant B2B MCP gateway:
 - **Tenancy** is path-prefix (`/t/{slug}/...`); portal cookies are path-scoped.
 - **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<slug>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
+- **SaaS operator surface** — a reserved **staff tenant** at `/t/_staff/` with a `super_admin` role, a backoffice SPA for cross-tenant visibility, and audited impersonation via Zitadel ([Phase 12](phase-12-staff-backoffice.md)).
 
 ## Phase index & dependencies
 
-| #   | Phase                                                                               | Depends on | Status |
-| --- | ----------------------------------------------------------------------------------- | ---------- | ------ |
-| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)             | —          | ✅     |
-| 1   | [Database foundation](phase-01-database-foundation.md)                              | —          | ✅     |
-| 2   | [Crypto + config](phase-02-crypto-config.md)                                        | —          | ✅     |
-| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                             | 1          | ✅     |
-| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)    | 0, 1, 2, 3 | ☐      |
-| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md) | 4          | ☐      |
-| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                         | 5          | ☐      |
-| 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)             | 4          | ☐      |
-| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)         | 6, 7       | ☐      |
-| 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                  | 4, 7       | ☐      |
-| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                     | 0–9        | ☐      |
-| 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)         | 0–10       | ☐      |
+| #   | Phase                                                                                  | Depends on         | Status |
+| --- | -------------------------------------------------------------------------------------- | ------------------ | ------ |
+| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)                | —                  | ✅     |
+| 1   | [Database foundation](phase-01-database-foundation.md)                                 | —                  | ✅     |
+| 2   | [Crypto + config](phase-02-crypto-config.md)                                           | —                  | ✅     |
+| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                                | 1                  | ✅     |
+| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)       | 0, 1, 2, 3         | ☐      |
+| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)    | 4                  | ☐      |
+| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                            | 5                  | ☐      |
+| 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                | 4                  | ☐      |
+| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)            | 6, 7               | ☐      |
+| 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                     | 4, 7               | ☐      |
+| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                        | 0–9                | ☐      |
+| 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)            | 0–10               | ☐      |
+| 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md) | 0, 3, 4, 9, 10, 11 | ☐      |
 
-Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done.
+Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one.
 
 ## Global checklist
 
@@ -195,6 +197,28 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `docs/runbook.md` covers: first deploy, upgrade, rotate encryption key, backup, restore
 - [ ] `.gitignore` blocks `secrets/` and `backups/`
 
+### Phase 12 — Staff tenant & backoffice
+
+- [ ] `Tenant.Kind` enum (`customer` | `staff`) with partial unique index for `staff`
+- [ ] Reserved slug `_staff` documented in Phase 4 and enforced in tenant-creation paths
+- [ ] Zitadel `super_admin` project role defined in the bootstrap script; honored only inside the staff tenant
+- [ ] Phase 0 bootstrap idempotently creates the `limen-staff` org + one staff user from `LIMEN_STAFF_BOOTSTRAP_EMAIL`
+- [ ] Phase 11 `limen-migrate` ensures the `_staff` tenant row exists; refuses prod start without `LIMEN_STAFF_ZITADEL_ORG_ID`
+- [ ] RLS `SELECT` policies extended with `current_setting('limen.staff_mode', true) = 'on'`; write policies unchanged
+- [ ] `storage.WithStaffRead(ctx)` helper sets the GUC transaction-locally via `set_config`
+- [ ] `proto/limen/staff/v1/staff.proto` + Go/TS codegen; mounted at `/t/_staff/api/...`
+- [ ] `internal/staff/` package implements every RPC + impersonation flow
+- [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
+- [ ] `staff_audit_log` partitioned table + `audit.append(...)` SECURITY DEFINER insert function
+- [ ] Impersonation cookie separate from staff session cookie, scoped to `/t/<target-slug>`, hard 15-min TTL, never auto-renewed
+- [ ] MFA freshness check on the staff session enforced server-side before impersonation start
+- [ ] Customer SPA renders a non-dismissible banner whenever an impersonation cookie is present
+- [ ] OAuth-handshake CTAs (`mcp_spec` connect, `static_header` user-key submission) disabled inside impersonated sessions
+- [ ] Upstream tokens stay encrypted-at-rest under staff visibility; decryption remains inside the upstream-call transport only
+- [ ] SPA route bundles split: customer slugs never download the staff bundle, and vice versa
+- [ ] Integration tests cover: role isolation, RLS staff-mode read, write blocked from staff-mode, impersonation happy path, MFA gate, TTL expiry, force-unlink audit row, bundle separation
+- [ ] Phase 10 runbook updated with the impersonation procedure and audit-log query examples
+
 ## Cross-cutting decisions
 
 - **Tenancy**: path prefix `/t/{slug}/...`; cookies path-scoped.
@@ -209,6 +233,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - **Crypto**: AES-256-GCM, AAD binds `tenant|user|kind`.
 - **Outbound transport**: custom `http.RoundTripper` for per-request bearer injection (tenant + user read from ctx).
 - **Resilience**: every outbound HTTP dependency (upstream MCP servers, upstream OAuth token endpoints, Zitadel Management / Session / JWKS, DCR endpoints) is wrapped in a context-aware **timeout → retry-with-exponential-backoff-and-jitter → circuit-breaker** stack. One shared package, `internal/resilience/`, exports a `Client(name, cfg) *http.Client` helper that composes `github.com/cenkalti/backoff/v4` + `github.com/sony/gobreaker/v2` into an `http.RoundTripper`. Per-dependency policies (max retries, base / max interval, breaker thresholds, retryable status codes) live in `config.yaml`. Retries only fire on transport errors and `5xx` / `429`; `4xx` is terminal. Each breaker exposes Prometheus-style state via structured logs (`closed` / `half-open` / `open`) for observability.
+- **SaaS-operator visibility**: a fourth Zitadel project role `super_admin` exists alongside `owner` / `admin` / `member`, but is honored **only** inside the reserved staff tenant `_staff` (Phase 12). Cross-tenant visibility is granted at the data layer via a Postgres GUC `limen.staff_mode` that loosens `SELECT` RLS policies only — writes still require `limen.tenant_id` to be set explicitly, so even staff cannot accidentally cross-write. Targeted support actions go through audited RPCs (force-unlink, force re-enable, breaker control) and impersonation rides on Zitadel token-exchange with a hard 15-minute TTL plus customer-side banner.
 - **Deployment**: Docker Compose for both dev and prod, single declarative source of truth.
 
 ## Explicitly out of scope this iteration
