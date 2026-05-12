@@ -267,14 +267,14 @@ func TestUniqueConstraints_TenantEmailAndUpstreamName(t *testing.T) {
 	}
 }
 
-func TestKSUID_LexicographicOrdering(t *testing.T) {
+func TestULID_LexicographicOrdering(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
 
-	// KSUID timestamps have 1-second resolution: rows created in the same
-	// second have random low bits and aren't ordered relative to each other.
-	// Insert with >1s spacing so the timestamp prefix dominates ordering.
-	const n = 4
+	// ULID timestamps have 1-millisecond resolution and ulid.Make is
+	// monotonic within the same millisecond, so IDs minted back-to-back from
+	// a single process must sort in insertion order.
+	const n = 25
 	publicIDs := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		tnt := &storage.Tenant{
@@ -286,14 +286,11 @@ func TestKSUID_LexicographicOrdering(t *testing.T) {
 			t.Fatalf("create %d: %v", i, err)
 		}
 		publicIDs = append(publicIDs, tnt.PublicID)
-		if i < n-1 {
-			time.Sleep(1100 * time.Millisecond)
-		}
 	}
 
 	for i := 1; i < len(publicIDs); i++ {
 		if publicIDs[i-1] >= publicIDs[i] {
-			t.Errorf("KSUID ordering violated at %d: %q !< %q",
+			t.Errorf("ULID ordering violated at %d: %q !< %q",
 				i, publicIDs[i-1], publicIDs[i])
 		}
 	}
