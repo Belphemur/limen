@@ -49,6 +49,33 @@ go vet ./...
 go fmt ./...
 ```
 
+## Required pre-commit checks
+
+Every change **must** pass the full toolchain locally before being committed
+or pushed. CI runs the same chain — failing it locally only wastes a round
+trip.
+
+```bash
+go mod tidy
+go fmt ./...
+go fix ./...
+go vet ./...
+go build ./...
+golangci-lint run ./...
+go test ./...
+```
+
+Conventions:
+
+- Use the `Makefile` targets where they exist (`make build`, `make vet`,
+  `make fmt`, `make test`). Add a target rather than a bespoke script.
+- `golangci-lint` config lives in `.golangci.yml`. Do not disable lints
+  ad-hoc — either fix the issue, add a targeted `//nolint:<linter> //
+  <reason>` directive, or amend the shared config with a brief justification
+  in the PR description.
+- Never commit code that does not compile, fails `go vet`, or has unstaged
+  `gofmt` diffs.
+
 ## Code Style
 
 ### Go Naming Conventions
