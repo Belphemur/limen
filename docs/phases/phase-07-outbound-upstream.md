@@ -63,6 +63,10 @@ Behaviors worth pinning:
 - **State parameter** is an HMAC-signed bundle of `(tenant_id, user_id, upstream_id, nonce, return_to)`. HMAC key is `security.token_encryption_key` (re-use OK — different domain separation string). Stored in a short-lived `OAuthState` table or in a signed cookie; pick whichever is simpler — DB rows are easier to clean up and audit.
 - **Token storage**: access + refresh tokens encrypted with AAD `tenant|user|"upstream.<access|refresh>_token"`.
 - **Refresh window**: if `expires_at - now < 60 s` at request time, do a synchronous refresh; otherwise rely on the background refresher.
+- **Refresh-token rotation**: many providers (including Atlassian and Zitadel) issue a new refresh token on every refresh. The refresh path **must** persist whichever of `access_token`, `refresh_token`, `expires_at`, and `scopes` the response returned; never assume the old refresh token still works after a successful exchange.
+- **Single-flight coordination**: concurrent tool calls for the same `(tenant, user, upstream)` must not stampede the token endpoint. The `mcp_spec` headers path wraps the refresh exchange in a per-link single-flight (`golang.org/x/sync/singleflight`, key = `link.PublicID`). The first caller does the network round-trip and DB write; followers block on the same call and read the updated row. Combined with `SELECT ... FOR UPDATE SKIP LOCKED` on the link row, this also coordinates across multiple Limen processes — a peer that already holds the lock wins, others re-read after the lock releases.
+- **Reactive refresh on `401`**: even with proactive refresh, an upstream may invalidate a token early (revocation, rotation). The custom `http.RoundTripper` (Phase 8) detects upstream `401`/`invalid_token`, triggers `strategy.Refresh(ctx, link)` through the same single-flight, and retries the request exactly once with the new token. A second consecutive `401` is surfaced to the caller as a structured "re-link required" MCP error.
+- **Refresh failure semantics**: a refresh that fails with `invalid_grant` (the upstream considers the refresh token dead) marks the link as `needs_relink=true` (a thin column on `UpstreamLink`, default `false`); the portal shows a "Reconnect" CTA on that row. Transient failures (5xx / network) are logged and retried by the background refresher on the next tick.
 
 ### `static_header` strategy
 
@@ -125,6 +129,47 @@ POST /t/{tenant}/upstream/{name}/disconnect   → revoke + delete UpstreamLink
 
 All three look up `(tenant, upstream)`, fetch the strategy via the registry, and call into it. The portal SPA (Phase 9) calls these via Connect-RPC mutations + browser redirects.
 
+### Token-refresh control flow (`mcp_spec`)
+
+Three code paths can trigger a refresh — they all funnel through one function so the locking, persistence, and rotation rules live in exactly one place.
+
+```go
+// internal/upstream/mcpspec/headers.go
+func (s *Strategy) refreshLocked(ctx context.Context, link *storage.UpstreamLink) error {
+    // 1. SELECT ... FOR UPDATE SKIP LOCKED on the link row inside a tx.
+    // 2. Re-read expires_at: if another process already refreshed within the
+    //    last few seconds, return without calling the token endpoint.
+    // 3. POST /token with grant_type=refresh_token, refresh_token=<decrypted>.
+    // 4. On success: persist new access_token, refresh_token (if returned),
+    //    expires_at, scopes (if returned); clear needs_relink.
+    // 5. On invalid_grant: set needs_relink=true, commit, return a sentinel
+    //    error (errors.Is(err, ErrNeedsRelink)).
+    // 6. On transient error: rollback, return the error.
+}
+
+var group singleflight.Group
+
+func (s *Strategy) ensureFresh(ctx, link) error {
+    if time.Until(link.ExpiresAt) > 60*time.Second {
+        return nil
+    }
+    _, err, _ := group.Do(link.PublicID, func() (any, error) {
+        return nil, s.refreshLocked(ctx, link)
+    })
+    return err
+}
+```
+
+Entry points:
+
+| Path                    | Calls                                                                        | Notes                                                                                       |
+| ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `Headers()`             | `ensureFresh` if near-expiry                                                 | Proactive; happens before the upstream request is dispatched.                               |
+| `RoundTripper` on `401` | `ensureFresh` then retry once                                                | Reactive; handles unexpected invalidation. Bounded to one retry per request to avoid loops. |
+| `Maintain()`            | `refreshLocked` directly via `ensureFresh` over the background-loop link set | Same lock, same persistence path — the background loop is just another caller.              |
+
+All three share the same single-flight key and DB lock, so a burst of tool calls during the refresh window collapses to one token endpoint hit.
+
 ### `internal/upstream/refresher.go` — background maintenance
 
 A single goroutine started in `cmd/gateway/main.go`:
@@ -152,15 +197,16 @@ Notes:
 
 - `WithSuperuser` because the loop spans tenants. Audit comment justifying it.
 - Interval default: 2 min. Configurable.
-- Refresh errors do not delete the link automatically — they log and let the next user request surface the error to the user (who can re-connect).
+- Refresh errors do not delete the link automatically — they log and let the next user request surface the error to the user (who can re-connect). A `needs_relink=true` link is skipped by the background loop (no point re-trying a dead refresh token) until the user runs `StartLink` again.
 
 ### Models (already created in Phase 1, recap here)
 
 - `Upstream` — `(tenant_id, name, strategy_type, mcp_server_url)`.
 - `UpstreamStrategyConfig` — `(upstream_id, type, config_json)`; encrypted. Populated for `static_header` (header name, template, mode, optional tenant secret); empty for `mcp_spec` and `none` in v1.
 - `UpstreamRegistration` — `(tenant_id, upstream_id, issuer, client_id, client_secret, registration_access_token, registration_client_uri, resource_uri)`; empty for `none` and `static_header`.
-- `UpstreamLink` — `(tenant_id, user_id, upstream_id, access_token, refresh_token, expires_at, scopes, resource_uri, extra_json, enabled)`.
+- `UpstreamLink` — `(tenant_id, user_id, upstream_id, access_token, refresh_token, expires_at, scopes, resource_uri, extra_json, enabled, needs_relink)`.
   - **`Enabled bool` (new in this phase)** — defaults to `true` on create. The portal exposes a toggle so a user can mute an upstream without losing their stored credentials. Phase 8's tool-visibility filter treats `Enabled=false` the same as "no link".
+  - **`NeedsRelink bool` (new in this phase)** — defaults to `false`. Set by `refreshLocked` when the upstream returns `invalid_grant`; cleared on the next successful refresh or when the user re-runs `StartLink`. The portal renders a "Reconnect" CTA on rows where this is true.
   - For `static_header` user-mode, the user's API key lives encrypted in `ExtraJSON` under the key `static_header.secret`. `AccessToken`/`RefreshToken`/`ExpiresAt` stay empty.
 
 ### State table (optional, choose this path or signed cookie)
@@ -197,7 +243,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 
 - New files (under `internal/upstream/`): `strategy.go`, `handlers.go`, `refresher.go`, `mcpspec/{discovery,registrar,link,headers}.go`, `statichdr/{config,link,headers}.go`, `none/none.go`.
 - Optional model addition: `OAuthState` (or use a signed-cookie approach).
-- Schema migration adding `enabled BOOLEAN NOT NULL DEFAULT true` to `upstream_links`.
+- Schema migration adding `enabled BOOLEAN NOT NULL DEFAULT true` and `needs_relink BOOLEAN NOT NULL DEFAULT false` to `upstream_links`.
 - Updated `internal/transport/http.go` to mount `/t/{tenant}/upstream/{name}/*` routes.
 
 ## Security & operational notes
@@ -246,7 +292,14 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [ ] Refresher interval and refresh window come from config (sensible defaults)
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
+- [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [ ] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background)
+- [ ] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
+- [ ] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
+- [ ] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
+- [ ] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true`
 - [ ] State table (or signed cookie) implemented with one-shot enforcement
-- [ ] Unit tests for state signing, discovery, registration, token exchange, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch
+- [ ] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
 - [ ] Integration test for full mcp_spec connect flow against an httptest stub
+- [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds
 - [ ] Integration test for `static_header` user-mode: submit key via portal RPC → tool becomes visible → toggle disable → tool hidden → toggle enable → tool visible again

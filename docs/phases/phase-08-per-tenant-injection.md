@@ -18,6 +18,11 @@ type AuthProvider interface {
     // Headers returns auth headers for the given context.
     // ctx must carry tenant + user; for upstreams with RequiresLink()==false, user may be nil.
     Headers(ctx context.Context, upstream *storage.Upstream) (map[string]string, error)
+
+    // HeadersForceRefresh is like Headers but invalidates any cached token first.
+    // Called by the round-tripper after an upstream 401 to drive Phase 7's
+    // refreshLocked path; bounded to one call per request.
+    HeadersForceRefresh(ctx context.Context, upstream *storage.Upstream) (map[string]string, error)
 }
 ```
 
@@ -42,11 +47,28 @@ func (t *authInjectingTransport) RoundTrip(req *http.Request) (*http.Response, e
     for k, v := range headers {
         req.Header.Set(k, v)
     }
-    return t.base.RoundTrip(req)
+    resp, err := t.base.RoundTrip(req)
+    if err != nil || resp.StatusCode != http.StatusUnauthorized {
+        return resp, err
+    }
+    // Reactive refresh: drain+close the 401 body, ask the AuthProvider to
+    // force a refresh, retry exactly once. A second consecutive 401 surfaces
+    // to the caller as a structured "re-link required" MCP error (Phase 7).
+    io.Copy(io.Discard, resp.Body)
+    _ = resp.Body.Close()
+    fresh, err := t.auth.HeadersForceRefresh(req.Context(), t.upstream)
+    if err != nil {
+        return nil, err
+    }
+    retry := req.Clone(req.Context())
+    for k, v := range fresh {
+        retry.Header.Set(k, v)
+    }
+    return t.base.RoundTrip(retry)
 }
 ```
 
-Because `mcp-go`'s streamable HTTP transport accepts an `http.Client`, we pass it one wired to our transport — bearer injection happens transparently on every request, reading the user from `req.Context()`.
+Because `mcp-go`'s streamable HTTP transport accepts an `http.Client`, we pass it one wired to our transport — bearer injection happens transparently on every request, reading the user from `req.Context()`. The reactive-refresh path is bounded to a single retry to prevent loops; the underlying single-flight + DB lock in Phase 7's `refreshLocked` ensures concurrent requests collapse to one token endpoint hit.
 
 ### `AuthProvider` implementation
 
@@ -186,9 +208,10 @@ type Bundle struct {
 
 ## Checklist
 
-- [ ] `internal/upstream/authprovider.go` defines `AuthProvider` and `DBAuthProvider`
+- [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
 - [ ] `internal/gateway/upstream.go` uses an `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
 - [ ] Round-trip clones the request before mutating headers
+- [ ] Round-tripper retries exactly once on upstream `401`, calling `HeadersForceRefresh` to drive Phase 7's refresh path; a second consecutive `401` surfaces as a structured "re-link required" MCP error
 - [ ] `UpstreamManager` builds an index keyed by tenant ID at startup
 - [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
 - [ ] `Gateway.CallTool(ctx, upstreamName, toolName, args)` looks up upstream within tenant, invokes through the per-request transport; rejects calls when the matching link is disabled with the same structured error as missing-link

@@ -131,14 +131,16 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment; skips strategies whose `Maintain` is a no-op
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
+- [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [ ] `mcp_spec` refresh is centralized: one `refreshLocked` function called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background); single-flight + `SELECT FOR UPDATE SKIP LOCKED` collapse concurrent refreshes; refresh-token rotation is persisted; `invalid_grant` flips `NeedsRelink=true`
 - [ ] State signed with HMAC, one-shot consumption
 - [ ] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
 - [ ] Unit + integration tests for state signing, discovery, registration, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch, link enable/disable visibility
 
 ### Phase 8 — Per-tenant, per-user upstream injection
 
-- [ ] `internal/upstream/authprovider.go` defines `AuthProvider` and `DBAuthProvider`
-- [ ] `internal/gateway/upstream.go` uses `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
+- [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (`Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
+- [ ] `internal/gateway/upstream.go` uses `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`; retries once on upstream `401` via `HeadersForceRefresh`
 - [ ] `UpstreamManager` indexed by tenant ID at startup
 - [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
 - [ ] `Gateway.CallTool(ctx, ...)` routes through the per-request transport; rejects disabled links with the same structured error as missing links
