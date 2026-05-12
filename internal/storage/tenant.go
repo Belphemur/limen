@@ -85,7 +85,9 @@ func (s *Store) Session(ctx context.Context) (*gorm.DB, CommitFunc, error) {
 		tx.Rollback()
 		return nil, nil, ErrNoTenant
 	}
-	if err := tx.Exec("SET LOCAL app.current_tenant = ?", fmt.Sprintf("%d", tenantID)).Error; err != nil {
+	// SET LOCAL does not accept bind parameters; use set_config(name, value, is_local=true)
+	// which is the documented parameterized equivalent.
+	if err := tx.Exec(`SELECT set_config('app.current_tenant', ?, true)`, fmt.Sprintf("%d", tenantID)).Error; err != nil {
 		tx.Rollback()
 		return nil, nil, fmt.Errorf("storage: set tenant GUC: %w", err)
 	}
