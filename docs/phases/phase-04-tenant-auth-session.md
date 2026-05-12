@@ -57,6 +57,13 @@ The middleware:
 
 Library: `github.com/zitadel/oidc/v3` (relying-party side: `rp` subpackage).
 
+For the Management / User / Session API calls (callback session creation, CLI tenant + invite provisioning) we use the **official Zitadel Go SDK** `github.com/zitadel/zitadel-go/v3`. The SDK ships generated gRPC clients (`api.ManagementService()`, `api.UserService()`, `api.SessionService()`, etc.) on top of an authenticated `*client.Client`. We build the client once at startup with `client.New(ctx, zitadel.New(domain), client.WithAuth(authOption))` and inject it into the OIDC handlers and CLI subcommands. `authOption` is one of:
+
+- `client.PAT(token)` for dev (the bootstrap PAT from [Phase 0](phase-00-dev-environment.md))
+- `client.DefaultServiceUserAuthentication(keyPath, ...)` for production (private-key JWT)
+
+`internal/zitadel/` is a thin domain wrapper around the SDK — typed helpers like `CreateSession`, `GetSession`, `DeleteSession`, `CreateOrg`, `AddHumanUser`, `AddUserGrant`, `CreateInviteCode` — so callers depend on a small Limen-shaped surface, not on the generated protobuf types directly. We do **not** hand-roll the HTTP/JSON transport.
+
 Configuration (from `internal/config`):
 
 ```go
@@ -97,12 +104,12 @@ Implementation note: `state` is an HMAC-signed bundle of `(nonce, slug, return_t
 
 #### Why a cookie at all?
 
-Zitadel owns the authoritative session — issuance, MFA state, idle/absolute timeouts, revocation. The cookie Limen sets is **not a parallel session store**; it is the browser's pointer to "which Zitadel session am I." HTTP is stateless, so every request to `limen.example.com` has to carry *something* identifying the user, and Zitadel's own session cookie is scoped to `auth.limen.example.com` and opaque to relying parties — the browser will never send it to Limen and Limen could not look it up if it did. So Limen issues its own cookie.
+Zitadel owns the authoritative session — issuance, MFA state, idle/absolute timeouts, revocation. The cookie Limen sets is **not a parallel session store**; it is the browser's pointer to "which Zitadel session am I." HTTP is stateless, so every request to `limen.example.com` has to carry _something_ identifying the user, and Zitadel's own session cookie is scoped to `auth.limen.example.com` and opaque to relying parties — the browser will never send it to Limen and Limen could not look it up if it did. So Limen issues its own cookie.
 
 We picked an `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` cookie carrying an encrypted reference to the Zitadel session over the alternative — a bearer token held in SPA memory or storage — for three reasons:
 
 1. **XSS posture.** `HttpOnly` keeps the credential unreachable from JavaScript. A bearer-in-storage approach exposes both access and refresh tokens to any XSS that lands on the SPA.
-2. **BFF fit.** Limen is already a backend-for-frontend: it fans out to upstream MCPs with credentials those MCPs gave us, and never hands those credentials to the browser. The cookie-BFF pattern is the recommended browser-app shape in the OAuth WG's *OAuth 2.0 for Browser-Based Apps* draft for exactly this case.
+2. **BFF fit.** Limen is already a backend-for-frontend: it fans out to upstream MCPs with credentials those MCPs gave us, and never hands those credentials to the browser. The cookie-BFF pattern is the recommended browser-app shape in the OAuth WG's _OAuth 2.0 for Browser-Based Apps_ draft for exactly this case.
 3. **Cross-tenant isolation.** `Path=/t/<slug>` means a browser carrying tenant A's session physically cannot send it on a request to tenant B, even on the same domain. A bearer in JS would have no equivalent — the SPA could accidentally attach it to any URL.
 
 The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: every gated request decrypts the cookie and asks Zitadel `GetSession` (with a short positive cache, see below).
@@ -138,7 +145,25 @@ Flow:
 - **Owner invariant** ("a tenant must always have at least one `owner`"): enforced at the call sites that mutate user grants — `-create-tenant` always grants `owner` to the seed user; `RemoveMember` and `UpdateMemberRole` (Phase 9) refuse the operation if it would leave zero owners. Limen does this by listing the org's user grants from Zitadel before applying the change.
 - **Cache TTL** matches the portal-session cache (60 s); a role change in Zitadel takes at most one minute to propagate to active sessions, or is immediate on next login.
 
-### CLI bootstrap (`cmd/gateway/main.go`)
+### CLI bootstrap (`cmd/gateway/main.go` + `internal/cli`)
+
+The gateway binary is structured around [**Cobra**](https://github.com/spf13/cobra) for the command tree and [**Viper**](https://github.com/spf13/viper) for flag/env binding. `cmd/gateway/main.go` builds the root command and delegates to subcommands under `internal/cli/`:
+
+```
+limen serve [--config config.yaml]                                # default; runs the HTTP server
+limen create-tenant --slug acme --name "Acme Corp" --owner-email admin@acme.com
+limen invite-user   --tenant acme --email alice@acme.com --role member
+limen migrate                                                     # runs AutoMigrate + goose (Phase 3)
+```
+
+Conventions:
+
+- A persistent `--config` flag (also bound to `LIMEN_CONFIG`) points at the YAML file. The Phase 2 loader (`internal/config.Load`) is still the source of truth for the YAML — it retains the `${ENV:-default}` substitution semantics that Viper does not natively offer. Viper sits in front of Cobra purely for **flag + env binding** on CLI-only inputs.
+- Subcommand flags use kebab-case (`--owner-email`); env overrides use `LIMEN_` prefix with underscore separators (e.g. `LIMEN_OWNER_EMAIL`). Viper's `AutomaticEnv()` + `SetEnvKeyReplacer` handles the translation.
+- Help text comes from each command's `Short` / `Long` strings. `cobra.MinimumNArgs` / `MarkFlagRequired` enforces shape; we do **not** hand-roll `flag` parsing.
+- Logging in CLI mode goes to stderr (zap dev encoder) so stdout stays clean for any structured output a subcommand emits.
+
+Subcommand contracts:
 
 ```
 limen -create-tenant slug=acme name="Acme Corp" owner-email=admin@acme.com
@@ -184,12 +209,17 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
   - `internal/auth/oidc.go`
   - `internal/auth/session.go` (Zitadel SessionService client + cookie encrypt/decrypt)
   - `internal/auth/state.go` (signed state cookie helper)
-  - `internal/zitadel/sessions.go` (thin SessionService wrapper)
-  - `internal/zitadel/users.go` (thin UserService wrapper, used here for invites)
+  - `internal/zitadel/client.go` (constructs the SDK `*client.Client` from config)
+  - `internal/zitadel/sessions.go` (thin SessionService wrapper around the SDK)
+  - `internal/zitadel/users.go` (thin UserService wrapper around the SDK, used here for invites)
+  - `internal/zitadel/orgs.go` (thin OrgService wrapper around the SDK, used here for tenant creation)
+  - `internal/cli/root.go` (Cobra root + persistent flags, Viper binding)
+  - `internal/cli/serve.go` (extracts today's `main` body into a `serve` subcommand)
   - `internal/cli/create_tenant.go`
   - `internal/cli/invite_user.go`
+  - `internal/cli/migrate.go` (thin wrapper around `storage.Migrate` so operators can run migrations standalone)
 - Modified files:
-  - `cmd/gateway/main.go` — CLI flag parsing.
+  - `cmd/gateway/main.go` — shrinks to a Cobra root command bootstrap; all real work lives in `internal/cli`.
   - `internal/transport/http.go` — mount `/auth/*` routes; mount `/t/{tenant}` subrouter with `RequireTenant`.
   - `internal/storage/models.go` — `Tenant.ZitadelOrgID`, `User.ZitadelSubject` (no `PasswordHash`, no `PortalSession`, no `Invitation`).
 
@@ -203,6 +233,16 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 - **CSRF**: portal API endpoints (Phase 9 Connect-RPC) use `Content-Type: application/connect+json`, which browsers preflight → CSRF-resistant.
 - **Logout**: Limen's logout deletes the local session and redirects to Zitadel's end-session endpoint; otherwise a user's Zitadel session lingers and any new login returns immediately without a credential prompt.
 - **Password resets / MFA enforcement / email verification** are policies configured in Zitadel — Limen doesn't reimplement them.
+
+## Future work (deferred — not in Phase 4 scope)
+
+The Phase 4 surface intentionally stops at the minimum needed for the portal to log a user in. The following workflows are explicitly **out of scope for this phase** — they are delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (tenant administrative portal) or stay on the open backlog:
+
+1. **Self-serve SaaS signup** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). The CLI subcommand from this phase stays for ops / dev / self-hosted installs and shares its primitives (`zitadel.CreateOrg`, `AddHumanUser`, `AddUserGrant(owner)`) with the portal path.
+
+2. **Portal-driven invite / member-management UI** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.{ListMembers, InviteMember, ResendInvite, UpdateMemberRole, RemoveMember}`). The owner-invariant check ("at least one `owner`") lives in `internal/admin/members.go` and is reused by the Phase 4 CLI so it fires for both callers.
+
+3. **Tenant-level external IdP federation (Zitadel IDP integration)** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.{AddOIDCIDP, AddSAMLIDP, ListExternalIDPs, UpdateExternalIDP, RemoveExternalIDP}`). Zitadel natively supports external OIDC / OAuth / SAML / JWT / LDAP identity providers at the **org** level; users authenticate against the customer's own IdP and Zitadel issues the same JWTs to Limen, so **no Limen-side auth code changes**. Phase 9b adds the portal admin surface and a thin `tenant_idp_configurations` mirror row for visibility. JIT provisioning, attribute mapping, and SCIM stay on the Zitadel side.
 
 ## Verification
 
@@ -242,6 +282,6 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 - [ ] Logout calls `SessionService.DeleteSession`, clears the cookie, and redirects to Zitadel's end-session URL
 - [ ] CLI `-create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug
 - [ ] CLI `-invite-user` provisions a Zitadel user in the tenant org, calls `AddUserGrant(<role>)`, then `UserService.CreateInviteCode` (with `sendCode=true`), and creates the Limen `User` row
-- [ ] `cmd/gateway/main.go` dispatches CLI subcommands before starting the server
+- [ ] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `invite-user`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides
 - [ ] Unit tests for slug validation, state signing, session lifecycle, cookie attributes, org-binding mismatch
 - [ ] HTTP integration test against a stub OIDC issuer for the full login flow

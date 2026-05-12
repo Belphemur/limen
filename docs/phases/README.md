@@ -1,6 +1,6 @@
 # Implementation Phases
 
-This folder breaks the multi-tenant MCP gateway work into thirteen phases (0 through 12). Each phase has its own file with detailed design notes, file-level deliverables, verification steps, and a per-phase checklist. This README is the **global index + checklist** — use it as the source of truth for overall progress.
+This folder breaks the multi-tenant MCP gateway work into fourteen phases (0 through 13). Each phase has its own file with detailed design notes, file-level deliverables, verification steps, and a per-phase checklist. This README is the **global index + checklist** — use it as the source of truth for overall progress.
 
 ## TL;DR of the work
 
@@ -14,6 +14,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 - **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<slug>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
 - **SaaS operator surface** — a reserved **staff tenant** at `/t/_staff/` with a `super_admin` role, a backoffice SPA for cross-tenant visibility, and audited impersonation via Zitadel ([Phase 12](phase-12-staff-backoffice.md)).
+- **Billing** — per-seat subscriptions via Stripe Billing ([Phase 13](phase-13-billing-stripe.md)). One Stripe Customer per customer tenant, quantity tracks Zitadel user grants, hosted Checkout + Customer Portal handle PCI scope. Usage-based pricing is designed-for but explicitly out of scope for v1. The staff tenant is never billed; self-hosters can disable Stripe entirely via `billing.enabled: false`.
 
 ## Phase index & dependencies
 
@@ -29,11 +30,13 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                | 4                  | ☐      |
 | 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)            | 6, 7               | ☐      |
 | 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                     | 4, 7               | ☐      |
+| 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)      | 4, 7, 9            | ☐      |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                        | 0–9                | ☐      |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)            | 0–10               | ☐      |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md) | 0, 3, 4, 9, 10, 11 | ☐      |
+| 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                        | 4, 9, 10, 11, 12 | ☐      |
 
-Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one.
+Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
@@ -219,6 +222,22 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Integration tests cover: role isolation, RLS staff-mode read, write blocked from staff-mode, impersonation happy path, MFA gate, TTL expiry, force-unlink audit row, bundle separation
 - [ ] Phase 10 runbook updated with the impersonation procedure and audit-log query examples
 
+### Phase 13 — Billing with Stripe (per-seat)
+
+- [ ] `tenant_billing` table + RLS policies + partial unique `(tenant_id) WHERE deleted_at IS NULL` + staff-mode SELECT clause from Phase 12
+- [ ] `internal/billing/` package (client / seats / webhook / middleware / service); Stripe SDK calls wrapped in `internal/resilience.Client("stripe.*", cfg)`
+- [ ] `proto/limen/portal/v1/portal.proto` `BillingService` (owner-only): `GetBillingSummary`, `CreateCheckoutSession`, `OpenCustomerPortal`
+- [ ] `proto/limen/staff/v1/staff.proto` extended: `GetTenantBilling`, `ExtendGrace`, `CompTenant`, `ForceCancel` (all audited)
+- [ ] `RequireBillingActive` middleware on `/t/{tenant}/mcp` and `/t/{tenant}/api/*` (except the billing namespace); staff tenant exempt
+- [ ] Stripe webhook at `/billing/stripe/webhook` with signature verification, idempotency by Stripe object id, async drain
+- [ ] Seat reconciler: reactive (after every Members-mutation RPC) + periodic (6 h jittered loop)
+- [ ] Free-tier limits enforced in Members and Upstream paths when `status='none'`
+- [ ] SPA `Billing.vue` + past-due banner + nav item gated on `role=owner`
+- [ ] `config.yaml` `billing:` section: `enabled`, Stripe key/secret refs, `seat_price_id`, `trial_days`, `grace_days`, `free_tier.*`
+- [ ] Stripe Dashboard runbook: product + seat price + webhook endpoint + Customer Portal toggles + Tax configuration
+- [ ] Staff-audit-log records `billing.comp`, `billing.extend_grace`, `billing.force_cancel` with reason
+- [ ] Integration tests covering: subscribe happy path, reactive + periodic reconciliation, webhook signature + idempotency, payment failure → grace → 402, payment recovery, cancel-at-period-end, staff comp, free-tier limits, staff-tenant exempt, `billing.enabled: false` short-circuit
+
 ## Cross-cutting decisions
 
 - **Tenancy**: path prefix `/t/{slug}/...`; cookies path-scoped.
@@ -230,12 +249,15 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - **Roles**: `owner` / `admin` / `member` (stored in Limen, not Zitadel).
 - **Token validation**: in-process JWT against Zitadel's JWKS (single issuer, single cache entry); cross-tenant defense via `org_id` claim match.
 - **OIDC library**: `github.com/zitadel/oidc/v3` (RP side).
+- **CLI**: `github.com/spf13/cobra` for the subcommand tree (`serve`, `create-tenant`, `invite-user`, `migrate`, …) + `github.com/spf13/viper` for flag-to-env binding (`LIMEN_*` prefix). The Phase 2 YAML loader (`internal/config.Load`) stays as-is for file-based config because Viper doesn't natively support our `${ENV:-default}` substitution.
+- **Zitadel API**: `github.com/zitadel/zitadel-go/v3` (official SDK, wraps the generated gRPC clients for Management / User / Session / Org services). Hand-rolled HTTP/JSON against Zitadel is avoided — every Management/User/Session call goes through the SDK behind a thin `internal/zitadel/` wrapper. Auth uses `client.PAT` in dev and `client.DefaultServiceUserAuthentication` (private-key JWT) in production.
 - **Crypto**: AES-256-GCM, AAD binds `tenant|user|kind`.
 - **Outbound transport**: custom `http.RoundTripper` for per-request bearer injection (tenant + user read from ctx).
 - **Resilience**: every outbound HTTP dependency (upstream MCP servers, upstream OAuth token endpoints, Zitadel Management / Session / JWKS, DCR endpoints) is wrapped in a context-aware **timeout → retry-with-exponential-backoff-and-jitter → circuit-breaker** stack. One shared package, `internal/resilience/`, exports a `Client(name, cfg) *http.Client` helper that composes `github.com/cenkalti/backoff/v4` + `github.com/sony/gobreaker/v2` into an `http.RoundTripper`. Per-dependency policies (max retries, base / max interval, breaker thresholds, retryable status codes) live in `config.yaml`. Retries only fire on transport errors and `5xx` / `429`; `4xx` is terminal. Each breaker exposes Prometheus-style state via structured logs (`closed` / `half-open` / `open`) for observability.
 - **SaaS-operator visibility**: a fourth Zitadel project role `super_admin` exists alongside `owner` / `admin` / `member`, but is honored **only** inside the reserved staff tenant `_staff` (Phase 12). Cross-tenant visibility is granted at the data layer via a Postgres GUC `limen.staff_mode` that loosens `SELECT` RLS policies only — writes still require `limen.tenant_id` to be set explicitly, so even staff cannot accidentally cross-write. Targeted support actions go through audited RPCs (force-unlink, force re-enable, breaker control) and impersonation rides on Zitadel token-exchange with a hard 15-minute TTL plus customer-side banner.
+- **Billing model**: per-seat Stripe Billing subscription per customer tenant (Phase 13). Seat = Zitadel user grant against the Limen project for that tenant's org. Reconciliation is both reactive (after every Members-mutation RPC) and periodic (6 h loop). No card data ever touches Limen — Stripe-hosted Checkout + Customer Portal handle all PCI scope. The staff tenant is never billed; self-hosters set `billing.enabled: false` to skip Stripe entirely.
 - **Deployment**: Docker Compose for both dev and prod, single declarative source of truth.
 
 ## Explicitly out of scope this iteration
 
-SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; billing/usage metering; fine-grained per-tool scopes; outbound strategies beyond `mcp_spec`, `static_header`, and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose).
+SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; usage-based / metered billing (Phase 13 ships seat-only — usage metering is designed-for but deferred); fine-grained per-tool scopes; outbound strategies beyond `mcp_spec`, `static_header`, and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose).

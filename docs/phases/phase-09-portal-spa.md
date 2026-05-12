@@ -30,6 +30,11 @@ Single service, methods grouped by access level.
 syntax = "proto3";
 package limen.portal.v1;
 
+// PortalService is the **user-scoped** customer surface mounted at
+// /t/{slug}/portal/api/. Owner / admin operations (members, invitations,
+// upstream catalog CRUD, tenant settings, external IdP federation, and
+// self-serve signup) live in `limen.admin.v1.AdminService` — see
+// [Phase 9b](phase-09b-tenant-admin-spa.md).
 service PortalService {
   // Public — no session required. The SPA calls this on boot to discover whether
   // the user already has a valid portal session; if not, the SPA redirects the
@@ -47,20 +52,6 @@ service PortalService {
   rpc RevokeMCPClient(RevokeMCPClientRequest) returns (RevokeMCPClientResponse);
   // Password / MFA management is delegated to Zitadel — the SPA links out to
   // the Zitadel self-service console.
-
-  // Admin (admin + owner)
-  rpc CreateUpstream(CreateUpstreamRequest) returns (CreateUpstreamResponse);
-  rpc UpdateUpstream(UpdateUpstreamRequest) returns (UpdateUpstreamResponse);
-  rpc DeleteUpstream(DeleteUpstreamRequest) returns (DeleteUpstreamResponse);
-  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
-  rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);  // → Zitadel UserService.AddHumanUser + AddUserGrant + CreateInviteCode
-  rpc ResendInvite(ResendInviteRequest) returns (ResendInviteResponse);   // → Zitadel UserService.ResendInviteCode
-  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);  // → Zitadel UserService.UpdateUserGrant
-  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);             // → Zitadel UserService.RemoveUserGrant + (optional) DeactivateUser
-
-  // Owner-only
-  rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
-  rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);  // grant `owner` to target, demote previous owner — both via UpdateUserGrant
 }
 ```
 
@@ -91,12 +82,12 @@ Workflow recap (covers both OAuth-protected and header-authenticated upstreams):
 internal/portal/
 ├── service.go         // implements PortalServiceHandler
 ├── interceptor.go     // resolves *Tenant + *User from URL slug + portal cookie
-├── upstreams.go       // ListUpstreams, CreateUpstream, ...
-├── members.go         // ListMembers (joins Limen users with Zitadel grants), InviteMember (→ AddHumanUser+AddUserGrant+CreateInviteCode), ResendInvite, UpdateMemberRole (→ UpdateUserGrant), RemoveMember (→ RemoveUserGrant)
+├── upstreams.go       // ListUpstreams, StartConnect, SubmitUpstreamAPIKey, SetUpstreamLinkEnabled, Disconnect
 ├── mcpclients.go      // ListMCPClients, RevokeMCPClient
-├── settings.go        // UpdateTenantSettings, TransferOwnership
 └── errors.go          // Connect error mapping
 ```
+
+Admin / owner operations — members, invites, role grants, upstream catalog CRUD, tenant settings, external IdP federation, and self-serve signup — live in `internal/admin/` under [Phase 9b](phase-09b-tenant-admin-spa.md).
 
 Mounting:
 
@@ -131,20 +122,10 @@ var requiredRole = map[string]Role{
     "Disconnect":          RoleMember,
     "ListMCPClients":      RoleMember,
     "RevokeMCPClient":     RoleMember,
-
-    "CreateUpstream":      RoleAdmin,
-    "UpdateUpstream":      RoleAdmin,
-    "DeleteUpstream":      RoleAdmin,
-    "ListMembers":         RoleAdmin,
-    "InviteMember":        RoleAdmin,
-    "ResendInvite":        RoleAdmin,
-    "UpdateMemberRole":    RoleAdmin,
-    "RemoveMember":        RoleAdmin,
-
-    "UpdateTenantSettings":RoleOwner,
-    "TransferOwnership":   RoleOwner,
 }
 ```
+
+All admin / owner RPCs live in [Phase 9b](phase-09b-tenant-admin-spa.md)'s `AdminService` and have their own required-role table there.
 
 ### Frontend (`web/`)
 
