@@ -70,6 +70,13 @@ func (t *authInjectingTransport) RoundTrip(req *http.Request) (*http.Response, e
 
 Because `mcp-go`'s streamable HTTP transport accepts an `http.Client`, we pass it one wired to our transport — bearer injection happens transparently on every request, reading the user from `req.Context()`. The reactive-refresh path is bounded to a single retry to prevent loops; the underlying single-flight + DB lock in Phase 7's `refreshLocked` ensures concurrent requests collapse to one token endpoint hit. The `base` `http.RoundTripper` is the one returned by `internal/resilience.Client("upstream.<name>.calls", cfg)` (Phase 10) so transport-level retries, exponential backoff with jitter, and the per-upstream circuit breaker apply uniformly to every tool call. A `*resilience.BreakerOpenError` returned from `RoundTrip` is mapped to a structured MCP "upstream unavailable" error so the client can back off rather than hammer a dead upstream.
 
+The transport also drives Phase 7's per-user auto-disable mechanism. After the resilience stack returns:
+
+- **Success** (any 2xx): atomically reset `ConsecutiveFailures = 0`, clear `LastFailureAt` / `LastFailureReason`, and clear `AutoDisabledAt` if it was set — in the same DB transaction that records nothing else, so a single `UPDATE` per successful call (cheap and idempotent).
+- **Failure** (transport error, persistent 5xx, or `BreakerOpenError`): increment `ConsecutiveFailures`, set `LastFailureAt = now()` and `LastFailureReason` to the matching enum (`tool_call_5xx` / `breaker_open`). When the configured threshold trips, the same `UPDATE` sets `AutoDisabledAt = now()`. The request still returns its error to the caller; the bookkeeping is best-effort and never blocks the response on a DB hiccup.
+
+Before dispatching, the transport short-circuits with the "re-link or re-enable required" structured MCP error if `link.AutoDisabledAt != NULL` or `link.Enabled == false`, so a known-broken link never burns another upstream request.
+
 ### `AuthProvider` implementation
 
 Lives in `internal/upstream/authprovider.go`:
@@ -199,6 +206,7 @@ type Bundle struct {
   - One `none` upstream + one `mcp_spec` upstream. Brand-new user sees `none` tools but not `mcp_spec` ones until they connect.
   - User disconnects → tool disappears from `ToolsForUser` and `CallTool` returns the "no link" structured error.
   - User toggles `Enabled=false` on an existing link → tool disappears from `ToolsForUser` and `CallTool` returns the same structured error; toggling back to `Enabled=true` restores visibility without re-running the auth flow.
+  - Sustained upstream failures (5xx loop or breaker-open) → link's `ConsecutiveFailures` grows, `AutoDisabledAt` flips at the threshold, tool disappears from `ToolsForUser`; portal Re-enable clears it and the next 2xx confirms health.
 
 ## Risks
 
@@ -213,8 +221,9 @@ type Bundle struct {
 - [ ] Round-trip clones the request before mutating headers
 - [ ] Round-tripper retries exactly once on upstream `401`, calling `HeadersForceRefresh` to drive Phase 7's refresh path; a second consecutive `401` surfaces as a structured "re-link required" MCP error
 - [ ] `UpstreamManager` builds an index keyed by tenant ID at startup
-- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
-- [ ] `Gateway.CallTool(ctx, upstreamName, toolName, args)` looks up upstream within tenant, invokes through the per-request transport; rejects calls when the matching link is disabled with the same structured error as missing-link
+- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled` ∧ `link.AutoDisabledAt IS NULL`)
+- [ ] `Gateway.CallTool(ctx, upstreamName, toolName, args)` looks up upstream within tenant, invokes through the per-request transport; rejects calls when the matching link is disabled or auto-disabled with the same structured error as missing-link
+- [ ] Round-tripper updates `UpstreamLink` health columns after each call: 2xx resets `ConsecutiveFailures` / clears `AutoDisabledAt`; persistent 5xx / `BreakerOpenError` increments the counter and flips `AutoDisabledAt` when the threshold trips
 - [ ] Tool names continue to be prefixed by upstream name to avoid collisions
 - [ ] Missing-link condition surfaces as a structured MCP error (not 500)
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the sandbox; per-tool proxies call into `Gateway.CallTool(ctx, ...)`

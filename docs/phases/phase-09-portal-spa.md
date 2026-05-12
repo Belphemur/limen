@@ -64,7 +64,7 @@ service PortalService {
 
 Request messages **do not carry `tenant_id`** — the interceptor reads it from the URL path. Authoritative tenant binding is server-side.
 
-`ListUpstreams` returns, for each upstream visible to the tenant: the public ID, name, strategy type + sub-mode (e.g. `static_header.user`), MCP server URL, whether the strategy requires a per-user link, and — for the calling user — the link state: `none` / `connected` / `disabled`. The SPA uses this to render the right CTA ("Connect", "Enter API key", "Disable", "Enable", "Disconnect") on each row.
+`ListUpstreams` returns, for each upstream visible to the tenant: the public ID, name, strategy type + sub-mode (e.g. `static_header.user`), MCP server URL, whether the strategy requires a per-user link, and — for the calling user — the link state: `none` / `connected` / `disabled` / `auto_disabled` / `needs_relink`. The SPA uses this to render the right CTA ("Connect", "Enter API key", "Disable", "Enable", "Re-enable", "Reconnect", "Disconnect") on each row, plus a short status line (e.g. "auto-disabled after 8 consecutive failures, last error 12 min ago").
 
 Workflow recap (covers both OAuth-protected and header-authenticated upstreams):
 
@@ -75,9 +75,11 @@ Workflow recap (covers both OAuth-protected and header-authenticated upstreams):
    - `static_header` user-mode → `StartConnect` returns a relative SPA path; the SPA opens a modal that takes the API key, then submits it via `SubmitUpstreamAPIKey`. Limen encrypts it with AAD `tenant|user|"upstream.extra"` and persists the `UpstreamLink`.
    - `none` / `static_header` tenant-mode → no action needed; the tools are already visible.
 4. Once linked, the user sees a green badge and the upstream's tools become visible to the MCP RS for that user (Phase 8).
-5. The user can return to the Upstreams page at any time to:
+6. If Limen's auto-disable logic trips for that user (sustained refresh or tool-call failures — see Phase 7), the row flips to an `auto_disabled` state with a banner explaining the reason and last failure timestamp. The user clicks **Re-enable** to clear `AutoDisabledAt` and let the next request try again, or **Reconnect** when the row is also `needs_relink`.
+7. The user can return to the Upstreams page at any time to:
    - **Disable** a link (`SetUpstreamLinkEnabled(false)`) — credentials are kept, tools immediately disappear from MCP `tools/list`.
    - **Enable** a previously disabled link — tools reappear without re-doing auth.
+   - **Re-enable** an auto-disabled link via `SetUpstreamLinkEnabled(true)` (the RPC clears `AutoDisabledAt` + `ConsecutiveFailures` server-side when the caller is the owner of the link).
    - **Rotate** a `static_header` user-mode key by re-submitting through `SubmitUpstreamAPIKey`.
    - **Disconnect** — deletes the `UpstreamLink`; OAuth tokens are revoked at the upstream when possible.
 
@@ -262,7 +264,8 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 ## Checklist
 
-- [ ] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled`) and strategy sub-mode, so the SPA can pick the right CTA
+- [ ] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled` / `auto_disabled` / `needs_relink`) and strategy sub-mode, so the SPA can pick the right CTA, plus the last-failure reason + timestamp for auto-disabled rows
+- [ ] `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures` server-side
 - [ ] `SubmitUpstreamAPIKey` persists the user-supplied secret via the `static_header` strategy, AAD `tenant|user|"upstream.extra"`; never logs the key; supports rotation (overwrite)
 - [ ] `SetUpstreamLinkEnabled` flips `UpstreamLink.Enabled` without touching stored credentials
 - [ ] Upstreams page renders the right CTA per row (Connect / Enter API key / Enable / Disable / Disconnect) and lets the user rotate keys for `static_header` user-mode

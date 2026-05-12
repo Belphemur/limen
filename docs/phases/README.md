@@ -132,6 +132,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
 - [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [ ] `UpstreamLink` health columns added: `ConsecutiveFailures`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; auto-disable when ≥5 consecutive failures over ≥15 min, or `NeedsRelink=true` for ≥24 h; successful call/refresh resets the counter atomically
 - [ ] `mcp_spec` refresh is centralized: one `refreshLocked` function called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background); single-flight + `SELECT FOR UPDATE SKIP LOCKED` collapse concurrent refreshes; refresh-token rotation is persisted; `invalid_grant` flips `NeedsRelink=true`
 - [ ] State signed with HMAC, one-shot consumption
 - [ ] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
@@ -142,8 +143,8 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (`Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
 - [ ] `internal/gateway/upstream.go` uses `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`; retries once on upstream `401` via `HeadersForceRefresh`
 - [ ] `UpstreamManager` indexed by tenant ID at startup
-- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
-- [ ] `Gateway.CallTool(ctx, ...)` routes through the per-request transport; rejects disabled links with the same structured error as missing links
+- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled` ∧ `link.AutoDisabledAt IS NULL`)
+- [ ] `Gateway.CallTool(ctx, ...)` routes through the per-request transport; rejects disabled / auto-disabled links with the same structured error as missing links; transport updates the link's health columns after every call
 - [ ] Tool names prefixed by upstream to avoid collisions
 - [ ] Missing-link surfaces as a structured MCP error
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the Goja sandbox

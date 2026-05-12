@@ -205,10 +205,28 @@ Notes:
 - `Upstream` — `(tenant_id, name, strategy_type, mcp_server_url)`.
 - `UpstreamStrategyConfig` — `(upstream_id, type, config_json)`; encrypted. Populated for `static_header` (header name, template, mode, optional tenant secret); empty for `mcp_spec` and `none` in v1.
 - `UpstreamRegistration` — `(tenant_id, upstream_id, issuer, client_id, client_secret, registration_access_token, registration_client_uri, resource_uri)`; empty for `none` and `static_header`.
-- `UpstreamLink` — `(tenant_id, user_id, upstream_id, access_token, refresh_token, expires_at, scopes, resource_uri, extra_json, enabled, needs_relink)`.
+- `UpstreamLink` — `(tenant_id, user_id, upstream_id, access_token, refresh_token, expires_at, scopes, resource_uri, extra_json, enabled, needs_relink, consecutive_failures, last_failure_at, last_failure_reason, auto_disabled_at)`.
   - **`Enabled bool` (new in this phase)** — defaults to `true` on create. The portal exposes a toggle so a user can mute an upstream without losing their stored credentials. Phase 8's tool-visibility filter treats `Enabled=false` the same as "no link".
   - **`NeedsRelink bool` (new in this phase)** — defaults to `false`. Set by `refreshLocked` when the upstream returns `invalid_grant`; cleared on the next successful refresh or when the user re-runs `StartLink`. The portal renders a "Reconnect" CTA on rows where this is true.
+  - **Health-tracking columns (new in this phase)** — `ConsecutiveFailures int` (default `0`), `LastFailureAt *time.Time`, `LastFailureReason string` (short enum: `refresh_transient`, `breaker_open`, `tool_call_5xx`, `invalid_grant`), and `AutoDisabledAt *time.Time`. Every successful tool call or refresh resets `ConsecutiveFailures` to `0`, clears `LastFailureAt` / `LastFailureReason`, and clears `AutoDisabledAt`. Sustained failure flips `AutoDisabledAt = now()` (see below).
   - For `static_header` user-mode, the user's API key lives encrypted in `ExtraJSON` under the key `static_header.secret`. `AccessToken`/`RefreshToken`/`ExpiresAt` stay empty.
+
+### Per-user auto-disable on sustained failure
+
+The goal is to stop hammering an upstream that is reliably failing for a specific user, without losing the user's credentials. Tool listing must also stop advertising tools that will only fail. The rules:
+
+- **What counts as a failure**: a refresh that hits `invalid_grant` (already covered by `NeedsRelink`); a refresh that hits transport / 5xx repeatedly through the resilience stack until the breaker opens; a tool call that returns 5xx or transport error after the resilience retries; a `BreakerOpenError` surfaced from either path.
+- **What counts as a success**: any tool call that returns 2xx, or any successful refresh exchange.
+- **Where the counter is updated**: Phase 8's `authInjectingTransport` (tool calls) and Phase 7's `refreshLocked` (refresh path) bump or reset `ConsecutiveFailures` in the same DB transaction that persists the call outcome, so it never drifts from reality.
+- **Auto-disable thresholds** (config-driven, with shipped defaults):
+  - `≥5 consecutive failures` **and** `LastFailureAt - first-failure-of-streak ≥ 15 min`, **or**
+  - `NeedsRelink=true` continuously for `≥ 24 h` without a successful re-link.
+
+  On trip: set `AutoDisabledAt = now()`, leave `Enabled` as-is, log an audit event `upstream_auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`, and emit a notification (v1: structured log; future: email via Zitadel's notification hooks).
+
+- **Effect**: Phase 8's tool-visibility filter treats `AutoDisabledAt != NULL` the same as `Enabled=false` — the upstream's tools disappear from `tools/list` and `CallTool` returns the structured "re-link or re-enable required" MCP error. The round-tripper short-circuits before hitting the network if `AutoDisabledAt != NULL`.
+- **Recovery**: the portal shows the auto-disabled banner with a one-click **Re-enable** (clears `AutoDisabledAt` + `ConsecutiveFailures`, lets the next request try again) or **Reconnect** (full `StartLink` flow, used when `NeedsRelink=true` is also set). Any successful subsequent call clears `AutoDisabledAt` automatically on its way through.
+- **Background refresher** skips `AutoDisabledAt != NULL` rows just like it skips `NeedsRelink=true` ones — there's no point burning quota on a known-broken link until the user acts.
 
 ### State table (optional, choose this path or signed cookie)
 
@@ -231,20 +249,20 @@ Cleaned up by the janitor. Lookup is constant-time on `StateValue`.
 Phase 8 will gate per-tool exposure by:
 
 ```go
-visible := (strategy.RequiresLink() == false) || (userHasLinkFor(upstream, user) && link.Enabled)
+visible := (strategy.RequiresLink() == false) || (userHasLinkFor(upstream, user) && link.Enabled && link.AutoDisabledAt == nil)
 ```
 
 - `none` upstream → always visible.
 - `static_header` in `tenant` mode → always visible (admin-supplied secret applies to all users).
-- `mcp_spec` and `static_header` in `user` mode → visible only when the user has an `Enabled=true` `UpstreamLink`.
+- `mcp_spec` and `static_header` in `user` mode → visible only when the user has an `Enabled=true`, non-auto-disabled `UpstreamLink`.
 
-This is exactly what makes the portal experience feel right: a freshly created tenant sees Atlassian listed as available, the portal prompts the user to connect (or to paste an API key), and the tools unlock afterward. The user can later toggle a link off to temporarily hide an upstream's tools from the LLM without re-doing the auth dance.
+This is exactly what makes the portal experience feel right: a freshly created tenant sees Atlassian listed as available, the portal prompts the user to connect (or to paste an API key), and the tools unlock afterward. The user can later toggle a link off to temporarily hide an upstream's tools from the LLM without re-doing the auth dance; or, if an upstream stays broken for that user, Limen auto-disables it and the portal surfaces a Re-enable / Reconnect CTA.
 
 ## Deliverables
 
 - New files (under `internal/upstream/`): `strategy.go`, `handlers.go`, `refresher.go`, `mcpspec/{discovery,registrar,link,headers}.go`, `statichdr/{config,link,headers}.go`, `none/none.go`.
 - Optional model addition: `OAuthState` (or use a signed-cookie approach).
-- Schema migration adding `enabled BOOLEAN NOT NULL DEFAULT true` and `needs_relink BOOLEAN NOT NULL DEFAULT false` to `upstream_links`.
+- Schema migration adding `enabled BOOLEAN NOT NULL DEFAULT true`, `needs_relink BOOLEAN NOT NULL DEFAULT false`, `consecutive_failures INT NOT NULL DEFAULT 0`, `last_failure_at TIMESTAMPTZ`, `last_failure_reason TEXT NOT NULL DEFAULT ''`, and `auto_disabled_at TIMESTAMPTZ` to `upstream_links`.
 - Updated `internal/transport/http.go` to mount `/t/{tenant}/upstream/{name}/*` routes.
 
 ## Security & operational notes
@@ -294,6 +312,11 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
 - [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [ ] `UpstreamLink` health-tracking columns added: `ConsecutiveFailures`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; migration shipped
+- [ ] Auto-disable rule: ≥5 consecutive failures over ≥15 min **or** `NeedsRelink=true` for ≥24 h → set `AutoDisabledAt=now()`; thresholds config-driven
+- [ ] Successful tool call or refresh atomically resets `ConsecutiveFailures` and clears `AutoDisabledAt` in the same DB tx that records the outcome
+- [ ] Background refresher skips rows where `AutoDisabledAt IS NOT NULL` (as it already does for `NeedsRelink=true`)
+- [ ] Audit event `upstream_auto_disabled` emitted with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`
 - [ ] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background)
 - [ ] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
 - [ ] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
@@ -304,3 +327,4 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [ ] Integration test for full mcp_spec connect flow against an httptest stub
 - [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds
 - [ ] Integration test for `static_header` user-mode: submit key via portal RPC → tool becomes visible → toggle disable → tool hidden → toggle enable → tool visible again
+- [ ] Integration test: sustained upstream 5xx → link auto-disables for that user → tools hidden → portal Re-enable restores visibility → next successful call keeps it healthy
