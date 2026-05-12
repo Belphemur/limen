@@ -138,6 +138,25 @@ limen                                                # normal server start
 
 - **HTTP timeouts** on the server (read/write/idle) — defaults above.
 - **Outbound HTTP timeouts** on every `http.Client` (upstreams, JWKS, DCR). Defaults: 30 s for upstream calls, 3 s for JWKS, 10 s for DCR.
+- **Resilience stack** — every outbound HTTP client is built through `internal/resilience.Client(name, cfg)`, which layers (innermost → outermost):
+  1. **Per-request timeout** (context deadline propagated through ctx).
+  2. **Retry with exponential backoff + jitter** via `github.com/cenkalti/backoff/v4`. Retries only on transport errors, `502/503/504`, and `429` (honoring `Retry-After` when present). `4xx` other than `429` and `408` is terminal. Idempotent verbs (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) and explicitly-marked POSTs (token refresh, DCR — idempotent by replay) are retryable; arbitrary POSTs are not.
+  3. **Circuit breaker** via `github.com/sony/gobreaker/v2`. One breaker per named dependency (e.g. `upstream.atlassian`, `zitadel.session`, `zitadel.jwks`, `dcr.atlassian`). When open, requests fail fast with a typed `*resilience.BreakerOpenError`, which callers map to the right user-facing surface (MCP "re-link / try again" error, portal `unavailable` Connect-RPC error, etc.). Half-open trial count and open duration are configurable.
+  4. **Structured logging** on every retry, breaker state transition, and final failure, with the dependency name + request ID.
+
+  Defaults per dependency family:
+
+  | Family                       | Max retries | Base / max backoff | Breaker: consecutive fails → open | Open duration |
+  | ---------------------------- | ----------- | ------------------ | --------------------------------- | ------------- |
+  | Upstream MCP tool calls      | 2           | 250 ms / 2 s       | 5                                 | 30 s          |
+  | Upstream OAuth token refresh | 3           | 500 ms / 5 s       | 5                                 | 60 s          |
+  | Upstream DCR / discovery     | 2           | 500 ms / 5 s       | 3                                 | 5 min         |
+  | Zitadel `SessionService`     | 2           | 100 ms / 1 s       | 10                                | 15 s          |
+  | Zitadel `UserService` (mgmt) | 2           | 250 ms / 2 s       | 5                                 | 60 s          |
+  | Zitadel JWKS fetch           | 3           | 100 ms / 1 s       | 5                                 | 30 s          |
+
+  Values are config-driven; the table is the shipped default. All policies respect the request `context.Context` — cancellation aborts retries immediately.
+
 - **Graceful shutdown**: catch `SIGTERM`/`SIGINT`, stop accepting new connections, wait `shutdown_timeout`, then force-close.
 - **Goroutine accounting**: the refresher, janitor (session cleanup, expired auth-code/refresh-token cleanup) all run via a `*errgroup.Group` with a top-level ctx; shutdown cancels them.
 - **Structured logging**: every handler logs `tenant_id`, `user_id`, `request_id` (via `chi/middleware.RequestID` + a custom field injector). Errors logged at `Error`; informational events at `Info`; tracing detail at `Debug`.
@@ -206,6 +225,12 @@ Out of scope for the docs Phase 10 ships, but the checklist below tracks "create
 - [ ] `cmd/gateway/main.go` rewritten to wire all components in the documented order
 - [ ] CLI dispatch (`-create-tenant`, `-reset-password`, optional `-create-upstream`) implemented and tested
 - [ ] HTTP server has read/write/idle timeouts from config
+- [ ] `internal/resilience/` package exposes `Client(name, cfg) *http.Client` wrapping timeout + backoff (`cenkalti/backoff/v4`) + circuit breaker (`sony/gobreaker/v2`)
+- [ ] Every outbound HTTP client in the codebase (upstream MCP, upstream OAuth refresh, upstream DCR, Zitadel Session/User/JWKS) is constructed through `resilience.Client` with a named breaker
+- [ ] Retry policy: transport errors + `502/503/504/429` only; honors `Retry-After`; respects ctx cancellation; non-idempotent POSTs are not retried by default
+- [ ] `BreakerOpenError` is a typed sentinel; callers map it to MCP "upstream unavailable" and Connect-RPC `unavailable` codes
+- [ ] Per-dependency resilience config in `config.yaml`; shipped defaults match the table in Phase 10
+- [ ] Unit tests assert: retry on 503, no retry on 401, ctx cancellation aborts retries, breaker opens after N consecutive failures and half-opens after the configured duration
 - [ ] Graceful shutdown via SIGTERM/SIGINT; background goroutines cancel via errgroup
 - [ ] `/healthz` endpoint added
 - [ ] Chi `Recoverer` and `RequestID` middleware mounted globally

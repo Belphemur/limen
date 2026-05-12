@@ -68,7 +68,7 @@ func (t *authInjectingTransport) RoundTrip(req *http.Request) (*http.Response, e
 }
 ```
 
-Because `mcp-go`'s streamable HTTP transport accepts an `http.Client`, we pass it one wired to our transport — bearer injection happens transparently on every request, reading the user from `req.Context()`. The reactive-refresh path is bounded to a single retry to prevent loops; the underlying single-flight + DB lock in Phase 7's `refreshLocked` ensures concurrent requests collapse to one token endpoint hit.
+Because `mcp-go`'s streamable HTTP transport accepts an `http.Client`, we pass it one wired to our transport — bearer injection happens transparently on every request, reading the user from `req.Context()`. The reactive-refresh path is bounded to a single retry to prevent loops; the underlying single-flight + DB lock in Phase 7's `refreshLocked` ensures concurrent requests collapse to one token endpoint hit. The `base` `http.RoundTripper` is the one returned by `internal/resilience.Client("upstream.<name>.calls", cfg)` (Phase 10) so transport-level retries, exponential backoff with jitter, and the per-upstream circuit breaker apply uniformly to every tool call. A `*resilience.BreakerOpenError` returned from `RoundTrip` is mapped to a structured MCP "upstream unavailable" error so the client can back off rather than hammer a dead upstream.
 
 ### `AuthProvider` implementation
 

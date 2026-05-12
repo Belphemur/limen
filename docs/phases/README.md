@@ -206,6 +206,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - **OIDC library**: `github.com/zitadel/oidc/v3` (RP side).
 - **Crypto**: AES-256-GCM, AAD binds `tenant|user|kind`.
 - **Outbound transport**: custom `http.RoundTripper` for per-request bearer injection (tenant + user read from ctx).
+- **Resilience**: every outbound HTTP dependency (upstream MCP servers, upstream OAuth token endpoints, Zitadel Management / Session / JWKS, DCR endpoints) is wrapped in a context-aware **timeout → retry-with-exponential-backoff-and-jitter → circuit-breaker** stack. One shared package, `internal/resilience/`, exports a `Client(name, cfg) *http.Client` helper that composes `github.com/cenkalti/backoff/v4` + `github.com/sony/gobreaker/v2` into an `http.RoundTripper`. Per-dependency policies (max retries, base / max interval, breaker thresholds, retryable status codes) live in `config.yaml`. Retries only fire on transport errors and `5xx` / `429`; `4xx` is terminal. Each breaker exposes Prometheus-style state via structured logs (`closed` / `half-open` / `open`) for observability.
 - **Deployment**: Docker Compose for both dev and prod, single declarative source of truth.
 
 ## Explicitly out of scope this iteration
