@@ -276,7 +276,7 @@ func TestULID_LexicographicOrdering(t *testing.T) {
 	// a single process must sort in insertion order.
 	const n = 25
 	publicIDs := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tnt := &storage.Tenant{
 			Slug:         fmt.Sprintf("t-%d-%d", time.Now().UnixNano(), i),
 			Name:         fmt.Sprintf("T%d", i),

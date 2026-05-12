@@ -20,7 +20,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | --- | ----------------------------------------------------------------------------------- | ---------- | ------ |
 | 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)             | —          | ✅     |
 | 1   | [Database foundation](phase-01-database-foundation.md)                              | —          | ✅     |
-| 2   | [Crypto + config](phase-02-crypto-config.md)                                        | —          | ☐      |
+| 2   | [Crypto + config](phase-02-crypto-config.md)                                        | —          | ✅     |
 | 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                             | 1          | ☐      |
 | 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)    | 0, 1, 2, 3 | ☐      |
 | 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md) | 4          | ☐      |
@@ -60,11 +60,11 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 2 — Crypto + config
 
-- [ ] `internal/crypto/aesgcm.go` (AES-256-GCM with AAD)
-- [ ] `${ENV}` and `${ENV:-default}` substitution implemented in `internal/config/config.go`
-- [ ] New config sections: `database`, `security`, `oidc`, `oauth_proxy`
+- [x] `internal/crypto/aessiv.go` (AES-SIV / RFC 5297 via `github.com/jedisct1/go-aes-siv`, with AAD)
+- [x] `${ENV}` and `${ENV:-default}` substitution implemented in `internal/config/config.go`
+- [x] New config sections: `database`, `security`, `oauth_server`
 - [ ] Existing `upstreams` and `auth` config blocks removed
-- [ ] Unit tests: roundtrip, tamper detection, AAD mismatch detection, env-substitution variants
+- [x] Unit tests: roundtrip, tamper detection, AAD mismatch detection, env-substitution variants
 
 ### Phase 3 — Postgres Row-Level Security
 
