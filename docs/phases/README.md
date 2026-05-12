@@ -50,7 +50,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 1 — Database foundation
 
-- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/segmentio/ksuid` added to `go.mod`
+- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
 - [ ] `internal/ids/` exports `New(prefix)` / `Parse` / `MustParse` with prefix constants (`tnt_`, `usr_`, `ups_`, …)
 - [ ] `internal/storage/storage.go` (`Open(cfg)` opens Postgres pool with sane defaults)
 - [ ] `internal/storage/models.go` — `Base` struct (`ID`, `PublicID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`) embedded in every model; `Tenant` (with `ZitadelOrgID`), `User` (with `ZitadelSubject`, no password), `Upstream`, `UpstreamStrategyConfig`, `UpstreamRegistration`, `UpstreamLink`, `ZitadelApp`. Composite uniques are partial (`WHERE deleted_at IS NULL`). Invitations and portal sessions live in Zitadel (no Limen tables).
@@ -192,7 +192,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 ## Cross-cutting decisions
 
 - **Tenancy**: path prefix `/t/{slug}/...`; cookies path-scoped.
-- **IDs**: every entity has an internal `int64` PK (used for FKs and joins) plus a public KSUID with a Stripe-style type prefix (`tnt_`, `usr_`, `ups_`, `usc_`, `ureg_`, `ulnk_`, `zapp_`). Only the prefixed KSUID appears in APIs, URLs, the SPA, and operator logs. KSUIDs are time-sortable, so cursor pagination uses `WHERE public_id > $cursor`.
+- **IDs**: every entity has an internal `int64` PK (used for FKs and joins) plus a public ULID with a Stripe-style type prefix (`tnt_`, `usr_`, `ups_`, `usc_`, `ureg_`, `ulnk_`, `zapp_`). Only the prefixed ULID appears in APIs, URLs, the SPA, and operator logs. ULIDs are time-sortable at millisecond resolution (and monotonic within a process), so cursor pagination uses `WHERE public_id > $cursor`.
 - **Audit columns**: every table embeds `CreatedAt`, `UpdatedAt`, `DeletedAt` (`timestamptz`). `UpdatedAt` is maintained by a Postgres `BEFORE UPDATE` trigger; `DeletedAt` uses GORM's `gorm.DeletedAt` so soft-deleted rows are invisible by default and require `Unscoped()` to see. Composite uniques are partial (`WHERE deleted_at IS NULL`) so soft-deletes don't block re-creation.
 - **Identity**: Zitadel is the OIDC provider. Tenant ↔ Zitadel organization (1:1). No local passwords in Limen.
 - **DB**: GORM on PostgreSQL 18.2 with mandatory RLS + FORCE ROW LEVEL SECURITY + non-superuser app role. Dev and prod both run Postgres via Docker Compose.

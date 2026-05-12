@@ -8,12 +8,13 @@ read/write goes through. Postgres 18.2 is the only supported driver.
 
 ## File layout
 
-| File         | Purpose                                                                                              |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `storage.go` | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, pool tuning.                                        |
-| `models.go`  | Every persistent model. All models embed `Base`. Tenant-scoped models additionally embed `TenantID`. |
-| `migrate.go` | `Store.Migrate(ctx)` — the only consumer of `RawDB()`.                                               |
-| `tenant.go`  | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
+| File              | Purpose                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `storage.go`      | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, pool tuning.                                        |
+| `models.go`       | Every persistent model. All models embed `Base`. Tenant-scoped models additionally embed `TenantID`. |
+| `migrate.go`      | `Store.Migrate(ctx)` — the only consumer of `RawDB()`.                                               |
+| `tenant.go`       | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
+| `storage_test.go` | Phase 1 integration suite — testcontainers `postgres:18.2-alpine`. The `startPostgres(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
 
 `rls.go` is added in Phase 3 (Postgres row-level security policies + the
 `limen_admin` pool routing for superuser sessions).

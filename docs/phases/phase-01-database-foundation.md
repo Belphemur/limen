@@ -25,7 +25,7 @@ database:
 Every persistent entity has two identifiers:
 
 - **`ID` (`int64`, `bigint`)** — internal auto-increment primary key. Used for foreign keys, GORM relations, and indexes. Never exposed in API responses, URLs, logs, or the SPA. Small, fast on B-tree joins, and irreversible from outside.
-- **`PublicID` (`string`)** — [KSUID](https://github.com/segmentio/ksuid) with a Stripe-style type prefix. 27-char base62 body that is **lexicographically sortable by creation time**, prefixed with the entity type. This is the only ID that appears in Connect-RPC requests/responses, OAuth redirect URLs, the SPA, and operator-facing logs.
+- **`PublicID` (`string`)** — [ULID](https://github.com/oklog/ulid) with a Stripe-style type prefix. 26-char Crockford base32 body that is **lexicographically sortable by creation time at millisecond resolution**, prefixed with the entity type. `ulid.Make()` is monotonic within the same millisecond, so IDs minted back-to-back in a single process still sort in creation order. This is the only ID that appears in Connect-RPC requests/responses, OAuth redirect URLs, the SPA, and operator-facing logs.
 
 Type prefixes (final list lives in `internal/ids/prefixes.go`; never reuse or rename a prefix once shipped):
 
@@ -54,18 +54,18 @@ const (
     PrefixZitadelApp             Prefix = "zapp"
 )
 
-func New(p Prefix) string                       // "tnt_<27-char-ksuid>"
-func Parse(s string) (Prefix, ksuid.KSUID, error)
-func MustParse(p Prefix, s string) ksuid.KSUID  // verifies the prefix matches
+func New(p Prefix) string                       // "tnt_<26-char-ULID>"
+func Parse(s string) (Prefix, ulid.ULID, error)
+func MustParse(p Prefix, s string) (ulid.ULID, error)  // verifies the prefix matches
 ```
 
-KSUID generation runs in Go (`ksuid.New()`), so no server-side extension is needed. The internal `ID` comes from the database (`BIGSERIAL`).
+ULID generation runs in Go (`ulid.Make()`), so no server-side extension is needed. `ulid.Make` uses millisecond timestamps + monotonic entropy, so IDs minted in the same millisecond still sort in creation order. The internal `ID` comes from the database (`BIGSERIAL`).
 
 ### Indexes
 
 - `id bigint PRIMARY KEY` on every table (clustered index).
-- **Unique** index on `public_id` for every table — API handlers resolve rows by KSUID, never by internal ID.
-- KSUIDs are time-sorted, so range scans on `public_id` align with creation order. Cursor pagination is `WHERE public_id > $cursor ORDER BY public_id LIMIT n` — no separate `created_at` index needed.
+- **Unique** index on `public_id` for every table — API handlers resolve rows by ULID, never by internal ID.
+- ULIDs are time-sorted at millisecond resolution, so range scans on `public_id` align with creation order. Cursor pagination is `WHERE public_id > $cursor ORDER BY public_id LIMIT n` — no separate `created_at` index needed.
 - Composite indexes (kept from before): `(tenant_id, email)` unique on `User`, `(tenant_id, zitadel_subject)` unique on `User`, `(tenant_id, name)` unique on `Upstream`, `(tenant_id, user_id, upstream_id)` unique on `UpstreamLink`, `(tenant_id, zitadel_app_id)` unique on `ZitadelApp`.
 - RLS (Phase 3) keys off `tenant_id` (bigint), so a plain B-tree on `tenant_id` plus the composite uniques are sufficient.
 
@@ -193,10 +193,10 @@ internal/storage/
   - `internal/storage/migrate.go`
   - `internal/storage/tenant.go`
 - Modified files:
-  - `go.mod` / `go.sum` — add `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/segmentio/ksuid`.
+  - `go.mod` / `go.sum` — add `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2`.
   - `internal/config/config.go` — `DatabaseConfig` struct (Phase 2 finalizes the rest of the config surface; for Phase 1 we add just the database fields).
 - New files:
-  - `internal/ids/ids.go`, `internal/ids/prefixes.go` (KSUID + prefix helpers).
+  - `internal/ids/ids.go`, `internal/ids/prefixes.go` (ULID + prefix helpers).
 
 ## Security & operational notes
 
@@ -214,13 +214,13 @@ internal/storage/
 ## Risks
 
 - **GORM v2 quirks**: `AutoMigrate` won't drop columns or change types in destructive ways — we accept that and revisit with golang-migrate if/when schema changes get destructive.
-- **KSUID generation**: KSUIDs are generated in Go (`ksuid.New()`); no server-side extension needed. Verify that under high concurrency two `New()` calls in the same millisecond do not produce the same value (the library's per-instance counter guarantees uniqueness, but it's worth a smoke test).
+- **ULID generation**: ULIDs are generated in Go (`ulid.Make()`); no server-side extension needed. `ulid.Make` uses a default monotonic entropy source so two calls in the same millisecond emit strictly increasing values. Worth a smoke test to confirm uniqueness under high concurrency.
 - **Encrypted column types**: stored as `bytea`; verify GORM struct tags emit the right DDL.
 - **Internal `ID` leakage**: any handler that accidentally serializes the bigint `ID` instead of `PublicID` is a privacy/enumeration footgun. A lint pass (or a `MarshalJSON` that hides `ID`) should catch this; document the convention prominently.
 
 ## Checklist
 
-- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/segmentio/ksuid` added to `go.mod`
+- [ ] `gorm.io/gorm`, `gorm.io/driver/postgres`, `github.com/oklog/ulid/v2` added to `go.mod`
 - [ ] `internal/ids/ids.go` exports `New(prefix)`, `Parse`, `MustParse`; prefix list in `internal/ids/prefixes.go`
 - [ ] `internal/storage/storage.go` exports `Open(cfg)` with Postgres pool tuning
 - [ ] `internal/storage/models.go` defines `Base` (`ID int64`, `PublicID string`, `CreatedAt`, `UpdatedAt`, `DeletedAt gorm.DeletedAt`) and embeds it in every model
@@ -232,7 +232,7 @@ internal/storage/
 - [ ] `internal/storage/tenant.go` exports `WithTenant`, `TenantFromCtx`, `Session`, `WithSuperuser`, `RawDB`
 - [ ] `DatabaseConfig` added to `internal/config/config.go`
 - [ ] Integration tests cover CRUD for every model against a `postgres:18.2-alpine` testcontainer, asserting `PublicID` round-trips and has the expected prefix
-- [ ] Test verifies KSUID lexicographic ordering matches insertion order
+- [ ] Test verifies ULID lexicographic ordering matches insertion order
 - [ ] Test verifies soft-deleted rows are invisible to default queries and visible under `Unscoped()`
 - [ ] Test verifies a soft-deleted row does not block re-insertion of a new row with the same logical key (partial-unique-index behavior)
 - [ ] Test verifies `Session(ctx)` scopes queries to the tenant in ctx

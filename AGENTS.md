@@ -71,7 +71,7 @@ Conventions:
   `make fmt`, `make test`). Add a target rather than a bespoke script.
 - `golangci-lint` config lives in `.golangci.yml`. Do not disable lints
   ad-hoc — either fix the issue, add a targeted `//nolint:<linter> //
-  <reason>` directive, or amend the shared config with a brief justification
+<reason>` directive, or amend the shared config with a brief justification
   in the PR description.
 - Never commit code that does not compile, fails `go vet`, or has unstaged
   `gofmt` diffs.
@@ -80,12 +80,12 @@ Conventions:
 
 ### Go Naming Conventions
 
-| Item | Convention | Example |
-|------|-----------|---------|
-| Exported types/functions | PascalCase | `Gateway`, `NewMCPServer` |
-| Unexported functions/fields | camelCase | `extractBearerToken`, `handleSearch` |
-| Constructors | `New<Type>` | `NewGateway`, `NewCodeModeHandler` |
-| Config keys / tool names | snake_case | `github_token`, `search_issues` |
+| Item                        | Convention  | Example                              |
+| --------------------------- | ----------- | ------------------------------------ |
+| Exported types/functions    | PascalCase  | `Gateway`, `NewMCPServer`            |
+| Unexported functions/fields | camelCase   | `extractBearerToken`, `handleSearch` |
+| Constructors                | `New<Type>` | `NewGateway`, `NewCodeModeHandler`   |
+| Config keys / tool names    | snake_case  | `github_token`, `search_issues`      |
 
 ### Error Handling
 
@@ -107,13 +107,68 @@ Conventions:
 
 ## Testing
 
-No tests exist yet. When adding tests:
+We test against real Postgres (no mocks for the storage layer) and mock
+upstreams for the gateway. The Phase 1 integration suite lives in
+[internal/storage/storage_test.go](internal/storage/storage_test.go) and is
+the reference shape for any new DB-backed test.
 
-- Place test files alongside source (`*_test.go` in the same package)
+### Layout
+
+- Test files live alongside the source they cover (`foo.go` ↔ `foo_test.go`),
+  in the same package by default. Use the `_test` package suffix when you
+  want to exercise only the public API (`storage_test` vs `storage`).
+- Helpers shared across tests in a single package go in `*_test.go` files —
+  do **not** export test helpers from production packages.
+
+### Integration tests with real Postgres
+
+- Use [`testcontainers-go`](https://github.com/testcontainers/testcontainers-go)
+  with the **`postgres:18.2-alpine`** image — the same version Phase 0 / 11
+  run. Do not pin a different minor version per-test.
+- Each test starts a fresh container via the shared `startPostgres(t)` helper
+  in `internal/storage/storage_test.go` (or an analogous helper in other
+  packages). One container per test keeps tests independent at the cost of
+  ~1–2 seconds each — acceptable for the safety it buys.
+- Requires Docker on the host. CI must expose `/var/run/docker.sock` to the
+  test runner.
+- Long-running suites: don't disable them; mark them with `testing.Short()`
+  guards if they grow beyond a few seconds each and exclude them under
+  `go test -short`.
+
+### Unit tests
+
 - Use table-driven tests for functions with multiple input cases
-- Mock upstream MCP clients rather than hitting real servers
-- Test the Goja sandbox boundary (what's accessible, what's blocked)
-- Run `go test ./...` before committing
+  (`tests := []struct{...}{...}` + `for _, tt := range tests { t.Run(... }`).
+- Mock upstream MCP clients rather than hitting real servers.
+- For the Goja sandbox, write assertions about what is *not* reachable —
+  `os`, `process`, `fetch`, `eval`, filesystem helpers — as well as what is.
+
+### Assertions
+
+- Prefer the standard library (`t.Errorf`, `t.Fatalf`, `errors.Is`) — no
+  third-party assertion frameworks.
+- Test names: `TestSubject_Behavior` (e.g. `TestSoftDelete_DoesNotBlockReinsert`).
+  The underscore separator makes `go test -run` patterns easy.
+
+### Watch out for
+
+- **`SET LOCAL` with placeholders** does not work in Postgres — use
+  `set_config(name, value, true)` instead. (Bit us in Phase 1.)
+- **ULID ordering invariant**: `ulid.Make` is monotonic *within a single
+  process*. Two processes minting IDs in the same millisecond can produce
+  IDs that interleave on the global timeline — fine for cursor pagination,
+  but don't assert strict cross-process ordering in tests.
+- **Container start cost** dominates fast tests — keep the per-test logic
+  small once you've paid for the container.
+
+### Running
+
+```bash
+go test ./...                       # everything
+go test ./internal/storage/...      # one package
+go test -run TestMigrate ./...      # one test
+go test -race ./...                 # race detector — run before pushing
+```
 
 ## Security
 
@@ -139,6 +194,7 @@ type(scope): description
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 Examples:
+
 - `feat(gateway): aggregate upstream tool list on startup`
 - `fix(auth): validate JWT issuer claim`
 - `docs: add AGENTS.md with project conventions`
