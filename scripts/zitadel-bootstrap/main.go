@@ -7,7 +7,6 @@ package main
 //
 // Auth: a Zitadel PAT (Personal Access Token) printed once by Zitadel on
 // first init. We expect the file at ZITADEL_PAT_FILE.
-package main
 
 import (
 	"bytes"
