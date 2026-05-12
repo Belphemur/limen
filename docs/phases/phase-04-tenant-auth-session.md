@@ -89,6 +89,20 @@ Implementation note: `state` is an HMAC-signed bundle of `(nonce, slug, return_t
 
 ### `internal/auth/session.go` — portal session (Zitadel-backed)
 
+#### Why a cookie at all?
+
+Zitadel owns the authoritative session — issuance, MFA state, idle/absolute timeouts, revocation. The cookie Limen sets is **not a parallel session store**; it is the browser's pointer to "which Zitadel session am I." HTTP is stateless, so every request to `limen.example.com` has to carry *something* identifying the user, and Zitadel's own session cookie is scoped to `auth.limen.example.com` and opaque to relying parties — the browser will never send it to Limen and Limen could not look it up if it did. So Limen issues its own cookie.
+
+We picked an `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` cookie carrying an encrypted reference to the Zitadel session over the alternative — a bearer token held in SPA memory or storage — for three reasons:
+
+1. **XSS posture.** `HttpOnly` keeps the credential unreachable from JavaScript. A bearer-in-storage approach exposes both access and refresh tokens to any XSS that lands on the SPA.
+2. **BFF fit.** Limen is already a backend-for-frontend: it fans out to upstream MCPs with credentials those MCPs gave us, and never hands those credentials to the browser. The cookie-BFF pattern is the recommended browser-app shape in the OAuth WG's *OAuth 2.0 for Browser-Based Apps* draft for exactly this case.
+3. **Cross-tenant isolation.** `Path=/t/<slug>` means a browser carrying tenant A's session physically cannot send it on a request to tenant B, even on the same domain. A bearer in JS would have no equivalent — the SPA could accidentally attach it to any URL.
+
+The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: every gated request decrypts the cookie and asks Zitadel `GetSession` (with a short positive cache, see below).
+
+#### Mechanics
+
 Limen does **not** persist its own session state. It delegates to Zitadel's [SessionService v2](https://zitadel.com/docs/reference/api/session/zitadel.session.v2.SessionService.CreateSession):
 
 - **Issuance**: on a successful OIDC callback, call `SessionService.CreateSession` with the authenticated user (`checks.user.userId = <zitadel sub>`). Zitadel returns `(sessionId, sessionToken)` and its own `expirationDate` (configured at the Zitadel instance/project level).
