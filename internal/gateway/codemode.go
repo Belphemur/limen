@@ -11,9 +11,9 @@ import (
 )
 
 type CodeModeHandler struct {
-	gateway  *Gateway
-	logger   *zap.Logger
-	timeout  time.Duration
+	gateway *Gateway
+	logger  *zap.Logger
+	timeout time.Duration
 }
 
 func NewCodeModeHandler(gw *Gateway, logger *zap.Logger, timeout time.Duration) *CodeModeHandler {
@@ -25,12 +25,12 @@ func NewCodeModeHandler(gw *Gateway, logger *zap.Logger, timeout time.Duration) 
 }
 
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
 }
 
-func (h *CodeModeHandler) Search(ctx context.Context, code string) (interface{}, error) {
+func (h *CodeModeHandler) Search(ctx context.Context, code string) (any, error) {
 	vm := goja.New()
 
 	tools := h.gateway.AllTools()
@@ -60,16 +60,15 @@ func (h *CodeModeHandler) Search(ctx context.Context, code string) (interface{},
 	return h.runCode(ctx, vm, code)
 }
 
-func (h *CodeModeHandler) Execute(ctx context.Context, code string) (interface{}, error) {
+func (h *CodeModeHandler) Execute(ctx context.Context, code string) (any, error) {
 	vm := goja.New()
 
 	tools := h.gateway.AllTools()
 	proxy := vm.NewObject()
 
 	for _, tool := range tools {
-		tool := tool
 		proxy.Set(tool.Name, func(call goja.FunctionCall) goja.Value {
-			var args map[string]interface{}
+			var args map[string]any
 			if len(call.Arguments) > 0 {
 				exported := call.Argument(0).Export()
 				b, _ := json.Marshal(exported)
@@ -100,7 +99,7 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (interface{}
 	})
 	codemode.Set("call", func(call goja.FunctionCall) goja.Value {
 		name := call.Argument(0).String()
-		var args map[string]interface{}
+		var args map[string]any
 		if len(call.Arguments) > 1 {
 			exported := call.Argument(1).Export()
 			b, _ := json.Marshal(exported)
@@ -126,8 +125,8 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (interface{}
 	return h.runCode(ctx, vm, code)
 }
 
-func (h *CodeModeHandler) runCode(ctx context.Context, vm *goja.Runtime, code string) (interface{}, error) {
-	resultCh := make(chan interface{}, 1)
+func (h *CodeModeHandler) runCode(ctx context.Context, vm *goja.Runtime, code string) (any, error) {
+	resultCh := make(chan any, 1)
 	errCh := make(chan error, 1)
 
 	go func() {

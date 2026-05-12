@@ -10,3 +10,8 @@ limen
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets / local state
+.env
+scripts/zitadel-bootstrap/.pat/
+scripts/zitadel-bootstrap/.bootstrap-out.env

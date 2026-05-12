@@ -15,10 +15,10 @@ import (
 )
 
 type MCPServer struct {
-	gateway  *gateway.Gateway
-	handler  *gateway.CodeModeHandler
-	logger   *zap.Logger
-	server   *server.MCPServer
+	gateway *gateway.Gateway
+	handler *gateway.CodeModeHandler
+	logger  *zap.Logger
+	server  *server.MCPServer
 }
 
 func NewMCPServer(gw *gateway.Gateway, handler *gateway.CodeModeHandler, logger *zap.Logger) *MCPServer {
@@ -30,7 +30,7 @@ func NewMCPServer(gw *gateway.Gateway, handler *gateway.CodeModeHandler, logger 
 }
 
 func (s *MCPServer) Start(ctx context.Context, addr string) error {
-		s.server = server.NewMCPServer(
+	s.server = server.NewMCPServer(
 		"limen",
 		"0.1.0",
 		server.WithToolCapabilities(true),
@@ -195,7 +195,7 @@ func errorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
-func successResult(data interface{}) *mcp.CallToolResult {
+func successResult(data any) *mcp.CallToolResult {
 	jsonBytes, _ := json.Marshal(data)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{

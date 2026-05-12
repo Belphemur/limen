@@ -69,12 +69,12 @@ type contextKey string
 
 const claimsKey contextKey = "auth_claims"
 
-func SetClaims(ctx context.Context, claims map[string]interface{}) context.Context {
+func SetClaims(ctx context.Context, claims map[string]any) context.Context {
 	return context.WithValue(ctx, claimsKey, claims)
 }
 
-func GetClaims(ctx context.Context) map[string]interface{} {
-	if claims, ok := ctx.Value(claimsKey).(map[string]interface{}); ok {
+func GetClaims(ctx context.Context) map[string]any {
+	if claims, ok := ctx.Value(claimsKey).(map[string]any); ok {
 		return claims
 	}
 	return nil

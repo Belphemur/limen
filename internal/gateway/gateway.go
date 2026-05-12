@@ -9,15 +9,15 @@ import (
 )
 
 type ToolEntry struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
-	Upstream    string                 `json:"upstream"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+	Upstream    string         `json:"upstream"`
 }
 
 type UpstreamClient interface {
 	ListTools(ctx context.Context) ([]ToolEntry, error)
-	CallTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error)
+	CallTool(ctx context.Context, name string, args map[string]any) (any, error)
 	Close() error
 	Name() string
 }
@@ -106,7 +106,7 @@ func (g *Gateway) FindTool(name string) (ToolEntry, bool) {
 	return val.(ToolEntry), true
 }
 
-func (g *Gateway) CallTool(ctx context.Context, upstreamName, toolName string, args map[string]interface{}) (interface{}, error) {
+func (g *Gateway) CallTool(ctx context.Context, upstreamName, toolName string, args map[string]any) (any, error) {
 	g.mu.RLock()
 	client, exists := g.upstreams[upstreamName]
 	g.mu.RUnlock()

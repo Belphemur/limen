@@ -78,7 +78,7 @@ func (u *MCPUpstreamClient) ListTools(ctx context.Context) ([]ToolEntry, error) 
 
 	tools := make([]ToolEntry, 0, len(resp.Tools))
 	for _, t := range resp.Tools {
-		inputSchema := make(map[string]interface{})
+		inputSchema := make(map[string]any)
 		if schemaBytes, err := json.Marshal(t.InputSchema); err == nil {
 			json.Unmarshal(schemaBytes, &inputSchema)
 		}
@@ -94,7 +94,7 @@ func (u *MCPUpstreamClient) ListTools(ctx context.Context) ([]ToolEntry, error) 
 	return tools, nil
 }
 
-func (u *MCPUpstreamClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error) {
+func (u *MCPUpstreamClient) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
 	if u.client == nil {
 		return nil, fmt.Errorf("upstream %s not connected", u.name)
 	}
