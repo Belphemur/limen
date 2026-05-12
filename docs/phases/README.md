@@ -21,7 +21,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)             | —          | ✅     |
 | 1   | [Database foundation](phase-01-database-foundation.md)                              | —          | ✅     |
 | 2   | [Crypto + config](phase-02-crypto-config.md)                                        | —          | ✅     |
-| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                             | 1          | ☐      |
+| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                             | 1          | ✅     |
 | 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)    | 0, 1, 2, 3 | ☐      |
 | 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md) | 4          | ☐      |
 | 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                         | 5          | ☐      |
@@ -68,13 +68,13 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 3 — Postgres Row-Level Security
 
-- [ ] Migration script enables `ROW LEVEL SECURITY` + `FORCE` on all tenant-scoped tables
-- [ ] `CREATE POLICY tenant_isolation` with `USING` and `WITH CHECK` on every tenant-scoped table
-- [ ] `migrations/postgres/0002_audit_triggers.sql` installs the `set_updated_at()` BEFORE-UPDATE trigger on every Limen-owned table (including `Tenant`)
-- [ ] `limen_app` runtime role + `limen_admin` `BYPASSRLS` role created and granted appropriately
-- [ ] `internal/storage/rls.go` wires `SET LOCAL app.current_tenant` into every `Session(ctx)` (Postgres path)
-- [ ] Tests against `postgres:18.2-alpine` prove cross-tenant `SELECT`/`INSERT` are blocked
-- [ ] Test proves `db.Unscoped().Find(...)` inside a tenant session returns 0 rows
+- [x] Migration script enables `ROW LEVEL SECURITY` + `FORCE` on all tenant-scoped tables
+- [x] `CREATE POLICY tenant_isolation` with `USING` and `WITH CHECK` on every tenant-scoped table
+- [x] `migrations/postgres/0002_audit_triggers.sql` installs the `set_updated_at()` BEFORE-UPDATE trigger on every Limen-owned table (including `Tenant`)
+- [x] `limen_app` runtime role + `limen_admin` `BYPASSRLS` role created and granted appropriately
+- [x] `internal/storage/rls.go` wires `SET LOCAL app.current_tenant` into every `Session(ctx)` (Postgres path)
+- [x] Tests against `postgres:18.2-alpine` prove cross-tenant `SELECT`/`INSERT` are blocked
+- [x] Test proves `db.Unscoped().Find(...)` inside a tenant session returns 0 rows
 
 ### Phase 4 — Tenant resolution, OIDC login, portal session
 

@@ -100,12 +100,15 @@ Two pools (`appDB`, `adminDB`) each with their own `max_open_conns`. Default siz
 ## Deliverables
 
 - New files:
-  - `internal/storage/rls.go`
-  - `migrations/postgres/0001_rls.sql` (or equivalent embedded asset)
-  - `migrations/postgres/0002_audit_triggers.sql` (the `set_updated_at` trigger applied to every Limen-owned table)
+  - `internal/storage/migrations/postgres/0001_rls.sql` (embedded via `embed.FS`)
+  - `internal/storage/migrations/postgres/0002_audit_triggers.sql` (embedded)
+  - `scripts/postgres-init/limen-roles.sql` (dev-only role provisioning, mounted into the postgres init.d directory by `compose.dev.yaml`)
+  - `internal/storage/rls_test.go` (RLS verification suite)
 - Modified files:
-  - `internal/storage/storage.go` — open two pools, expose `appDB` / `adminDB`.
+  - `internal/storage/storage.go` — opens two pools (`appDB`, `adminDB`); `RawDB()` now returns the admin handle.
+  - `internal/storage/migrate.go` — embeds and runs the SQL migrations under the admin pool after `AutoMigrate`.
   - `internal/storage/tenant.go` — `Session(ctx)` routes by ctx marker; `WithSuperuser(ctx)` selects `adminDB`.
+  - `internal/config/config.go` — `DatabaseConfig.AdminDSN` added (optional, falls back to `DSN`).
 - Runbook section (added in Phase 10) describing how to provision the two roles in operator infrastructure.
 
 ## Security & operational notes
@@ -137,18 +140,18 @@ Two pools (`appDB`, `adminDB`) each with their own `max_open_conns`. Default siz
 
 ## Checklist
 
-- [ ] `migrations/postgres/0001_rls.sql` enables and forces RLS on every tenant-scoped table
-- [ ] Same migration installs `CREATE POLICY tenant_isolation` (`USING` + `WITH CHECK`) on each
-- [ ] Migration uses `current_setting('app.current_tenant', true)::bigint` (NULL-safe form)
-- [ ] Migration is idempotent (`IF NOT EXISTS` / catalog probes)
-- [ ] `migrations/postgres/0002_audit_triggers.sql` defines `set_updated_at()` and installs the trigger on every Limen-owned table (including `Tenant`)
-- [ ] Integration test asserts `updated_at` advances after a raw `psql` `UPDATE` (i.e. the trigger fires independently of GORM)
-- [ ] Integration test asserts a soft-delete `UPDATE ... SET deleted_at = ...` also bumps `updated_at`
-- [ ] `internal/storage/rls.go` runs the migrations via `adminDB`
-- [ ] `internal/storage/storage.go` opens both `appDB` and `adminDB` pools
-- [ ] `Session(ctx)` opens a tx and `SET LOCAL app.current_tenant` on Postgres path
-- [ ] `WithSuperuser(ctx)` routes to `adminDB` and skips the `SET LOCAL`
-- [ ] `Session(ctx)` rejects calls with no tenant and no superuser marker (defensive error)
-- [ ] Integration test against Postgres covers all the bullet points in **Verification** above
+- [x] `migrations/postgres/0001_rls.sql` enables and forces RLS on every tenant-scoped table
+- [x] Same migration installs `CREATE POLICY tenant_isolation` (`USING` + `WITH CHECK`) on each
+- [x] Migration uses `current_setting('app.current_tenant', true)::bigint` (NULL-safe form)
+- [x] Migration is idempotent (`IF NOT EXISTS` / catalog probes)
+- [x] `migrations/postgres/0002_audit_triggers.sql` defines `set_updated_at()` and installs the trigger on every Limen-owned table (including `Tenant`)
+- [x] Integration test asserts `updated_at` advances after a raw `psql` `UPDATE` (i.e. the trigger fires independently of GORM)
+- [x] Integration test asserts a soft-delete `UPDATE ... SET deleted_at = ...` also bumps `updated_at`
+- [x] `internal/storage/migrate.go` runs the embedded SQL migrations via the admin pool
+- [x] `internal/storage/storage.go` opens both `appDB` and `adminDB` pools
+- [x] `Session(ctx)` opens a tx and `SET LOCAL app.current_tenant` on Postgres path
+- [x] `WithSuperuser(ctx)` routes to `adminDB` and skips the `SET LOCAL`
+- [x] `Session(ctx)` rejects calls with no tenant and no superuser marker (defensive error)
+- [x] Integration test against Postgres covers all the bullet points in **Verification** above
 - [ ] Runbook draft (will be folded into Phase 10) documents role provisioning
 - [ ] Audit: every `WithSuperuser` call site is justified and annotated

@@ -10,14 +10,15 @@ read/write goes through. Postgres 18.2 is the only supported driver.
 
 | File              | Purpose                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `storage.go`      | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, pool tuning.                                        |
+| `storage.go`      | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, dual-pool wiring.                                   |
 | `models.go`       | Every persistent model. All models embed `Base`. Tenant-scoped models additionally embed `TenantID`. |
-| `migrate.go`      | `Store.Migrate(ctx)` — the only consumer of `RawDB()`.                                               |
+| `migrate.go`      | `Store.Migrate(ctx)` — runs `AutoMigrate` then the embedded SQL migrations under the admin pool.     |
 | `tenant.go`       | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
-| `storage_test.go` | Phase 1 integration suite — testcontainers `postgres:18.2-alpine`. The `startPostgres(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
+| `migrations/postgres/*.sql` | Embedded SQL migrations: `0001_rls.sql` (RLS policies + grants) and `0002_audit_triggers.sql` (`set_updated_at`). |
+| `storage_test.go` / `rls_test.go` | Phase 1 + Phase 3 integration suites — testcontainers `postgres:18.2-alpine`. The `startPostgres(t)` / `provisionRoles(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
 
-`rls.go` is added in Phase 3 (Postgres row-level security policies + the
-`limen_admin` pool routing for superuser sessions).
+Phase 3 is fully landed: the admin pool, RLS policies, the `set_updated_at`
+trigger, and the dual-DSN config (`DSN` / `AdminDSN`) are all in place.
 
 ## The `Session(ctx)` contract
 
@@ -28,20 +29,22 @@ defer commit() // idempotent
 // db is a *gorm.DB inside a transaction with app.current_tenant set
 ```
 
-- Opens a transaction.
-- Runs `SET LOCAL app.current_tenant = <tenant_id>` so RLS policies (Phase 3)
-  see the tenant.
+- Opens a transaction on the **app pool** (`limen_app`).
+- Runs `set_config('app.current_tenant', <tenant_id>, true)` so the
+  `tenant_isolation` RLS policies see the tenant.
 - Returns `ErrNoTenant` when ctx has no tenant and is not flagged superuser.
 - `commit()` commits on success, rolls back if `tx.Error` is set, and is
   safe to call multiple times.
+- `WithSuperuser(ctx)` reroutes to the **admin pool** (`limen_admin`,
+  `BYPASSRLS`) and skips the tenant pin.
 
 ## Escape hatches (both intentional and conspicuous)
 
-| Hatch           | When                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `RawDB()`       | Migrations and admin tooling only. Never on the request path.                                                      |
-| `WithSuperuser` | Cross-tenant refreshers and admin migrations. Skips the tenant pin and (Phase 3) routes to the `limen_admin` pool. |
-| `Unscoped()`    | Hard deletes / restoring soft-deleted rows. Always pair with audit logging.                                        |
+| Hatch           | When                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `RawDB()`       | Migrations and admin tooling only. Returns the **admin** pool. Never on the request path.           |
+| `WithSuperuser` | Cross-tenant refreshers and admin migrations. Routes to the admin pool and skips the tenant pin.    |
+| `Unscoped()`    | Hard deletes / restoring soft-deleted rows. Always pair with audit logging. Inside a tenant `Session`, RLS still filters — `Unscoped` only disables GORM's soft-delete clause. |
 
 ## Models — invariants
 
@@ -67,9 +70,6 @@ defer commit() // idempotent
 
 ## When to extend
 
-- **Phase 3** adds `rls.go` + `migrations/postgres/*.sql` (RLS policies, the
-  `set_updated_at` trigger, `limen_app` / `limen_admin` roles). `Session`
-  becomes the actual enforcement boundary; no call site changes.
 - **Phase 7** introduces the cross-tenant token refresher — the canonical
   legitimate user of `WithSuperuser`.
 
