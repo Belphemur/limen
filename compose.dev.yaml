@@ -1,0 +1,104 @@
+name: limen-dev
+
+services:
+  postgres:
+    image: postgres:18.2-alpine
+    environment:
+      POSTGRES_USER: limen
+      POSTGRES_PASSWORD: limen_dev
+      POSTGRES_DB: limen
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "limen"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - max_connections=100
+
+  postgres-zitadel:
+    image: postgres:18.2-alpine
+    environment:
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: zitadel_dev
+      POSTGRES_DB: zitadel
+    volumes:
+      - pg-zitadel-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "zitadel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  zitadel:
+    # Pin to a specific tag once the team standardizes.
+    image: ghcr.io/zitadel/zitadel:v2.71.0
+    restart: unless-stopped
+    command: >
+      start-from-init
+      --masterkey "MasterkeyNeedsToHave32Characters"
+      --tls-mode disabled
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel_dev
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: zitadel_dev
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALDOMAIN: "localhost"
+      ZITADEL_EXTERNALPORT: "8081"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: "root"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "RootPassword1!"
+      ZITADEL_FIRSTINSTANCE_PATPATH: "/pat/zitadel-admin-sa.pat"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: "zitadel-admin-sa"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: "Admin"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES: "openid"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./scripts/zitadel-bootstrap/.pat:/pat
+    depends_on:
+      postgres-zitadel:
+        condition: service_healthy
+
+  zitadel-bootstrap:
+    image: golang:1.26-alpine
+    profiles: ["bootstrap"]
+    depends_on:
+      zitadel:
+        condition: service_started
+    volumes:
+      - ./scripts/zitadel-bootstrap:/work
+      - go-mod-cache:/go/pkg/mod
+    working_dir: /work
+    command: ["go", "run", "."]
+    environment:
+      ZITADEL_API: "http://zitadel:8080"
+      ZITADEL_PAT_FILE: "/work/.pat/zitadel-admin-sa.pat"
+      LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
+      LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
+      LIMEN_SAMPLE_TENANT_SLUG: "acme"
+      LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  pg-data:
+  pg-zitadel-data:
+  go-mod-cache:
