@@ -12,9 +12,9 @@ read/write goes through. Postgres 18.2 is the only supported driver.
 | ----------------- | ---------------------------------------------------------------------------------------------------- |
 | `storage.go`      | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, dual-pool wiring.                                   |
 | `models.go`       | Every persistent model. All models embed `Base`. Tenant-scoped models additionally embed `TenantID`. |
-| `migrate.go`      | `Store.Migrate(ctx)` — runs `AutoMigrate` then the embedded SQL migrations under the admin pool.     |
+| `migrate.go`      | `Store.Migrate(ctx)` — runs `AutoMigrate` then goose-managed SQL migrations under the admin pool.    |
 | `tenant.go`       | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
-| `migrations/postgres/*.sql` | Embedded SQL migrations: `0001_rls.sql` (RLS policies + grants) and `0002_audit_triggers.sql` (`set_updated_at`). |
+| `migrations/postgres/*.sql` | Embedded goose migrations (annotated `-- +goose Up` / `Down`): `00001_rls.sql` and `00002_audit_triggers.sql`. Add new ones following [`MIGRATIONS.md`](MIGRATIONS.md). |
 | `storage_test.go` / `rls_test.go` | Phase 1 + Phase 3 integration suites — testcontainers `postgres:18.2-alpine`. The `startPostgres(t)` / `provisionRoles(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
 
 Phase 3 is fully landed: the admin pool, RLS policies, the `set_updated_at`
@@ -64,8 +64,10 @@ defer commit() // idempotent
 2. Define the model in `models.go`, embedding `Base`. Add `TenantID` and
    `Tenant *Tenant` if tenant-scoped.
 3. Implement `BeforeCreate` calling `ids.New(<prefix>)`.
-4. Append the model to `AllModels()` so `Migrate` picks it up.
-5. Add an integration test asserting round-trip CRUD, prefix correctness, and
+4. Append the model to `AllModels()` so `AutoMigrate` picks it up.
+5. If the model is **tenant-scoped** or needs a trigger / partial index /
+   data backfill, add a goose migration — see [`MIGRATIONS.md`](MIGRATIONS.md).
+6. Add an integration test asserting round-trip CRUD, prefix correctness, and
    soft-delete behavior (see the Phase 1 checklist).
 
 ## When to extend
