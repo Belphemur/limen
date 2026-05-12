@@ -6,9 +6,14 @@ server:
   base_url: "${LIMEN_BASE_URL:-https://limen.example.com}"
 
 database:
-  # Postgres connection string. The runtime role should be limen_app
-  # (no BYPASSRLS); migrations run as limen_admin.
+  # Postgres connection string for the request-path pool. Should authenticate
+  # as limen_app (no BYPASSRLS) so the Phase 3 row-level-security policies
+  # actually fire.
   dsn: "${LIMEN_DB_DSN}"
+  # Postgres connection string for the migration / WithSuperuser pool. Should
+  # authenticate as limen_admin (BYPASSRLS). Falls back to dsn when empty —
+  # only acceptable in dev / single-role setups.
+  admin_dsn: "${LIMEN_DB_ADMIN_DSN:-}"
   max_open_conns: 25
   max_idle_conns: 5
   conn_max_lifetime: "1h"
