@@ -9,7 +9,9 @@ Ship the operator/user-facing web portal: a Vue 3 + Vite SPA served from the bin
 
 Password management, MFA, and email verification all live in Zitadel's hosted UI — the portal links out to it rather than reimplementing it.
 
-The SPA is **embedded** in the binary via `embed.FS`. There is no separate static-asset server, no Node runtime in production, no Docker volume mount required.
+The SPA is **not** embedded in the Go binary. It is built to a static `web/dist/` directory and served by whatever static host the deployment picked — Caddy `file_server` for self-hosted Compose, or Cloudflare Pages for managed deployments. Limen ships only the JSON/Connect-RPC API plus the OIDC, OAuth-proxy, MCP, and upstream-connect routes; it has no HTML responsibility.
+
+The SPA and the Limen API are served from the **same origin** in v1 (e.g. both under `https://limen.example.com`). That preserves the `Path=/t/<slug>; SameSite=Lax` portal-cookie isolation set up in [Phase 4](phase-04-tenant-auth-session.md) without CORS preflight or `SameSite=None` complications. Splitting the SPA onto a different origin is possible but explicitly out of scope for v1 — it requires CORS-with-credentials plus `SameSite=None; Secure` cookies and is called out under [Risks](#risks).
 
 ## Design
 
@@ -198,12 +200,15 @@ Login is delegated entirely to Zitadel via OIDC (Phase 4). The SPA's role is min
 
 No credentials ever traverse Limen. The SPA never sees a password input.
 
-### Build & embed
+### Build & deploy
 
-- `pnpm install && pnpm build` in `web/` outputs to `web/dist/`.
-- Go side embeds via `//go:embed web/dist/*` in a small `internal/portal/spa.go`.
-- A handler serves the SPA: any GET under `/t/{tenant}/portal/` that doesn't match an API or static-asset route returns `index.html` (SPA fallback). Asset paths like `/portal/assets/*` are served directly with cache headers.
-- The `index.html` is rewritten on-the-fly to inject `<base href="/t/{tenant}/portal/">` so the SPA's relative imports resolve correctly. (Alternative: build with a `BASE_URL` placeholder and substitute at request time.)
+- `pnpm install && pnpm build` in `web/` outputs to `web/dist/`. That directory is the entire deliverable — a tree of hashed JS/CSS/asset files plus `index.html`.
+- **Self-hosted (Caddy `file_server`)**: the production reverse proxy mounts `web/dist/` and serves any path not matched by the Limen route rules from it, with `try_files {path} /index.html` so the SPA's client-side router handles deep links. Configured in [Phase 11](phase-11-production-deployment.md).
+- **Managed (Cloudflare Pages)**: push the same `web/dist/` to a Pages project (`wrangler pages deploy`); Caddy reverse-proxies non-API paths to the Pages origin via a `reverse_proxy` block scoped to the SPA URL prefixes. CI builds and deploys; the Go side is unchanged.
+- **No `//go:embed`, no `internal/portal/spa.go`, no SPA fallback handler.** The Go HTTP router only knows about `/t/{slug}/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, and `/t/{slug}/upstream/*`.
+- **Base path**: Vite is built with `base: "./"` so the bundle works regardless of where it's mounted. At runtime, the SPA reads `window.location.pathname` to discover the `/t/<slug>/portal/` prefix and feeds it to Vue Router as `createWebHistory(<basePath>)`. Same trick lets a single build serve every tenant.
+- **CSP**: set by the static host, not Limen. Recommended policy: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'` — documented in the Caddyfile / Pages headers file. The Zitadel origin is added to `connect-src` for the redirect handshake.
+- **Caching**: `Cache-Control: no-store` on `index.html`; long-cache (`public, max-age=31536000, immutable`) on the hashed assets — standard Vite output.
 
 ### Build orchestration
 
@@ -229,11 +234,11 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 ## Deliverables
 
 - New `proto/limen/portal/v1/portal.proto` plus `buf.yaml`, `buf.gen.yaml`.
-- New `internal/portal/` package with interceptors, service handlers, embed glue.
-- New `web/` directory with the Vue 3 SPA.
-- Updated `internal/transport/http.go` to mount `/t/{tenant}/api/...` and `/t/{tenant}/portal/...`.
+- New `internal/portal/` package with interceptors and service handlers (no SPA / embed glue).
+- New `web/` directory with the Vue 3 SPA, producing `web/dist/` as the deployable artifact.
+- Updated `internal/transport/http.go` to mount only `/t/{tenant}/api/...` for the portal API; HTML serving lives in the reverse proxy / Pages.
+- Caddyfile (for self-hosted) or Pages `_headers` + `_redirects` (for managed) entries documented in [Phase 11](phase-11-production-deployment.md).
 - Updated `AGENTS.md` build section (Phase 10).
-- `web/dist/.gitkeep` (or `.gitignore` of `web/dist/`, with CI building it).
 
 ## Security & operational notes
 
@@ -242,23 +247,26 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - **Owner-protected operations** (`UpdateMemberRole`, `RemoveMember`, `TransferOwnership`) call Zitadel to list current user grants in the tenant org, then refuse the change if it would leave zero `owner` grants. Limen never trusts its DB for this — Zitadel is the source of truth.
 - **MCP client revocation** calls Zitadel's Management API to delete the OIDC app, then removes the Limen `ZitadelApp` mirror row. Zitadel takes care of invalidating outstanding tokens issued for that client.
 - **Consent** is shown by Zitadel's hosted UI (configurable per project) — no Limen-rendered consent screen.
-- **CSP**: serve the SPA with `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` and no eval. Tailwind plays fine with this.
+- **CSP**: set by the static host (Caddy or Cloudflare Pages `_headers`), not by Limen. Recommended policy is documented above.
+- **Same-origin assumption**: the SPA cookies (Phase 4) rely on this. Any deployment that splits the SPA onto a different origin must switch to `SameSite=None; Secure` cookies and a CORS-with-credentials policy on Limen — explicitly out of scope for v1.
 
 ## Verification
 
 - `buf generate` produces compilable Go + TS.
 - `go build ./...` clean.
-- `pnpm build` clean; embed step picks up generated assets.
+- `pnpm build` clean; the resulting `web/dist/` is what the static host serves.
 - Connect handlers respond correctly to:
   - Missing session → `unauthenticated`.
   - Wrong role → `permission_denied`.
   - Cross-tenant request (slug A cookie used on slug B URL) → `unauthenticated`.
   - Successful happy paths for each RPC.
+- Dev workflow: `pnpm dev` runs Vite locally; `vite.config.ts` proxies `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/upstream/*` to the local Limen process so the SPA + API stay same-origin in dev too.
 - Cypress / Playwright smoke (optional in v1) covering: login → connect Atlassian upstream (mocked) → tool visible → disconnect.
 
 ## Risks
 
-- **Embedding generated assets in the repo vs. building in CI**: pick one and document it in `AGENTS.md`. Recommendation: build in CI, do not commit `web/dist/`.
+- **Static-host divergence**: Caddy `file_server` and Cloudflare Pages have slightly different semantics for SPA fallback and headers. Both are documented in Phase 11; the dev / CI pipeline targets Caddy by default so behavior is predictable, and a deployment-mode flag in the runbook covers Pages.
+- **Cross-origin SPA**: a future managed deployment that puts the SPA on a different hostname than the API (e.g. `app.example.com` + `api.example.com`) breaks the cookie story. Out of scope for v1; if revisited, the migration is cookie `SameSite=None; Secure` + CORS-with-credentials, **or** swapping cookies for short-lived bearer tokens held in SPA memory.
 - **Browser caching of `index.html`**: serve with `Cache-Control: no-store`; assets get long-cache + hashed filenames from Vite.
 - **TypeScript code-gen drift**: lock `buf` version and the codegen plugin versions in `buf.gen.yaml`.
 
@@ -283,10 +291,10 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [ ] Pages: Login, Dashboard, Upstreams, Members, MCP Clients, Settings, Consent
 - [ ] SPA base path resolved at boot from `/t/<slug>/portal/`
 - [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
-- [ ] Built SPA embedded via `//go:embed web/dist/*`
-- [ ] SPA fallback handler returns `index.html` for unknown `/t/<slug>/portal/*` paths
-- [ ] CSP header set on portal HTML responses
+- [ ] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
+- [ ] Static-host wiring documented in Phase 11 for both Caddy `file_server` (self-hosted) and Cloudflare Pages (managed); both keep the SPA same-origin with the API
+- [ ] CSP header set by the static host (Caddy directive or Pages `_headers`)
+- [ ] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
-- [ ] CI does not commit `web/dist/` (or commits it deliberately — decision documented)
 - [ ] Unit tests for the role-enforcement interceptor (matrix of method × role)
 - [ ] Smoke test or manual run-through of the entire SPA flow

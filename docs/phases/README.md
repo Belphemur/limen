@@ -11,7 +11,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 - **Storage is PostgreSQL 18.2 with mandatory row-level security** — the only supported database. Runtime connects as `limen_app` (no `BYPASSRLS`); migrations + the cross-tenant refresher use `limen_admin`. Tenant-scoped tables have `FORCE ROW LEVEL SECURITY`.
 - **Outbound** — Limen is an MCP client of upstream servers. Three strategies in v1: **`mcp_spec`** (auto-discovery + DCR + PKCE for OAuth-protected upstreams like Atlassian Rovo), **`static_header`** (admin-configured HTTP header auth — secret can be tenant-wide or per-user; users paste their own API key in the portal when the upstream is in user mode), and **`none`** (unauthenticated upstreams, for self-hosted dev / trusted-network internal MCPs). The strategy interface is designed so future modes (`oauth2_app`, `api_token`, `mtls`) plug in without re-architecting. Users see only the tools belonging to upstreams they've authenticated for (or that don't require per-user auth), and can enable/disable any link from the portal without losing the stored credentials.
 - **Tenancy** is path-prefix (`/t/{slug}/...`); portal cookies are path-scoped.
-- **Frontend** is a Vue 3 SPA over Connect-RPC, embedded via `embed.FS`. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
+- **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<slug>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
 
 ## Phase index & dependencies
@@ -162,7 +162,8 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Pages: Login (redirects to `/auth/login`), Dashboard, Upstreams, Members, MCP Clients, Settings
 - [ ] SPA base path resolved at boot from `/t/<slug>/portal/`
 - [ ] No password input in the SPA; logout goes through `/auth/logout`
-- [ ] Built SPA embedded via `//go:embed web/dist/*` with SPA fallback route
+- [ ] Built SPA published as plain static assets (no `embed.FS`); served by Caddy `file_server` in self-hosted mode and/or Cloudflare Pages in managed mode; same-origin with the Limen API
+- [ ] SPA build is base-path-agnostic; tenant slug resolved at boot from `window.location.pathname`
 - [ ] CSP header set on portal HTML responses
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
 - [ ] Unit tests for the role-enforcement interceptor
@@ -187,7 +188,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] All secrets sourced from `docker secret` files
 - [ ] `limen-migrate` one-shot gates `limen` via `condition: service_completed_successfully`
 - [ ] Healthchecks on every long-running service; `restart: unless-stopped`
-- [ ] Caddyfile configured for `limen.example.com` and `auth.limen.example.com` with HSTS
+- [ ] Caddyfile configured for `limen.example.com` (reverse-proxies `/t/*/api`, `/auth`, `/oauth`, `/mcp`, `/upstream` to Limen; serves SPA assets via `file_server` or reverse-proxies non-API paths to Cloudflare Pages) and `auth.limen.example.com` with HSTS
 - [ ] `deploy/postgres/limen-init.sql` provisions `limen_admin` and `limen_app` roles
 - [ ] Volumes named explicitly; backups mounted to a known host path
 - [ ] Daily backup services with retention policy

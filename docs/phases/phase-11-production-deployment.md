@@ -51,6 +51,7 @@ services:
     ports: ["80:80", "443:443"]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web/dist:/srv/portal:ro          # SPA static build (self-hosted mode)
       - caddy-data:/data
       - caddy-config:/config
     depends_on: [limen, zitadel]
@@ -195,11 +196,39 @@ secrets:
 
 ### `deploy/Caddyfile` outline
 
+The Limen API and the SPA share an origin (`limen.example.com`). API-shaped paths are reverse-proxied to the Go service; everything else is served from the static SPA build with an SPA-history fallback.
+
 ```caddy
 limen.example.com {
     encode zstd gzip
-    reverse_proxy limen:8080
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'"
+
+    # Routes owned by Limen — OAuth proxy, MCP RS, portal API, upstream connect,
+    # OIDC login callbacks. Anything tenant-scoped under /t/{slug}/ that isn't
+    # the portal SPA itself.
+    @api {
+        path /t/*/api/*
+        path /t/*/oauth/*
+        path /t/*/mcp
+        path /t/*/mcp/*
+        path /t/*/upstream/*
+        path /auth/*
+        path /.well-known/*
+        path /register*
+        path /healthz
+    }
+    reverse_proxy @api limen:8080
+
+    # SPA: everything else. The Vite build lives in /srv/portal, hashed asset
+    # filenames get long-cache headers, and unknown deep links fall back to
+    # index.html so Vue Router can take over.
+    root * /srv/portal
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+    header /index.html Cache-Control "no-store"
+    try_files {path} /index.html
+    file_server
 }
 
 auth.limen.example.com {
@@ -208,6 +237,17 @@ auth.limen.example.com {
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 }
 ```
+
+### Cloudflare Pages alternative
+
+For managed deployments, skip the `./web/dist:/srv/portal` mount and replace the SPA block in the Caddyfile with a reverse proxy to a Pages project:
+
+```caddy
+    handle @api { reverse_proxy limen:8080 }
+    handle { reverse_proxy https://limen-portal.pages.dev { header_up Host {upstream_hostport} } }
+```
+
+The SPA is published with `wrangler pages deploy web/dist --project-name=limen-portal` in CI. A `web/public/_headers` file in the Pages project carries the same CSP + cache directives shown above so behavior is identical regardless of which host serves the static files. Because Caddy still terminates TLS at `limen.example.com` and routes API traffic to Limen, the browser sees a single origin and the Phase 4 cookie scoping continues to work unchanged.
 
 ### `deploy/postgres/limen-init.sql`
 
