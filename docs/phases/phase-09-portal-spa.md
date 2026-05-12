@@ -38,7 +38,9 @@ service PortalService {
   // Authenticated (any role)
   rpc ListUpstreams(ListUpstreamsRequest) returns (ListUpstreamsResponse);
   rpc StartConnect(StartConnectRequest) returns (StartConnectResponse);
-  rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
+  rpc SubmitUpstreamAPIKey(SubmitUpstreamAPIKeyRequest) returns (SubmitUpstreamAPIKeyResponse);  // static_header user-mode: paste/rotate the per-user secret
+  rpc SetUpstreamLinkEnabled(SetUpstreamLinkEnabledRequest) returns (SetUpstreamLinkEnabledResponse);  // toggle without dropping credentials
+  rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);  // removes the UpstreamLink entirely
   rpc ListMCPClients(ListMCPClientsRequest) returns (ListMCPClientsResponse);
   rpc RevokeMCPClient(RevokeMCPClientRequest) returns (RevokeMCPClientResponse);
   // Password / MFA management is delegated to Zitadel — the SPA links out to
@@ -61,6 +63,23 @@ service PortalService {
 ```
 
 Request messages **do not carry `tenant_id`** — the interceptor reads it from the URL path. Authoritative tenant binding is server-side.
+
+`ListUpstreams` returns, for each upstream visible to the tenant: the public ID, name, strategy type + sub-mode (e.g. `static_header.user`), MCP server URL, whether the strategy requires a per-user link, and — for the calling user — the link state: `none` / `connected` / `disabled`. The SPA uses this to render the right CTA ("Connect", "Enter API key", "Disable", "Enable", "Disconnect") on each row.
+
+Workflow recap (covers both OAuth-protected and header-authenticated upstreams):
+
+1. The user logs into the portal via Zitadel (Phase 4) and lands on the Upstreams page.
+2. For each upstream advertised by the admin, the SPA shows the connection state for *this user*.
+3. Clicking **Connect**:
+   - `mcp_spec` → SPA calls `StartConnect`, which returns the Zitadel-side authorize URL; the browser is redirected, the user consents, Limen completes the OAuth dance, persists the `UpstreamLink`, and redirects back to the portal.
+   - `static_header` user-mode → `StartConnect` returns a relative SPA path; the SPA opens a modal that takes the API key, then submits it via `SubmitUpstreamAPIKey`. Limen encrypts it with AAD `tenant|user|"upstream.extra"` and persists the `UpstreamLink`.
+   - `none` / `static_header` tenant-mode → no action needed; the tools are already visible.
+4. Once linked, the user sees a green badge and the upstream's tools become visible to the MCP RS for that user (Phase 8).
+5. The user can return to the Upstreams page at any time to:
+   - **Disable** a link (`SetUpstreamLinkEnabled(false)`) — credentials are kept, tools immediately disappear from MCP `tools/list`.
+   - **Enable** a previously disabled link — tools reappear without re-doing auth.
+   - **Rotate** a `static_header` user-mode key by re-submitting through `SubmitUpstreamAPIKey`.
+   - **Disconnect** — deletes the `UpstreamLink`; OAuth tokens are revoked at the upstream when possible.
 
 ### Backend (`internal/portal/`)
 
@@ -103,6 +122,8 @@ var requiredRole = map[string]Role{
     "GetSession":          RoleAny,
     "ListUpstreams":       RoleMember,
     "StartConnect":        RoleMember,
+    "SubmitUpstreamAPIKey":RoleMember,
+    "SetUpstreamLinkEnabled":RoleMember,
     "Disconnect":          RoleMember,
     "ListMCPClients":      RoleMember,
     "RevokeMCPClient":     RoleMember,
@@ -241,6 +262,10 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 ## Checklist
 
+- [ ] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled`) and strategy sub-mode, so the SPA can pick the right CTA
+- [ ] `SubmitUpstreamAPIKey` persists the user-supplied secret via the `static_header` strategy, AAD `tenant|user|"upstream.extra"`; never logs the key; supports rotation (overwrite)
+- [ ] `SetUpstreamLinkEnabled` flips `UpstreamLink.Enabled` without touching stored credentials
+- [ ] Upstreams page renders the right CTA per row (Connect / Enter API key / Enable / Disable / Disconnect) and lets the user rotate keys for `static_header` user-mode
 - [ ] `proto/limen/portal/v1/portal.proto` with the full `PortalService` definition
 - [ ] `buf.yaml` and `buf.gen.yaml` at the repo root
 - [ ] Generated Go bindings under `internal/portal/portalv1/` and `…/portalv1connect/`

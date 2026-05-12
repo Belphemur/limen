@@ -73,8 +73,8 @@ func (p *DBAuthProvider) Headers(ctx, up) (map[string]string, error) {
     var link storage.UpstreamLink
     db, commit, err := p.Store.Session(ctx)
     defer commit(&err)
-    if err := db.Where("user_id = ? AND upstream_id = ?", user.ID, up.ID).First(&link).Error; err != nil {
-        return nil, fmt.Errorf("user %q has no link for upstream %q", user.ID, up.Name)
+    if err := db.Where("user_id = ? AND upstream_id = ? AND enabled = true", user.ID, up.ID).First(&link).Error; err != nil {
+        return nil, fmt.Errorf("user %q has no enabled link for upstream %q", user.ID, up.Name)
     }
     return strat.Headers(ctx, up, &link)
 }
@@ -89,7 +89,7 @@ Replace `AllTools()` with two methods:
 ```go
 // ToolsForUser returns the union of upstream tools the user is authorized to see.
 // Rule: include tool if its upstream's strategy.RequiresLink() == false
-//   OR the user has an UpstreamLink for that upstream.
+//   OR the user has an UpstreamLink for that upstream with Enabled=true.
 func (g *Gateway) ToolsForUser(ctx context.Context) ([]mcp.Tool, error)
 
 // CallTool routes the request to the right upstream. The injected http.RoundTripper
@@ -176,6 +176,7 @@ type Bundle struct {
   - Two tenants, two users each. Bound tokens for user A1 against tenant A, user B1 against tenant B. A call by A1 to a tenant-A upstream succeeds with A1's bearer; B1 hitting the same upstream name fails (it's a different tenant's upstream).
   - One `none` upstream + one `mcp_spec` upstream. Brand-new user sees `none` tools but not `mcp_spec` ones until they connect.
   - User disconnects → tool disappears from `ToolsForUser` and `CallTool` returns the "no link" structured error.
+  - User toggles `Enabled=false` on an existing link → tool disappears from `ToolsForUser` and `CallTool` returns the same structured error; toggling back to `Enabled=true` restores visibility without re-running the auth flow.
 
 ## Risks
 
@@ -189,8 +190,8 @@ type Bundle struct {
 - [ ] `internal/gateway/upstream.go` uses an `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
 - [ ] Round-trip clones the request before mutating headers
 - [ ] `UpstreamManager` builds an index keyed by tenant ID at startup
-- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()` ∨ user-has-link rule
-- [ ] `Gateway.CallTool(ctx, upstreamName, toolName, args)` looks up upstream within tenant, invokes through the per-request transport
+- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
+- [ ] `Gateway.CallTool(ctx, upstreamName, toolName, args)` looks up upstream within tenant, invokes through the per-request transport; rejects calls when the matching link is disabled with the same structured error as missing-link
 - [ ] Tool names continue to be prefixed by upstream name to avoid collisions
 - [ ] Missing-link condition surfaces as a structured MCP error (not 500)
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the sandbox; per-tool proxies call into `Gateway.CallTool(ctx, ...)`

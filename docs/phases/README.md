@@ -9,7 +9,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 - **Identity is delegated to [Zitadel](https://zitadel.com/)**. Limen is an OIDC Relying Party for portal users and an MCP Resource Server for `/t/{slug}/mcp`. Tenant ↔ Zitadel **organization** (1:1). One Zitadel project, shared across orgs, hosts the Portal SPA app and the MCP RS app. MCP clients DCR via Limen's `/register` proxy onto Zitadel's Management API.
 - **Authorization roles are Zitadel project roles**, not a Limen DB column. The shared project defines `owner`, `admin`, `member`; per-tenant grants live as Zitadel user grants in each tenant's org and arrive as the `urn:zitadel:iam:org:project:roles` claim. Portal admin RPCs mutate roles via `UserService.{AddUserGrant, UpdateUserGrant, RemoveUserGrant}` — Zitadel stays the single source of truth for both authn and authz.
 - **Storage is PostgreSQL 18.2 with mandatory row-level security** — the only supported database. Runtime connects as `limen_app` (no `BYPASSRLS`); migrations + the cross-tenant refresher use `limen_admin`. Tenant-scoped tables have `FORCE ROW LEVEL SECURITY`.
-- **Outbound** — Limen is an MCP client of upstream servers. Two strategies in v1: **`mcp_spec`** (auto-discovery + DCR + PKCE for OAuth-protected upstreams like Atlassian Rovo) and **`none`** (unauthenticated upstreams, for self-hosted dev / trusted-network internal MCPs). The strategy interface is designed so future modes (`static_header`, `oauth2_app`, `api_token`, `mtls`) plug in without re-architecting.
+- **Outbound** — Limen is an MCP client of upstream servers. Three strategies in v1: **`mcp_spec`** (auto-discovery + DCR + PKCE for OAuth-protected upstreams like Atlassian Rovo), **`static_header`** (admin-configured HTTP header auth — secret can be tenant-wide or per-user; users paste their own API key in the portal when the upstream is in user mode), and **`none`** (unauthenticated upstreams, for self-hosted dev / trusted-network internal MCPs). The strategy interface is designed so future modes (`oauth2_app`, `api_token`, `mtls`) plug in without re-architecting. Users see only the tools belonging to upstreams they've authenticated for (or that don't require per-user auth), and can enable/disable any link from the portal without losing the stored credentials.
 - **Tenancy** is path-prefix (`/t/{slug}/...`); portal cookies are path-scoped.
 - **Frontend** is a Vue 3 SPA over Connect-RPC, embedded via `embed.FS`. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
@@ -125,21 +125,23 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 - [ ] `internal/upstream/strategy.go` defines `Strategy` interface (including `RequiresLink`) and `Registry`
 - [ ] `internal/upstream/mcpspec/{discovery,registrar,link,headers}.go` implement the OAuth-via-PRM strategy
+- [ ] `internal/upstream/statichdr/{config,link,headers}.go` implement the static-header strategy (tenant-wide secret and per-user API key modes)
 - [ ] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
 - [ ] `internal/upstream/handlers.go` exposes connect/callback/disconnect under `/t/{tenant}/upstream/{name}/*`
-- [ ] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment
-- [ ] Tokens stored encrypted with AAD `tenant|user|"upstream.<kind>_token"`
+- [ ] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment; skips strategies whose `Maintain` is a no-op
+- [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
+- [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
 - [ ] State signed with HMAC, one-shot consumption
 - [ ] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
-- [ ] Unit + integration tests for state signing, discovery, registration, refresh, `none.Provision` rejection
+- [ ] Unit + integration tests for state signing, discovery, registration, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch, link enable/disable visibility
 
 ### Phase 8 — Per-tenant, per-user upstream injection
 
 - [ ] `internal/upstream/authprovider.go` defines `AuthProvider` and `DBAuthProvider`
 - [ ] `internal/gateway/upstream.go` uses `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
 - [ ] `UpstreamManager` indexed by tenant ID at startup
-- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()` ∨ user-has-link
-- [ ] `Gateway.CallTool(ctx, ...)` routes through the per-request transport
+- [ ] `Gateway.ToolsForUser(ctx)` filters by `strategy.RequiresLink()==false` ∨ (user-has-link ∧ `link.Enabled`)
+- [ ] `Gateway.CallTool(ctx, ...)` routes through the per-request transport; rejects disabled links with the same structured error as missing links
 - [ ] Tool names prefixed by upstream to avoid collisions
 - [ ] Missing-link surfaces as a structured MCP error
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the Goja sandbox
@@ -149,7 +151,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 9 — Portal backend + Vue 3 SPA
 
-- [ ] `proto/limen/portal/v1/portal.proto` with full `PortalService` definition (no `ChangePassword`; Zitadel owns passwords)
+- [ ] `proto/limen/portal/v1/portal.proto` with full `PortalService` definition (no `ChangePassword`; Zitadel owns passwords); includes `SubmitUpstreamAPIKey` and `SetUpstreamLinkEnabled`
 - [ ] `buf.yaml` + `buf.gen.yaml`; Go + TS codegen
 - [ ] `internal/portal/` implements all RPCs against `storage.Session(ctx)`
 - [ ] Interceptors: tenancy + portal-session + role; no `tenant_id` in any request message
@@ -206,4 +208,4 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ## Explicitly out of scope this iteration
 
-SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; billing/usage metering; fine-grained per-tool scopes; outbound strategies beyond `mcp_spec` and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose).
+SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; billing/usage metering; fine-grained per-tool scopes; outbound strategies beyond `mcp_spec`, `static_header`, and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose).
