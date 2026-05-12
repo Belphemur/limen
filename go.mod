@@ -6,7 +6,7 @@ require (
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/mark3labs/mcp-go v0.53.0
-	github.com/segmentio/ksuid v1.0.4
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 	go.uber.org/zap v1.28.0
