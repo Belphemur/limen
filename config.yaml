@@ -1,29 +1,48 @@
 server:
   host: "0.0.0.0"
   port: 8080
+  # Public origin Limen is reachable on. Required once Phase 4 lands;
+  # used as the OIDC issuer / MCP RS base URL.
+  base_url: "${LIMEN_BASE_URL:-https://limen.example.com}"
 
+database:
+  # Postgres connection string. The runtime role should be limen_app
+  # (no BYPASSRLS); migrations run as limen_admin.
+  dsn: "${LIMEN_DB_DSN}"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+
+security:
+  # 32-byte AES-SIV key. Accepts base64 (standard/URL, padded/unpadded) or
+  # 64-character hex. Generate with: openssl rand -hex 32
+  token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
+  portal_session_cookie_name: "limen_portal"
+  portal_session_cookie_secure: true
+
+oauth_server:
+  signing_algorithm: "RS256"
+  access_token_ttl: "10m"
+  refresh_token_ttl: "720h"
+  # If set, /register requires this initial-access-token (RFC 7591 §3).
+  dcr_initial_access_token: ""
+  # skip | always | first_time
+  authorize_consent: "skip"
+
+# Legacy: replaced by per-tenant outbound strategies in Phase 7.
 upstreams:
   - name: "github"
     url: "https://api.github.com/mcp"
     headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
+      Authorization: "Bearer ${GITHUB_TOKEN:-}"
     timeout: "30s"
-
-  - name: "jira"
-    url: "https://jira.example.com/mcp"
-    headers:
-      Authorization: "Bearer ${JIRA_TOKEN}"
-    timeout: "30s"
-
-  - name: "internal-docs"
-    url: "http://docs.internal:9000/mcp"
-    timeout: "15s"
 
 codemode:
   execution_timeout: "30s"
   max_memory_mb: 64
 
+# Legacy: obsolete after Phase 6 wires Zitadel-backed JWT validation.
 auth:
-  enabled: true
-  jwks_url: "https://auth.example.com/.well-known/jwks.json"
-  audience: "limen"
+  enabled: false
+  jwks_url: "${LIMEN_JWKS_URL:-}"
+  audience: "${LIMEN_AUDIENCE:-limen}"
