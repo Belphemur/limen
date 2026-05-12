@@ -44,7 +44,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
 - [x] Postgres images pinned to `postgres:18.2-alpine`; Zitadel image pinned to a specific tag
 - [x] Named volumes for both Postgres instances; data persists across `up`/`down`
-- [x] `scripts/zitadel-bootstrap/` idempotently ensures Limen project + Portal app + MCP RS app + sample org
+- [x] `scripts/zitadel-bootstrap/` idempotently ensures Limen project + Portal app + MCP RS app + sample org + `super_admin` role + `limen-staff` operator org + staff user (Phase 12 prerequisite); emits `LIMEN_STAFF_ZITADEL_ORG_ID`
 - [x] `.env.example` documents every Limen env var the dev workflow needs
 - [x] `make dev` / `make dev-reset` targets bring the stack up and tear it down cleanly
 - [x] `docs/development.md` explains the first-run flow (MailHog UI included)

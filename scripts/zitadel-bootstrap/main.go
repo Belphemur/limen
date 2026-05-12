@@ -1,4 +1,5 @@
 package main
+
 // Package main implements the Zitadel bootstrap for Limen dev environments.
 //
 // It is idempotent: re-running it is safe. It creates the Limen Gateway
@@ -92,17 +93,17 @@ type idResp struct {
 }
 
 type projectAppOIDCConfig struct {
-	RedirectURIs           []string `json:"redirectUris"`
-	ResponseTypes          []string `json:"responseTypes"`
-	GrantTypes             []string `json:"grantTypes"`
-	AppType                string   `json:"appType"`
-	AuthMethodType         string   `json:"authMethodType"`
-	PostLogoutRedirectURIs []string `json:"postLogoutRedirectUris,omitempty"`
-	DevMode                bool     `json:"devMode"`
-	AccessTokenType        string   `json:"accessTokenType"`
-	AccessTokenRoleAssertion  bool  `json:"accessTokenRoleAssertion"`
-	IDTokenRoleAssertion      bool  `json:"idTokenRoleAssertion"`
-	IDTokenUserinfoAssertion  bool  `json:"idTokenUserinfoAssertion"`
+	RedirectURIs             []string `json:"redirectUris"`
+	ResponseTypes            []string `json:"responseTypes"`
+	GrantTypes               []string `json:"grantTypes"`
+	AppType                  string   `json:"appType"`
+	AuthMethodType           string   `json:"authMethodType"`
+	PostLogoutRedirectURIs   []string `json:"postLogoutRedirectUris,omitempty"`
+	DevMode                  bool     `json:"devMode"`
+	AccessTokenType          string   `json:"accessTokenType"`
+	AccessTokenRoleAssertion bool     `json:"accessTokenRoleAssertion"`
+	IDTokenRoleAssertion     bool     `json:"idTokenRoleAssertion"`
+	IDTokenUserinfoAssertion bool     `json:"idTokenUserinfoAssertion"`
 }
 
 func (c *client) ensureProject(name string) (string, error) {
@@ -148,16 +149,16 @@ func (c *client) ensureOIDCApp(projectID, name, redirectURI string) (string, str
 		IDTokenUserinfoAssertion: true,
 	}
 	create := map[string]any{
-		"name":          name,
-		"redirectUris":  cfg.RedirectURIs,
-		"responseTypes": cfg.ResponseTypes,
-		"grantTypes":    cfg.GrantTypes,
-		"appType":       cfg.AppType,
-		"authMethodType": cfg.AuthMethodType,
-		"devMode":       cfg.DevMode,
-		"accessTokenType": cfg.AccessTokenType,
+		"name":                     name,
+		"redirectUris":             cfg.RedirectURIs,
+		"responseTypes":            cfg.ResponseTypes,
+		"grantTypes":               cfg.GrantTypes,
+		"appType":                  cfg.AppType,
+		"authMethodType":           cfg.AuthMethodType,
+		"devMode":                  cfg.DevMode,
+		"accessTokenType":          cfg.AccessTokenType,
 		"accessTokenRoleAssertion": cfg.AccessTokenRoleAssertion,
-		"idTokenRoleAssertion": cfg.IDTokenRoleAssertion,
+		"idTokenRoleAssertion":     cfg.IDTokenRoleAssertion,
 		"idTokenUserinfoAssertion": cfg.IDTokenUserinfoAssertion,
 	}
 	var out struct {
@@ -227,6 +228,71 @@ func (c *client) ensureOrg(name string) (string, error) {
 	return out.OrgID, nil
 }
 
+// ensureHumanUser idempotently creates a human user in the given org. It
+// searches by login-name (== email in our setup) first; if present, returns
+// the existing user id. Zitadel sends an initialization email through SMTP
+// (MailHog in dev) when a user is created without a password, which is the
+// expected onboarding for bootstrap accounts.
+func (c *client) ensureHumanUser(orgID, email, firstName, lastName string) (string, error) {
+	var search struct {
+		Result []struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	_ = c.do(http.MethodPost, "/management/v1/users/_search", orgID, map[string]any{
+		"queries": []map[string]any{
+			{"loginNameQuery": map[string]any{"loginName": email, "method": "TEXT_QUERY_METHOD_EQUALS"}},
+		},
+	}, &search)
+	if len(search.Result) > 0 {
+		return search.Result[0].ID, nil
+	}
+	var out struct {
+		UserID string `json:"userId"`
+	}
+	body := map[string]any{
+		"userName": email,
+		"profile": map[string]any{
+			"firstName":         firstName,
+			"lastName":          lastName,
+			"preferredLanguage": "en",
+		},
+		"email": map[string]any{
+			"email":           email,
+			"isEmailVerified": false,
+		},
+	}
+	if err := c.do(http.MethodPost, "/management/v1/users/human/_import", orgID, body, &out); err != nil {
+		if !alreadyExists(err) {
+			return "", err
+		}
+		// Re-search after a known-conflict to surface the existing id.
+		_ = c.do(http.MethodPost, "/management/v1/users/_search", orgID, map[string]any{
+			"queries": []map[string]any{
+				{"loginNameQuery": map[string]any{"loginName": email, "method": "TEXT_QUERY_METHOD_EQUALS"}},
+			},
+		}, &search)
+		if len(search.Result) > 0 {
+			return search.Result[0].ID, nil
+		}
+		return "", fmt.Errorf("user %q exists but could not be looked up", email)
+	}
+	return out.UserID, nil
+}
+
+// ensureUserGrant idempotently grants the given project roles to a user in an org.
+func (c *client) ensureUserGrant(userID, projectID, orgID string, roleKeys []string) error {
+	body := map[string]any{
+		"projectId": projectID,
+		"roleKeys":  roleKeys,
+	}
+	err := c.do(http.MethodPost, fmt.Sprintf("/management/v1/users/%s/grants", userID), orgID, body, nil)
+	if err != nil && !alreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
 func main() {
 	api := getenvDefault("ZITADEL_API", "http://zitadel:8080")
 	patFile := os.Getenv("ZITADEL_PAT_FILE")
@@ -271,12 +337,13 @@ func main() {
 		{"member", "Member"},
 		{"admin", "Admin"},
 		{"owner", "Owner"},
+		{"super_admin", "Super Admin"},
 	} {
 		if err := c.ensureRole(projectID, r.key, r.display); err != nil {
 			log.Fatalf("ensure role %s: %v", r.key, err)
 		}
 	}
-	log.Printf("roles: member, admin, owner")
+	log.Printf("roles: member, admin, owner, super_admin")
 
 	orgID, err := c.ensureOrg(sampleSlug)
 	if err != nil {
@@ -284,12 +351,38 @@ func main() {
 	}
 	log.Printf("sample org %q: %s", sampleSlug, orgID)
 
+	// Staff (operator) tenant — see Phase 12. The staff org is mandatory: it
+	// hosts the SaaS-operator user(s) that carry the super_admin role and
+	// log in to the backoffice at /t/_staff/portal/. The corresponding
+	// Limen-side tenant row (slug=_staff, kind=staff) is provisioned by
+	// limen-migrate using LIMEN_STAFF_ZITADEL_ORG_ID emitted below.
+	staffOrgName := getenvDefault("LIMEN_STAFF_ORG_NAME", "limen-staff")
+	staffOrgID, err := c.ensureOrg(staffOrgName)
+	if err != nil {
+		log.Fatalf("ensure staff org: %v", err)
+	}
+	log.Printf("staff org %q: %s", staffOrgName, staffOrgID)
+
+	staffEmail := getenvDefault("LIMEN_STAFF_BOOTSTRAP_EMAIL", "staff@limen.dev")
+	staffUserID, err := c.ensureHumanUser(staffOrgID, staffEmail, "Limen", "Staff")
+	if err != nil {
+		log.Fatalf("ensure staff user %q: %v", staffEmail, err)
+	}
+	log.Printf("staff user %q: %s", staffEmail, staffUserID)
+
+	if err := c.ensureUserGrant(staffUserID, projectID, staffOrgID, []string{"super_admin"}); err != nil {
+		log.Fatalf("ensure staff user grant: %v", err)
+	}
+	log.Printf("granted super_admin to %s in staff org", staffEmail)
+
 	out := map[string]string{
-		"LIMEN_OIDC_PORTAL_CLIENT_ID":  portalClientID,
-		"LIMEN_OIDC_MCP_RS_CLIENT_ID":  mcpClientID,
-		"LIMEN_OIDC_PROJECT_ID":        projectID,
-		"LIMEN_SAMPLE_TENANT_ORG_ID":   orgID,
-		"LIMEN_SAMPLE_TENANT_SLUG":     sampleSlug,
+		"LIMEN_OIDC_PORTAL_CLIENT_ID": portalClientID,
+		"LIMEN_OIDC_MCP_RS_CLIENT_ID": mcpClientID,
+		"LIMEN_OIDC_PROJECT_ID":       projectID,
+		"LIMEN_SAMPLE_TENANT_ORG_ID":  orgID,
+		"LIMEN_SAMPLE_TENANT_SLUG":    sampleSlug,
+		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
+		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
 	}
 	if path := os.Getenv("LIMEN_BOOTSTRAP_OUT"); path != "" {
 		_ = writeEnvFile(path, out)
