@@ -8,15 +8,26 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Upstreams  []UpstreamConfig `yaml:"upstreams"`
-	CodeMode   CodeModeConfig   `yaml:"codemode"`
-	Auth       AuthConfig       `yaml:"auth"`
+	Server    ServerConfig     `yaml:"server"`
+	Database  DatabaseConfig   `yaml:"database"`
+	Upstreams []UpstreamConfig `yaml:"upstreams"`
+	CodeMode  CodeModeConfig   `yaml:"codemode"`
+	Auth      AuthConfig       `yaml:"auth"`
 }
 
 type ServerConfig struct {
 	Host string `yaml:"host"`
 	Port int    `yaml:"port"`
+}
+
+// DatabaseConfig configures the Postgres connection used by internal/storage.
+// DSN is required; the pool sizing fields fall back to sensible defaults
+// (25 / 5) when zero.
+type DatabaseConfig struct {
+	DSN             string        `yaml:"dsn"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
 }
 
 type UpstreamConfig struct {
@@ -32,9 +43,9 @@ type CodeModeConfig struct {
 }
 
 type AuthConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	JWKSURL   string `yaml:"jwks_url,omitempty"`
-	Audience  string `yaml:"audience,omitempty"`
+	Enabled  bool   `yaml:"enabled"`
+	JWKSURL  string `yaml:"jwks_url,omitempty"`
+	Audience string `yaml:"audience,omitempty"`
 }
 
 func Load(path string) (*Config, error) {
