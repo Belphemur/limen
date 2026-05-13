@@ -294,7 +294,7 @@ func (c *client) ensureUserGrant(userID, projectID, orgID string, roleKeys []str
 }
 
 func main() {
-	api := getenvDefault("ZITADEL_API", "http://zitadel:8080")
+	api := getenvDefault("ZITADEL_API", "http://zitadel-api:8080")
 	patFile := os.Getenv("ZITADEL_PAT_FILE")
 	if patFile == "" {
 		log.Fatal("ZITADEL_PAT_FILE not set")

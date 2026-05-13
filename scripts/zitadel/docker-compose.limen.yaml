@@ -1,0 +1,24 @@
+# Overlay for the upstream Zitadel compose stack.
+#
+# Adds a Limen admin service-account PAT during first-instance initialization
+# so the Limen bootstrap script (scripts/zitadel-bootstrap) can authenticate
+# against Zitadel's Management API without us needing to copy/paste the PAT
+# out of the Zitadel console.
+#
+# FIRSTINSTANCE_* env vars only take effect during the initial setup step.
+# Re-running compose after the first start ignores them.
+#
+# Usage:
+#   docker compose --env-file scripts/zitadel/.env \
+#     -f scripts/zitadel/docker-compose.yml \
+#     -f scripts/zitadel/docker-compose.limen.yaml \
+#     -f compose.dev.yaml up -d --wait
+
+services:
+  zitadel-api:
+    environment:
+      ZITADEL_FIRSTINSTANCE_PATPATH: /zitadel/bootstrap/admin-sa.pat
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: limen-admin-sa
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Limen Admin Service Account
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES: "openid urn:zitadel:iam:org:project:id:zitadel:aud"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"

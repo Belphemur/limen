@@ -8,10 +8,10 @@
 Stand up the full Limen dependency stack on a developer laptop with a single command:
 
 ```
-docker compose -f compose.dev.yaml up -d
+make dev
 ```
 
-The stack runs **PostgreSQL 18.2** as the relational backend and **Zitadel** as the OAuth 2.1 / OIDC authorization server. Limen itself is built and run on the host (live-reload) — only the dependencies are containerized. A production-grade compose lives in [Phase 11](phase-11-production-deployment.md); this one trades hardening for fast iteration.
+Under the hood that runs `docker compose --env-file scripts/zitadel/.env -f scripts/zitadel/docker-compose.yml -f scripts/zitadel/docker-compose.limen.yaml -f compose.dev.yaml up -d --wait`, merging three files into a single `limen-dev` project. The stack runs **PostgreSQL 18.2** as Limen's relational backend and **Zitadel v4.15.0** as the OAuth 2.1 / OIDC authorization server, fronted by Traefik with a separate Next.js Login UI container (mandatory in Zitadel v4). Limen itself is built and run on the host (live-reload) — only the dependencies are containerized. A production-grade compose lives in [Phase 11](phase-11-production-deployment.md); this one trades hardening for fast iteration.
 
 ## Architectural context (why Zitadel)
 
@@ -26,93 +26,32 @@ The dev compose makes that wiring real on first `up`.
 
 ## Services
 
-```yaml
-# compose.dev.yaml (sketch — Phase 0 produces the actual file)
-services:
-  postgres:
-    image: postgres:18.2-alpine
-    environment:
-      POSTGRES_USER: limen
-      POSTGRES_PASSWORD: limen_dev
-      POSTGRES_DB: limen
-    ports: ["5432:5432"]
-    volumes: [pg-data:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "limen"]
-      interval: 5s
-    command: >
-      postgres
-      -c shared_preload_libraries=pg_stat_statements
-      -c max_connections=100
+The stack is composed from three files merged into one project:
 
-  postgres-zitadel:
-    image: postgres:18.2-alpine
-    environment:
-      POSTGRES_USER: zitadel
-      POSTGRES_PASSWORD: zitadel_dev
-      POSTGRES_DB: zitadel
-    volumes: [pg-zitadel-data:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "zitadel"]
-      interval: 5s
+| File                                          | Owns                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `scripts/zitadel/docker-compose.yml`          | Vendored verbatim from the upstream Zitadel repo. Defines `proxy` (Traefik v3.6.8), `zitadel-api`, `zitadel-login`, `postgres` (Zitadel's DB), and optional `redis` / `otel-collector` services. |
+| `scripts/zitadel/docker-compose.limen.yaml`   | Overlay that seeds a Limen admin service-account PAT via `ZITADEL_FIRSTINSTANCE_*` on first init. |
+| `compose.dev.yaml`                            | Limen-side services: `limen-postgres` (Postgres 18.2), `mailhog`, and the `zitadel-bootstrap` runner. |
 
-  zitadel:
-    image: ghcr.io/zitadel/zitadel:latest # pin in compose.dev.yaml (e.g. v2.x.y)
-    command: >
-      start-from-init
-      --masterkey "MasterkeyNeedsToHave32Characters"
-      --tls-mode disabled
-    environment:
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
-      ZITADEL_DATABASE_POSTGRES_PORT: 5432
-      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel_dev
-      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
-      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: zitadel_dev
-      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
-      ZITADEL_EXTERNALSECURE: "false"
-      ZITADEL_EXTERNALDOMAIN: "localhost"
-      ZITADEL_EXTERNALPORT: "8081"
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: "root"
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "RootPassword1!"
-    ports: ["8081:8080"]
-    depends_on:
-      postgres-zitadel:
-        condition: service_healthy
+Environment defaults (port, masterkey, image tags) live in `scripts/zitadel/.env`. The dev-friendly values bind Zitadel's Traefik on host port **8081** so host port 8080 stays free for the Limen Go binary.
 
-  zitadel-bootstrap: # runs once: creates Limen project & apps
-    image: golang:1.26-alpine
-    depends_on:
-      zitadel:
-        condition: service_started
-    volumes:
-      - ./scripts/zitadel-bootstrap:/work
-    working_dir: /work
-    command: ["go", "run", "./bootstrap.go"]
-    environment:
-      ZITADEL_API: "http://zitadel:8080"
-      ZITADEL_PAT: "${ZITADEL_BOOTSTRAP_PAT}" # printed by zitadel on first init
-      LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
-      LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
+Key version pins (kept in `scripts/zitadel/.env`):
 
-  mailhog:
-    image: mailhog/mailhog:latest
-    ports: ["1025:1025", "8025:8025"] # SMTP + web UI
-
-volumes:
-  pg-data:
-  pg-zitadel-data:
-```
+- `ZITADEL_VERSION=v4.15.0`
+- `TRAEFIK_IMAGE=traefik:v3.6.8`
+- `POSTGRES_IMAGE=postgres:18.2-alpine` (Zitadel's bundled DB; matches the Limen DB pin)
+- `REDIS_IMAGE=valkey/valkey:latest` (Valkey replaces Redis everywhere in the Limen stack)
+- `ZITADEL_TLS_ENABLED=false` (env var, not a CLI flag — the v2-era `--tls-mode disabled` flag was removed in v4)
 
 ### Notes
 
-- **Two Postgres instances** is deliberate: keeps Limen's data lifecycle independent from Zitadel's. Production (Phase 11) does the same.
-- **Postgres 18.2** chosen as the floor for the project — recent enough for modern partitioning and security defaults, well within Zitadel's supported range.
-- **Zitadel TLS disabled** in dev. The Limen RS validates `iss` strictly so `http://localhost:8081` is the canonical issuer in dev configs.
+- **Two Postgres instances** is deliberate: keeps Limen's data lifecycle independent from Zitadel's. Production (Phase 11) does the same. Both pin Postgres **18.2-alpine**.
+- **Zitadel v4 Login UI** runs in a separate Next.js container (`zitadel-login`) reachable at `http://localhost:8081/ui/v2/login/`. Traefik routes `/ui/v2/login/*` and `/` to the login UI and everything else to `zitadel-api`. `ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED=true` is set so the API knows to redirect there.
+- **TLS disabled in dev**: controlled via `ZITADEL_TLS_ENABLED=false` env; the issuer is `http://localhost:8081`.
 - **MailHog** captures emails Zitadel sends for password resets, email verification, invitations. Web UI at `http://localhost:8025`.
-- **First-instance bootstrap**: `ZITADEL_FIRSTINSTANCE_*` env vars create the IAM_OWNER on first start. The bootstrap container then creates the Limen project + Portal app + MCP RS app + a sample tenant.
+- **Login Client PAT**: Zitadel writes a PAT for the bundled Login UI to `/zitadel/bootstrap/login-client.pat` inside a named volume (`zitadel-bootstrap`).
+- **Limen admin PAT**: the `docker-compose.limen.yaml` overlay sets `ZITADEL_FIRSTINSTANCE_PATPATH=/zitadel/bootstrap/admin-sa.pat` and creates an additional `limen-admin-sa` machine user with `openid` scope. The `zitadel-bootstrap` container mounts the same volume read-only and authenticates against the Management API with that PAT.
 
 ## `scripts/zitadel-bootstrap/`
 
@@ -157,8 +96,13 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 
 - `make dev` (or a Justfile) does:
   ```
-  docker compose -f compose.dev.yaml up -d
+  docker compose --env-file scripts/zitadel/.env \
+    -f scripts/zitadel/docker-compose.yml \
+    -f scripts/zitadel/docker-compose.limen.yaml \
+    -f compose.dev.yaml \
+    up -d --wait
   ./scripts/wait-for-zitadel.sh
+  make dev-bootstrap
   go run ./cmd/gateway
   ```
 - `make dev-reset` blows away the volumes and re-runs bootstrap.
@@ -168,38 +112,48 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 
 - New files:
   - `compose.dev.yaml`
-  - `.env.example`
-  - `scripts/zitadel-bootstrap/main.go` (and `go.mod` if standalone, or part of the main module under `internal/devtools/zitadelbootstrap/`)
+  - `scripts/zitadel/docker-compose.yml` (vendored upstream — do not edit)
+  - `scripts/zitadel/docker-compose.limen.yaml` (overlay seeding the Limen admin PAT)
+  - `scripts/zitadel/.env` and `scripts/zitadel/.env.example`
+  - `.env.example` (Limen-side env vars)
+  - `scripts/zitadel-bootstrap/main.go` (and `go.mod`)
   - `scripts/wait-for-zitadel.sh`
+  - `scripts/postgres-init/limen-roles.sql`
   - `docs/development.md` — quickstart referencing this phase
-- Optional: `Justfile` or `Makefile` with the targets above.
+- `Makefile` with the `dev`, `dev-bootstrap`, `dev-reset`, `dev-down` targets.
 
 ## Verification
 
-- `docker compose -f compose.dev.yaml up -d` reaches healthy state for `postgres`, `postgres-zitadel`, `zitadel`, and the bootstrap container exits 0.
+- `docker compose --env-file scripts/zitadel/.env -f scripts/zitadel/docker-compose.yml -f scripts/zitadel/docker-compose.limen.yaml -f compose.dev.yaml up -d --wait` reaches healthy state for `postgres` (Zitadel), `limen-postgres`, `proxy` (Traefik), `zitadel-api`, and `zitadel-login`.
+- `make dev-bootstrap` exits 0 and writes `scripts/zitadel-bootstrap/.bootstrap-out.env`.
 - `curl http://localhost:8081/.well-known/openid-configuration` returns valid metadata.
+- `curl http://localhost:8081/ui/v2/login/healthy` returns 200 from the Login UI container.
 - The bootstrap output prints `client_id`, project id, sample org id, and **staff org id**.
 - The `limen-staff` org exists in the Zitadel console with one human user (`LIMEN_STAFF_BOOTSTRAP_EMAIL`) carrying the `super_admin` user grant against the `Limen Gateway` project. MailHog (`http://localhost:8025`) shows the Zitadel init-mail for that user.
 - After populating `.env` and running `go run ./cmd/gateway`, visiting `http://localhost:8080/t/acme/portal/` redirects to Zitadel login, authenticating returns to Limen with a portal session.
 
 ## Risks
 
-- **Zitadel image version**: pin to a specific tag once the team standardizes. `latest` is fine for an initial spike but breaks reproducibility.
-- **Bootstrap PAT lifecycle**: Zitadel prints a PAT once on first init. The bootstrap script handles this by writing it to `./scripts/zitadel-bootstrap/.pat` (gitignored) on first run.
-- **Port collisions**: 5432, 8080, 8081, 1025, 8025 are all standard — document overrides via `.env`.
+- **Zitadel image version**: pinned to `v4.15.0` in `scripts/zitadel/.env`. Track upstream's `.env.example` when bumping — v4 introduces breaking changes from v2 (TLS env, mandatory Login UI container, Traefik routing).
+- **Bootstrap PAT lifecycle**: the upstream Login UI PAT is at `/zitadel/bootstrap/login-client.pat` and the Limen admin PAT (seeded by our overlay) is at `/zitadel/bootstrap/admin-sa.pat`. Both live in the `zitadel-bootstrap` named volume; `make dev-reset` wipes them along with the rest of the state.
+- **Port collisions**: 5432 (Limen pg), 8080 (Limen gateway), 8081 (Traefik in front of Zitadel), 1025/8025 (MailHog) are all standard — document overrides via `scripts/zitadel/.env`.
 
 ## Checklist
 
-- [x] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
-- [x] Postgres images pinned to `postgres:18.2-alpine`
-- [x] Zitadel image pinned to a specific tag (not `latest`) once chosen
-- [x] Named volumes for both Postgres instances; data persists across `up`/`down`
-- [x] `scripts/zitadel-bootstrap/` ensures Limen project + Portal app + MCP RS app + sample org
-- [x] Bootstrap also ensures the `super_admin` project role, the `limen-staff` operator org, and a bootstrap staff user (`LIMEN_STAFF_BOOTSTRAP_EMAIL`) with `super_admin` granted — prerequisite for [Phase 12](phase-12-staff-backoffice.md)
-- [x] Bootstrap output emits `LIMEN_STAFF_ZITADEL_ORG_ID` (consumed by `limen-migrate` in [Phase 11](phase-11-production-deployment.md) to ensure the `_staff` tenant row)
+- [x] Three-file layered compose (`scripts/zitadel/docker-compose.yml`, `scripts/zitadel/docker-compose.limen.yaml`, `compose.dev.yaml`) merges into the `limen-dev` project
+- [x] Upstream Zitadel compose vendored verbatim and refreshable via `curl` from `zitadel/zitadel@main/deploy/compose/`
+- [x] Zitadel pinned to `v4.15.0`; Traefik to `v3.6.8`; both Postgres instances to `postgres:18.2-alpine`
+- [x] Limen Postgres pinned to `postgres:18.2-alpine` with `scripts/postgres-init/limen-roles.sql` provisioning `limen_admin` (BYPASSRLS) + `limen_app` roles
+- [x] `ZITADEL_TLS_ENABLED=false` env (no `--tls-mode` flag — removed in v4)
+- [x] `zitadel-login` Next.js container reachable at `http://localhost:8081/ui/v2/login/`
+- [x] `LOGINV2_REQUIRED=true` and `OIDC_DEFAULTLOGINURLV2`/`DEFAULTLOGOUTURLV2` set so the API redirects to the v2 Login UI
+- [x] Named volumes for both Postgres instances and the `zitadel-bootstrap` PAT volume; data persists across `up`/`down`
+- [x] `scripts/zitadel-bootstrap/` ensures Limen project + Portal app + MCP RS app + sample org, authenticating with the admin PAT at `/zitadel/bootstrap/admin-sa.pat`
+- [x] Bootstrap also ensures the `super_admin` project role, the `limen-staff` operator org, and a bootstrap staff user (`LIMEN_STAFF_BOOTSTRAP_EMAIL`) with `super_admin` granted
+- [x] Bootstrap output emits `LIMEN_STAFF_ZITADEL_ORG_ID` (consumed by `limen-migrate` in [Phase 11](phase-11-production-deployment.md))
 - [x] Bootstrap is idempotent
 - [x] `.env.example` documents every Limen env var the dev workflow needs
 - [x] `make dev` brings the stack up and runs Limen against it
 - [x] `make dev-reset` cleanly wipes volumes
 - [x] `docs/development.md` explains the first-run flow (incl. MailHog UI URL)
-- [x] CI smoke job runs `docker compose up` + a basic OIDC discovery probe against Zitadel
+- [x] CI smoke job runs `make dev` (without the `go run`) and a basic OIDC discovery probe against `http://localhost:8081/.well-known/openid-configuration`

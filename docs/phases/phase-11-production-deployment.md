@@ -102,29 +102,51 @@ services:
     secrets: [limen_db_owner_dsn, limen_token_encryption_key]
     restart: "no"
 
-  zitadel:
+  zitadel-api:
     image: ghcr.io/zitadel/zitadel:${ZITADEL_VERSION}
     restart: unless-stopped
-    command: ["start"]
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}"
     environment:
+      ZITADEL_PORT: 8080
       ZITADEL_EXTERNALSECURE: "true"
       ZITADEL_EXTERNALDOMAIN: "auth.limen.example.com"
       ZITADEL_EXTERNALPORT: "443"
       ZITADEL_TLS_ENABLED: "false" # Caddy terminates TLS
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME_FILE: /run/secrets/zitadel_pg_user
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD_FILE: /run/secrets/zitadel_pg_password
-      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME_FILE: /run/secrets/zitadel_pg_user
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD_FILE: /run/secrets/zitadel_pg_password
+      ZITADEL_PUBLIC_SCHEME: "https"
+      ZITADEL_DATABASE_POSTGRES_DSN_FILE: /run/secrets/zitadel_postgres_dsn
       ZITADEL_MASTERKEY_FILE: /run/secrets/zitadel_masterkey
+      # v4 Login UI wiring (mandatory).
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: "Automatically Initialized IAM_LOGIN_CLIENT"
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "https://auth.limen.example.com/ui/v2/login/"
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: "https://auth.limen.example.com/ui/v2/login/login?authRequest="
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "https://auth.limen.example.com/ui/v2/login/logout?post_logout_redirect="
       ZITADEL_S3DEFAULTINSTANCE_SMTPCONFIGURATION_SMTP_HOST: "smtp.example.com:587"
       # ... full prod settings (see Zitadel docs)
     secrets:
-      - zitadel_pg_user
-      - zitadel_pg_password
+      - zitadel_postgres_dsn
       - zitadel_masterkey
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:rw
     depends_on:
       postgres-zitadel:
+        condition: service_healthy
+
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:${ZITADEL_VERSION}
+    restart: unless-stopped
+    environment:
+      ZITADEL_API_URL: http://zitadel-api:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+      CUSTOM_REQUEST_HEADERS: "Host:auth.limen.example.com,X-Forwarded-Proto:https"
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+    depends_on:
+      zitadel-api:
         condition: service_healthy
 
   limen:
@@ -180,6 +202,7 @@ volumes:
   pg-zitadel-data:
   caddy-data:
   caddy-config:
+  zitadel-bootstrap:
 
 secrets:
   limen_pg_owner_user: { file: ./secrets/limen_pg_owner_user }
@@ -233,8 +256,15 @@ limen.example.com {
 
 auth.limen.example.com {
     encode zstd gzip
-    reverse_proxy zitadel:8080
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+    # Zitadel v4 splits the Login UI into a separate Next.js container.
+    # Route /ui/v2/login/* and the bare root (which the API redirects to the
+    # login screen) to zitadel-login; everything else hits the API.
+    @login path /ui/v2/login*
+    handle @login { reverse_proxy zitadel-login:3000 }
+    handle / { reverse_proxy zitadel-login:3000 }
+    handle { reverse_proxy h2c://zitadel-api:8080 }
 }
 ```
 

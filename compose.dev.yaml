@@ -1,7 +1,27 @@
+# Limen dev stack — Postgres for Limen, MailHog, and the Limen bootstrap runner.
+#
+# The Zitadel half of the stack lives in scripts/zitadel/docker-compose.yml
+# (vendored verbatim from https://github.com/zitadel/zitadel/tree/main/deploy/compose).
+# Both files are layered together by the Makefile:
+#
+#   docker compose --env-file scripts/zitadel/.env \
+#     -f scripts/zitadel/docker-compose.yml \
+#     -f scripts/zitadel/docker-compose.limen.yaml \
+#     -f compose.dev.yaml \
+#     up -d --wait
+#
+# The merge produces a single project (name: limen-dev) where:
+#   - Zitadel proxy publishes on host port 8081 (Limen owns 8080).
+#   - All services share the "zitadel" network so the bootstrap runner can
+#     reach zitadel-api by name.
+#   - The "zitadel-bootstrap" volume (declared by the upstream compose) is
+#     mounted read-only into our bootstrap runner so it can read the admin
+#     service-account PAT seeded by docker-compose.limen.yaml.
+
 name: limen-dev
 
 services:
-  postgres:
+  limen-postgres:
     image: postgres:18.2-alpine
     environment:
       POSTGRES_USER: limen
@@ -23,83 +43,42 @@ services:
       - shared_preload_libraries=pg_stat_statements
       - -c
       - max_connections=100
-
-  postgres-zitadel:
-    image: postgres:18.2-alpine
-    environment:
-      POSTGRES_USER: zitadel
-      POSTGRES_PASSWORD: zitadel_dev
-      POSTGRES_DB: zitadel
-    volumes:
-      - pg-zitadel-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "zitadel"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  zitadel:
-    # Pin to a specific tag once the team standardizes.
-    image: ghcr.io/zitadel/zitadel:v2.71.0
-    restart: unless-stopped
-    command: >
-      start-from-init
-      --masterkey "MasterkeyNeedsToHave32Characters"
-      --tls-mode disabled
-    environment:
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
-      ZITADEL_DATABASE_POSTGRES_PORT: 5432
-      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel_dev
-      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
-      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: zitadel_dev
-      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
-      ZITADEL_EXTERNALSECURE: "false"
-      ZITADEL_EXTERNALDOMAIN: "localhost"
-      ZITADEL_EXTERNALPORT: "8081"
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: "root"
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "RootPassword1!"
-      ZITADEL_FIRSTINSTANCE_PATPATH: "/pat/zitadel-admin-sa.pat"
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: "zitadel-admin-sa"
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: "Admin"
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES: "openid"
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./scripts/zitadel-bootstrap/.pat:/pat
-    depends_on:
-      postgres-zitadel:
-        condition: service_healthy
-
-  zitadel-bootstrap:
-    image: golang:1.26-alpine
-    profiles: ["bootstrap"]
-    depends_on:
-      zitadel:
-        condition: service_started
-    volumes:
-      - ./scripts/zitadel-bootstrap:/work
-      - go-mod-cache:/go/pkg/mod
-    working_dir: /work
-    command: ["go", "run", "."]
-    environment:
-      ZITADEL_API: "http://zitadel:8080"
-      ZITADEL_PAT_FILE: "/work/.pat/zitadel-admin-sa.pat"
-      LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
-      LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
-      LIMEN_SAMPLE_TENANT_SLUG: "acme"
-      LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"
+    networks:
+      - zitadel
 
   mailhog:
     image: mailhog/mailhog:latest
     ports:
       - "1025:1025"
       - "8025:8025"
+    networks:
+      - zitadel
+
+  # One-shot. Provisions the Limen project, Portal/MCP RS apps, project roles,
+  # sample tenant org, and staff org via the Zitadel Management API.
+  # Idempotent. Run via `make dev-bootstrap`.
+  zitadel-bootstrap:
+    image: golang:1.26-alpine
+    profiles: ["bootstrap"]
+    depends_on:
+      zitadel-api:
+        condition: service_healthy
+    volumes:
+      - ./scripts/zitadel-bootstrap:/work
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+      - go-mod-cache:/go/pkg/mod
+    working_dir: /work
+    command: ["go", "run", "."]
+    environment:
+      ZITADEL_API: "http://zitadel-api:8080"
+      ZITADEL_PAT_FILE: "/zitadel/bootstrap/admin-sa.pat"
+      LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
+      LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
+      LIMEN_SAMPLE_TENANT_SLUG: "acme"
+      LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"
+    networks:
+      - zitadel
 
 volumes:
   pg-data:
-  pg-zitadel-data:
   go-mod-cache:

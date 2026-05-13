@@ -1,24 +1,33 @@
 .PHONY: dev dev-reset dev-bootstrap dev-down build test vet fmt
 
-# Bring up dependency stack (Postgres x2, Zitadel, MailHog) and run Limen on host.
+# Compose layering: upstream Zitadel stack + Limen overlay + Limen-side services.
+# All three files merge into a single "limen-dev" project.
+COMPOSE := docker compose \
+	--env-file scripts/zitadel/.env \
+	-f scripts/zitadel/docker-compose.yml \
+	-f scripts/zitadel/docker-compose.limen.yaml \
+	-f compose.dev.yaml
+
+# Bring up the full dependency stack (Zitadel + login UI + Traefik + Postgres,
+# plus Limen's own Postgres and MailHog), wait for it, run bootstrap, then
+# start Limen on the host.
 dev:
-	docker compose -f compose.dev.yaml up -d postgres postgres-zitadel zitadel mailhog
+	$(COMPOSE) up -d --wait
 	./scripts/wait-for-zitadel.sh
 	$(MAKE) dev-bootstrap
 	go run ./cmd/gateway
 
 # Run (or re-run) the Zitadel bootstrap. Idempotent.
 dev-bootstrap:
-	docker compose -f compose.dev.yaml run --rm zitadel-bootstrap
+	$(COMPOSE) run --rm zitadel-bootstrap
 
-# Stop services and wipe Postgres + Zitadel state.
+# Stop services and wipe all volumes (Limen Postgres, Zitadel Postgres, PATs).
 dev-reset:
-	docker compose -f compose.dev.yaml down -v
-	rm -rf scripts/zitadel-bootstrap/.pat
+	$(COMPOSE) down -v
 	rm -f scripts/zitadel-bootstrap/.bootstrap-out.env
 
 dev-down:
-	docker compose -f compose.dev.yaml down
+	$(COMPOSE) down
 
 build:
 	go build -o limen ./cmd/gateway
