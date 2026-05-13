@@ -4,7 +4,58 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Limen Portal</title>
-    <link rel="stylesheet" href="style.css" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+        max-width: 720px;
+        margin-inline: auto;
+      }
+      header h1 { margin-bottom: 0.25rem; }
+      .muted { color: #888; margin-top: 0; }
+      code {
+        background: rgba(127, 127, 127, 0.15);
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.5rem 1.25rem;
+      }
+      dt { font-weight: 600; color: #666; }
+      dd {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        word-break: break-all;
+      }
+      .actions { display: flex; gap: 0.75rem; margin: 1.5rem 0; }
+      button, .button {
+        appearance: none;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-size: 1rem;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+      button:hover, .button:hover { background: rgba(127, 127, 127, 0.1); }
+      pre {
+        background: rgba(127, 127, 127, 0.1);
+        padding: 1rem;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 0.85rem;
+      }
+      details { margin-top: 1rem; }
+    </style>
   </head>
   <body>
     <main>
@@ -40,6 +91,66 @@
         <a id="login" class="button">Sign in</a>
       </section>
     </main>
-    <script src="app.js"></script>
+    <script>
+      // POC: derive the tenant prefix from the URL and call /me with an
+      // absolute path so trailing-slash quirks don't break asset resolution.
+      (() => {
+        const m = window.location.pathname.match(/^\/t\/([^/]+)\/portal\/?/);
+        const slug = m ? m[1] : "(unknown)";
+        const tenantPrefix = `/t/${slug}`;
+
+        document.getElementById("slug").textContent = slug;
+        document.getElementById("logout").href = `${tenantPrefix}/auth/logout`;
+        document.getElementById("login").href = `${tenantPrefix}/auth/login`;
+
+        const $loading = document.getElementById("loading");
+        const $signedIn = document.getElementById("signed-in");
+        const $error = document.getElementById("error");
+
+        function show(section) {
+          for (const el of [$loading, $signedIn, $error]) el.hidden = el !== section;
+        }
+
+        function fmtExp(unix) {
+          if (!unix) return "(none)";
+          const d = new Date(unix * 1000);
+          const delta = Math.round((d - Date.now()) / 1000);
+          return `${d.toISOString()} (${delta >= 0 ? "+" : ""}${delta}s)`;
+        }
+
+        async function fetchMe() {
+          show($loading);
+          try {
+            const r = await fetch(`${tenantPrefix}/portal/me`, { credentials: "same-origin" });
+            if (r.status === 401 || r.status === 302 || r.redirected) {
+              document.getElementById("error-msg").textContent =
+                "Not signed in (or session expired).";
+              show($error);
+              return;
+            }
+            if (!r.ok) {
+              document.getElementById("error-msg").textContent = `me failed: HTTP ${r.status}`;
+              show($error);
+              return;
+            }
+            const me = await r.json();
+            document.getElementById("sub").textContent = me.sub || "";
+            document.getElementById("email").textContent = me.email || "";
+            document.getElementById("name").textContent = me.name || "";
+            document.getElementById("roles").textContent =
+              me.roles && me.roles.length ? me.roles.join(", ") : "(none)";
+            document.getElementById("exp").textContent = fmtExp(me.exp);
+            document.getElementById("raw").textContent = JSON.stringify(me, null, 2);
+            show($signedIn);
+          } catch (e) {
+            document.getElementById("error-msg").textContent = String(e);
+            show($error);
+          }
+        }
+
+        document.getElementById("refresh").addEventListener("click", fetchMe);
+        fetchMe();
+      })();
+    </script>
   </body>
 </html>

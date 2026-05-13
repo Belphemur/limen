@@ -1,32 +1,15 @@
 package transport
 
 import (
-	"embed"
+	_ "embed"
 	"encoding/json"
-	"io"
-	"io/fs"
 	"net/http"
-	"strings"
-	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/belphemur/limen/internal/auth"
 )
 
-//go:embed web/portal/*
-var portalAssetsFS embed.FS
-
-// portalAssets is the subtree rooted at web/portal so handlers can serve
-// "index.html" / "app.js" by their bare filenames.
-var portalAssets = func() fs.FS {
-	sub, err := fs.Sub(portalAssetsFS, "web/portal")
-	if err != nil {
-		// embed guarantees the path; a build that loses it should fail loud.
-		panic(err)
-	}
-	return sub
-}()
+//go:embed web/portal/index.html
+var portalIndexHTML []byte
 
 // meResponse is the JSON payload returned by GET /portal/me. The fields
 // mirror the subset of the live ID-token claims a browser SPA needs to
@@ -59,28 +42,13 @@ func portalMeHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// portalStaticHandler serves the single self-contained portal page. All
+// CSS + JS is inlined into the HTML; there are no other static assets to
+// route. Phase 4 is a POC — Phase 9 will replace this with a real SPA.
 func portalStaticHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rel := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
-		if rel == "" {
-			rel = "index.html"
-		}
-		f, err := portalAssets.Open(rel)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		defer func() { _ = f.Close() }()
-		stat, err := f.Stat()
-		if err != nil || stat.IsDir() {
-			http.NotFound(w, r)
-			return
-		}
-		rs, ok := f.(io.ReadSeeker)
-		if !ok {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		http.ServeContent(w, r, rel, time.Time{}, rs)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(portalIndexHTML)
 	}
 }
