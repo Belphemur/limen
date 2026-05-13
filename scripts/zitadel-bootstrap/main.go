@@ -3,298 +3,329 @@ package main
 // Package main implements the Zitadel bootstrap for Limen dev environments.
 //
 // It is idempotent: re-running it is safe. It creates the Limen Gateway
-// project, the Portal (OIDC/PKCE) and MCP RS (API) apps, the project roles
-// (member/admin/owner), and a sample tenant org with an owner user.
+// project on the Zitadel default org, the Portal (OIDC/PKCE) and MCP RS
+// (API) apps, the project roles (member/admin/owner/super_admin), a sample
+// tenant org, and the staff org with a super_admin user. All work is done
+// through the official zitadel-go/v3 SDK using v2 services exclusively —
+// no v1 management endpoints, no hand-rolled HTTP.
 //
-// Auth: a Zitadel PAT (Personal Access Token) printed once by Zitadel on
-// first init. We expect the file at ZITADEL_PAT_FILE.
+// Connection topology (dev):
+//   - gRPC dial address: zitadel-api:8080 (internal docker DNS)
+//   - gRPC :authority   : localhost (Zitadel rejects mismatched hosts)
+//   - Issuer / Origin   : http://localhost:8081 (only used by JWT-profile
+//     auth, not by PAT — irrelevant here)
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	zsdk "github.com/zitadel/zitadel-go/v3/pkg/client"
+	applicationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
+	authorizationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authorization/v2"
+	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
+	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
+	projectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
+	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-type client struct {
-	base  string
-	token string
-	hc    *http.Client
-}
-
-type apiError struct {
-	Status int
-	Body   string
-}
-
-func (e *apiError) Error() string {
-	return fmt.Sprintf("zitadel api %d: %s", e.Status, e.Body)
-}
-
-// alreadyExists reports whether err signals an idempotent "already exists" condition.
+// alreadyExists reports whether err is an idempotent "already exists" /
+// "duplicate" condition from Zitadel.
 func alreadyExists(err error) bool {
-	var ae *apiError
-	if !errors.As(err, &ae) {
+	if err == nil {
 		return false
 	}
-	if ae.Status == http.StatusConflict {
-		return true
-	}
-	// Zitadel returns 409-equivalent as a 9 / FailedPrecondition with a message,
-	// or 6 / AlreadyExists. The HTTP gateway maps to 409 in most cases; we also
-	// accept message-level matches for safety.
-	low := strings.ToLower(ae.Body)
-	return strings.Contains(low, "already exists") || strings.Contains(low, "alreadyexists")
-}
-
-func (c *client) do(method, path, orgID string, body any, out any) error {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequest(method, c.base+path, rdr)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	if orgID != "" {
-		req.Header.Set("x-zitadel-orgid", orgID)
-	}
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	buf, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return &apiError{Status: resp.StatusCode, Body: string(buf)}
-	}
-	if out != nil && len(buf) > 0 {
-		return json.Unmarshal(buf, out)
-	}
-	return nil
-}
-
-// --- Resource helpers ---------------------------------------------------------
-
-type idResp struct {
-	ID string `json:"id"`
-}
-
-type projectAppOIDCConfig struct {
-	RedirectURIs             []string `json:"redirectUris"`
-	ResponseTypes            []string `json:"responseTypes"`
-	GrantTypes               []string `json:"grantTypes"`
-	AppType                  string   `json:"appType"`
-	AuthMethodType           string   `json:"authMethodType"`
-	PostLogoutRedirectURIs   []string `json:"postLogoutRedirectUris,omitempty"`
-	DevMode                  bool     `json:"devMode"`
-	AccessTokenType          string   `json:"accessTokenType"`
-	AccessTokenRoleAssertion bool     `json:"accessTokenRoleAssertion"`
-	IDTokenRoleAssertion     bool     `json:"idTokenRoleAssertion"`
-	IDTokenUserinfoAssertion bool     `json:"idTokenUserinfoAssertion"`
-}
-
-func (c *client) ensureProject(name string) (string, error) {
-	// Search first for idempotency.
-	var search struct {
-		Result []idResp `json:"result"`
-	}
-	body := map[string]any{
-		"queries": []map[string]any{
-			{"nameQuery": map[string]any{"name": name, "method": "TEXT_QUERY_METHOD_EQUALS"}},
-		},
-	}
-	if err := c.do(http.MethodPost, "/management/v1/projects/_search", "", body, &search); err == nil {
-		if len(search.Result) > 0 {
-			return search.Result[0].ID, nil
-		}
-	}
-	var created idResp
-	create := map[string]any{
-		"name":                   name,
-		"projectRoleAssertion":   true,
-		"projectRoleCheck":       false,
-		"hasProjectCheck":        false,
-		"privateLabelingSetting": "PRIVATE_LABELING_SETTING_UNSPECIFIED",
-	}
-	if err := c.do(http.MethodPost, "/management/v1/projects", "", create, &created); err != nil {
-		return "", err
-	}
-	return created.ID, nil
-}
-
-func (c *client) ensureOIDCApp(projectID, name, redirectURI string) (string, string, error) {
-	cfg := projectAppOIDCConfig{
-		RedirectURIs:             []string{redirectURI},
-		ResponseTypes:            []string{"OIDC_RESPONSE_TYPE_CODE"},
-		GrantTypes:               []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"},
-		AppType:                  "OIDC_APP_TYPE_WEB",
-		AuthMethodType:           "OIDC_AUTH_METHOD_TYPE_NONE", // PKCE
-		DevMode:                  true,
-		AccessTokenType:          "OIDC_TOKEN_TYPE_JWT",
-		AccessTokenRoleAssertion: true,
-		IDTokenRoleAssertion:     true,
-		IDTokenUserinfoAssertion: true,
-	}
-	create := map[string]any{
-		"name":                     name,
-		"redirectUris":             cfg.RedirectURIs,
-		"responseTypes":            cfg.ResponseTypes,
-		"grantTypes":               cfg.GrantTypes,
-		"appType":                  cfg.AppType,
-		"authMethodType":           cfg.AuthMethodType,
-		"devMode":                  cfg.DevMode,
-		"accessTokenType":          cfg.AccessTokenType,
-		"accessTokenRoleAssertion": cfg.AccessTokenRoleAssertion,
-		"idTokenRoleAssertion":     cfg.IDTokenRoleAssertion,
-		"idTokenUserinfoAssertion": cfg.IDTokenUserinfoAssertion,
-	}
-	var out struct {
-		AppID    string `json:"appId"`
-		ClientID string `json:"clientId"`
-	}
-	err := c.do(http.MethodPost, fmt.Sprintf("/management/v1/projects/%s/apps/oidc", projectID), "", create, &out)
-	if err != nil && !alreadyExists(err) {
-		return "", "", err
-	}
-	return out.AppID, out.ClientID, nil
-}
-
-func (c *client) ensureAPIApp(projectID, name string) (string, string, error) {
-	create := map[string]any{
-		"name":           name,
-		"authMethodType": "API_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT",
-	}
-	var out struct {
-		AppID    string `json:"appId"`
-		ClientID string `json:"clientId"`
-	}
-	err := c.do(http.MethodPost, fmt.Sprintf("/management/v1/projects/%s/apps/api", projectID), "", create, &out)
-	if err != nil && !alreadyExists(err) {
-		return "", "", err
-	}
-	return out.AppID, out.ClientID, nil
-}
-
-func (c *client) ensureRole(projectID, key, displayName string) error {
-	body := map[string]any{
-		"roleKey":     key,
-		"displayName": displayName,
-	}
-	err := c.do(http.MethodPost, fmt.Sprintf("/management/v1/projects/%s/roles", projectID), "", body, nil)
-	if err != nil && !alreadyExists(err) {
-		return err
-	}
-	return nil
-}
-
-func (c *client) ensureOrg(name string) (string, error) {
-	// Try to find first.
-	var search struct {
-		Result []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"result"`
-	}
-	if err := c.do(http.MethodPost, "/admin/v1/orgs/_search", "", map[string]any{
-		"queries": []map[string]any{
-			{"nameQuery": map[string]any{"name": name, "method": "ORG_NAME_QUERY_METHOD_EQUALS"}},
-		},
-	}, &search); err == nil {
-		for _, r := range search.Result {
-			if r.Name == name {
-				return r.ID, nil
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.AlreadyExists:
+			return true
+		case codes.FailedPrecondition, codes.Internal:
+			low := strings.ToLower(s.Message())
+			if strings.Contains(low, "already exists") || strings.Contains(low, "duplicate") {
+				return true
 			}
 		}
 	}
-	var out struct {
-		OrgID string `json:"orgId"`
-	}
-	if err := c.do(http.MethodPost, "/admin/v1/orgs", "", map[string]any{"name": name}, &out); err != nil {
-		return "", err
-	}
-	return out.OrgID, nil
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "already exists") || strings.Contains(low, "alreadyexists")
 }
 
-// ensureHumanUser idempotently creates a human user in the given org. It
-// searches by login-name (== email in our setup) first; if present, returns
-// the existing user id. Zitadel sends an initialization email through SMTP
-// (MailHog in dev) when a user is created without a password, which is the
-// expected onboarding for bootstrap accounts.
-func (c *client) ensureHumanUser(orgID, email, firstName, lastName string) (string, error) {
-	var search struct {
-		Result []struct {
-			ID string `json:"id"`
-		} `json:"result"`
-	}
-	_ = c.do(http.MethodPost, "/management/v1/users/_search", orgID, map[string]any{
-		"queries": []map[string]any{
-			{"loginNameQuery": map[string]any{"loginName": email, "method": "TEXT_QUERY_METHOD_EQUALS"}},
-		},
-	}, &search)
-	if len(search.Result) > 0 {
-		return search.Result[0].ID, nil
-	}
-	var out struct {
-		UserID string `json:"userId"`
-	}
-	body := map[string]any{
-		"userName": email,
-		"profile": map[string]any{
-			"firstName":         firstName,
-			"lastName":          lastName,
-			"preferredLanguage": "en",
-		},
-		"email": map[string]any{
-			"email":           email,
-			"isEmailVerified": false,
-		},
-	}
-	if err := c.do(http.MethodPost, "/management/v1/users/human/_import", orgID, body, &out); err != nil {
-		if !alreadyExists(err) {
-			return "", err
-		}
-		// Re-search after a known-conflict to surface the existing id.
-		_ = c.do(http.MethodPost, "/management/v1/users/_search", orgID, map[string]any{
-			"queries": []map[string]any{
-				{"loginNameQuery": map[string]any{"loginName": email, "method": "TEXT_QUERY_METHOD_EQUALS"}},
-			},
-		}, &search)
-		if len(search.Result) > 0 {
-			return search.Result[0].ID, nil
-		}
-		return "", fmt.Errorf("user %q exists but could not be looked up", email)
-	}
-	return out.UserID, nil
+type bootstrap struct {
+	api *zsdk.Client
 }
 
-// ensureUserGrant idempotently grants the given project roles to a user in an org.
-func (c *client) ensureUserGrant(userID, projectID, orgID string, roleKeys []string) error {
-	body := map[string]any{
-		"projectId": projectID,
-		"roleKeys":  roleKeys,
+// defaultOrgID returns the ID of the Zitadel instance's default
+// organization. The Limen Gateway project lives there.
+func (b *bootstrap) defaultOrgID(ctx context.Context) (string, error) {
+	resp, err := b.api.OrganizationServiceV2().ListOrganizations(ctx, &orgV2.ListOrganizationsRequest{
+		Queries: []*orgV2.SearchQuery{
+			{Query: &orgV2.SearchQuery_DefaultQuery{DefaultQuery: &orgV2.DefaultOrganizationQuery{}}},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("list default org: %w", err)
 	}
-	err := c.do(http.MethodPost, fmt.Sprintf("/management/v1/users/%s/grants", userID), orgID, body, nil)
+	for _, o := range resp.GetResult() {
+		if id := o.GetId(); id != "" {
+			return id, nil
+		}
+	}
+	return "", errors.New("no default organization found")
+}
+
+func (b *bootstrap) ensureProject(ctx context.Context, orgID, name string) (string, error) {
+	list, err := b.api.ProjectServiceV2().ListProjects(ctx, &projectV2.ListProjectsRequest{
+		Filters: []*projectV2.ProjectSearchFilter{
+			{Filter: &projectV2.ProjectSearchFilter_ProjectNameFilter{
+				ProjectNameFilter: &projectV2.ProjectNameFilter{
+					ProjectName: name,
+					Method:      filterV2.TextFilterMethod_TEXT_FILTER_METHOD_EQUALS,
+				},
+			}},
+		},
+	})
+	if err == nil {
+		for _, p := range list.GetProjects() {
+			if p.GetName() == name {
+				return p.GetProjectId(), nil
+			}
+		}
+	}
+	resp, err := b.api.ProjectServiceV2().CreateProject(ctx, &projectV2.CreateProjectRequest{
+		OrganizationId:       orgID,
+		Name:                 name,
+		ProjectRoleAssertion: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create project %q: %w", name, err)
+	}
+	return resp.GetProjectId(), nil
+}
+
+func (b *bootstrap) ensureRole(ctx context.Context, projectID, key, displayName string) error {
+	_, err := b.api.ProjectServiceV2().AddProjectRole(ctx, &projectV2.AddProjectRoleRequest{
+		ProjectId:   projectID,
+		RoleKey:     key,
+		DisplayName: displayName,
+	})
 	if err != nil && !alreadyExists(err) {
-		return err
+		return fmt.Errorf("add project role %q: %w", key, err)
 	}
 	return nil
 }
 
+// findOIDCClientID returns the client_id of an existing OIDC app on
+// projectID with the given name, or "" if not found.
+func (b *bootstrap) findApp(ctx context.Context, projectID, name string) (string, error) {
+	list, err := b.api.ApplicationServiceV2().ListApplications(ctx, &applicationV2.ListApplicationsRequest{
+		Filters: []*applicationV2.ApplicationSearchFilter{
+			{Filter: &applicationV2.ApplicationSearchFilter_ProjectIdFilter{
+				ProjectIdFilter: &applicationV2.ProjectIDFilter{ProjectId: projectID},
+			}},
+			{Filter: &applicationV2.ApplicationSearchFilter_NameFilter{
+				NameFilter: &applicationV2.ApplicationNameFilter{
+					Name:   name,
+					Method: filterV2.TextFilterMethod_TEXT_FILTER_METHOD_EQUALS,
+				},
+			}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, a := range list.GetApplications() {
+		if a.GetName() != name {
+			continue
+		}
+		if oidc := a.GetOidcConfiguration(); oidc != nil {
+			return oidc.GetClientId(), nil
+		}
+		if api := a.GetApiConfiguration(); api != nil {
+			return api.GetClientId(), nil
+		}
+	}
+	return "", nil
+}
+
+func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirectURI string) (string, error) {
+	if cid, err := b.findApp(ctx, projectID, name); err == nil && cid != "" {
+		return cid, nil
+	}
+	resp, err := b.api.ApplicationServiceV2().CreateApplication(ctx, &applicationV2.CreateApplicationRequest{
+		ProjectId: projectID,
+		Name:      name,
+		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
+			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
+				RedirectUris:             []string{redirectURI},
+				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
+				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN},
+				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
+				AuthMethodType:           applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE,
+				DevelopmentMode:          true,
+				AccessTokenType:          applicationV2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT,
+				AccessTokenRoleAssertion: true,
+				IdTokenRoleAssertion:     true,
+				IdTokenUserinfoAssertion: true,
+			},
+		},
+	})
+	if err != nil {
+		if alreadyExists(err) {
+			if cid, lookupErr := b.findApp(ctx, projectID, name); lookupErr == nil && cid != "" {
+				return cid, nil
+			}
+		}
+		return "", fmt.Errorf("create OIDC app %q: %w", name, err)
+	}
+	return resp.GetOidcConfiguration().GetClientId(), nil
+}
+
+func (b *bootstrap) ensureAPIApp(ctx context.Context, projectID, name string) (string, error) {
+	if cid, err := b.findApp(ctx, projectID, name); err == nil && cid != "" {
+		return cid, nil
+	}
+	resp, err := b.api.ApplicationServiceV2().CreateApplication(ctx, &applicationV2.CreateApplicationRequest{
+		ProjectId: projectID,
+		Name:      name,
+		ApplicationType: &applicationV2.CreateApplicationRequest_ApiConfiguration{
+			ApiConfiguration: &applicationV2.CreateAPIApplicationRequest{
+				AuthMethodType: applicationV2.APIAuthMethodType_API_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT,
+			},
+		},
+	})
+	if err != nil {
+		if alreadyExists(err) {
+			if cid, lookupErr := b.findApp(ctx, projectID, name); lookupErr == nil && cid != "" {
+				return cid, nil
+			}
+		}
+		return "", fmt.Errorf("create API app %q: %w", name, err)
+	}
+	return resp.GetApiConfiguration().GetClientId(), nil
+}
+
+func (b *bootstrap) ensureOrg(ctx context.Context, name string) (string, error) {
+	list, err := b.api.OrganizationServiceV2().ListOrganizations(ctx, &orgV2.ListOrganizationsRequest{
+		Queries: []*orgV2.SearchQuery{
+			{Query: &orgV2.SearchQuery_NameQuery{NameQuery: &orgV2.OrganizationNameQuery{
+				Name:   name,
+				Method: objectV2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
+			}}},
+		},
+	})
+	if err == nil {
+		for _, o := range list.GetResult() {
+			if o.GetName() == name {
+				return o.GetId(), nil
+			}
+		}
+	}
+	resp, err := b.api.OrganizationServiceV2().AddOrganization(ctx, &orgV2.AddOrganizationRequest{Name: name})
+	if err != nil {
+		return "", fmt.Errorf("add organization %q: %w", name, err)
+	}
+	return resp.GetOrganizationId(), nil
+}
+
+func (b *bootstrap) ensureHumanUser(ctx context.Context, orgID, email, given, family string) (string, error) {
+	list, err := b.api.UserServiceV2().ListUsers(ctx, &userV2.ListUsersRequest{
+		Queries: []*userV2.SearchQuery{
+			{Query: &userV2.SearchQuery_OrganizationIdQuery{OrganizationIdQuery: &userV2.OrganizationIdQuery{
+				OrganizationId: orgID,
+			}}},
+			{Query: &userV2.SearchQuery_LoginNameQuery{LoginNameQuery: &userV2.LoginNameQuery{
+				LoginName: email,
+				Method:    objectV2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
+			}}},
+		},
+	})
+	if err == nil {
+		for _, u := range list.GetResult() {
+			if id := u.GetUserId(); id != "" {
+				return id, nil
+			}
+		}
+	}
+	username := email
+	resp, err := b.api.UserServiceV2().AddHumanUser(ctx, &userV2.AddHumanUserRequest{
+		Organization: &objectV2.Organization{Org: &objectV2.Organization_OrgId{OrgId: orgID}},
+		Username:     &username,
+		Profile: &userV2.SetHumanProfile{
+			GivenName:         given,
+			FamilyName:        family,
+			PreferredLanguage: ptr("en"),
+		},
+		Email: &userV2.SetHumanEmail{Email: email},
+	})
+	if err != nil {
+		if alreadyExists(err) {
+			// Re-search once: the conflict implies the user is on this org.
+			list2, lookupErr := b.api.UserServiceV2().ListUsers(ctx, &userV2.ListUsersRequest{
+				Queries: []*userV2.SearchQuery{
+					{Query: &userV2.SearchQuery_OrganizationIdQuery{OrganizationIdQuery: &userV2.OrganizationIdQuery{OrganizationId: orgID}}},
+					{Query: &userV2.SearchQuery_LoginNameQuery{LoginNameQuery: &userV2.LoginNameQuery{LoginName: email, Method: objectV2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS}}},
+				},
+			})
+			if lookupErr == nil {
+				for _, u := range list2.GetResult() {
+					if id := u.GetUserId(); id != "" {
+						return id, nil
+					}
+				}
+			}
+		}
+		return "", fmt.Errorf("add human user %q: %w", email, err)
+	}
+	return resp.GetUserId(), nil
+}
+
+func (b *bootstrap) ensureAuthorization(ctx context.Context, userID, projectID, orgID string, roleKeys []string) error {
+	_, err := b.api.AuthorizationServiceV2().CreateAuthorization(ctx, &authorizationV2.CreateAuthorizationRequest{
+		UserId:         userID,
+		ProjectId:      projectID,
+		OrganizationId: orgID,
+		RoleKeys:       roleKeys,
+	})
+	if err != nil && !alreadyExists(err) {
+		return fmt.Errorf("create authorization (user=%s project=%s org=%s): %w", userID, projectID, orgID, err)
+	}
+	return nil
+}
+
+// ensureProjectGrant grants the Limen Gateway project to grantedOrgID with
+// the given roleKeys. Required before any authorization can be created for
+// users in a non-owning organization (tenant orgs and staff org).
+func (b *bootstrap) ensureProjectGrant(ctx context.Context, projectID, grantedOrgID string, roleKeys []string) error {
+	_, err := b.api.ProjectServiceV2().CreateProjectGrant(ctx, &projectV2.CreateProjectGrantRequest{
+		ProjectId:             projectID,
+		GrantedOrganizationId: grantedOrgID,
+		RoleKeys:              roleKeys,
+	})
+	if err != nil && !alreadyExists(err) {
+		return fmt.Errorf("create project grant (project=%s org=%s): %w", projectID, grantedOrgID, err)
+	}
+	return nil
+}
+
+func ptr[T any](v T) *T { return &v }
+
 func main() {
-	api := getenvDefault("ZITADEL_API", "http://zitadel-api:8080")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	apiHost := getenvDefault("ZITADEL_API_HOST", "zitadel-api")
+	apiPort := getenvDefault("ZITADEL_API_PORT", "8080")
+	authority := getenvDefault("ZITADEL_HOST", "localhost") // matches Zitadel ExternalDomain
+
 	patFile := os.Getenv("ZITADEL_PAT_FILE")
 	if patFile == "" {
 		log.Fatal("ZITADEL_PAT_FILE not set")
@@ -304,30 +335,38 @@ func main() {
 		log.Fatalf("read PAT: %v", err)
 	}
 
-	c := &client{
-		base:  strings.TrimRight(api, "/"),
-		token: pat,
-		hc:    &http.Client{Timeout: 30 * time.Second},
+	log.Printf("bootstrapping Zitadel via gRPC %s:%s (authority=%s)", apiHost, apiPort, authority)
+
+	api, err := zsdk.New(ctx,
+		zitadel.New(apiHost, zitadel.WithInsecure(apiPort)),
+		zsdk.WithAuth(zsdk.PAT(pat)),
+		zsdk.WithGRPCDialOptions(grpc.WithAuthority(authority)),
+	)
+	if err != nil {
+		log.Fatalf("build SDK client: %v", err)
 	}
+	b := &bootstrap{api: api}
 
-	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:8080/auth/callback")
-	sampleSlug := getenvDefault("LIMEN_SAMPLE_TENANT_SLUG", "acme")
+	defaultOrg, err := b.defaultOrgID(ctx)
+	if err != nil {
+		log.Fatalf("resolve default org: %v", err)
+	}
+	log.Printf("default org: %s", defaultOrg)
 
-	log.Printf("bootstrapping Zitadel at %s", api)
-
-	projectID, err := c.ensureProject("Limen Gateway")
+	projectID, err := b.ensureProject(ctx, defaultOrg, "Limen Gateway")
 	if err != nil {
 		log.Fatalf("ensure project: %v", err)
 	}
 	log.Printf("project: %s", projectID)
 
-	_, portalClientID, err := c.ensureOIDCApp(projectID, "Limen Portal", portalRedirect)
+	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:8080/auth/callback")
+	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", portalRedirect)
 	if err != nil {
 		log.Fatalf("ensure portal app: %v", err)
 	}
 	log.Printf("portal client_id: %s", portalClientID)
 
-	_, mcpClientID, err := c.ensureAPIApp(projectID, "Limen MCP RS")
+	mcpClientID, err := b.ensureAPIApp(ctx, projectID, "Limen MCP RS")
 	if err != nil {
 		log.Fatalf("ensure MCP RS app: %v", err)
 	}
@@ -339,39 +378,47 @@ func main() {
 		{"owner", "Owner"},
 		{"super_admin", "Super Admin"},
 	} {
-		if err := c.ensureRole(projectID, r.key, r.display); err != nil {
+		if err := b.ensureRole(ctx, projectID, r.key, r.display); err != nil {
 			log.Fatalf("ensure role %s: %v", r.key, err)
 		}
 	}
 	log.Printf("roles: member, admin, owner, super_admin")
 
-	orgID, err := c.ensureOrg(sampleSlug)
+	sampleSlug := getenvDefault("LIMEN_SAMPLE_TENANT_SLUG", "acme")
+	orgID, err := b.ensureOrg(ctx, sampleSlug)
 	if err != nil {
 		log.Fatalf("ensure sample org: %v", err)
 	}
 	log.Printf("sample org %q: %s", sampleSlug, orgID)
 
-	// Staff (operator) tenant — see Phase 12. The staff org is mandatory: it
-	// hosts the SaaS-operator user(s) that carry the super_admin role and
-	// log in to the backoffice at /t/_staff/portal/. The corresponding
-	// Limen-side tenant row (slug=_staff, kind=staff) is provisioned by
-	// limen-migrate using LIMEN_STAFF_ZITADEL_ORG_ID emitted below.
+	allRoles := []string{"member", "admin", "owner", "super_admin"}
+	if err := b.ensureProjectGrant(ctx, projectID, orgID, allRoles); err != nil {
+		log.Fatalf("ensure sample project grant: %v", err)
+	}
+	log.Printf("project granted to sample org")
+
+	// Staff (operator) org — see docs/phases/phase-12-staff-backoffice.md.
 	staffOrgName := getenvDefault("LIMEN_STAFF_ORG_NAME", "limen-staff")
-	staffOrgID, err := c.ensureOrg(staffOrgName)
+	staffOrgID, err := b.ensureOrg(ctx, staffOrgName)
 	if err != nil {
 		log.Fatalf("ensure staff org: %v", err)
 	}
 	log.Printf("staff org %q: %s", staffOrgName, staffOrgID)
 
+	if err := b.ensureProjectGrant(ctx, projectID, staffOrgID, allRoles); err != nil {
+		log.Fatalf("ensure staff project grant: %v", err)
+	}
+	log.Printf("project granted to staff org")
+
 	staffEmail := getenvDefault("LIMEN_STAFF_BOOTSTRAP_EMAIL", "staff@limen.dev")
-	staffUserID, err := c.ensureHumanUser(staffOrgID, staffEmail, "Limen", "Staff")
+	staffUserID, err := b.ensureHumanUser(ctx, staffOrgID, staffEmail, "Limen", "Staff")
 	if err != nil {
 		log.Fatalf("ensure staff user %q: %v", staffEmail, err)
 	}
 	log.Printf("staff user %q: %s", staffEmail, staffUserID)
 
-	if err := c.ensureUserGrant(staffUserID, projectID, staffOrgID, []string{"super_admin"}); err != nil {
-		log.Fatalf("ensure staff user grant: %v", err)
+	if err := b.ensureAuthorization(ctx, staffUserID, projectID, staffOrgID, []string{"super_admin"}); err != nil {
+		log.Fatalf("ensure staff authorization: %v", err)
 	}
 	log.Printf("granted super_admin to %s in staff org", staffEmail)
 
@@ -385,12 +432,15 @@ func main() {
 		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
 	}
 	if path := os.Getenv("LIMEN_BOOTSTRAP_OUT"); path != "" {
-		_ = writeEnvFile(path, out)
+		if err := writeEnvFile(path, out); err != nil {
+			log.Fatalf("write %s: %v", path, err)
+		}
 	}
 	fmt.Println("\n--- bootstrap output (copy into .env) ---")
 	for k, v := range out {
 		fmt.Printf("%s=%s\n", k, v)
 	}
+
 }
 
 func readPAT(path string) (string, error) {

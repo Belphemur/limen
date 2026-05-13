@@ -70,7 +70,12 @@ services:
     working_dir: /work
     command: ["go", "run", "."]
     environment:
-      ZITADEL_API: "http://zitadel-api:8080"
+      # The SDK dials zitadel-api:8080 on the internal docker network but
+      # sets the gRPC :authority to ZITADEL_HOST so Zitadel's ExternalDomain
+      # check (configured to "localhost") accepts the request.
+      ZITADEL_API_HOST: "zitadel-api"
+      ZITADEL_API_PORT: "8080"
+      ZITADEL_HOST: "localhost"
       ZITADEL_PAT_FILE: "/zitadel/bootstrap/admin-sa.pat"
       LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
       LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
