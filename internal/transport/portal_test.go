@@ -140,13 +140,13 @@ func (s *stubIssuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 func (s *stubIssuer) handleToken(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	claims := map[string]any{
-		"iss":   s.server.URL,
-		"aud":   []string{s.clientID},
-		"sub":   s.claims.sub,
-		"iat":   now.Unix(),
-		"exp":   now.Add(1 * time.Hour).Unix(),
-		"email": s.claims.email,
-		"name":  s.claims.name,
+		"iss":                                   s.server.URL,
+		"aud":                                   []string{s.clientID},
+		"sub":                                   s.claims.sub,
+		"iat":                                   now.Unix(),
+		"exp":                                   now.Add(1 * time.Hour).Unix(),
+		"email":                                 s.claims.email,
+		"name":                                  s.claims.name,
 		"urn:zitadel:iam:user:resourceowner:id": s.claims.orgID,
 	}
 	idToken, err := s.signJWT(claims)
