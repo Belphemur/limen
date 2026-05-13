@@ -31,6 +31,8 @@ type Config struct {
 	Upstreams   []UpstreamConfig  `yaml:"upstreams"`
 	CodeMode    CodeModeConfig    `yaml:"codemode"`
 	Auth        AuthConfig        `yaml:"auth"`
+	OIDC        OIDCConfig        `yaml:"oidc"`
+	Zitadel     ZitadelConfig     `yaml:"zitadel"`
 }
 
 // ServerConfig governs the inbound HTTP listener and the public base URL
@@ -102,6 +104,53 @@ type AuthConfig struct {
 	Audience string `yaml:"audience,omitempty"`
 }
 
+// OIDCConfig wires the portal relying-party (Phase 4) to a Zitadel issuer.
+// Limen never sees the user's password — Zitadel renders the login UI,
+// enforces MFA, and issues the tokens. Limen seals the resulting
+// {id_token, refresh_token} pair into a per-tenant encrypted cookie.
+//
+// The redirect URI is intentionally tenant-agnostic so a single Zitadel
+// app registration covers every tenant; the tenant slug travels in the
+// signed `state` cookie. See internal/auth/oidc.go.
+type OIDCConfig struct {
+	// Issuer is the Zitadel issuer URL, e.g. https://auth.limen.example.com.
+	Issuer string `yaml:"issuer"`
+	// ClientID identifies the Portal app registered in Zitadel.
+	ClientID string `yaml:"client_id"`
+	// ClientSecret is empty for a public PKCE client.
+	ClientSecret string `yaml:"client_secret,omitempty"`
+	// RedirectURI is the absolute URL for the root /auth/callback handler,
+	// e.g. https://limen.example.com/auth/callback. Must be a sub-path of
+	// Server.BaseURL.
+	RedirectURI string `yaml:"redirect_uri"`
+	// Scopes requested at /authorize. Must include "openid"; usually also
+	// "profile", "email", "offline_access", and the project-roles scope
+	// urn:zitadel:iam:org:project:id:<projectID>:aud.
+	Scopes []string `yaml:"scopes"`
+	// PostLogoutRedirectURI is where Zitadel sends the browser after
+	// end_session. Defaults to Server.BaseURL when empty.
+	PostLogoutRedirectURI string `yaml:"post_logout_redirect_uri,omitempty"`
+}
+
+// ZitadelConfig wires the Management / User API client used by the CLI
+// (create-tenant) and Phase 9b admin RPCs. See internal/zitadel.
+type ZitadelConfig struct {
+	// Domain is the Zitadel issuer URL — same value as OIDC.Issuer in the
+	// usual single-instance deployment.
+	Domain string `yaml:"domain"`
+	// AuthMode selects the client credential: "pat" (dev) or "jwt_key" (prod).
+	AuthMode string `yaml:"auth_mode"`
+	// PAT is a Personal Access Token, used when auth_mode=pat.
+	PAT string `yaml:"pat,omitempty"`
+	// JWTKeyPath is a service-user JSON key file, used when auth_mode=jwt_key.
+	JWTKeyPath string `yaml:"jwt_key_path,omitempty"`
+	// ProjectID is the shared Limen project's resource id (Phase 0 bootstrap).
+	// Required for AddUserGrant and for requesting the project-roles claim.
+	ProjectID string `yaml:"project_id"`
+	// HTTPTimeout caps any single API request. Default 30s.
+	HTTPTimeout time.Duration `yaml:"http_timeout,omitempty"`
+}
+
 // Load reads, env-expands, parses, and validates a configuration file.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -161,6 +210,21 @@ func (c *Config) applyDefaults() {
 	if c.Security.PortalSessionCookieName == "" {
 		c.Security.PortalSessionCookieName = "limen_portal"
 	}
+	if c.Zitadel.HTTPTimeout == 0 {
+		c.Zitadel.HTTPTimeout = 30 * time.Second
+	}
+	if c.OIDC.Issuer == "" && c.Zitadel.Domain != "" {
+		c.OIDC.Issuer = c.Zitadel.Domain
+	}
+	if c.OIDC.PostLogoutRedirectURI == "" && c.Server.BaseURL != "" {
+		c.OIDC.PostLogoutRedirectURI = c.Server.BaseURL
+	}
+	if c.OIDC.RedirectURI == "" && c.Server.BaseURL != "" {
+		c.OIDC.RedirectURI = c.Server.BaseURL + "/auth/callback"
+	}
+	if len(c.OIDC.Scopes) == 0 {
+		c.OIDC.Scopes = []string{"openid", "profile", "email", "offline_access"}
+	}
 }
 
 // Validate runs every section's validator in declaration order and reports
@@ -177,6 +241,12 @@ func (c *Config) Validate() error {
 	}
 	if err := c.OAuthServer.Validate(); err != nil {
 		return fmt.Errorf("oauth_server: %w", err)
+	}
+	if err := c.OIDC.Validate(c.Server.BaseURL); err != nil {
+		return fmt.Errorf("oidc: %w", err)
+	}
+	if err := c.Zitadel.Validate(); err != nil {
+		return fmt.Errorf("zitadel: %w", err)
 	}
 	return nil
 }
@@ -257,6 +327,65 @@ func (o OAuthServerConfig) Validate() error {
 	case "RS256", "ES256", "PS256":
 	default:
 		return fmt.Errorf("signing_algorithm %q is not supported", o.SigningAlgorithm)
+	}
+	return nil
+}
+
+// Validate checks the OIDC RP wiring. baseURL is the configured
+// Server.BaseURL; when non-empty the redirect URI must live under it so a
+// stolen callback cannot redirect to an attacker-controlled origin.
+func (o OIDCConfig) Validate(baseURL string) error {
+	if strings.TrimSpace(o.Issuer) == "" {
+		return errors.New("issuer is required")
+	}
+	if !strings.HasPrefix(o.Issuer, "http://") && !strings.HasPrefix(o.Issuer, "https://") {
+		return errors.New("issuer must be an absolute http(s) URL")
+	}
+	if strings.TrimSpace(o.ClientID) == "" {
+		return errors.New("client_id is required")
+	}
+	if strings.TrimSpace(o.RedirectURI) == "" {
+		return errors.New("redirect_uri is required")
+	}
+	u, err := url.Parse(o.RedirectURI)
+	if err != nil || !u.IsAbs() {
+		return errors.New("redirect_uri must be an absolute URL")
+	}
+	if baseURL != "" && !strings.HasPrefix(o.RedirectURI, baseURL+"/") {
+		return fmt.Errorf("redirect_uri %q must live under server.base_url %q", o.RedirectURI, baseURL)
+	}
+	hasOpenID := false
+	for _, s := range o.Scopes {
+		if s == "openid" {
+			hasOpenID = true
+			break
+		}
+	}
+	if !hasOpenID {
+		return errors.New(`scopes must include "openid"`)
+	}
+	return nil
+}
+
+// Validate confirms the SDK client has enough config to authenticate.
+func (z ZitadelConfig) Validate() error {
+	if strings.TrimSpace(z.Domain) == "" {
+		return errors.New("domain is required")
+	}
+	if strings.TrimSpace(z.ProjectID) == "" {
+		return errors.New("project_id is required")
+	}
+	switch z.AuthMode {
+	case "pat":
+		if strings.TrimSpace(z.PAT) == "" {
+			return errors.New(`pat is required when auth_mode="pat"`)
+		}
+	case "jwt_key":
+		if strings.TrimSpace(z.JWTKeyPath) == "" {
+			return errors.New(`jwt_key_path is required when auth_mode="jwt_key"`)
+		}
+	default:
+		return fmt.Errorf("auth_mode %q is not one of pat|jwt_key", z.AuthMode)
 	}
 	return nil
 }

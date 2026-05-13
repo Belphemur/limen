@@ -51,3 +51,26 @@ auth:
   enabled: false
   jwks_url: "${LIMEN_JWKS_URL:-}"
   audience: "${LIMEN_AUDIENCE:-limen}"
+
+# Phase 4 — portal OIDC relying party against Zitadel.
+oidc:
+  issuer: "${LIMEN_OIDC_ISSUER:-http://localhost:8081}"
+  client_id: "${LIMEN_OIDC_CLIENT_ID}"
+  client_secret: "${LIMEN_OIDC_CLIENT_SECRET:-}"
+  redirect_uri: "${LIMEN_OIDC_REDIRECT_URI:-https://limen.example.com/auth/callback}"
+  scopes:
+    - openid
+    - profile
+    - email
+    - offline_access
+  post_logout_redirect_uri: "${LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI:-}"
+
+# Phase 4 — Zitadel Management API client (used by `limen create-tenant`).
+zitadel:
+  domain: "${LIMEN_ZITADEL_DOMAIN:-http://localhost:8081}"
+  # pat | jwt_key
+  auth_mode: "${LIMEN_ZITADEL_AUTH_MODE:-pat}"
+  pat: "${LIMEN_ZITADEL_PAT:-}"
+  jwt_key_path: "${LIMEN_ZITADEL_JWT_KEY_PATH:-}"
+  project_id: "${LIMEN_ZITADEL_PROJECT_ID}"
+  http_timeout: "30s"
