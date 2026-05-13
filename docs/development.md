@@ -85,13 +85,21 @@ export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro 
 
 ### 2. Migrate Limen's database and create a test tenant
 
-The bootstrap-created `acme` org lives in Zitadel only. `limen create-tenant`
-provisions a fresh Zitadel org **and** the matching Limen DB row in one
-shot — use a new slug for the POC:
+`limen create-tenant` either provisions a fresh Zitadel org + Limen row in
+one shot, or binds the Limen row to an existing Zitadel org (e.g. the
+`acme` org the bootstrap created):
 
 ```bash
 go run ./cmd/gateway migrate
 
+# Option A — bind to the bootstrap-created sample org (no Zitadel writes,
+# no PAT required, manage users via the Zitadel Console).
+go run ./cmd/gateway create-tenant \
+  --slug acme \
+  --name "Acme" \
+  --zitadel-org-id "$LIMEN_SAMPLE_TENANT_ORG_ID"
+
+# Option B — full flow: also create the Zitadel org + seed owner.
 go run ./cmd/gateway create-tenant \
   --slug demo \
   --name "Demo Tenant" \
@@ -100,8 +108,14 @@ go run ./cmd/gateway create-tenant \
   --owner-family-name Example
 ```
 
-The owner receives a Zitadel "set initial password" mail — pick it up at
-http://localhost:8025 (MailHog) and complete the init flow.
+Option B sends a Zitadel "set initial password" mail to the owner — pick
+it up at http://localhost:8025 (MailHog) and complete the init flow.
+
+> If you get `password authentication failed for user "limen_app"`, your
+> Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Apply
+> it manually with
+> `docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`,
+> or wipe the volume with `make dev-reset`.
 
 ### 3. Run the gateway
 
@@ -132,13 +146,13 @@ against `http://localhost:8081`.
 
 ### Troubleshooting
 
-| Symptom | Cause / fix |
-| --- | --- |
-| `Project Grant not found` during bootstrap | Stale state from before the v2 rewrite. `make dev-reset && make dev`. |
-| SDK error `ExternalDomain mismatch` | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`. |
-| `invalid_client` at the token endpoint | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`. |
-| Callback loops back to login | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`. |
-| `create-tenant` fails with auth error | Re-read the PAT — it changes on every `make dev-reset`. |
+| Symptom                                    | Cause / fix                                                                                                                 |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `Project Grant not found` during bootstrap | Stale state from before the v2 rewrite. `make dev-reset && make dev`.                                                       |
+| SDK error `ExternalDomain mismatch`        | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`. |
+| `invalid_client` at the token endpoint     | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                         |
+| Callback loops back to login               | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`.                               |
+| `create-tenant` fails with auth error      | Re-read the PAT — it changes on every `make dev-reset`.                                                                     |
 
 ## Useful URLs
 
