@@ -30,18 +30,8 @@ func NewMCPServer(gw *gateway.Gateway, handler *gateway.CodeModeHandler, logger 
 }
 
 func (s *MCPServer) Start(ctx context.Context, addr string) error {
-	s.server = server.NewMCPServer(
-		"limen",
-		"0.1.0",
-		server.WithToolCapabilities(true),
-	)
-
-	s.registerCodeModeTools()
-
 	r := chi.NewRouter()
-	sseServer := server.NewSSEServer(s.server)
-	r.Handle("/mcp", sseServer)
-	r.Handle("/mcp/", sseServer)
+	s.Mount(r)
 
 	s.logger.Info("starting limen gateway", zap.String("addr", addr))
 
@@ -56,6 +46,21 @@ func (s *MCPServer) Start(ctx context.Context, addr string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Mount attaches the MCP SSE handler at /mcp and /mcp/ on the provided
+// chi router. Intended for callers that compose MCP routes with the
+// portal / OIDC routes on a single listener (see internal/cli/serve.go).
+func (s *MCPServer) Mount(r chi.Router) {
+	s.server = server.NewMCPServer(
+		"limen",
+		"0.1.0",
+		server.WithToolCapabilities(true),
+	)
+	s.registerCodeModeTools()
+	sseServer := server.NewSSEServer(s.server)
+	r.Handle("/mcp", sseServer)
+	r.Handle("/mcp/", sseServer)
 }
 
 func (s *MCPServer) registerCodeModeTools() {

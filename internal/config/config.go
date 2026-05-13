@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -354,13 +355,7 @@ func (o OIDCConfig) Validate(baseURL string) error {
 	if baseURL != "" && !strings.HasPrefix(o.RedirectURI, baseURL+"/") {
 		return fmt.Errorf("redirect_uri %q must live under server.base_url %q", o.RedirectURI, baseURL)
 	}
-	hasOpenID := false
-	for _, s := range o.Scopes {
-		if s == "openid" {
-			hasOpenID = true
-			break
-		}
-	}
+	hasOpenID := slices.Contains(o.Scopes, "openid")
 	if !hasOpenID {
 		return errors.New(`scopes must include "openid"`)
 	}

@@ -83,19 +83,20 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 4 — Tenant resolution, OIDC login, portal session
 
-- [ ] `internal/tenancy/resolver.go` (URL param → tenant → ctx); reserved-slug list enforced (includes `auth`)
-- [ ] `internal/auth/oidc.go` (Zitadel as OIDC provider; `rp.RelyingParty` built from config)
-- [ ] `/auth/login`, `/auth/callback`, `/auth/logout` routes implemented
-- [ ] HMAC-signed `state` carrying `(nonce, slug, return_to, expires_at)`
-- [ ] Token validation: signature, `iss`, `aud`, `exp`, `nonce`, plus `urn:zitadel:iam:user:resourceowner:id` == `tenant.zitadel_org_id`
+- [x] `internal/tenancy/resolver.go` (URL param → tenant → ctx); reserved-slug list enforced (includes `auth`)
+- [x] `internal/auth/oidc.go` (Zitadel as OIDC provider; `rp.RelyingParty` built from config)
+- [ ] `/auth/login`, `/auth/callback`, `/auth/logout` routes mounted in `internal/transport`
+- [x] HMAC-signed `state` carrying `(nonce, slug, return_to, expires_at)`; tampering rejected
+- [x] Token validation: signature, `iss`, `aud`, `exp`, `nonce`, plus `urn:zitadel:iam:user:resourceowner:id` == `tenant.zitadel_org_id`
 - [ ] `User` upserted by `(tenant_id, zitadel_subject)` on callback
-- [ ] `internal/auth/session.go` issues opaque session tokens; cookie has `Path=/t/<slug>; HttpOnly; Secure; SameSite=Lax`
-- [ ] `internal/auth/session.go` issues a portal cookie that wraps a Zitadel `SessionService` session (`sessionId` + `sessionToken` encrypted with AAD); cookie has `Path=/t/<slug>; HttpOnly; Secure; SameSite=Lax`
-- [ ] Logout calls `SessionService.DeleteSession` then redirects to Zitadel's end-session URL after clearing the cookie
-- [ ] `RequirePortalSession` validates via `SessionService.GetSession` with a 60 s positive cache
-- [ ] `RequireRole(...)` middlewares (read roles from the `urn:zitadel:iam:org:project:roles` session claim, not from the DB)
-- [ ] CLI: `-create-tenant` (creates Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows, prints Zitadel Console deep-link). Invites, role changes, member removal, password reset, MFA enrollment, and IdP federation are delegated to Zitadel Console — not Limen CLI subcommands (see Phase 4 _Self-service delegation_).
-- [ ] Unit + HTTP-level tests for slug validation, state signing, full OIDC flow against a stub issuer
+- [x] Portal cookie is an AES-SIV-encrypted blob carrying `{idToken, refreshToken, expiresAt}` with AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`; attributes `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` (no server-side session store, no `SessionService` round-trip)
+- [x] `RequireSession` decrypts cookie, verifies via `rp.VerifyIDToken` against cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure; puts `*oidc.IDTokenClaims` on ctx
+- [x] Logout clears the portal cookie and 302s to `rp.EndSession`'s URL with `id_token_hint`
+- [x] `RequireRole(...)` reads roles from the `urn:zitadel:iam:org:project:roles` claim on the live ID token (no DB role column)
+- [x] CLI: `limen create-tenant` (Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows, prints Zitadel Console deep-link). Invites, role changes, member removal, password reset, MFA enrollment, and IdP federation are delegated to Zitadel Console — not Limen CLI subcommands (see Phase 4 _Self-service delegation_).
+- [x] `cmd/gateway/main.go` is a Cobra root bootstrap; Viper binds `--config` + CLI flags to `LIMEN_*`
+- [x] Unit tests for slug validation and state signing
+- [ ] HTTP integration test for the full OIDC flow against a stub issuer (login → callback → cookie attributes → cross-tenant rejection → org mismatch)
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
 

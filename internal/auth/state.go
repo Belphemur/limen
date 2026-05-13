@@ -82,11 +82,11 @@ func (s *StateSigner) Sign(st State) (string, error) {
 // Verify parses, MAC-checks, and TTL-checks a string produced by Sign.
 func (s *StateSigner) Verify(token string) (State, error) {
 	var zero State
-	dot := strings.IndexByte(token, '.')
-	if dot < 0 {
+	before, after, ok := strings.Cut(token, ".")
+	if !ok {
 		return zero, errors.New("auth: malformed state")
 	}
-	body, sig := token[:dot], token[dot+1:]
+	body, sig := before, after
 	mac := hmac.New(sha256.New, s.key)
 	_, _ = mac.Write([]byte(body))
 	want := mac.Sum(nil)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -80,13 +81,7 @@ func (c OIDCConfig) validate() error {
 	if len(c.Scopes) == 0 {
 		return errors.New("auth: OIDCConfig.Scopes is required")
 	}
-	hasOpenID := false
-	for _, s := range c.Scopes {
-		if s == oidc.ScopeOpenID {
-			hasOpenID = true
-			break
-		}
-	}
+	hasOpenID := slices.Contains(c.Scopes, oidc.ScopeOpenID)
 	if !hasOpenID {
 		return errors.New(`auth: OIDCConfig.Scopes must include "openid"`)
 	}
@@ -181,10 +176,18 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 
 // CallbackHandler is mounted at /auth/callback (root, single redirect URI).
 // It verifies the signed state cookie, exchanges the code for tokens,
-// confirms the token's Zitadel org matches the tenant, and sets the
-// per-tenant portal cookie. The tenant slug is recovered from state, not
-// from the URL.
-func (o *OIDC) CallbackHandler(resolveTenant func(ctx context.Context, slug string) (string, error)) http.HandlerFunc {
+// confirms the token's Zitadel org matches the tenant, upserts the local
+// User row, and sets the per-tenant portal cookie. The tenant slug is
+// recovered from state, not from the URL.
+//
+// resolveTenant looks up the tenant by slug and returns its int64 ID plus
+// the bound Zitadel org id. upsertUser writes the Limen User row keyed by
+// (tenantID, sub); both callbacks run before the cookie is set so any
+// persistence failure prevents the session from being established.
+func (o *OIDC) CallbackHandler(
+	resolveTenant func(ctx context.Context, slug string) (tenantID int64, orgID string, err error),
+	upsertUser func(ctx context.Context, tenantID int64, sub, email, name string) error,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		queryState := r.URL.Query().Get("state")
 		if queryState == "" {
@@ -219,7 +222,7 @@ func (o *OIDC) CallbackHandler(resolveTenant func(ctx context.Context, slug stri
 			http.Error(w, "authentication failed", http.StatusBadGateway)
 			return
 		}
-		wantOrgID, err := resolveTenant(r.Context(), st.Slug)
+		tenantID, wantOrgID, err := resolveTenant(r.Context(), st.Slug)
 		if err != nil {
 			o.logger.Error("tenant resolve in callback", zap.String("slug", st.Slug), zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -231,7 +234,21 @@ func (o *OIDC) CallbackHandler(resolveTenant func(ctx context.Context, slug stri
 			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
-		if err := o.writePortalCookie(w, st.Slug, tokens.IDToken, tokens.RefreshToken, tokens.IDTokenClaims.GetExpiration()); err != nil {
+		claims := tokens.IDTokenClaims
+		sub := claims.GetSubject()
+		email := claims.Email
+		name := claims.Name
+		if name == "" {
+			name = strings.TrimSpace(claims.GivenName + " " + claims.FamilyName)
+		}
+		if upsertUser != nil {
+			if err := upsertUser(r.Context(), tenantID, sub, email, name); err != nil {
+				o.logger.Error("user upsert", zap.String("slug", st.Slug), zap.Error(err))
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := o.writePortalCookie(w, st.Slug, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
 			o.logger.Error("portal cookie seal", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return

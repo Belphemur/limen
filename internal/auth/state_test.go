@@ -168,7 +168,7 @@ func flipByte(s string) string {
 	}
 	b := []byte(s)
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		for _, c := range []byte(alphabet) {
 			if c != b[i] {
 				b[i] = c

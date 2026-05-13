@@ -46,6 +46,18 @@ oauth_server:
   access_token_ttl: 10m
   refresh_token_ttl: 720h
   authorize_consent: skip
+
+oidc:
+  issuer: "https://auth.limen.example.com"
+  client_id: "limen-portal"
+  redirect_uri: "https://limen.example.com/auth/callback"
+  scopes: ["openid", "profile", "email"]
+
+zitadel:
+  domain: "https://auth.limen.example.com"
+  auth_mode: "pat"
+  pat: "dev-pat"
+  project_id: "proj-1"
 `
 
 func TestLoad_MinimalValid(t *testing.T) {
@@ -86,6 +98,18 @@ security:
 oauth_server:
   access_token_ttl: 5m
   refresh_token_ttl: 24h
+
+oidc:
+  issuer: "https://auth.example.com"
+  client_id: "limen-portal"
+  redirect_uri: "https://example.com/auth/callback"
+  scopes: ["openid"]
+
+zitadel:
+  domain: "https://auth.example.com"
+  auth_mode: "pat"
+  pat: "dev-pat"
+  project_id: "proj-1"
 `
 	cfg, err := Load(writeConfig(t, body))
 	if err != nil {
@@ -112,6 +136,18 @@ oauth_server:
   access_token_ttl: 1m
   refresh_token_ttl: 1h
   dcr_initial_access_token: "${LIMEN_OPTIONAL_THING:-fallback-token}"
+
+oidc:
+  issuer: "https://auth.example.com"
+  client_id: "limen-portal"
+  redirect_uri: "https://example.com/auth/callback"
+  scopes: ["openid"]
+
+zitadel:
+  domain: "https://auth.example.com"
+  auth_mode: "pat"
+  pat: "dev-pat"
+  project_id: "proj-1"
 `
 	cfg, err := Load(writeConfig(t, body))
 	if err != nil {

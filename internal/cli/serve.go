@@ -3,14 +3,19 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os/signal"
 	"syscall"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/transport"
 )
 
@@ -19,7 +24,7 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 		Use:   "serve",
 		Short: "Run the Limen HTTP server",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			logger, _ := zap.NewProduction()
 			defer func() { _ = logger.Sync() }()
 
@@ -31,8 +36,41 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 
-			gw := gateway.New(logger)
+			// crypto + storage
+			key, err := crypto.ParseKey(cfg.Security.TokenEncryptionKey)
+			if err != nil {
+				return fmt.Errorf("parse token encryption key: %w", err)
+			}
+			cipher, err := crypto.NewCipher(key)
+			if err != nil {
+				return fmt.Errorf("build cipher: %w", err)
+			}
+			crypto.SetCipher(cipher)
 
+			store, err := storage.Open(cfg.Database)
+			if err != nil {
+				return fmt.Errorf("open storage: %w", err)
+			}
+			defer func() { _ = store.Close() }()
+
+			signer, err := auth.NewStateSigner(key[:])
+			if err != nil {
+				return fmt.Errorf("build state signer: %w", err)
+			}
+			oidcHandler, err := auth.NewOIDC(ctx, auth.OIDCConfig{
+				Issuer:       cfg.OIDC.Issuer,
+				ClientID:     cfg.OIDC.ClientID,
+				ClientSecret: cfg.OIDC.ClientSecret,
+				RedirectURI:  cfg.OIDC.RedirectURI,
+				Scopes:       cfg.OIDC.Scopes,
+				Secure:       cfg.Security.PortalSessionCookieSecure,
+			}, cipher, signer, logger)
+			if err != nil {
+				return fmt.Errorf("build oidc handler: %w", err)
+			}
+
+			// gateway + upstreams (best-effort; portal is still useful w/o them)
+			gw := gateway.New(logger)
 			for _, uc := range cfg.Upstreams {
 				client := gateway.NewMCPUpstream(uc.Name, uc.URL, uc.Headers, uc.Timeout, logger)
 				if err := client.Connect(ctx); err != nil {
@@ -49,13 +87,18 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 					continue
 				}
 			}
+			cmHandler := gateway.NewCodeModeHandler(gw, logger, cfg.CodeMode.ExecutionTimeout)
+			mcpServer := transport.NewMCPServer(gw, cmHandler, logger)
 
-			if len(gw.UpstreamNames()) == 0 {
-				return fmt.Errorf("no upstreams connected")
-			}
-
-			handler := gateway.NewCodeModeHandler(gw, logger, cfg.CodeMode.ExecutionTimeout)
-			mcpServer := transport.NewMCPServer(gw, handler, logger)
+			// compose router
+			r := chi.NewRouter()
+			transport.MountPortal(r, transport.PortalDeps{
+				Store:                 store,
+				OIDC:                  oidcHandler,
+				Logger:                logger,
+				PostLogoutRedirectURI: cfg.OIDC.PostLogoutRedirectURI,
+			})
+			mcpServer.Mount(r)
 
 			addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 			logger.Info("starting gateway",
@@ -63,10 +106,21 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 				zap.Int("upstreams", len(gw.UpstreamNames())),
 				zap.Strings("upstream_names", gw.UpstreamNames()))
 
-			if err := mcpServer.Start(ctx, addr); err != nil && err != context.Canceled {
-				return fmt.Errorf("server failed: %w", err)
+			srv := &http.Server{Addr: addr, Handler: r}
+			errCh := make(chan error, 1)
+			go func() { errCh <- srv.ListenAndServe() }()
+			select {
+			case err := <-errCh:
+				if err != nil && err != http.ErrServerClosed {
+					return fmt.Errorf("server failed: %w", err)
+				}
+				return nil
+			case <-ctx.Done():
+				shutdownCtx, c := context.WithCancel(context.Background())
+				c()
+				_ = srv.Shutdown(shutdownCtx)
+				return nil
 			}
-			return nil
 		},
 	}
 	return cmd
