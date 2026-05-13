@@ -15,7 +15,7 @@ This phase ships no new feature surface. Anything missed earlier gets caught her
 
 ```
 1. parse flags + load config (substitute ${ENV}, validate)
-2. dispatch CLI subcommands (-create-tenant, -invite-user, -create-upstream) → exit
+2. dispatch CLI subcommands (-create-tenant, -create-upstream, -migrate) → exit
 3. open storage.Store (appDB + adminDB pools, Phase 1/3)
 4. run AutoMigrate (Phase 1) using adminDB
 5. run RLS migration (Phase 3) using adminDB

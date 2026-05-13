@@ -94,7 +94,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Logout calls `SessionService.DeleteSession` then redirects to Zitadel's end-session URL after clearing the cookie
 - [ ] `RequirePortalSession` validates via `SessionService.GetSession` with a 60 s positive cache
 - [ ] `RequireRole(...)` middlewares (read roles from the `urn:zitadel:iam:org:project:roles` session claim, not from the DB)
-- [ ] CLI: `-create-tenant` (creates Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows), `-invite-user` (calls Zitadel `AddUserGrant(<role>)` + `UserService.CreateInviteCode`)
+- [ ] CLI: `-create-tenant` (creates Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows, prints Zitadel Console deep-link). Invites, role changes, member removal, password reset, MFA enrollment, and IdP federation are delegated to Zitadel Console — not Limen CLI subcommands (see Phase 4 _Self-service delegation_).
 - [ ] Unit + HTTP-level tests for slug validation, state signing, full OIDC flow against a stub issuer
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
@@ -176,7 +176,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 ### Phase 10 — Wiring, verification, hardening
 
 - [ ] `cmd/gateway/main.go` wires DB → migrate → crypto → Zitadel client → OIDC RP → upstream registry → refresher → gateway → oauthproxy → middleware → portal → transport
-- [ ] CLI subcommands: `-create-tenant`, `-invite-user`, `-create-upstream`, `-migrate`
+- [ ] CLI subcommands: `-create-tenant`, `-create-upstream`, `-migrate`
 - [ ] `config.yaml` updated with all new sections (`oidc`, `oauth_proxy`)
 - [ ] `AGENTS.md` updated (architecture, build, setup, testing, security)
 - [ ] `docs/runbook.md` drafted (Zitadel bootstrap, role provisioning, encryption key rotation, backup/restore)
@@ -249,7 +249,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - **Roles**: `owner` / `admin` / `member` (stored in Limen, not Zitadel).
 - **Token validation**: in-process JWT against Zitadel's JWKS (single issuer, single cache entry); cross-tenant defense via `org_id` claim match.
 - **OIDC library**: `github.com/zitadel/oidc/v3` (RP side).
-- **CLI**: `github.com/spf13/cobra` for the subcommand tree (`serve`, `create-tenant`, `invite-user`, `migrate`, …) + `github.com/spf13/viper` for flag-to-env binding (`LIMEN_*` prefix). The Phase 2 YAML loader (`internal/config.Load`) stays as-is for file-based config because Viper doesn't natively support our `${ENV:-default}` substitution.
+- **CLI**: `github.com/spf13/cobra` for the subcommand tree (`serve`, `create-tenant`, `migrate`, …) + `github.com/spf13/viper` for flag-to-env binding (`LIMEN_*` prefix). The Phase 2 YAML loader (`internal/config.Load`) stays as-is for file-based config because Viper doesn't natively support our `${ENV:-default}` substitution.
 - **Zitadel API**: `github.com/zitadel/zitadel-go/v3` (official SDK, wraps the generated gRPC clients for Management / User / Session / Org services). Hand-rolled HTTP/JSON against Zitadel is avoided — every Management/User/Session call goes through the SDK behind a thin `internal/zitadel/` wrapper. Auth uses `client.PAT` in dev and `client.DefaultServiceUserAuthentication` (private-key JWT) in production.
 - **Crypto**: AES-256-GCM, AAD binds `tenant|user|kind`.
 - **Outbound transport**: custom `http.RoundTripper` for per-request bearer injection (tenant + user read from ctx).

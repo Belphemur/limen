@@ -13,7 +13,9 @@ Split the customer-facing web surface into **two SPAs** sharing one `web/` codeb
 | **9b** | `/t/{slug}/admin/`  | Tenant `owner` + `admin` roles | `web/src/admin/`  |
 | 12     | `/t/_staff/portal/` | SaaS operator (`super_admin`)  | `web/src/staff/`  |
 
-Phase 9 handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9b handles the **tenant administrator**'s view (members, invitations, role grants, upstream catalog, tenant settings, external IdP federation) plus the **public** self-serve signup flow that bootstraps a brand-new tenant. Phase 12 is the cross-tenant operator backoffice.
+Phase 9 handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9b handles the **tenant administrator**'s view of the **Limen-domain** admin surface: upstream catalog CRUD, tenant settings, and the public self-serve signup flow that bootstraps a brand-new tenant.
+
+**Member management, role grants, password / MFA enrollment, and external IdP federation are intentionally _not_ part of this phase — they are delivered by [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice) for every tenant `ORG_OWNER`. The admin SPA renders a "Manage members & SSO in Zitadel Console" card with a deep-link instead of reimplementing those screens.** See the _Self-service delegation_ table in [Phase 4](phase-04-tenant-auth-session.md) for the full boundary.
 
 Splitting the bundle at the route-loader level means a `member` browsing the customer portal never downloads the admin code, and an unauthenticated visitor to `/signup` never downloads either gated bundle.
 
@@ -47,31 +49,27 @@ service AdminService {
   // the Tenant row + Zitadel user-grant. See "Self-serve signup" below.
   rpc CompleteSignup(CompleteSignupRequest) returns (CompleteSignupResponse);
 
-  // Authenticated, admin + owner.
-  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
-  rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);          // → Zitadel UserService.AddHumanUser + AddUserGrant + CreateInviteCode
-  rpc ResendInvite(ResendInviteRequest) returns (ResendInviteResponse);          // → UserService.ResendInviteCode
-  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse); // → UserService.UpdateUserGrant
-  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);          // → UserService.RemoveUserGrant + DeactivateUser (optional)
-
+  // Authenticated, admin + owner. Upstream catalog CRUD is a Limen-domain
+  // operation — Zitadel knows nothing about upstreams.
   rpc CreateUpstream(CreateUpstreamRequest) returns (CreateUpstreamResponse);
   rpc UpdateUpstream(UpdateUpstreamRequest) returns (UpdateUpstreamResponse);
   rpc DeleteUpstream(DeleteUpstreamRequest) returns (DeleteUpstreamResponse);
 
-  // External IdP federation — drives Zitadel's Management API (see Phase 4
-  // future work and "Tenant-level IdP federation" below).
-  rpc ListExternalIDPs(ListExternalIDPsRequest) returns (ListExternalIDPsResponse);
-  rpc AddOIDCIDP(AddOIDCIDPRequest) returns (AddOIDCIDPResponse);
-  rpc AddSAMLIDP(AddSAMLIDPRequest) returns (AddSAMLIDPResponse);
-  rpc UpdateExternalIDP(UpdateExternalIDPRequest) returns (UpdateExternalIDPResponse);
-  rpc RemoveExternalIDP(RemoveExternalIDPRequest) returns (RemoveExternalIDPResponse);
-
-  // Owner-only.
+  // Owner-only. Limen-side tenant lifecycle. Org-level settings (branding,
+  // login policy, IdP federation) live in Zitadel Console.
   rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
-  rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
   rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);          // soft-delete; protected by typed-confirmation
 }
 ```
+
+**Not in this service** (delegated to [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice)):
+
+- `ListMembers`, `InviteMember`, `ResendInvite`, `UpdateMemberRole`, `RemoveMember` — Console `Users` / `Authorizations` in the tenant's org.
+- `TransferOwnership` — same path; tenant admin reassigns the `owner` project role to another user in Console.
+- `ListExternalIDPs`, `AddOIDCIDP`, `AddSAMLIDP`, `UpdateExternalIDP`, `RemoveExternalIDP` — Console `Identity Providers` in the tenant's org.
+- Profile / password / MFA / passkey RPCs — Console `users/me`.
+
+The admin SPA links to those Console pages instead of routing through Limen. Limen carries no mirror tables, no schema for IdP configs, and no SDK wrappers around Zitadel's IdP / invite APIs.
 
 Requests do **not** carry `tenant_id` for any authenticated method — the slug comes from `/t/{slug}/admin/api/...`, exactly as in Phase 9. `StartSignup` and `CompleteSignup` are tenant-agnostic at the URL level and carry their state via a signed token (see below).
 
@@ -96,29 +94,27 @@ Rate limits (`internal/resilience`):
 - `StartSignup`: per-IP token bucket (5 / hour) + captcha. Suppresses slug-enumeration.
 - `CompleteSignup`: per-cookie bucket; the cookie is single-shot, so the cap is effectively 1.
 
-### Member management — owner invariant in one place
+### Member management — single source of truth
 
-Every grant-mutating RPC (`UpdateMemberRole`, `RemoveMember`, `TransferOwnership`) refuses changes that would leave the tenant with zero `owner` grants. The check is implemented once in `internal/admin/members.go` by:
+There is no member-management code in Limen. The Zitadel org owns the membership list, the role grants, and the owner-invariant. Tenant admins manage everything from Console; Limen reads the resulting role on the next ID-token refresh.
 
-1. Listing the org's user grants via `UserService.ListUserGrants(orgId, projectId)`.
-2. Computing the post-mutation owner count.
-3. Aborting with `failed_precondition` and a structured error if the count would drop to zero.
+### Member management & external IdP federation — link out, don't rebuild
 
-The CLI `invite-user` / `create-tenant` / future `transfer-ownership` subcommands call into the same package so the invariant is enforced exactly once, regardless of caller.
+These sit at the top of the admin SPA's sidebar but they are **not** Limen RPCs. The admin shell renders a card-style page that links into the tenant's Zitadel org Console for each operation:
 
-### Tenant-level external IdP federation
+| Card                         | Deep-link target (template)                                      | Console area                          |
+| ---------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
+| Invite a user                | `<issuer>/ui/console/users?org=<orgId>`                          | Users → New                           |
+| Change member role           | `<issuer>/ui/console/users/<userId>/authorizations?org=<orgId>`  | Users → Authorizations                 |
+| Remove a user                | `<issuer>/ui/console/users?org=<orgId>`                          | Users                                 |
+| Configure SSO / external IdP | `<issuer>/ui/console/org/idp?org=<orgId>`                        | Identity Providers                     |
+| Org branding                 | `<issuer>/ui/console/org/branding?org=<orgId>`                   | Branding                              |
+| Login / lockout policy       | `<issuer>/ui/console/org/policies/login?org=<orgId>`             | Settings → Login policy               |
+| Personal profile / passkeys  | `<issuer>/ui/console/users/me`                                   | User self-service                      |
 
-Customers running Okta / Auth0 / Entra ID / Google Workspace / a generic OIDC or SAML IdP can plug it into their Zitadel org so their users sign in against their own corporate IdP. Limen does **no** federation itself — it drives Zitadel's Management API and stores a thin mirror row for visibility.
+The SPA fetches `<issuer>` once via `GET /auth/discovery` (a tiny Limen endpoint that returns the static issuer URL from config) and substitutes the tenant's `zitadel_org_id` (carried in the portal cookie's claims as `urn:zitadel:iam:user:resourceowner:id`). The card view is one Vue component, `ZitadelDirectory.vue`, parameterized by the table above — there is no per-card backend work.
 
-- **Storage**: a new `tenant_idp_configurations` table (`tenant_id`, `zitadel_idp_id`, `kind`, `name`, `enabled`, audit columns). No secrets stored — Zitadel holds the issuer / client / signing cert.
-- **RPCs**:
-  - `AddOIDCIDP` → `ManagementService.AddOrgOIDCIDP` (issuer URL, client id / secret, scopes, attribute mapping).
-  - `AddSAMLIDP` → `ManagementService.AddOrgSAMLIDP` (metadata URL or XML, binding, attribute mapping).
-  - `UpdateExternalIDP` / `RemoveExternalIDP` — straight passthrough.
-- **Provisioning model**: JIT user provisioning + attribute mapping are configured Zitadel-side per IdP. SCIM is a Zitadel feature; if a customer needs it we point them at Zitadel's SCIM docs.
-- **Login surface**: once an IdP is enabled on the org, Zitadel's hosted login page automatically renders the "Sign in with Okta / Entra / ..." button. Limen's `/auth/login` flow is unchanged.
-
-This is the realization of the "Tenant-level external IdP federation" item from Phase 4's _Future work_ section.
+This is the [Administrators in delegation](https://zitadel.com/docs/concepts/features/selfservice#administrators-in-delegation) pattern: the tenant's `ORG_OWNER` already has the Zitadel permissions to perform every operation above; reimplementing the UI in Limen would only force Limen to track Zitadel's permission model (which evolves independently) and double-handle every secret on the wire.
 
 ### Backend (`internal/admin/`)
 
@@ -127,12 +123,12 @@ internal/admin/
 ├── service.go         // implements AdminServiceHandler
 ├── interceptor.go     // signup-aware: skips RequirePortalSession on Start/CompleteSignup, enforces it elsewhere
 ├── signup.go          // StartSignup, CompleteSignup, signed token helpers
-├── members.go         // shared owner-invariant + grant CRUD (called from CLI too)
 ├── upstreams_admin.go // Create/Update/DeleteUpstream
-├── idp.go             // external IdP federation
-├── settings.go        // UpdateTenantSettings, TransferOwnership, DeleteTenant
+├── settings.go        // UpdateTenantSettings, DeleteTenant
 └── errors.go          // Connect error mapping
 ```
+
+Note the absence of `members.go` and `idp.go` — those concerns live in Zitadel.
 
 Mounted with three layered interceptors:
 
@@ -140,7 +136,7 @@ Mounted with three layered interceptors:
 | -------------------------- | ------------------------------- | -------------------------------------------------------- |
 | `tenancyInterceptor`       | `StartSignup`, `CompleteSignup` | Resolve `{slug}` → `*Tenant`                             |
 | `portalSessionInterceptor` | `StartSignup`, `CompleteSignup` | Decrypt + validate the portal cookie (Phase 4)           |
-| `roleInterceptor`          | `StartSignup`, `CompleteSignup` | `owner` for Settings/Transfer/DeleteTenant; `admin` else |
+| `roleInterceptor`          | `StartSignup`, `CompleteSignup` | `owner` for Settings/DeleteTenant; `admin` else          |
 
 The skip-list is annotation-driven (a small per-method table). Unknown methods default to "all interceptors fire" — fail-closed.
 
@@ -166,10 +162,9 @@ Pages:
 
 - `SignupWizard.vue` (public) — slug + name + owner fields, captcha, "Check your email" landing.
 - `AdminShell.vue` — top-nav + sidebar; child routes:
-  - `Members.vue` — list + invite + role change + remove; surfaces owner-invariant errors inline.
   - `Upstreams.vue` (admin scope) — catalog CRUD (this is the **admin** Upstreams page; the per-user link page stays in `/portal/`).
-  - `Federation.vue` — list + add / edit / remove external IdPs.
-  - `Settings.vue` — tenant name, slug (read-only), billing pointer (out of scope for v1), `TransferOwnership`, `DeleteTenant`.
+  - `ZitadelDirectory.vue` — the "Manage members & SSO in Zitadel Console" card view described above; one route, no backend.
+  - `Settings.vue` — tenant name, slug (read-only), billing pointer (out of scope for v1), `DeleteTenant`.
 
 The customer-portal SPA gets a small chip in its nav ("Admin →") shown only when the session carries `owner` or `admin` roles; clicking it pushes the user into `/t/<slug>/admin/`. Same cookie, no re-auth.
 
@@ -191,15 +186,15 @@ The dev Vite proxy and Phase 11's Caddy config gain matching rules to forward `/
 
 ## Deliverables
 
-- New `proto/limen/admin/v1/admin.proto` with the `AdminService` definition.
-- New `internal/admin/` package (handlers, interceptors, signup, member invariant, external IdP wrappers).
-- Updated `internal/zitadel/` wrappers: thin `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, `ListOrgIDPs`, `UpdateOrgIDP`, `RemoveOrgIDP` helpers on top of the SDK Management service.
-- New migration (goose, see `internal/storage/MIGRATIONS.md`): `tenant_idp_configurations` table.
-- New `web/src/admin/` route module: `SignupWizard.vue`, `AdminShell.vue`, `Members.vue`, `Upstreams.vue` (admin), `Federation.vue`, `Settings.vue`.
+- New `proto/limen/admin/v1/admin.proto` with the `AdminService` definition (signup + upstream catalog CRUD + tenant settings only).
+- New `internal/admin/` package (handlers, interceptors, signup, upstream catalog, settings).
+- New `web/src/admin/` route module: `SignupWizard.vue`, `AdminShell.vue`, `Upstreams.vue` (admin), `ZitadelDirectory.vue` (deep-link card view), `Settings.vue`.
+- Tiny `GET /auth/discovery` endpoint exposing the configured Zitadel issuer URL so the SPA can build Console deep-links without a hard-coded host.
 - Updated `web/src/router/index.ts` with lazy-loaded portal / admin / staff bundles.
-- Updated Phase 9 `PortalService` proto (admin RPCs moved out — see "Migration from Phase 9" below).
 - Updated Phase 11 Caddyfile + Phase 9 Vite proxy with the new path patterns.
 - Updated `AGENTS.md` build section.
+
+**Explicitly _not_ in this phase**: no `tenant_idp_configurations` migration, no Zitadel IdP / invite / member-grant SDK wrappers, no Members or Federation Vue pages, no `internal/admin/members.go` or `internal/admin/idp.go`. Those concerns live in Zitadel Console.
 
 ### Migration from Phase 9
 
@@ -207,54 +202,55 @@ The following RPCs originally listed under `PortalService` in [Phase 9](phase-09
 
 ```
 CreateUpstream, UpdateUpstream, DeleteUpstream,
-ListMembers, InviteMember, ResendInvite, UpdateMemberRole, RemoveMember,
-UpdateTenantSettings, TransferOwnership
+UpdateTenantSettings
 ```
 
 `PortalService` keeps the user-scoped subset: `GetSession`, `ListUpstreams`, `StartConnect`, `SubmitUpstreamAPIKey`, `SetUpstreamLinkEnabled`, `Disconnect`, `ListMCPClients`, `RevokeMCPClient`.
 
+Previously-considered member / IdP / TransferOwnership RPCs are **dropped entirely** — they are not Limen's responsibility (see Phase 4 _Self-service delegation_).
+
 ## Security & operational notes
 
-- **Owner invariant** is enforced server-side in `internal/admin/members.go` and reused by the Phase 4 CLI — there is exactly one implementation.
+- **No member / role / IdP code in Limen.** Reviewers should reject any PR that adds an `InviteMember`-style RPC, an `AddOIDCIDP`-style wrapper, or an `internal/admin/members.go`. The boundary is in Phase 4's _Self-service delegation_ table.
 - **Signup token** is HMAC-signed (Phase 2 key + domain tag `"signup"`) with 30-minute TTL; replay is implicitly limited by the one-shot `pending_signup` cookie set at step 3.
 - **Slug enumeration via signup** is prevented by returning a generic error from `StartSignup` and by the per-IP rate limit + captcha.
-- **Federation secrets** never reach Limen — OIDC client secrets and SAML signing certs are POSTed to Zitadel directly through the SDK and Limen stores only the Zitadel `idp_id` for cross-reference.
-- **External IdP misconfiguration** locking the tenant out: documented in the runbook ([Phase 10](phase-10-wiring-hardening.md)) — staff (Phase 12) can force-disable an IdP from the backoffice.
 - **DeleteTenant** is owner-only, requires typed confirmation of the slug, and soft-deletes (`DeletedAt`) — Zitadel org cleanup is a manual operator task documented in the runbook.
+- **Console deep-links** point at the configured Zitadel issuer; if a customer ever moves their Zitadel instance, the new issuer URL flows through config, no code change.
 
 ## Verification
 
 - Slug + captcha rejected paths return identical generic errors regardless of slug existence.
 - Signup happy path: `StartSignup` → email lands in MailHog → `/auth/callback` → `CompleteSignup` → new owner lands at `/t/<slug>/admin/` with `owner` role in their cookie.
 - Signup abandonment (token expires unused): zero rows in `tenants`, zero Zitadel orgs created.
-- Owner invariant: `UpdateMemberRole(owner→admin)` on the sole owner returns `failed_precondition`; CLI call site behaves identically.
-- External IdP add → Zitadel org reflects the new IdP → Limen mirror row appears → Zitadel hosted login renders the new SSO button.
 - Role isolation: `member` calling any `AdminService` RPC returns `permission_denied`. Admin SPA route guard mirrors this on the client.
 - Bundle separation: a `member` user navigating `/t/<slug>/portal/` from a clean cache pulls the portal bundle only — DevTools network log shows the admin bundle is not fetched.
+- `ZitadelDirectory.vue` deep-links resolve to the right Zitadel Console page for the calling user's `orgId` (smoke test against the dev Zitadel container).
+- **Delegation guard**: a `grep` in CI fails the build if a Limen file references `InviteMember`, `RemoveMember`, `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, or `tenant_idp_configurations` — those names belong to Zitadel only.
 
 ## Risks
 
 - **Captcha vendor lock-in**: hCaptcha vs reCAPTCHA vs Cloudflare Turnstile is a config knob; the SPA reads the chosen provider's site key from `window.__LIMEN_CONFIG__` injected by the static host. Document the matrix in [Phase 11](phase-11-production-deployment.md).
 - **Signup → email delivery**: hostile networks may block Zitadel's outbound SMTP. Dev uses MailHog; prod must verify SMTP relay health via the resilience breaker (Phase 10).
 - **Two SPAs, one cookie**: a future redesign that needs different idle-timeout policies for admin vs portal would have to split the cookie. Out of scope; flagged here so we don't accidentally hard-code "admin has the same timeout as portal" as an invariant.
-- **External IdP attribute mapping** drift between Zitadel versions can break JIT provisioning silently. Mitigation: a once-a-day staff smoke check (Phase 12) that surfaces tenants with `external_idp.enabled=true` but `last_successful_login_via_idp > 7 days`.
+- **Zitadel Console URL shape changes** between major versions could break the deep-links in `ZitadelDirectory.vue`. Mitigation: keep the path templates in one Vue constants file, smoke-test them in CI against the dev Zitadel container, and pin a known-good Zitadel image tag in [Phase 0](phase-00-dev-environment.md).
 
 ## Checklist
 
-- [ ] `proto/limen/admin/v1/admin.proto` defines `AdminService` with the RPCs listed above
+- [ ] `proto/limen/admin/v1/admin.proto` defines `AdminService` with **only** signup + upstream catalog CRUD + tenant-settings RPCs — no member, role, or IdP RPCs
 - [ ] `buf generate` produces Go bindings under `internal/admin/adminv1/` and TS under `web/src/gen/admin/v1/`
-- [ ] `internal/admin/` package implements all RPCs and the three layered interceptors with a signup skip-list
-- [ ] `internal/admin/members.go` enforces the at-least-one-owner invariant in **one** place; the Phase 4 CLI calls into it
-- [ ] `tenant_idp_configurations` goose migration shipped
-- [ ] `internal/zitadel/` adds typed wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, list/update/remove IdP
+- [ ] `internal/admin/` package implements the above RPCs and the three layered interceptors with a signup skip-list
+- [ ] `internal/admin/` contains **no** `members.go` and **no** `idp.go`; reviewers reject PRs that add them
+- [ ] No `tenant_idp_configurations` migration; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, `CreateInviteCode`, `AddUserGrant` for non-bootstrap callers, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
 - [ ] Signup completes a full round-trip: slug + email → MailHog → password set → admin SPA
-- [ ] Admin SPA routes lazy-loaded; `/t/<slug>/admin/` shell + Members + Upstreams (admin) + Federation + Settings pages implemented
+- [ ] Admin SPA routes lazy-loaded; `/t/<slug>/admin/` shell + `Upstreams` + `ZitadelDirectory` + `Settings` pages implemented (no `Members.vue`, no `Federation.vue`)
+- [ ] `ZitadelDirectory.vue` renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
+- [ ] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [ ] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
 - [ ] Single portal cookie at `Path=/t/<slug>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
-- [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup` to Limen
+- [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen
 - [ ] Bundle-separation test: a clean-cache `member` browsing `/portal/` does not fetch the admin bundle
 - [ ] Phase 9 proto and handlers trimmed: admin RPCs moved out; Phase 9 doc updated to point at this phase
-- [ ] Phase 4 _Future work_ items 1 (self-serve signup) and 3 (external IdP federation) marked as delivered by this phase
-- [ ] `AGENTS.md` build section updated; runbook entry for "IdP lock-out recovery" added in [Phase 10](phase-10-wiring-hardening.md)
+- [ ] Phase 4 _Future work_ item 1 (self-serve signup) marked as delivered by this phase; items previously labelled "member management" and "IdP federation" are recorded as **delegated to Zitadel Console**, not Limen work
+- [ ] `AGENTS.md` build section updated

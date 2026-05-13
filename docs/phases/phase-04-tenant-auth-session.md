@@ -13,6 +13,30 @@ Bring the multi-tenant runtime to life:
 
 Local password auth (argon2id) is **not** in scope. Zitadel owns user credentials, MFA, password resets, email verification, the login UI, and session-level enforcement. Limen stores just enough of the user to scope its own data: a `User` row keyed by `(tenant_id, zitadel_subject)`.
 
+## Self-service delegation to Zitadel Console
+
+Limen is **not** an identity-management product. Every user-facing and tenant-admin-facing identity operation that Zitadel already ships as a [self-service feature](https://zitadel.com/docs/concepts/features/selfservice) is delegated to Zitadel's hosted UI at `<issuer>/ui/console`. Limen surfaces deep links into Console where useful, but never reimplements the screens.
+
+The table below pins down the boundary so reviewers can reject any RPC / UI / CLI proposal that duplicates Zitadel:
+
+| Surface area                                                           | Owner     | Where it happens                                                                                                                                              | Limen's role                                                                                                            |
+| ---------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Login UI, MFA, password reset, email/phone verification**            | Zitadel   | Hosted login at `<issuer>` ([Login](https://zitadel.com/docs/concepts/features/selfservice#login))                                                            | OIDC RP; redirect in, parse callback, never see the password                                                            |
+| **User profile** (name, email, phone, language, passkeys)              | Zitadel   | `<issuer>/ui/console/users/me` ([Profile](https://zitadel.com/docs/concepts/features/selfservice#profile))                                                    | Portal SPA renders a "Manage your account" link; no profile RPC in Limen                                                |
+| **Logout**                                                             | Zitadel   | `end_session_endpoint` ([Logout](https://zitadel.com/docs/concepts/features/selfservice#logout))                                                              | `LogoutHandler` clears the Limen cookie + 302 to Zitadel `end_session`                                                  |
+| **Inviting users into a tenant org**                                   | Zitadel   | Console `Users > New` in the tenant's org ([Administrators](https://zitadel.com/docs/concepts/features/selfservice#administrators))                           | None. CLI does **not** have an `invite-user` command                                                                    |
+| **Changing a user's project role** (`owner`/`admin`/`member`)          | Zitadel   | Console `Authorizations` for the user grant in the tenant's org                                                                                               | None. The role appears in the next ID token; `RequireRole` reads it                                                     |
+| **Removing / deactivating a user**                                     | Zitadel   | Console `Users` in the tenant's org                                                                                                                           | None                                                                                                                    |
+| **Org-level branding** (logo, colors, custom domain)                   | Zitadel   | Console `Settings > Branding` per org                                                                                                                         | None                                                                                                                    |
+| **Tenant-level external IdP federation** (OIDC / SAML / social)        | Zitadel   | Console `Identity Providers` per org ([Existing Identity / SSO](https://zitadel.com/docs/concepts/features/selfservice#existing-identity--sso--social-login)) | None. Limen drives the standard OIDC flow; Zitadel renders the SSO buttons                                              |
+| **Org-level security policy** (login policy, lockout, MFA enforcement) | Zitadel   | Console `Settings > Login` / `Lockout` per org                                                                                                                | None                                                                                                                    |
+| **Service accounts, PATs, machine users**                              | Zitadel   | Console `Service Users`                                                                                                                                       | None                                                                                                                    |
+| **Creating a brand-new tenant** (= Zitadel org + Limen row)            | **Limen** | `limen create-tenant` CLI, or `AdminService.StartSignup` / `CompleteSignup` wizard ([Phase 9b](phase-09b-tenant-admin-spa.md))                                | Owns this end-to-end: creates the Zitadel org, the seed owner grant, and the Limen `Tenant` row in a single transaction |
+| **Per-user upstream MCP linking** (OAuth dance + API-key paste)        | **Limen** | Portal SPA `/t/{slug}/portal/` ([Phase 9](phase-09-portal-spa.md))                                                                                            | Owns it; this is the Limen domain Zitadel knows nothing about                                                           |
+| **Tenant-scoped upstream catalog CRUD**                                | **Limen** | Admin SPA `/t/{slug}/admin/` ([Phase 9b](phase-09b-tenant-admin-spa.md))                                                                                      | Owns it                                                                                                                 |
+
+**Rule of thumb**: if Zitadel's Console can already do it for an `ORG_OWNER` of the tenant's org, Limen does not build a UI, an RPC, or a CLI command for it. The Limen admin portal renders a "Manage members & SSO in Zitadel Console" card with a deep-link instead. This is the same _delegated administration_ pattern Zitadel documents in [Administrators in delegation](https://zitadel.com/docs/concepts/features/selfservice#administrators-in-delegation): the SaaS operator owns the Limen project; each tenant's `ORG_OWNER` self-serves their own org from Console.
+
 ## Design
 
 ### URL shape and reserved slugs
@@ -62,7 +86,7 @@ For the Management / User API calls (CLI tenant + invite provisioning) we use th
 - `client.PAT(token)` for dev (the bootstrap PAT from [Phase 0](phase-00-dev-environment.md))
 - `client.DefaultServiceUserAuthentication(keyPath, ...)` for production (private-key JWT)
 
-`internal/zitadel/` is a thin domain wrapper around the SDK — typed helpers like `CreateOrganization`, `AddHumanUser`, `AddUserGrant`, `ListUserGrants`, `CreateInviteCode` — so callers depend on a small Limen-shaped surface, not on the generated protobuf types directly. We do **not** hand-roll the HTTP/JSON transport, and we do **not** wrap Zitadel's SessionService: Limen is a relying party, not a session-service caller. Session liveness is JWT signature + `exp` against Zitadel's JWKS.
+`internal/zitadel/` is a thin domain wrapper around the SDK — typed helpers like `CreateOrganization`, `AddHumanUser`, `AddUserGrant` (called only by `create-tenant` to mint the seed `owner`) — so callers depend on a small Limen-shaped surface, not on the generated protobuf types directly. We do **not** hand-roll the HTTP/JSON transport, and we do **not** wrap Zitadel's SessionService, IdP management, or invite/member APIs: those are Console-driven (see _Self-service delegation_). Session liveness is JWT signature + `exp` against Zitadel's JWKS.
 
 Configuration (from `internal/config`):
 
@@ -138,11 +162,11 @@ Authorization roles live in **Zitadel**, not in Limen's database. Each tenant's 
 
 Flow:
 
-- **Source of truth**: a user's role for a tenant is the project role attached to the user grant in that tenant's Zitadel org. Operators can manage it from Zitadel's hosted console, the portal admin UI ([Phase 9](phase-09-portal-spa.md)), or the CLI — all three end up calling Zitadel's Management/User API.
+- **Source of truth**: a user's role for a tenant is the project role attached to the user grant in that tenant's Zitadel org. Tenant administrators (Zitadel `ORG_OWNER` / `ORG_USER_MANAGER`) manage grants directly from the [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice#administrators) — see the _Self-service delegation_ section above. The CLI's `create-tenant` issues the very first `owner` grant; everything afterwards goes through Zitadel.
 - **Transport**: the role appears in the ID/access token under the [`urn:zitadel:iam:org:project:roles`](https://zitadel.com/docs/apis/openidoauth/claims#urn-zitadel-iam-org-project-roles) claim, scoped to the tenant org. Limen requests it via the `urn:zitadel:iam:org:project:id:<project-id>:aud` scope (already in the portal scope list — see [Phase 0](phase-00-dev-environment.md)).
 - **At the portal**: the OIDC callback parses the claim. `RequireSession` re-verifies the ID token on every request and exposes the full `*oidc.IDTokenClaims` on ctx; `RequireRole(...)` reads the project-roles claim from those live claims and enforces.
 - **At the MCP RS** ([Phase 6](phase-06-resource-server.md)): the same claim is parsed off the bearer token. (MCP RS itself does not currently need role-based gating beyond auth, but the role is available to handlers that want it.)
-- **Owner invariant** ("a tenant must always have at least one `owner`"): enforced at the call sites that mutate user grants — `-create-tenant` always grants `owner` to the seed user; `RemoveMember` and `UpdateMemberRole` (Phase 9) refuse the operation if it would leave zero owners. Limen does this by listing the org's user grants from Zitadel before applying the change.
+- **Owner invariant** ("a tenant must always have at least one `owner`"): Zitadel enforces this on its side for any grant mutation initiated through the Console or its APIs. Limen's `create-tenant` always grants `owner` to the seed user. Limen does not re-implement the invariant because Limen no longer offers a grant-mutation surface of its own.
 - **Cache TTL**: roles are read fresh off the ID token on every request. A role change in Zitadel propagates on the next ID-token refresh (driven by the access token's `exp`, typically a few minutes), or immediately on next login.
 
 ### CLI bootstrap (`cmd/gateway/main.go` + `internal/cli`)
@@ -152,9 +176,10 @@ The gateway binary is structured around [**Cobra**](https://github.com/spf13/cob
 ```
 limen serve [--config config.yaml]                                # default; runs the HTTP server
 limen create-tenant --slug acme --name "Acme Corp" --owner-email admin@acme.com
-limen invite-user   --tenant acme --email alice@acme.com --role member
 limen migrate                                                     # runs AutoMigrate + goose (Phase 3)
 ```
+
+The CLI surface is intentionally minimal. **User invitations, role changes, password resets, MFA enrollment, and IdP federation are all driven from the [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice)**, not from Limen. The CLI exists to bootstrap a brand-new tenant (an operation that creates _both_ a Zitadel org _and_ a Limen `Tenant` row, which Zitadel cannot do on its own) and to run database migrations. Day-2 user management is Zitadel's job.
 
 Conventions:
 
@@ -165,27 +190,16 @@ Conventions:
 
 Subcommand contracts:
 
-```
-limen -create-tenant slug=acme name="Acme Corp" owner-email=admin@acme.com
-limen -invite-user tenant=acme email=alice@acme.com role=member
-```
-
-- `-create-tenant`:
+- `create-tenant`:
   1. Validates slug.
   2. Calls Zitadel Management API to create an organization named after the tenant.
   3. Persists the `Tenant` row with `zitadel_org_id`.
-  4. Creates a Zitadel "human user" with the owner email; Zitadel emails the initial password setup link via SMTP (MailHog in dev — see [Phase 0](phase-00-dev-environment.md)).
+  4. Creates a Zitadel "human user" with the owner email; Zitadel emails the initial password setup link via SMTP (MailHog in dev — see [Phase 0](phase-00-dev-environment.md)). The new owner uses Zitadel's hosted UI to set the password and (optionally) enroll MFA — Limen is not involved.
   5. Calls `UserService.AddUserGrant(userId, projectId, orgId, ["owner"])` so the seed user is granted the `owner` project role for this tenant org.
   6. Persists the `User` row in Limen with `zitadel_subject` pre-populated from the Zitadel API response. **No role column** — Limen never stores it.
-- `-invite-user`:
-  1. Creates a Zitadel human user in the tenant's org via `UserService.AddHumanUser`.
-  2. Calls `UserService.AddUserGrant(userId, projectId, orgId, [<role>])` where `<role>` is the `role=` flag (`owner`, `admin`, or `member`; defaults to `member`).
-  3. Calls [`UserService.CreateInviteCode`](https://zitadel.com/docs/reference/api/user/zitadel.user.v2.UserService.CreateInviteCode) with `sendCode=true` so Zitadel emails the invitation link via SMTP (MailHog in dev). No invite token is stored in Limen.
-  4. Persists the Limen `User` row (no role column) with `zitadel_subject` from the API response.
+  7. Prints the Zitadel Console deep-link (`<issuer>/ui/console?org=<orgId>`) so the operator can hand it to the new owner; from there the owner self-serves additional invites, role changes, IdP federation, and branding.
 
-Resending an invite or revoking it goes through `UserService.ResendInviteCode` / `UserService.DeactivateUser`; Limen exposes these via the portal (Phase 9) without keeping its own invite tracking.
-
-`-reset-password` is **not** a Limen CLI subcommand anymore — operators do it through Zitadel's admin console (or via Zitadel's CLI / API). Limen never sees passwords.
+After `create-tenant`, no further Limen CLI commands are needed for user management. `invite-user`, `reset-password`, `change-role`, `remove-user`, etc. are **not** Limen subcommands — they live in the Zitadel Console / API.
 
 ### Middleware composition
 
@@ -208,12 +222,11 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
   - `internal/auth/oidc.go` (RP + handlers + middleware + encrypted token cookie)
   - `internal/auth/state.go` (signed state cookie helper)
   - `internal/zitadel/client.go` (constructs the SDK `*client.Client` from config)
-  - `internal/zitadel/users.go` (thin UserService wrapper around the SDK, used here for invites)
+  - `internal/zitadel/users.go` (thin UserService wrapper around the SDK; used by `create-tenant` only)
   - `internal/zitadel/orgs.go` (thin OrgService wrapper around the SDK, used here for tenant creation)
   - `internal/cli/root.go` (Cobra root + persistent flags, Viper binding)
   - `internal/cli/serve.go` (extracts today's `main` body into a `serve` subcommand)
   - `internal/cli/create_tenant.go`
-  - `internal/cli/invite_user.go`
   - `internal/cli/migrate.go` (thin wrapper around `storage.Migrate` so operators can run migrations standalone)
 - Modified files:
   - `cmd/gateway/main.go` — shrinks to a Cobra root command bootstrap; all real work lives in `internal/cli`.
@@ -233,13 +246,11 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 
 ## Future work (deferred — not in Phase 4 scope)
 
-The Phase 4 surface intentionally stops at the minimum needed for the portal to log a user in. The following workflows are explicitly **out of scope for this phase** — they are delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (tenant administrative portal) or stay on the open backlog:
+The Phase 4 surface intentionally stops at the minimum needed for the portal to log a user in. The following workflows are explicitly **out of scope for this phase**:
 
-1. **Self-serve SaaS signup** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). The CLI subcommand from this phase stays for ops / dev / self-hosted installs and shares its primitives (`zitadel.CreateOrg`, `AddHumanUser`, `AddUserGrant(owner)`) with the portal path.
+1. **Self-serve SaaS signup** (creating a brand-new tenant from a public web form rather than the CLI) — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). Both the CLI and the signup wizard share the same `zitadel.CreateOrg` + `AddHumanUser` + `AddUserGrant(owner)` primitives.
 
-2. **Portal-driven invite / member-management UI** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.{ListMembers, InviteMember, ResendInvite, UpdateMemberRole, RemoveMember}`). The owner-invariant check ("at least one `owner`") lives in `internal/admin/members.go` and is reused by the Phase 4 CLI so it fires for both callers.
-
-3. **Tenant-level external IdP federation (Zitadel IDP integration)** — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.{AddOIDCIDP, AddSAMLIDP, ListExternalIDPs, UpdateExternalIDP, RemoveExternalIDP}`). Zitadel natively supports external OIDC / OAuth / SAML / JWT / LDAP identity providers at the **org** level; users authenticate against the customer's own IdP and Zitadel issues the same JWTs to Limen, so **no Limen-side auth code changes**. Phase 9b adds the portal admin surface and a thin `tenant_idp_configurations` mirror row for visibility. JIT provisioning, attribute mapping, and SCIM stay on the Zitadel side.
+User invitations, role changes, member removal, and tenant-level external IdP federation (OIDC / SAML / social) are **not deferred work** — they are explicitly out of Limen's scope and live in [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice). The Limen admin SPA ([Phase 9b](phase-09b-tenant-admin-spa.md)) renders a deep-link card pointing operators at Console for these operations.
 
 ## Verification
 
@@ -271,14 +282,13 @@ The Phase 4 surface intentionally stops at the minimum needed for the portal to 
 - [ ] Tenant binding enforced by matching the `urn:zitadel:iam:user:resourceowner:id` claim to `tenant.zitadel_org_id`
 - [ ] `User` upserted by `(tenant_id, zitadel_subject)` on successful callback
 - [ ] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on the live (verified) ID token every request
-- [ ] `at least one owner` invariant enforced at every grant-mutating call site (CLI + Phase 9 portal RPCs) by listing user grants in the tenant org before applying the change
+- [ ] **User/permission management delegated to Zitadel Console**: no Limen CLI / RPC / UI for invite, role change, member removal, password reset, MFA enrollment, or IdP federation (verified by `grep` in CI for those terms in `internal/cli/` and the proto files)
 - [ ] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`)
 - [ ] Session cookie has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/t/<slug>` attributes
 - [ ] `RequireSession` middleware decrypts cookie, calls `rp.VerifyIDToken` against the cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure, populates ctx with `*oidc.IDTokenClaims`
 - [ ] `RequireRole(...)` middleware enforces role membership against the project-roles claim from those live claims
 - [ ] Logout clears the portal cookie and redirects to `rp.EndSession`'s URL with `id_token_hint`
-- [ ] CLI `-create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug
-- [ ] CLI `-invite-user` provisions a Zitadel user in the tenant org, calls `AddUserGrant(<role>)`, then `UserService.CreateInviteCode` (with `sendCode=true`), and creates the Limen `User` row
-- [ ] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `invite-user`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides
+- [ ] CLI `create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug; prints the Zitadel Console deep-link on success
+- [ ] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides
 - [ ] Unit tests for slug validation, state signing, session lifecycle, cookie attributes, org-binding mismatch
 - [ ] HTTP integration test against a stub OIDC issuer for the full login flow

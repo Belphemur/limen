@@ -31,10 +31,13 @@ syntax = "proto3";
 package limen.portal.v1;
 
 // PortalService is the **user-scoped** customer surface mounted at
-// /t/{slug}/portal/api/. Owner / admin operations (members, invitations,
-// upstream catalog CRUD, tenant settings, external IdP federation, and
-// self-serve signup) live in `limen.admin.v1.AdminService` — see
-// [Phase 9b](phase-09b-tenant-admin-spa.md).
+// /t/{slug}/portal/api/. Tenant administrators self-serve member
+// management, role grants, password / MFA / passkey enrollment, and
+// external IdP federation directly from the [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice)
+// — see Phase 4's "Self-service delegation" table. The Limen admin
+// surface ([Phase 9b](phase-09b-tenant-admin-spa.md)) covers only
+// Limen-domain operations: upstream catalog CRUD, tenant settings,
+// and self-serve tenant signup.
 service PortalService {
   // Public — no session required. The SPA calls this on boot to discover whether
   // the user already has a valid portal session; if not, the SPA redirects the
@@ -87,7 +90,7 @@ internal/portal/
 └── errors.go          // Connect error mapping
 ```
 
-Admin / owner operations — members, invites, role grants, upstream catalog CRUD, tenant settings, external IdP federation, and self-serve signup — live in `internal/admin/` under [Phase 9b](phase-09b-tenant-admin-spa.md).
+Admin / owner operations split two ways: anything Zitadel ships as self-service (members, invites, role grants, password / MFA, external IdP federation, branding) goes to Zitadel Console — see Phase 4's _Self-service delegation_ table. Limen-domain admin operations (upstream catalog CRUD, tenant settings, self-serve tenant signup) live in `internal/admin/` under [Phase 9b](phase-09b-tenant-admin-spa.md).
 
 Mounting:
 
@@ -148,12 +151,10 @@ web/
     │   ├── Login.vue          // landing page; auto-redirects to /auth/login
     │   ├── Dashboard.vue
     │   ├── Upstreams.vue
-    │   ├── Members.vue
     │   ├── MCPClients.vue
     │   └── Settings.vue
     └── components/
         ├── UpstreamCard.vue
-        ├── MemberRow.vue
         └── …
 ```
 
@@ -162,7 +163,7 @@ Stack:
 - **Vue 3** with Composition API + `<script setup>`.
 - **Vite** for dev/build.
 - **Pinia** for state (`session`, `upstreams`).
-- **Vue Router** for `/login`, `/`, `/upstreams`, `/members`, `/mcp-clients`, `/settings`. Base path is `/t/<slug>/portal`; resolved at boot from `window.location.pathname`.
+- **Vue Router** for `/login`, `/`, `/upstreams`, `/mcp-clients`, `/settings`. Base path is `/t/<slug>/portal`; resolved at boot from `window.location.pathname`. (Member management lives in the admin SPA at `/t/<slug>/admin/` — see [Phase 9b](phase-09b-tenant-admin-spa.md) — which links out to Zitadel Console.)
 - **`@connectrpc/connect-web`** for typed RPC calls. Codegen output lives under `web/src/gen/`.
 - **Tailwind CSS** (or plain CSS — operator preference; keep dependencies minimal).
 - **No SSR**.
@@ -225,7 +226,7 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 - **No `tenant_id` in request payloads** — interceptor is the single source of truth. A test verifies this; add a lint rule (`grep` in CI) if practical.
 - **`session` ctx propagates RLS** — every RPC handler calls `storage.Session(ctx)` and lets RLS enforce isolation. No raw DB use.
-- **Owner-protected operations** (`UpdateMemberRole`, `RemoveMember`, `TransferOwnership`) call Zitadel to list current user grants in the tenant org, then refuse the change if it would leave zero `owner` grants. Limen never trusts its DB for this — Zitadel is the source of truth.
+- **Owner-protected operations** that affect Zitadel user grants (invite, role change, member removal) are not implemented in Limen at all — they live in Zitadel Console and Zitadel enforces the org's own role-mutation rules. Limen-side ownership concerns (e.g. `DeleteTenant`) are owner-only via the project-roles claim.
 - **MCP client revocation** calls Zitadel's Management API to delete the OIDC app, then removes the Limen `ZitadelApp` mirror row. Zitadel takes care of invalidating outstanding tokens issued for that client.
 - **Consent** is shown by Zitadel's hosted UI (configurable per project) — no Limen-rendered consent screen.
 - **CSP**: set by the static host (Caddy or Cloudflare Pages `_headers`), not by Limen. Recommended policy is documented above.
@@ -266,7 +267,7 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [ ] Tenancy interceptor populates ctx from URL slug
 - [ ] Portal-session interceptor populates `*User` + roles (from the Zitadel project-roles claim) from cookie
 - [ ] Role interceptor enforces the requiredRole table against ctx roles; unknown methods default-deny
-- [ ] `InviteMember` / `UpdateMemberRole` / `RemoveMember` / `TransferOwnership` mutate Zitadel user grants (no role column in Limen); zero-owner state is refused by listing grants in the tenant org first
+- [ ] No Limen RPC mutates Zitadel user grants — `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `TransferOwnership` are **not** in any Limen proto; the SPA renders a deep-link card pointing at Zitadel Console for these operations (see [Phase 9b](phase-09b-tenant-admin-spa.md))
 - [ ] No `tenant_id` in request messages anywhere in the proto
 - [ ] Vue 3 + Vite + Pinia + Vue Router + `@connectrpc/connect-web` SPA scaffolded under `web/`
 - [ ] Pages: Login, Dashboard, Upstreams, Members, MCP Clients, Settings, Consent
