@@ -58,6 +58,13 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		tr.Use(tenancy.RequireTenant(deps.Store, logger))
 		tr.Get("/auth/login", deps.OIDC.LoginHandler())
 		tr.Get("/auth/logout", deps.OIDC.LogoutHandler(deps.PostLogoutRedirectURI))
+
+		tr.Route("/portal", func(pr chi.Router) {
+			pr.Use(deps.OIDC.RequireSession())
+			pr.Get("/me", portalMeHandler)
+			pr.Get("/", portalStaticHandler())
+			pr.Get("/*", portalStaticHandler())
+		})
 	})
 }
 

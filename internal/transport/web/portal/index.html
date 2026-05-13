@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Limen Portal</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Limen Portal</h1>
+        <p class="muted">Phase 4 POC — OIDC session bound to tenant <code id="slug"></code></p>
+      </header>
+
+      <section id="loading"><p>Loading session…</p></section>
+
+      <section id="signed-in" hidden>
+        <h2>Signed in</h2>
+        <dl>
+          <dt>Subject</dt><dd id="sub"></dd>
+          <dt>Email</dt><dd id="email"></dd>
+          <dt>Name</dt><dd id="name"></dd>
+          <dt>Roles</dt><dd id="roles"></dd>
+          <dt>ID token exp</dt><dd id="exp"></dd>
+        </dl>
+        <div class="actions">
+          <button id="refresh">Refresh</button>
+          <a id="logout" class="button">Sign out</a>
+        </div>
+        <details>
+          <summary>Raw claims</summary>
+          <pre id="raw"></pre>
+        </details>
+      </section>
+
+      <section id="error" hidden>
+        <h2>Error</h2>
+        <p id="error-msg"></p>
+        <a id="login" class="button">Sign in</a>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
