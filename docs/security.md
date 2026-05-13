@@ -79,6 +79,95 @@ auth:
     - "sub"
 ```
 
+## Tenant ↔ Zitadel org binding
+
+Limen is multi-tenant. Every tenant has its own URL prefix (`/t/{slug}/...`)
+and is mirrored 1:1 to a Zitadel **organization**. Two questions drive the
+design:
+
+1. *How does Limen know which tenant a request belongs to?* — from the
+   `{slug}` in the URL, resolved through the `tenants` table.
+2. *How does Limen prove the logged-in user is allowed in that tenant?* —
+   by checking that the user's **home org in Zitadel** matches the
+   tenant's stored `zitadel_org_id`.
+
+The second check is the whole point of this section. Without it, anyone
+who can log into Zitadel could hit `/t/<any-slug>/portal/` regardless of
+which org owns them.
+
+### The trust chain
+
+```
+URL slug ──▶ tenants.zitadel_org_id (Limen DB)
+                       │
+                       ▼  must equal
+ID token ──▶ urn:zitadel:iam:user:resourceowner:id  (Zitadel)
+```
+
+- `tenants.zitadel_org_id` is set at tenant-creation time by
+  `limen create-tenant` (either by creating a new Zitadel org or by
+  binding to an existing one via `--zitadel-org-id`).
+- `urn:zitadel:iam:user:resourceowner:id` is a Zitadel-specific claim
+  carrying the **resource owner** (org id) of the authenticated user.
+  It is **only emitted when the OIDC scope
+  `urn:zitadel:iam:user:resourceowner` is requested**.
+
+### Why a scope and not project roles?
+
+You could imagine using the `urn:zitadel:iam:org:project:roles` claim
+(project-role assertion) to derive the user's org. That claim has two
+problems for this check:
+
+- It only lists orgs through which the user has been **granted a project
+  role**. A user who is a member of an org but has not been granted a
+  Limen project role would have no entry.
+- It is a multi-valued map: a user can hold roles across several orgs
+  through project grants. There is no single canonical "this user
+  belongs to org X" answer.
+
+`urn:zitadel:iam:user:resourceowner:id` is single-valued and reflects the
+user's **home org** — the org that owns the user record. That is exactly
+the binding we want: a `staff@limen.dev` user owned by the `limen-staff`
+org cannot impersonate a user inside the `acme` org just by holding a
+project role there.
+
+### How the check runs
+
+[internal/auth/oidc.go](../internal/auth/oidc.go) `CallbackHandler`:
+
+```go
+gotOrgID, _ := tokens.IDTokenClaims.Claims["urn:zitadel:iam:user:resourceowner:id"].(string)
+if gotOrgID != wantOrgID {
+    http.Error(w, "access denied", http.StatusForbidden)
+    return
+}
+```
+
+If the user's home org doesn't match `tenants.zitadel_org_id` for the
+slug in the URL, the callback returns 403 *before* a session cookie is
+ever issued. The user must restart the flow against a tenant they
+actually belong to.
+
+### What to configure
+
+The default OIDC scopes in `internal/config/config.go` already include
+`urn:zitadel:iam:user:resourceowner`. If you override `oidc.scopes` in
+`config.yaml`, you **must** keep that scope, or every login will fail
+with `"org mismatch" want=<id> got=""` in the logs and `access denied`
+in the browser.
+
+### What this does NOT cover
+
+The org binding only proves *home org membership*. It does not yet
+enforce:
+
+- **Project-role-based authorisation** — gating individual portal pages
+  or API endpoints by `member` / `admin` / `owner` / `super_admin`.
+  That comes in Phase 6 (Resource Server) where the access token's
+  `urn:zitadel:iam:org:project:roles` claim is validated per request.
+- **Cross-org switching** — a single user belonging to two orgs cannot
+  switch tenants in the same session; they log out and back in.
+
 ## Secret Management
 
 Secrets in the configuration file use environment variable substitution to avoid committing tokens:

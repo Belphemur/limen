@@ -63,6 +63,11 @@ oidc:
     - profile
     - email
     - offline_access
+    # Required: causes Zitadel to emit the
+    # urn:zitadel:iam:user:resourceowner:id claim in the ID token so
+    # Limen can verify the logged-in user's home org matches the tenant
+    # in the URL. See docs/security.md "Tenant ↔ Zitadel org binding".
+    - urn:zitadel:iam:user:resourceowner
   post_logout_redirect_uri: "${LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI:-}"
 
 # Phase 4 — Zitadel Management API client (used by `limen create-tenant`).

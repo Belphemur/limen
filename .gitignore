@@ -13,5 +13,6 @@ Thumbs.db
 
 # Secrets / local state
 .env
+.env.dev
 scripts/zitadel-bootstrap/.pat/
 scripts/zitadel-bootstrap/.bootstrap-out.env

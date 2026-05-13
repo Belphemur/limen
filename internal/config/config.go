@@ -224,7 +224,17 @@ func (c *Config) applyDefaults() {
 		c.OIDC.RedirectURI = c.Server.BaseURL + "/auth/callback"
 	}
 	if len(c.OIDC.Scopes) == 0 {
-		c.OIDC.Scopes = []string{"openid", "profile", "email", "offline_access"}
+		c.OIDC.Scopes = []string{
+			"openid",
+			"profile",
+			"email",
+			"offline_access",
+			// Required: makes Zitadel emit the
+			// urn:zitadel:iam:user:resourceowner:id claim in the ID token
+			// so Limen can verify the logged-in user belongs to the tenant
+			// org addressed by /t/{slug}/. See docs/security.md.
+			"urn:zitadel:iam:user:resourceowner",
+		}
 	}
 }
 

@@ -64,7 +64,14 @@ set +a
 export LIMEN_BASE_URL=http://localhost:8080
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
-export LIMEN_TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# IMPORTANT: pin the encryption key once, in a file you re-source in every
+# shell, rather than regenerating with `openssl rand` each time. It seeds
+# both the portal cookie cipher AND the state-cookie HMAC; rotating it
+# invalidates every in-flight login (yields "invalid state" on callback)
+# and every existing portal session.
+[ -f .env.dev ] || echo "export LIMEN_TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)" > .env.dev
+source .env.dev
 
 # OIDC RP (Phase 4 — Portal app created by bootstrap).
 export LIMEN_OIDC_ISSUER=http://localhost:8081
@@ -153,6 +160,9 @@ against `http://localhost:8081`.
 | `invalid_client` at the token endpoint     | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                         |
 | Callback loops back to login               | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`.                               |
 | `create-tenant` fails with auth error      | Re-read the PAT — it changes on every `make dev-reset`.                                                                     |
+| `invalid state` after restarting `serve`   | `LIMEN_TOKEN_ENCRYPTION_KEY` changed between runs — it seeds the state-cookie HMAC. Pin it (see step 1) and clear the stale `limen_state` cookie in the browser. |
+| `org mismatch want=<id> got=""` in logs, browser shows `access denied` | The Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding) for the why. |
+| `org mismatch want=<acme-id> got=<other-id>` | You logged in as a user whose home org is *not* the one bound to the slug. Create / use a user inside the right org (Zitadel Console → switch to that org → Users → New). |
 
 ## Useful URLs
 

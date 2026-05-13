@@ -58,8 +58,11 @@ type OIDCConfig struct {
 	// https://limen.example.com/auth/callback.
 	RedirectURI string
 	// Scopes requested at /authorize. Must include "openid"; usually also
-	// "profile", "email", "offline_access", and the project-roles scope
-	// urn:zitadel:iam:org:project:id:<projectID>:aud.
+	// "profile", "email", "offline_access", and the Zitadel-specific scope
+	// "urn:zitadel:iam:user:resourceowner" which causes Zitadel to emit the
+	// urn:zitadel:iam:user:resourceowner:id claim in the ID token — Limen
+	// uses it to enforce that the user's home org matches the tenant in
+	// the URL (see docs/security.md “Tenant <-> Zitadel org binding”).
 	Scopes []string
 	// Secure controls the cookie Secure attribute. Set true in prod.
 	Secure bool
