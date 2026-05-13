@@ -3,6 +3,7 @@
 # Compose layering: upstream Zitadel stack + Limen overlay + Limen-side services.
 # All three files merge into a single "limen-dev" project.
 COMPOSE := docker compose \
+	--project-directory . \
 	--env-file scripts/zitadel/.env \
 	-f scripts/zitadel/docker-compose.yml \
 	-f scripts/zitadel/docker-compose.limen.yaml \
