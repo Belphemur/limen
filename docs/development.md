@@ -31,11 +31,14 @@ The bootstrap script prints (and writes to
 - `LIMEN_OIDC_MCP_RS_CLIENT_ID`
 - `LIMEN_OIDC_PROJECT_ID`
 - `LIMEN_SAMPLE_TENANT_ORG_ID`
+- `LIMEN_SAMPLE_TENANT_SLUG`
+- `LIMEN_STAFF_ZITADEL_ORG_ID`
+- `LIMEN_STAFF_BOOTSTRAP_EMAIL`
 
 Copy those values into your `.env`, then start Limen on the host:
 
 ```bash
-go run ./cmd/gateway
+go run ./cmd/gateway serve
 ```
 
 Or do the whole flow in one shot:
@@ -43,6 +46,99 @@ Or do the whole flow in one shot:
 ```bash
 make dev
 ```
+
+## Testing the Phase 4 OIDC POC
+
+After `make dev-bootstrap` succeeds and the stack is up, you can walk the
+end-to-end portal login flow in your browser.
+
+### 1. Wire the environment
+
+```bash
+# Pull the bootstrap output into the current shell.
+set -a
+source scripts/zitadel-bootstrap/.bootstrap-out.env
+set +a
+
+# Limen runtime config.
+export LIMEN_BASE_URL=http://localhost:8080
+export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
+export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
+export LIMEN_TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# OIDC RP (Phase 4 — Portal app created by bootstrap).
+export LIMEN_OIDC_ISSUER=http://localhost:8081
+export LIMEN_OIDC_CLIENT_ID=$LIMEN_OIDC_PORTAL_CLIENT_ID
+export LIMEN_OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
+
+# Zitadel Management client (used by `create-tenant`).
+export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
+export LIMEN_ZITADEL_PROJECT_ID=$LIMEN_OIDC_PROJECT_ID
+export LIMEN_ZITADEL_AUTH_MODE=pat
+export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)
+```
+
+> **Cookie note** — on plain `http://localhost`, set
+> `security.portal_session_cookie_secure: false` in `config.yaml` (or the
+> equivalent env override). Otherwise the browser drops the session cookie
+> and the callback loops back to login.
+
+### 2. Migrate Limen's database and create a test tenant
+
+The bootstrap-created `acme` org lives in Zitadel only. `limen create-tenant`
+provisions a fresh Zitadel org **and** the matching Limen DB row in one
+shot — use a new slug for the POC:
+
+```bash
+go run ./cmd/gateway migrate
+
+go run ./cmd/gateway create-tenant \
+  --slug demo \
+  --name "Demo Tenant" \
+  --owner-email you@example.com \
+  --owner-given-name You \
+  --owner-family-name Example
+```
+
+The owner receives a Zitadel "set initial password" mail — pick it up at
+http://localhost:8025 (MailHog) and complete the init flow.
+
+### 3. Run the gateway
+
+```bash
+go run ./cmd/gateway serve
+```
+
+You should see it bind to `:8080` and log a successful OIDC discovery
+against `http://localhost:8081`.
+
+### 4. Walk the browser flow
+
+1. Open http://localhost:8080/t/demo/auth/login — Limen redirects to Zitadel.
+2. Log in as the owner you just provisioned.
+3. Zitadel redirects to `http://localhost:8080/auth/callback?state=…&code=…`.
+   Limen exchanges the code, sets the `limen_portal` cookie, and lands you
+   on `/t/demo/portal/`.
+4. Hit http://localhost:8080/t/demo/portal/me — you should get JSON with
+   `sub`, `email`, `name`, and the tenant id. This confirms the cookie,
+   tenant resolver, and user upsert all work.
+5. http://localhost:8080/t/demo/auth/logout clears the cookie and
+   redirects through Zitadel's `end_session_endpoint`.
+
+### 5. Negative checks
+
+- `/t/demo/portal/me` with no cookie → 401 + login redirect.
+- `/t/bogus/auth/login` → 404 (unknown tenant slug).
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `Project Grant not found` during bootstrap | Stale state from before the v2 rewrite. `make dev-reset && make dev`. |
+| SDK error `ExternalDomain mismatch` | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`. |
+| `invalid_client` at the token endpoint | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`. |
+| Callback loops back to login | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`. |
+| `create-tenant` fails with auth error | Re-read the PAT — it changes on every `make dev-reset`. |
 
 ## Useful URLs
 
