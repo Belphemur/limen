@@ -9,9 +9,9 @@ Bring the multi-tenant runtime to life:
 
 1. Parse `/t/{slug}/...` URLs into a `*Tenant` and place it in `ctx`.
 2. Authenticate portal users via **Zitadel as an OIDC provider** (Limen is the relying party — no local passwords).
-3. Maintain a browser-facing portal session whose authoritative state lives in Zitadel's [SessionService](https://zitadel.com/docs/reference/api/session/zitadel.session.v2.SessionService.CreateSession). Limen carries only an opaque cookie scoped to `/t/{slug}` holding the Zitadel `sessionId` + `sessionToken`.
+3. Maintain a browser-facing portal session as a **per-tenant encrypted cookie carrying the OIDC ID + refresh tokens**, validated on every request by JWT signature + expiry against Zitadel's JWKS. No server-side session store; no `SessionService` round-trip in the hot path.
 
-Local password auth (argon2id) is **not** in scope. Zitadel owns user credentials, MFA, password resets, email verification, and session-level enforcement. Limen stores just enough of the user to scope its own data: a `User` row keyed by `(tenant_id, zitadel_subject)`.
+Local password auth (argon2id) is **not** in scope. Zitadel owns user credentials, MFA, password resets, email verification, the login UI, and session-level enforcement. Limen stores just enough of the user to scope its own data: a `User` row keyed by `(tenant_id, zitadel_subject)`.
 
 ## Design
 
@@ -57,12 +57,12 @@ The middleware:
 
 Library: `github.com/zitadel/oidc/v3` (relying-party side: `rp` subpackage).
 
-For the Management / User / Session API calls (callback session creation, CLI tenant + invite provisioning) we use the **official Zitadel Go SDK** `github.com/zitadel/zitadel-go/v3`. The SDK ships generated gRPC clients (`api.ManagementService()`, `api.UserService()`, `api.SessionService()`, etc.) on top of an authenticated `*client.Client`. We build the client once at startup with `client.New(ctx, zitadel.New(domain), client.WithAuth(authOption))` and inject it into the OIDC handlers and CLI subcommands. `authOption` is one of:
+For the Management / User API calls (CLI tenant + invite provisioning) we use the **official Zitadel Go SDK** `github.com/zitadel/zitadel-go/v3`. The SDK ships generated gRPC clients (`api.ManagementService()`, `api.UserService()`, `api.OrganizationService()`, etc.) on top of an authenticated `*client.Client`. We build the client once at startup with `client.New(ctx, zitadel.New(domain), client.WithAuth(authOption))` and inject it into the CLI subcommands. `authOption` is one of:
 
 - `client.PAT(token)` for dev (the bootstrap PAT from [Phase 0](phase-00-dev-environment.md))
 - `client.DefaultServiceUserAuthentication(keyPath, ...)` for production (private-key JWT)
 
-`internal/zitadel/` is a thin domain wrapper around the SDK — typed helpers like `CreateSession`, `GetSession`, `DeleteSession`, `CreateOrg`, `AddHumanUser`, `AddUserGrant`, `CreateInviteCode` — so callers depend on a small Limen-shaped surface, not on the generated protobuf types directly. We do **not** hand-roll the HTTP/JSON transport.
+`internal/zitadel/` is a thin domain wrapper around the SDK — typed helpers like `CreateOrganization`, `AddHumanUser`, `AddUserGrant`, `ListUserGrants`, `CreateInviteCode` — so callers depend on a small Limen-shaped surface, not on the generated protobuf types directly. We do **not** hand-roll the HTTP/JSON transport, and we do **not** wrap Zitadel's SessionService: Limen is a relying party, not a session-service caller. Session liveness is JWT signature + `exp` against Zitadel's JWKS.
 
 Configuration (from `internal/config`):
 
@@ -98,38 +98,38 @@ Implementation note: `state` is an HMAC-signed bundle of `(nonce, slug, return_t
 4. Extract `sub` (Zitadel user id) and `urn:zitadel:iam:user:resourceowner:id` (Zitadel org id).
 5. Look up the `Tenant` by the signed state's `slug`. Check `tenant.zitadel_org_id == claim.org_id`. Mismatch → 403 (the user is not a member of this tenant).
 6. Upsert `User` keyed by `(tenant_id, zitadel_subject)`. Populate `email`, `name` from claims. **No role is stored** — authorization is driven by the `urn:zitadel:iam:org:project:roles` claim on the token, see "Roles" below.
-7. Issue a portal session (next section).
+7. Seal `(id_token, refresh_token)` into the portal cookie (next section). No call to any Zitadel session API.
 
-### `internal/auth/session.go` — portal session (Zitadel-backed)
+### `internal/auth/oidc.go` — portal session (OIDC tokens)
 
 #### Why a cookie at all?
 
-Zitadel owns the authoritative session — issuance, MFA state, idle/absolute timeouts, revocation. The cookie Limen sets is **not a parallel session store**; it is the browser's pointer to "which Zitadel session am I." HTTP is stateless, so every request to `limen.example.com` has to carry _something_ identifying the user, and Zitadel's own session cookie is scoped to `auth.limen.example.com` and opaque to relying parties — the browser will never send it to Limen and Limen could not look it up if it did. So Limen issues its own cookie.
+Zitadel owns the authoritative session — issuance, MFA state, idle/absolute timeouts, revocation. The cookie Limen sets is **not a parallel session store**; it carries the OIDC tokens Zitadel issued so subsequent requests can re-verify the user offline. HTTP is stateless, so every request to `limen.example.com` has to carry _something_ identifying the user, and Zitadel's own session cookie is scoped to `auth.limen.example.com` and opaque to relying parties — the browser will never send it to Limen and Limen could not look it up if it did. So Limen issues its own cookie.
 
-We picked an `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` cookie carrying an encrypted reference to the Zitadel session over the alternative — a bearer token held in SPA memory or storage — for three reasons:
+We picked an `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` cookie carrying the encrypted ID + refresh tokens over the alternative — a bearer token held in SPA memory or storage — for three reasons:
 
 1. **XSS posture.** `HttpOnly` keeps the credential unreachable from JavaScript. A bearer-in-storage approach exposes both access and refresh tokens to any XSS that lands on the SPA.
 2. **BFF fit.** Limen is already a backend-for-frontend: it fans out to upstream MCPs with credentials those MCPs gave us, and never hands those credentials to the browser. The cookie-BFF pattern is the recommended browser-app shape in the OAuth WG's _OAuth 2.0 for Browser-Based Apps_ draft for exactly this case.
 3. **Cross-tenant isolation.** `Path=/t/<slug>` means a browser carrying tenant A's session physically cannot send it on a request to tenant B, even on the same domain. A bearer in JS would have no equivalent — the SPA could accidentally attach it to any URL.
 
-The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: every gated request decrypts the cookie and asks Zitadel `GetSession` (with a short positive cache, see below).
+The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: revocation propagates whenever the access/refresh token next needs to talk to Zitadel (refresh time), and the JWKS-based verification means a stolen cookie cannot outlive the token's `exp` without a working refresh token.
 
 #### Mechanics
 
-Limen does **not** persist its own session state. It delegates to Zitadel's [SessionService v2](https://zitadel.com/docs/reference/api/session/zitadel.session.v2.SessionService.CreateSession):
+Limen does **not** persist its own session state, and does **not** call Zitadel's SessionService. It is a textbook OIDC relying party using `github.com/zitadel/oidc/v3/pkg/client/rp`:
 
-- **Issuance**: on a successful OIDC callback, call `SessionService.CreateSession` with the authenticated user (`checks.user.userId = <zitadel sub>`). Zitadel returns `(sessionId, sessionToken)` and its own `expirationDate` (configured at the Zitadel instance/project level).
-- **Cookie payload**: an authenticated-encrypted blob (AES-256-GCM with AAD `tenant|user|"portal_session"`, from [Phase 2](phase-02-crypto-config.md)) containing `{sessionId, sessionToken, userId, tenantId, expiresAt}`. Encryption keeps the Zitadel session token off the wire as plaintext even if the cookie leaks to a logging proxy. The cookie itself is a single opaque base64 string.
-- **Cookie attributes**: `Set-Cookie: <name>=<blob>; Path=/t/<slug>; HttpOnly; Secure; SameSite=Lax; Max-Age=<ttl>`. The `Path=/t/<slug>` scope means a browser carrying a session for tenant A _cannot_ leak it to tenant B even on the same domain.
-- **Validation** (`RequirePortalSession`): decrypt cookie → if `expiresAt < now` short-circuit reject; otherwise call `SessionService.GetSession(sessionId, sessionToken)`. A short positive cache (60 s, keyed by `sessionId`) avoids one Zitadel call per RPC. Cache invalidation on logout. A failed `GetSession` (revoked or expired upstream) clears the cookie and 401s.
-- **Logout**: call `SessionService.DeleteSession(sessionId, sessionToken)` to terminate the Zitadel-side session, then clear the cookie, then redirect to Zitadel's end-session URL so the IdP cookie is cleared too.
+- **Issuance**: on a successful OIDC callback, `rp.CodeExchange[*oidc.IDTokenClaims]` returns `id_token + refresh_token + claims`. The handler verifies `claims["urn:zitadel:iam:user:resourceowner:id"]` matches the tenant's `zitadel_org_id`, then seals `{id_token, refresh_token, expiresAt}` into the cookie.
+- **Cookie payload**: an authenticated-encrypted blob (AES-SIV with AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`, from [Phase 2](phase-02-crypto-config.md)) containing `{idToken, refreshToken, expiresAt}`. The cookie itself is a single opaque base64 string. Cross-tenant replay fails on AAD mismatch even before the tokens are inspected.
+- **Cookie attributes**: `Set-Cookie: limen_portal=<blob>; Path=/t/<slug>; HttpOnly; Secure; SameSite=Lax; Max-Age=<refresh-ttl>`. The `Path=/t/<slug>` scope means a browser carrying a session for tenant A _cannot_ leak it to tenant B even on the same domain.
+- **Validation** (`RequireSession`): decrypt cookie → `rp.VerifyIDToken[*oidc.IDTokenClaims]` against the cached JWKS (issuer signature + `exp` + `aud`). No network call on the hot path; the JWKS is fetched lazily and cached by the `rp` package's `RemoteKeySet`. On `exp` failure, attempt `rp.RefreshTokens[*oidc.IDTokenClaims]` once, rewrite the cookie with the new pair, and continue. On any other failure (signature, audience, refresh denied), clear the cookie and 302 to `/t/{slug}/auth/login`.
+- **Logout**: clear the portal cookie and redirect to `rp.EndSession(...)`'s `end_session_endpoint` URL with `id_token_hint` so Zitadel terminates its own session and clears the IdP cookie. No DB row to delete.
 - **No DB tables, no janitor**: session lifetime is owned upstream; nothing to sweep on Limen's side.
 
 Middlewares exported:
 
 ```go
-func RequirePortalSession(store) func(http.Handler) http.Handler   // populates ctx with *User + roles
-func RequireRole(roles ...string) func(http.Handler) http.Handler  // owner|admin|member, read from Zitadel project-roles claim
+func (*OIDC) RequireSession() func(http.Handler) http.Handler          // populates ctx with *oidc.IDTokenClaims
+func (*OIDC) RequireRole(roles ...string) func(http.Handler) http.Handler  // owner|admin|member, read from Zitadel project-roles claim
 ```
 
 ### Roles (delegated to Zitadel project roles)
@@ -140,10 +140,10 @@ Flow:
 
 - **Source of truth**: a user's role for a tenant is the project role attached to the user grant in that tenant's Zitadel org. Operators can manage it from Zitadel's hosted console, the portal admin UI ([Phase 9](phase-09-portal-spa.md)), or the CLI — all three end up calling Zitadel's Management/User API.
 - **Transport**: the role appears in the ID/access token under the [`urn:zitadel:iam:org:project:roles`](https://zitadel.com/docs/apis/openidoauth/claims#urn-zitadel-iam-org-project-roles) claim, scoped to the tenant org. Limen requests it via the `urn:zitadel:iam:org:project:id:<project-id>:aud` scope (already in the portal scope list — see [Phase 0](phase-00-dev-environment.md)).
-- **At the portal**: the OIDC callback parses the claim and stores `roles []string` alongside the rest of the session payload in the encrypted cookie. `RequirePortalSession` re-hydrates them into ctx; `RequireRole(...)` enforces.
+- **At the portal**: the OIDC callback parses the claim. `RequireSession` re-verifies the ID token on every request and exposes the full `*oidc.IDTokenClaims` on ctx; `RequireRole(...)` reads the project-roles claim from those live claims and enforces.
 - **At the MCP RS** ([Phase 6](phase-06-resource-server.md)): the same claim is parsed off the bearer token. (MCP RS itself does not currently need role-based gating beyond auth, but the role is available to handlers that want it.)
 - **Owner invariant** ("a tenant must always have at least one `owner`"): enforced at the call sites that mutate user grants — `-create-tenant` always grants `owner` to the seed user; `RemoveMember` and `UpdateMemberRole` (Phase 9) refuse the operation if it would leave zero owners. Limen does this by listing the org's user grants from Zitadel before applying the change.
-- **Cache TTL** matches the portal-session cache (60 s); a role change in Zitadel takes at most one minute to propagate to active sessions, or is immediate on next login.
+- **Cache TTL**: roles are read fresh off the ID token on every request. A role change in Zitadel propagates on the next ID-token refresh (driven by the access token's `exp`, typically a few minutes), or immediately on next login.
 
 ### CLI bootstrap (`cmd/gateway/main.go` + `internal/cli`)
 
@@ -190,14 +190,13 @@ Resending an invite or revoking it goes through `UserService.ResendInviteCode` /
 ### Middleware composition
 
 ```
-/auth/login                                  → public
-/auth/callback                               → public
-/auth/logout                                 → RequirePortalSession (optional — accepts no session)
+/auth/callback                               → public (single root redirect URI; tenant slug recovered from signed state)
 
 /t/{tenant}/                                 → RequireTenant
-  ├─ /portal/                                → SPA shell (public — auth happens via /auth/login redirect)
-  ├─ /portal/api/portal.v1.PortalService/*   → RequirePortalSession → role-aware Connect-RPC (Phase 9)
-  └─ /portal/api/logout                      → RequirePortalSession
+  ├─ /auth/login                              → public (302 to Zitadel)
+  ├─ /auth/logout                             → public (clears cookie, 302 to Zitadel end_session)
+  ├─ /portal/                                 → SPA shell (public — auth happens via /auth/login redirect)
+  └─ /portal/api/portal.v1.PortalService/*   → RequireSession → role-aware Connect-RPC (Phase 9)
 ```
 
 OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrouter; they have their own auth (Zitadel-issued bearer for MCP, PRM is public).
@@ -206,11 +205,9 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 
 - New files:
   - `internal/tenancy/resolver.go`
-  - `internal/auth/oidc.go`
-  - `internal/auth/session.go` (Zitadel SessionService client + cookie encrypt/decrypt)
+  - `internal/auth/oidc.go` (RP + handlers + middleware + encrypted token cookie)
   - `internal/auth/state.go` (signed state cookie helper)
   - `internal/zitadel/client.go` (constructs the SDK `*client.Client` from config)
-  - `internal/zitadel/sessions.go` (thin SessionService wrapper around the SDK)
   - `internal/zitadel/users.go` (thin UserService wrapper around the SDK, used here for invites)
   - `internal/zitadel/orgs.go` (thin OrgService wrapper around the SDK, used here for tenant creation)
   - `internal/cli/root.go` (Cobra root + persistent flags, Viper binding)
@@ -258,7 +255,7 @@ The Phase 4 surface intentionally stops at the minimum needed for the portal to 
 
 ## Risks
 
-- **Zitadel API availability at request time**: discovery, JWKS, and `SessionService` are called during login and on every (non-cached) portal request. If Zitadel is down, the portal fails — accepted cost of delegation. Limen caches JWKS aggressively (Phase 6) and session validations for 60 s (above) to limit hot-path dependence.
+- **Zitadel API availability at request time**: discovery, JWKS, and the token endpoint are called at login and on refresh. The hot path (`RequireSession` on every portal request) only needs the cached JWKS and runs offline. If Zitadel is down, new logins and refreshes fail — accepted cost of delegation — but already-authenticated users continue to work until their ID token's `exp` passes.
 - **Org-id claim drift**: Zitadel's claim names are stable, but a major version upgrade could rename them. The claim extraction lives in one place — change-detect via a unit test using a sample token.
 - **State cookie one-shot enforcement** adds DB writes per login; accept the cost or rely on TTL alone in v1.
 
@@ -273,13 +270,13 @@ The Phase 4 surface intentionally stops at the minimum needed for the portal to 
 - [ ] ID-token validation: signature, `iss`, `aud`, `exp`, `nonce`
 - [ ] Tenant binding enforced by matching the `urn:zitadel:iam:user:resourceowner:id` claim to `tenant.zitadel_org_id`
 - [ ] `User` upserted by `(tenant_id, zitadel_subject)` on successful callback
-- [ ] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on every login and stored in the encrypted session cookie
+- [ ] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on the live (verified) ID token every request
 - [ ] `at least one owner` invariant enforced at every grant-mutating call site (CLI + Phase 9 portal RPCs) by listing user grants in the tenant org before applying the change
-- [ ] `internal/auth/session.go` calls Zitadel `SessionService.CreateSession` on callback and stores `{sessionId, sessionToken, userId, tenantId, roles, expiresAt}` in an AES-256-GCM-encrypted cookie
+- [ ] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`)
 - [ ] Session cookie has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/t/<slug>` attributes
-- [ ] `RequirePortalSession` middleware decrypts cookie, validates via `SessionService.GetSession` (with 60 s positive cache), populates ctx with `*User` + roles
-- [ ] `RequireRole(...)` middleware enforces role membership against the roles claim from the session
-- [ ] Logout calls `SessionService.DeleteSession`, clears the cookie, and redirects to Zitadel's end-session URL
+- [ ] `RequireSession` middleware decrypts cookie, calls `rp.VerifyIDToken` against the cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure, populates ctx with `*oidc.IDTokenClaims`
+- [ ] `RequireRole(...)` middleware enforces role membership against the project-roles claim from those live claims
+- [ ] Logout clears the portal cookie and redirects to `rp.EndSession`'s URL with `id_token_hint`
 - [ ] CLI `-create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug
 - [ ] CLI `-invite-user` provisions a Zitadel user in the tenant org, calls `AddUserGrant(<role>)`, then `UserService.CreateInviteCode` (with `sendCode=true`), and creates the Limen `User` row
 - [ ] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `invite-user`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides

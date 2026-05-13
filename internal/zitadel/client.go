@@ -2,13 +2,16 @@
 // SDK (github.com/zitadel/zitadel-go/v3). It hides the generated protobuf
 // surface behind a small Limen-shaped API:
 //
-//   - Sessions   — CreateSession / GetSession / DeleteSession (used by
-//     internal/auth to back the portal cookie).
 //   - Users      — AddHumanUser / AddUserGrant / CreateInviteCode /
 //     ListUserGrants (used by internal/cli and internal/portal to invite
 //     tenant members and enforce the "at least one owner" invariant).
 //   - Orgs       — CreateOrganization (used by internal/cli to bind a new
 //     Limen tenant to a fresh Zitadel organization).
+//
+// Session management is intentionally not wrapped here: Limen is an OIDC
+// relying party (internal/auth), not a session-service caller. The browser
+// portal cookie carries an encrypted (id_token, refresh_token) pair and
+// session liveness is JWT signature + expiry against Zitadel's JWKS.
 //
 // Callers depend on this package, not on the generated types. That keeps
 // the Zitadel coupling in one file and lets us swap SDK versions without
@@ -124,8 +127,8 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 }
 
 // API exposes the raw SDK handle for callers that genuinely need a service
-// not yet wrapped by this package. Prefer the typed helpers in sessions.go,
-// users.go, orgs.go.
+// not yet wrapped by this package. Prefer the typed helpers in users.go and
+// orgs.go.
 func (c *Client) API() *zsdk.Client { return c.api }
 
 // ProjectID returns the configured Limen project id.
