@@ -85,10 +85,10 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 - [x] `internal/tenancy/resolver.go` (URL param → tenant → ctx); reserved-slug list enforced (includes `auth`)
 - [x] `internal/auth/oidc.go` (Zitadel as OIDC provider; `rp.RelyingParty` built from config)
-- [ ] `/auth/login`, `/auth/callback`, `/auth/logout` routes mounted in `internal/transport`
+- [x] `/auth/login`, `/auth/callback`, `/auth/logout` routes mounted in `internal/transport`
 - [x] HMAC-signed `state` carrying `(nonce, slug, return_to, expires_at)`; tampering rejected
 - [x] Token validation: signature, `iss`, `aud`, `exp`, `nonce`, plus `urn:zitadel:iam:user:resourceowner:id` == `tenant.zitadel_org_id`
-- [ ] `User` upserted by `(tenant_id, zitadel_subject)` on callback
+- [x] `User` upserted by `(tenant_id, zitadel_subject)` on callback
 - [x] Portal cookie is an AES-SIV-encrypted blob carrying `{idToken, refreshToken, expiresAt}` with AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`; attributes `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` (no server-side session store, no `SessionService` round-trip)
 - [x] `RequireSession` decrypts cookie, verifies via `rp.VerifyIDToken` against cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure; puts `*oidc.IDTokenClaims` on ctx
 - [x] Logout clears the portal cookie and 302s to `rp.EndSession`'s URL with `id_token_hint`
@@ -96,7 +96,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] CLI: `limen create-tenant` (Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows, prints Zitadel Console deep-link). Invites, role changes, member removal, password reset, MFA enrollment, and IdP federation are delegated to Zitadel Console — not Limen CLI subcommands (see Phase 4 _Self-service delegation_).
 - [x] `cmd/gateway/main.go` is a Cobra root bootstrap; Viper binds `--config` + CLI flags to `LIMEN_*`
 - [x] Unit tests for slug validation and state signing
-- [ ] HTTP integration test for the full OIDC flow against a stub issuer (login → callback → cookie attributes → cross-tenant rejection → org mismatch)
+- [x] HTTP integration test for the full OIDC flow against a stub issuer (login → callback → cookie attributes → cross-tenant rejection → org mismatch)
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
 

@@ -272,23 +272,23 @@ User invitations, role changes, member removal, and tenant-level external IdP fe
 
 ## Checklist
 
-- [ ] Slug regex and reserved-slug list defined and unit-tested (`auth` added to the reserved list)
-- [ ] `internal/tenancy/resolver.go` exports `Resolve`, `TenantFromContext`, `RequireTenant`
-- [ ] Tenant lookup uses `adminDB` (Tenant table is not RLS-scoped)
-- [ ] `internal/auth/oidc.go` builds a single `rp.RelyingParty` from config
-- [ ] `/auth/login`, `/auth/callback`, `/auth/logout` routes implemented and tested
-- [ ] State is HMAC-signed with `(nonce, slug, return_to, expires_at)`; tampering rejected
-- [ ] ID-token validation: signature, `iss`, `aud`, `exp`, `nonce`
-- [ ] Tenant binding enforced by matching the `urn:zitadel:iam:user:resourceowner:id` claim to `tenant.zitadel_org_id`
-- [ ] `User` upserted by `(tenant_id, zitadel_subject)` on successful callback
-- [ ] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on the live (verified) ID token every request
-- [ ] **User/permission management delegated to Zitadel Console**: no Limen CLI / RPC / UI for invite, role change, member removal, password reset, MFA enrollment, or IdP federation (verified by `grep` in CI for those terms in `internal/cli/` and the proto files)
-- [ ] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`)
-- [ ] Session cookie has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/t/<slug>` attributes
-- [ ] `RequireSession` middleware decrypts cookie, calls `rp.VerifyIDToken` against the cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure, populates ctx with `*oidc.IDTokenClaims`
-- [ ] `RequireRole(...)` middleware enforces role membership against the project-roles claim from those live claims
-- [ ] Logout clears the portal cookie and redirects to `rp.EndSession`'s URL with `id_token_hint`
-- [ ] CLI `create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug; prints the Zitadel Console deep-link on success
-- [ ] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides
-- [ ] Unit tests for slug validation, state signing, session lifecycle, cookie attributes, org-binding mismatch
-- [ ] HTTP integration test against a stub OIDC issuer for the full login flow
+- [x] Slug regex and reserved-slug list defined and unit-tested (`auth` added to the reserved list)
+- [x] `internal/tenancy/resolver.go` exports `Resolve`, `TenantFromContext`, `RequireTenant`
+- [x] Tenant lookup uses `adminDB` (Tenant table is not RLS-scoped)
+- [x] `internal/auth/oidc.go` builds a single `rp.RelyingParty` from config
+- [x] `/auth/login`, `/auth/callback`, `/auth/logout` routes implemented and tested
+- [x] State is HMAC-signed with `(nonce, slug, return_to, expires_at)`; tampering rejected
+- [x] ID-token validation: signature, `iss`, `aud`, `exp`, `nonce`
+- [x] Tenant binding enforced by matching the `urn:zitadel:iam:user:resourceowner:id` claim to `tenant.zitadel_org_id`
+- [x] `User` upserted by `(tenant_id, zitadel_subject)` on successful callback
+- [x] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on the live (verified) ID token every request
+- [x] **User/permission management delegated to Zitadel Console**: no Limen CLI / RPC / UI for invite, role change, member removal, password reset, MFA enrollment, or IdP federation (verified by `grep` in CI for those terms in `internal/cli/` and the proto files)
+- [x] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`)
+- [x] Session cookie has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/t/<slug>` attributes
+- [x] `RequireSession` middleware decrypts cookie, calls `rp.VerifyIDToken` against the cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure, populates ctx with `*oidc.IDTokenClaims`
+- [x] `RequireRole(...)` middleware enforces role membership against the project-roles claim from those live claims
+- [x] Logout clears the portal cookie and redirects to `rp.EndSession`'s URL with `id_token_hint`
+- [x] CLI `create-tenant` provisions Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows; idempotent failure on duplicate slug; prints the Zitadel Console deep-link on success
+- [x] `cmd/gateway/main.go` builds a Cobra root command with `serve`, `create-tenant`, `migrate` subcommands; Viper binds the persistent `--config` flag and CLI-only flags to `LIMEN_*` env overrides
+- [x] Unit tests for slug validation, state signing, session lifecycle, cookie attributes, org-binding mismatch
+- [x] HTTP integration test against a stub OIDC issuer for the full login flow
