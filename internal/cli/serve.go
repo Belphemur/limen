@@ -92,6 +92,10 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 
 			// compose router
 			r := chi.NewRouter()
+			r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write([]byte(`<!doctype html><meta charset="utf-8"><title>Limen</title><body style="font:14px system-ui;padding:2rem"><h1>Limen MCP Gateway</h1><p>Signed out. Sign in at <code>/t/&lt;tenant&gt;/auth/login</code>.</p></body>`))
+			})
 			transport.MountPortal(r, transport.PortalDeps{
 				Store:                 store,
 				OIDC:                  oidcHandler,

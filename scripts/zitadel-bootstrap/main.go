@@ -126,6 +126,21 @@ func (b *bootstrap) ensureRole(ctx context.Context, projectID, key, displayName 
 // findOIDCClientID returns the client_id of an existing OIDC app on
 // projectID with the given name, or "" if not found.
 func (b *bootstrap) findApp(ctx context.Context, projectID, name string) (string, error) {
+	app, err := b.findAppRaw(ctx, projectID, name)
+	if err != nil || app == nil {
+		return "", err
+	}
+	if oidc := app.GetOidcConfiguration(); oidc != nil {
+		return oidc.GetClientId(), nil
+	}
+	if api := app.GetApiConfiguration(); api != nil {
+		return api.GetClientId(), nil
+	}
+	return "", nil
+}
+
+// findAppRaw returns the full Application record (or nil) matching name.
+func (b *bootstrap) findAppRaw(ctx context.Context, projectID, name string) (*applicationV2.Application, error) {
 	list, err := b.api.ApplicationServiceV2().ListApplications(ctx, &applicationV2.ListApplicationsRequest{
 		Filters: []*applicationV2.ApplicationSearchFilter{
 			{Filter: &applicationV2.ApplicationSearchFilter_ProjectIdFilter{
@@ -140,25 +155,38 @@ func (b *bootstrap) findApp(ctx context.Context, projectID, name string) (string
 		},
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, a := range list.GetApplications() {
-		if a.GetName() != name {
-			continue
-		}
-		if oidc := a.GetOidcConfiguration(); oidc != nil {
-			return oidc.GetClientId(), nil
-		}
-		if api := a.GetApiConfiguration(); api != nil {
-			return api.GetClientId(), nil
+		if a.GetName() == name {
+			return a, nil
 		}
 	}
-	return "", nil
+	return nil, nil
 }
 
-func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirectURI string) (string, error) {
-	if cid, err := b.findApp(ctx, projectID, name); err == nil && cid != "" {
-		return cid, nil
+func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirectURI, postLogoutURI string) (string, error) {
+	postLogoutURIs := postLogoutURIVariants(postLogoutURI)
+	if existing, err := b.findAppRaw(ctx, projectID, name); err == nil && existing != nil {
+		oidc := existing.GetOidcConfiguration()
+		if oidc == nil {
+			return "", fmt.Errorf("app %q exists but is not OIDC", name)
+		}
+		if len(postLogoutURIs) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), postLogoutURIs) {
+			if _, err := b.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
+				ProjectId:     projectID,
+				ApplicationId: existing.GetApplicationId(),
+				ApplicationType: &applicationV2.UpdateApplicationRequest_OidcConfiguration{
+					OidcConfiguration: &applicationV2.UpdateOIDCApplicationConfigurationRequest{
+						PostLogoutRedirectUris: postLogoutURIs,
+					},
+				},
+			}); err != nil {
+				return "", fmt.Errorf("update OIDC app %q post-logout URIs: %w", name, err)
+			}
+			log.Printf("updated %s post-logout URIs: %v", name, postLogoutURIs)
+		}
+		return oidc.GetClientId(), nil
 	}
 	resp, err := b.api.ApplicationServiceV2().CreateApplication(ctx, &applicationV2.CreateApplicationRequest{
 		ProjectId: projectID,
@@ -166,6 +194,7 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirect
 		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
 				RedirectUris:             []string{redirectURI},
+				PostLogoutRedirectUris:   postLogoutURIs,
 				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
 				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN},
 				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
@@ -187,6 +216,44 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirect
 		return "", fmt.Errorf("create OIDC app %q: %w", name, err)
 	}
 	return resp.GetOidcConfiguration().GetClientId(), nil
+}
+
+func containsString(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAll(haystack, needles []string) bool {
+	for _, n := range needles {
+		if !containsString(haystack, n) {
+			return false
+		}
+	}
+	return true
+}
+
+// postLogoutURIVariants returns both the with-trailing-slash and
+// without-trailing-slash forms of u, so Zitadel's exact-match check
+// accepts either form from the relying party. Empty input → nil.
+func postLogoutURIVariants(u string) []string {
+	if u == "" {
+		return nil
+	}
+	withSlash := u
+	withoutSlash := u
+	if len(u) > 0 && u[len(u)-1] == '/' {
+		withoutSlash = u[:len(u)-1]
+	} else {
+		withSlash = u + "/"
+	}
+	if withSlash == withoutSlash {
+		return []string{u}
+	}
+	return []string{withoutSlash, withSlash}
 }
 
 func (b *bootstrap) ensureAPIApp(ctx context.Context, projectID, name string) (string, error) {
@@ -360,7 +427,8 @@ func main() {
 	log.Printf("project: %s", projectID)
 
 	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:8080/auth/callback")
-	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", portalRedirect)
+	portalPostLogout := getenvDefault("LIMEN_PORTAL_POST_LOGOUT", "http://localhost:8080/")
+	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", portalRedirect, portalPostLogout)
 	if err != nil {
 		log.Fatalf("ensure portal app: %v", err)
 	}

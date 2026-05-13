@@ -261,8 +261,12 @@ func (o *OIDC) CallbackHandler(
 }
 
 // LogoutHandler is mounted at /t/{slug}/auth/logout behind RequireTenant.
-// It clears the portal cookie and redirects the browser to Zitadel's
-// end-session endpoint so the IdP cookie is cleared too.
+// It clears the portal cookie and redirects the BROWSER to Zitadel's
+// end-session endpoint with id_token_hint + post_logout_redirect_uri so
+// Zitadel clears its own SSO cookie and bounces the user back. We must
+// build the URL ourselves and 302 the browser — rp.EndSession() POSTs
+// server-side, which would end the session at Zitadel but leave the
+// browser's IdP cookie in place.
 func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := tenancy.MustTenant(r.Context())
@@ -271,12 +275,31 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 			idTokenHint = tok.IDToken
 		}
 		clearCookie(w, portalCookieName, "/t/"+t.Slug, o.cfg.Secure)
-		endSession, err := rp.EndSession(r.Context(), o.rp, idTokenHint, postLogoutRedirectURI, "", "", nil)
-		if err != nil || endSession == nil {
+
+		endpoint := o.rp.GetEndSessionEndpoint()
+		if endpoint == "" {
+			o.logger.Warn("OP discovery has no end_session_endpoint, falling back to local redirect",
+				zap.String("slug", t.Slug))
 			http.Redirect(w, r, postLogoutRedirectURI, http.StatusFound)
 			return
 		}
-		http.Redirect(w, r, endSession.String(), http.StatusFound)
+		q := url.Values{}
+		q.Set("client_id", o.rp.OAuthConfig().ClientID)
+		if idTokenHint != "" {
+			q.Set("id_token_hint", idTokenHint)
+		}
+		if postLogoutRedirectURI != "" {
+			q.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+		}
+		sep := "?"
+		if strings.Contains(endpoint, "?") {
+			sep = "&"
+		}
+		target := endpoint + sep + q.Encode()
+		o.logger.Info("redirecting browser to zitadel end_session",
+			zap.String("slug", t.Slug),
+			zap.String("end_session_endpoint", endpoint))
+		http.Redirect(w, r, target, http.StatusFound)
 	}
 }
 
