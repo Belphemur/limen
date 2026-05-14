@@ -7,7 +7,15 @@
 
 Make `/t/{tenant}/mcp` an MCP-spec-compliant Resource Server: advertise Protected Resource Metadata (RFC 9728), enforce bearer-token authentication on every MCP request, return a proper `WWW-Authenticate` 401 challenge with a `resource_metadata` pointer, and validate JWT access tokens **in-process** against the **single Zitadel JWKS**.
 
-This phase replaces the stub in `internal/auth/middleware.go` with real validation logic. Tenant binding at the RS happens via the `urn:zitadel:iam:user:resourceowner:id` claim (the user's resource-owner org id), matched against `tenant.zitadel_org_id` resolved from the URL path.
+This phase replaces the stub in `internal/auth/middleware.go` with real validation logic and re-mounts the MCP handler from the current global `/mcp` route to the per-tenant `/t/{tenant}/mcp` path behind `tenancy.RequireTenant` + `RequireMCPAuth`. Tenant binding at the RS happens via the `urn:zitadel:iam:user:resourceowner:id` claim (the user's resource-owner org id, already aliased as `orgIDClaim` in `internal/auth/oidc.go` — reuse, don't redefine), matched against `tenant.zitadel_org_id` resolved from `tenancy.TenantFromContext`.
+
+### State of the codebase (entering Phase 6)
+
+- `internal/auth/middleware.go` is a stub: `Middleware{logger, jwksURL, audience}` + `RequireAuth` + `extractBearerToken` + `validateToken` returning `"not yet implemented"`. Constants `claimsKey`, helpers `SetClaims` / `GetClaims` exist and can be kept or replaced by typed ctx keys.
+- `internal/config/config.go` carries a `AuthConfig{JWKSURL, Audience}` block marked legacy. Phase 6 should delete it — `oidc.issuer` (Phase 4) is the issuer; the audience belongs alongside `zitadel.project_id` (the Zitadel project the access token is minted for).
+- `internal/transport/http.go` mounts the MCP SSE handler at `/mcp` and `/mcp/` on the **root router**, with no tenant scoping and no auth. Phase 6 moves this mount under `r.Route("/t/{tenant}/mcp", ...)` behind `tenancy.RequireTenant` + `RequireMCPAuth`, with the PRM endpoint declared before the catch-all.
+- `github.com/go-jose/go-jose/v4` and `github.com/zitadel/oidc/v3` are already in `go.mod` (pulled by Phase 4). No new deps required.
+- `internal/storage/storagetest.OpenMigrated` (added in Phase 5 tests) gives Phase 6 a one-call testcontainer + migrated schema for integration tests.
 
 ## Design
 
@@ -79,30 +87,28 @@ Validation steps for each request to `/t/{tenant}/mcp`:
 7. Verify `aud` contains the configured MCP RS audience (the Zitadel project audience id). Mismatch → 401.
 8. Extract `urn:zitadel:iam:user:resourceowner:id` claim. Match against `tenant.zitadel_org_id` from ctx. Mismatch → 403 (cross-tenant attempt).
 9. Optionally verify a required scope (e.g. `openid`) is present.
-10. Look up `User` by `(tenant_id, zitadel_subject=sub)`. Missing user → 401 (the token is for a Zitadel user not yet provisioned in this Limen tenant; the portal-login path is the canonical provisioning trigger).
+10. Look up `User` by `(tenant_id, zitadel_subject=sub)`. Missing user → 401 (the token is for a Zitadel user not yet provisioned in this Limen tenant; portal login via `internal/transport/portal.go` is the canonical provisioning trigger — the MCP path deliberately does **not** auto-create users so an attacker with a valid Zitadel token can't create rows in a tenant they never logged in to).
 11. Stash `*User`, scopes, and the raw token's `jti` (if present) into ctx.
 12. Continue.
 
-### `JWKSResolver`
+### JWKS + access-token validation
+
+**Preferred path**: use `github.com/zitadel/oidc/v3/pkg/client/rs.NewResourceServer` + `rs.Introspect`/`rs.VerifyAccessToken`, or `op.NewAccessTokenVerifier`, to avoid reimplementing JWKS caching, `kid` selection, algorithm allowlists, and clock-skew handling — Phase 4's portal flow already uses the same library family for ID-token verification, so this keeps the verification surface uniform.
+
+If the upstream verifier is too opinionated for our needs, the fallback is a minimal local resolver:
 
 ```go
 type JWKSResolver struct {
     HTTPClient *http.Client
     Cache      sync.Map  // issuer → cachedJWKS
 }
-
-type cachedJWKS struct {
-    Keys      *jose.JSONWebKeySet
-    FetchedAt time.Time
-}
-
-func (r *JWKSResolver) Get(ctx, issuer string, kid string) (*jose.JSONWebKey, error)
 ```
 
 - Cache TTL: 5 min.
-- On `kid` miss inside the cached set, do one immediate refetch (handles key rotation without waiting for TTL).
-- HTTP fetch has a tight timeout (3 s) and uses `http.Client` with redirects disabled.
-- Single issuer (Zitadel) means a single cache entry — straightforward.
+- On `kid` miss, do one immediate refetch (key rotation without waiting for TTL).
+- HTTP fetch with a 3 s timeout, redirects disabled.
+- Algorithm allowlist: `RS256` only.
+- Single Zitadel issuer → single cache entry.
 
 ### Routing
 
@@ -139,11 +145,14 @@ internal/auth/
 
 - New files: `internal/mcprs/metadata.go`, `internal/mcprs/challenge.go`.
 - Rewritten `internal/auth/middleware.go` (the file exists today as a stub).
-- New helper module dep: `gopkg.in/go-jose/go-jose.v2` (or `github.com/go-jose/go-jose/v4`) for JWS parsing + JWKS. `zitadel/oidc` already pulls it in.
+- New transport helper `internal/transport/mcprs.go` exposing `MountMCPRS(r chi.Router, MCPRSDeps{...})` that wires PRM + `RequireMCPAuth` + the existing `MCPServer` under `/t/{tenant}/mcp` (analogous to `MountOAuthProxy`).
+- Removal of the legacy top-level `/mcp` route registered by `MCPServer.Mount` (or rework `Mount` to mount under a caller-supplied subrouter).
+- Drop the legacy `AuthConfig` struct from `internal/config/config.go`; add `zitadel.project_audience` (or reuse `zitadel.project_id`) for the `aud` check.
+- No new module deps: `github.com/go-jose/go-jose/v4` and `github.com/zitadel/oidc/v3` are already in tree.
 
 ## Security & operational notes
 
-- **Strict `iss`, `aud`, and `org_id` checks** — `iss`+`aud` prove the token came from our Zitadel and is for our MCP RS; the `org_id` claim is what binds it to a specific tenant. Skipping any of the three breaks isolation.
+- **Strict `iss`, `aud`, and `org_id` checks** — `iss`+`aud` prove the token came from our Zitadel and is for our MCP RS; the `org_id` claim is what binds it to a specific tenant. Skipping any of the three breaks isolation. Note: Phase 5's AS metadata advertises `resource_indicators_supported: true`, but RFC 8707 per-resource `aud` values are best-effort across Zitadel versions — tenant isolation must rest on the `org_id` claim, **not** on `aud` containing the per-tenant resource URI.
 - **`kid` is required**; reject tokens without a `kid` to prevent key-substitution bugs.
 - **Algorithm allowlist**: only `RS256` (Zitadel default); reject `none`, `HS256`, etc.
 - **Token replay / `jti`**: a per-tenant LRU of recent `jti`s catches reuse within a short window. v1 deliberately skips this for simplicity; revisit if abuse surfaces.
@@ -170,6 +179,9 @@ internal/auth/
 
 ## Checklist
 
+- [ ] Drop legacy `AuthConfig` from `internal/config/config.go`; add `zitadel.project_audience` (or reuse `zitadel.project_id`) for the `aud` check
+- [ ] `internal/transport/mcprs.go` exposes `MountMCPRS` and is wired from `internal/cli/serve.go`
+- [ ] Remove the global `/mcp` mount from `internal/transport/http.go` (or rework `MCPServer.Mount` to take a subrouter); MCP only reachable under `/t/{tenant}/mcp`
 - [ ] `internal/mcprs/metadata.go` exposes PRM at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`
 - [ ] PRM response includes correct `resource`, `authorization_servers`, `scopes_supported`
 - [ ] `internal/mcprs/challenge.go` constructs the `WWW-Authenticate` header with `resource_metadata` for every 401
