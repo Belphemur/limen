@@ -125,7 +125,7 @@ Flow:
 
    Wildcards in any component, IDN hosts, and trailing-slash mismatches are all rejected. Validation is shared between `POST /register` and `PUT /register/{client_id}`.
 
-   **Tenant-configurable allowlist (subtractive).** After the global floor passes, if `tenant.DCRRedirectURIAllowlist` is non-empty, every `redirect_uri` in the request must **additionally** match at least one pattern in that list. The list can only narrow what the floor allows — it can never relax the floor (e.g. you cannot allowlist a `*.com` wildcard or a `file://` scheme). Empty list = floor only.
+   **Tenant-configurable allowlist (subtractive).** `tenant.DCRRedirectURIAllowlist` is a **list** of glob patterns — a tenant admin can add as many entries as needed (e.g. one per environment, one per first-party app, one per public-beta client). When the list is non-empty, every `redirect_uri` in the request must **additionally** match **at least one** pattern in the list. The list can only narrow what the floor allows — it can never relax the floor (e.g. you cannot allowlist a `*.com` wildcard or a `file://` scheme). Empty list = floor only. Order is irrelevant; duplicates are deduped at save time.
 
    Pattern syntax (glob, not regex):
 

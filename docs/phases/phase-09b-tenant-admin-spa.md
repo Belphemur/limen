@@ -165,7 +165,7 @@ Pages:
 - `AdminShell.vue` — top-nav + sidebar; child routes:
   - `Upstreams.vue` (admin scope) — catalog CRUD (this is the **admin** Upstreams page; the per-user link page stays in `/portal/`).
   - `ZitadelDirectory.vue` — the "Manage members & SSO in Zitadel Console" card view described above; one route, no backend.
-  - `Settings.vue` — tenant name, `PublicID` (read-only), billing pointer (out of scope for v1), **DCR redirect-URI allowlist editor** (add / edit / remove glob patterns per [Phase 5](phase-05-authorization-server.md) — patterns are validated client-side and server-side against the shared `internal/oauthproxy/uripolicy.go` matcher), `DeleteTenant`.
+  - `Settings.vue` — tenant name, `PublicID` (read-only), billing pointer (out of scope for v1), **DCR redirect-URI allowlist editor** (manages the full list of glob patterns per [Phase 5](phase-05-authorization-server.md): add / edit / remove individual entries, with client-side and server-side validation against the shared `internal/oauthproxy/uripolicy.go` matcher; duplicates deduped on save), `DeleteTenant`.
 
 The customer-portal SPA gets a small chip in its nav ("Admin →") shown only when the session carries `owner` or `admin` roles; clicking it pushes the user into `/t/<tenant>/admin/`. Same cookie, no re-auth.
 
