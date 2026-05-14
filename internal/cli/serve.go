@@ -17,6 +17,7 @@ import (
 	"github.com/belphemur/limen/internal/gateway"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/transport"
+	"github.com/belphemur/limen/internal/zitadel"
 )
 
 func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
@@ -102,6 +103,32 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 				Logger:                logger,
 				PostLogoutRedirectURI: cfg.OIDC.PostLogoutRedirectURI,
 			})
+
+			// Phase 5: AS-metadata + DCR proxy + redirector under /t/{tenant}/oauth/*.
+			// Best-effort: if the Zitadel admin client can't be built (dev without
+			// PAT, missing project id, etc.) skip the proxy and continue with portal
+			// + MCP only.
+			zclient, zerr := zitadel.NewClient(ctx, zitadel.Config{
+				Domain:      cfg.Zitadel.Domain,
+				AuthMode:    zitadel.AuthMode(cfg.Zitadel.AuthMode),
+				PAT:         cfg.Zitadel.PAT,
+				JWTKeyPath:  cfg.Zitadel.JWTKeyPath,
+				ProjectID:   cfg.Zitadel.ProjectID,
+				HTTPTimeout: cfg.Zitadel.HTTPTimeout,
+			})
+			if zerr != nil {
+				logger.Warn("oauth proxy disabled: zitadel admin client unavailable", zap.Error(zerr))
+			} else if err := transport.MountOAuthProxy(r, transport.OAuthProxyDeps{
+				Store:    store,
+				Zitadel:  zclient,
+				Logger:   logger,
+				BaseURL:  cfg.Server.BaseURL,
+				Issuer:   cfg.OIDC.Issuer,
+				OAuthCfg: cfg.OAuthProxy,
+			}); err != nil {
+				return fmt.Errorf("mount oauth proxy: %w", err)
+			}
+
 			mcpServer.Mount(r)
 
 			addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

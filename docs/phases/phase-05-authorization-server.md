@@ -237,24 +237,24 @@ internal/zitadel/
 
 - [x] Dead `OAuthServerConfig` removed from `internal/config/config.go` (and `config.yaml`); replaced by `OAuthProxyConfig`
 - [x] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` to the existing client (no second wrapper package)
-- [ ] `internal/oauthproxy/metadata.go` serves a static metadata document with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
-- [ ] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `end_session` and 307 redirects for `token`, `revoke`, `introspect`
-- [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (default 10 rps / burst 20)
-- [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
-- [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
-- [ ] DCR proxy **rejects unknown / unsupported metadata fields** with `invalid_client_metadata` (default-deny)
-- [ ] PKCE S256 required on every DCR'd app
-- [ ] `redirect_uris` validated per the table in the DCR proxy section (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes); wildcards / IDN / fragments rejected; same validator used by `POST /register` and `PUT /register/{client_id}`
-- [ ] `Tenant.DCRRedirectURIAllowlist` column added by migration; when non-empty, every DCR `redirect_uri` must additionally match a tenant pattern (subtractive — floor still applies)
-- [ ] `internal/oauthproxy/uripolicy.go` implements the shared floor + allowlist matcher; reused by the DCR proxy and the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin validation RPC
-- [ ] Glob patterns validated at save time (`*` = one host label / path segment, `**` = multi-segment path; leading-wildcard host requires ≥2 fixed suffix labels)
+- [x] `internal/oauthproxy/metadata.go` serves a static metadata document with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
+- [x] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `end_session` and 307 redirects for `token`, `revoke`, `introspect`
+- [x] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (default 10 rps / burst 20)
+- [x] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
+- [x] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
+- [x] DCR proxy **rejects unknown / unsupported metadata fields** with `invalid_client_metadata` (default-deny)
+- [x] PKCE S256 required on every DCR'd app
+- [x] `redirect_uris` validated per the table in the DCR proxy section (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes); wildcards / IDN / fragments rejected; same validator used by `POST /register` and `PUT /register/{client_id}`
+- [x] `Tenant.DCRRedirectURIAllowlist` column added by migration; when non-empty, every DCR `redirect_uri` must additionally match a tenant pattern (subtractive — floor still applies)
+- [x] `internal/oauthproxy/uripolicy.go` implements the shared floor + allowlist matcher; reused by the DCR proxy and the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin validation RPC
+- [x] Glob patterns validated at save time (`*` = one host label / path segment, `**` = multi-segment path; leading-wildcard host requires ≥2 fixed suffix labels)
 - [ ] Allowlist surfaced in the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin SPA Settings page (gated by `RequireRole(owner|admin)`); `limen create-tenant` accepts a repeatable `--dcr-redirect-uri-allow` flag for operator bootstrapping
-- [ ] Allowlist-mismatch DCR rejection emits a structured log (`tenant_id`, rejected URI, active patterns)
-- [ ] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
-- [ ] `ZitadelApp` mirror row persisted per registration; `registration_access_token_hash` column added by migration and used for constant-time auth
-- [ ] RFC 7592 management endpoints (`GET/PUT/DELETE /register/{client_id}`) implemented and authenticated via the registration access token
-- [ ] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
-- [ ] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
+- [x] Allowlist-mismatch DCR rejection emits a structured log (`tenant_id`, rejected URI, active patterns)
+- [x] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
+- [x] `ZitadelApp` mirror row persisted per registration; `registration_access_token_hash` column added by migration and used for constant-time auth
+- [x] RFC 7592 management endpoints (`GET/PUT/DELETE /register/{client_id}`) implemented and authenticated via the registration access token
+- [x] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
+- [x] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
 - [ ] Integration test: full inbound discovery → DCR → authorize → token → `/mcp` roundtrip against the dev Zitadel container
 - [ ] Integration test: DCR with missing initial access token → 401
 - [ ] Integration test: RFC 7592 GET/PUT/DELETE with valid and invalid registration access tokens
