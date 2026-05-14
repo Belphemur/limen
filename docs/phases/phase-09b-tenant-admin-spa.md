@@ -165,7 +165,7 @@ Pages:
 - `AdminShell.vue` — top-nav + sidebar; child routes:
   - `Upstreams.vue` (admin scope) — catalog CRUD (this is the **admin** Upstreams page; the per-user link page stays in `/portal/`).
   - `ZitadelDirectory.vue` — the "Manage members & SSO in Zitadel Console" card view described above; one route, no backend.
-  - `Settings.vue` — tenant name, `PublicID` (read-only), billing pointer (out of scope for v1), `DeleteTenant`.
+  - `Settings.vue` — tenant name, `PublicID` (read-only), billing pointer (out of scope for v1), **DCR redirect-URI allowlist editor** (add / edit / remove glob patterns per [Phase 5](phase-05-authorization-server.md) — patterns are validated client-side and server-side against the shared `internal/oauthproxy/uripolicy.go` matcher), `DeleteTenant`.
 
 The customer-portal SPA gets a small chip in its nav ("Admin →") shown only when the session carries `owner` or `admin` roles; clicking it pushes the user into `/t/<tenant>/admin/`. Same cookie, no re-auth.
 
@@ -245,7 +245,7 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
 - [ ] Signup completes a full round-trip: name + email → MailHog → password set → admin SPA
-- [ ] Admin SPA routes lazy-loaded; `/t/<tenant>/admin/` shell + `Upstreams` + `ZitadelDirectory` + `Settings` pages implemented (no `Members.vue`, no `Federation.vue`)
+- [ ] Admin SPA routes lazy-loaded; `/t/<tenant>/admin/` shell + `Upstreams` + `ZitadelDirectory` + `Settings` (incl. DCR redirect-URI allowlist editor from [Phase 5](phase-05-authorization-server.md)) pages implemented (no `Members.vue`, no `Federation.vue`)
 - [ ] `ZitadelDirectory.vue` renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
 - [ ] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [ ] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`

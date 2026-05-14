@@ -116,14 +116,31 @@ Flow:
 
    Allowed `redirect_uris` shapes:
 
-   | Scheme                                                         | Constraint                                                                                         |
-   | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-   | `https://...`                                                  | Exact match. Host must not be an IP, must not be IDN-encoded, no `#fragment`.                      |
-   | `http://127.0.0.1[:port]/...` / `http://[::1][:port]/...`      | RFC 8252 §7.3 loopback. Any port, any path; no `#fragment`.                                        |
-   | `http://localhost[:port]/...`                                  | Same as loopback (Limen treats `localhost` as an alias).                                           |
+   | Scheme                                                         | Constraint                                                                                                                                              |
+   | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `https://...`                                                  | Exact match. Host must not be an IP, must not be IDN-encoded, no `#fragment`.                                                                           |
+   | `http://127.0.0.1[:port]/...` / `http://[::1][:port]/...`      | RFC 8252 §7.3 loopback. Any port, any path; no `#fragment`.                                                                                             |
+   | `http://localhost[:port]/...`                                  | Same as loopback (Limen treats `localhost` as an alias).                                                                                                |
    | Custom scheme (e.g. `cursor://callback`, `com.example.app://`) | Reverse-DNS-shaped scheme only (`^[a-z][a-z0-9+\-.]*$` containing at least one dot, no `data:` / `javascript:` / `file:`). Host + path opaque to Limen. |
 
    Wildcards in any component, IDN hosts, and trailing-slash mismatches are all rejected. Validation is shared between `POST /register` and `PUT /register/{client_id}`.
+
+   **Tenant-configurable allowlist (subtractive).** After the global floor passes, if `tenant.DCRRedirectURIAllowlist` is non-empty, every `redirect_uri` in the request must **additionally** match at least one pattern in that list. The list can only narrow what the floor allows — it can never relax the floor (e.g. you cannot allowlist a `*.com` wildcard or a `file://` scheme). Empty list = floor only.
+
+   Pattern syntax (glob, not regex):
+
+   | Pattern                             | Matches                                |
+   | ----------------------------------- | -------------------------------------- |
+   | `https://app.acme.com/callback`     | exact URI                              |
+   | `https://*.acme.com/oauth/callback` | any single host label                  |
+   | `https://*.acme.com/**`             | any single host label + any path depth |
+   | `http://127.0.0.1:*/**`             | any port + any path (loopback)         |
+   | `cursor://**`                       | any path under a custom scheme         |
+
+   Matching is component-wise: scheme exact; host glob (`*` = one label, no leading-`*` against `<2` fixed suffix labels — i.e. `*.acme.com` ok, `*.com` rejected at policy-save time); port literal or `*`; path glob (`*` = one segment, `**` = multi-segment). Patterns are validated at save time so an admin can't store something the matcher would later reject.
+
+   A DCR rejection due to allowlist mismatch emits a structured log (`tenant_id`, rejected URI, active patterns) for ops triage.
+
 3. If `tenant.DCREnabled == false` → 403.
 4. If `oauth_proxy.dcr_initial_access_token` is configured, require it on the request.
 5. Call Zitadel's Management API (via the shared `*zitadel.Client` — see [internal/zitadel/](../../internal/zitadel/)) to create an OIDC app inside `tenant.zitadel_org_id`'s project. Map the MCP DCR fields to Zitadel's app-create payload:
@@ -182,6 +199,8 @@ internal/zitadel/
 
 - New files listed above under `internal/oauthproxy/` and `internal/zitadel/apps.go`.
 - Existing `ZitadelApp` model ([Phase 1](phase-01-database-foundation.md)) gets a migration adding the `registration_access_token_hash` column (replacing the originally planned encrypted variant — see DCR proxy section).
+- Existing `Tenant` model ([Phase 1](phase-01-database-foundation.md)) gets a migration adding `dcr_redirect_uri_allowlist JSONB NOT NULL DEFAULT '[]'`. Validated at save time against the glob syntax + “≥2 fixed suffix labels” rule; surfaced in the [Phase 9b tenant-admin SPA](phase-09b-tenant-admin-spa.md) Settings page (gated by `RequireRole(owner|admin)`, i.e. tenant administrators) and on `limen create-tenant` via a repeatable `--dcr-redirect-uri-allow` flag for operator bootstrapping.
+- New shared matcher: `internal/oauthproxy/uripolicy.go` — implements both the global floor table and the tenant-allowlist glob matcher; consumed by `dcr.go` and the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin RPC that validates patterns before saving.
 - `internal/config/config.go`: the dead `OAuthServerConfig` (signing algo / TTLs / consent — all moot now that Zitadel is the AS) is **dropped** and replaced with `OAuthProxyConfig { DCREnabled bool; DCRInitialAccessToken string; RateLimit { RPS, Burst int } }`. The Zitadel PAT / project ID are **not** duplicated here — the proxy reuses the existing top-level `zitadel:` block (and the `*zitadel.Client` constructed from it).
 - Updated `internal/transport/http.go` to mount the routes.
 
@@ -226,6 +245,11 @@ internal/zitadel/
 - [ ] DCR proxy **rejects unknown / unsupported metadata fields** with `invalid_client_metadata` (default-deny)
 - [ ] PKCE S256 required on every DCR'd app
 - [ ] `redirect_uris` validated per the table in the DCR proxy section (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes); wildcards / IDN / fragments rejected; same validator used by `POST /register` and `PUT /register/{client_id}`
+- [ ] `Tenant.DCRRedirectURIAllowlist` column added by migration; when non-empty, every DCR `redirect_uri` must additionally match a tenant pattern (subtractive — floor still applies)
+- [ ] `internal/oauthproxy/uripolicy.go` implements the shared floor + allowlist matcher; reused by the DCR proxy and the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin validation RPC
+- [ ] Glob patterns validated at save time (`*` = one host label / path segment, `**` = multi-segment path; leading-wildcard host requires ≥2 fixed suffix labels)
+- [ ] Allowlist surfaced in the [Phase 9b](phase-09b-tenant-admin-spa.md) tenant-admin SPA Settings page (gated by `RequireRole(owner|admin)`); `limen create-tenant` accepts a repeatable `--dcr-redirect-uri-allow` flag for operator bootstrapping
+- [ ] Allowlist-mismatch DCR rejection emits a structured log (`tenant_id`, rejected URI, active patterns)
 - [ ] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
 - [ ] `ZitadelApp` mirror row persisted per registration; `registration_access_token_hash` column added by migration and used for constant-time auth
 - [ ] RFC 7592 management endpoints (`GET/PUT/DELETE /register/{client_id}`) implemented and authenticated via the registration access token

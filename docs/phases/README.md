@@ -109,6 +109,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] DCR proxy rejects unknown / unsupported metadata fields with `invalid_client_metadata` (default-deny)
 - [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (`golang.org/x/time/rate`)
 - [ ] PKCE S256 required on every DCR'd app; `redirect_uris` validated (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes; wildcards / IDN / fragments rejected)
+- [ ] `Tenant.DCRRedirectURIAllowlist` column added; when non-empty, every DCR `redirect_uri` must additionally match a tenant-admin-defined glob pattern (subtractive — floor still applies). Editor lives in the [Phase 9b](phase-09b-tenant-admin-spa.md) admin SPA Settings page
 - [ ] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
 - [ ] `ZitadelApp` mirror row persisted; `registration_access_token_hash` column (SHA-256) added by migration and used for constant-time auth
 - [ ] RFC 7592 management endpoints implemented (`GET/PUT/DELETE /register/{client_id}`)
