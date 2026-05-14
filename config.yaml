@@ -25,14 +25,19 @@ security:
   portal_session_cookie_name: "limen_portal"
   portal_session_cookie_secure: true
 
-oauth_server:
-  signing_algorithm: "RS256"
-  access_token_ttl: "10m"
-  refresh_token_ttl: "720h"
+# Phase 5 — thin OAuth proxy (Zitadel is the AS). Holds only the DCR
+# proxy's own knobs; the upstream Zitadel client config lives under
+# `zitadel:` below.
+oauth_proxy:
+  # Global kill-switch for /register* . Per-tenant gating still happens via
+  # Tenant.DCREnabled.
+  dcr_enabled: true
   # If set, /register requires this initial-access-token (RFC 7591 §3).
-  dcr_initial_access_token: ""
-  # skip | always | first_time
-  authorize_consent: "skip"
+  dcr_initial_access_token: "${LIMEN_DCR_INITIAL_ACCESS_TOKEN:-}"
+  # Per-tenant token-bucket on /register* . Defaults: 10 rps / burst 20.
+  rate_limit:
+    rps: 10
+    burst: 20
 
 # Legacy: replaced by per-tenant outbound strategies in Phase 7.
 upstreams:

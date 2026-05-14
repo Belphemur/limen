@@ -25,15 +25,15 @@ import (
 
 // Config is the top-level configuration shape.
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Security    SecurityConfig    `yaml:"security"`
-	OAuthServer OAuthServerConfig `yaml:"oauth_server"`
-	Upstreams   []UpstreamConfig  `yaml:"upstreams"`
-	CodeMode    CodeModeConfig    `yaml:"codemode"`
-	Auth        AuthConfig        `yaml:"auth"`
-	OIDC        OIDCConfig        `yaml:"oidc"`
-	Zitadel     ZitadelConfig     `yaml:"zitadel"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Security   SecurityConfig   `yaml:"security"`
+	OAuthProxy OAuthProxyConfig `yaml:"oauth_proxy"`
+	Upstreams  []UpstreamConfig `yaml:"upstreams"`
+	CodeMode   CodeModeConfig   `yaml:"codemode"`
+	Auth       AuthConfig       `yaml:"auth"`
+	OIDC       OIDCConfig       `yaml:"oidc"`
+	Zitadel    ZitadelConfig    `yaml:"zitadel"`
 }
 
 // ServerConfig governs the inbound HTTP listener and the public base URL
@@ -74,14 +74,31 @@ type SecurityConfig struct {
 	PortalSessionCookieSecure bool   `yaml:"portal_session_cookie_secure"`
 }
 
-// OAuthServerConfig holds the parameters consumed by Phase 5's authorization
-// server / DCR proxy.
-type OAuthServerConfig struct {
-	SigningAlgorithm      string        `yaml:"signing_algorithm"`
-	AccessTokenTTL        time.Duration `yaml:"access_token_ttl"`
-	RefreshTokenTTL       time.Duration `yaml:"refresh_token_ttl"`
-	DCRInitialAccessToken string        `yaml:"dcr_initial_access_token"`
-	AuthorizeConsent      string        `yaml:"authorize_consent"`
+// OAuthProxyConfig holds the parameters consumed by Phase 5's thin OAuth
+// proxy. Limen is no longer an Authorization Server — Zitadel is — so the
+// signing algorithm / token TTL / consent knobs of the old
+// OAuthServerConfig are gone. What remains:
+//
+//   - DCREnabled: global master kill-switch for /register*. Per-tenant
+//     gating still happens via Tenant.DCREnabled.
+//   - DCRInitialAccessToken: when set, /register requires this token
+//     (RFC 7591 §3); empty disables the check.
+//   - RateLimit: per-tenant token bucket applied to /register* — see
+//     internal/oauthproxy/ratelimit.go.
+//
+// The Zitadel PAT / project ID are reused from the top-level zitadel:
+// block; do not duplicate them here.
+type OAuthProxyConfig struct {
+	DCREnabled            bool            `yaml:"dcr_enabled"`
+	DCRInitialAccessToken string          `yaml:"dcr_initial_access_token"`
+	RateLimit             RateLimitConfig `yaml:"rate_limit"`
+}
+
+// RateLimitConfig sizes a golang.org/x/time/rate token bucket.
+// Zero values fall back to the Phase 5 defaults (10 rps / burst 20).
+type RateLimitConfig struct {
+	RPS   int `yaml:"rps"`
+	Burst int `yaml:"burst"`
 }
 
 type UpstreamConfig struct {
@@ -196,17 +213,11 @@ func (c *Config) applyDefaults() {
 	if c.Database.MaxIdleConns == 0 {
 		c.Database.MaxIdleConns = 5
 	}
-	if c.OAuthServer.SigningAlgorithm == "" {
-		c.OAuthServer.SigningAlgorithm = "RS256"
+	if c.OAuthProxy.RateLimit.RPS == 0 {
+		c.OAuthProxy.RateLimit.RPS = 10
 	}
-	if c.OAuthServer.AccessTokenTTL == 0 {
-		c.OAuthServer.AccessTokenTTL = 10 * time.Minute
-	}
-	if c.OAuthServer.RefreshTokenTTL == 0 {
-		c.OAuthServer.RefreshTokenTTL = 720 * time.Hour
-	}
-	if c.OAuthServer.AuthorizeConsent == "" {
-		c.OAuthServer.AuthorizeConsent = "skip"
+	if c.OAuthProxy.RateLimit.Burst == 0 {
+		c.OAuthProxy.RateLimit.Burst = 20
 	}
 	if c.Security.PortalSessionCookieName == "" {
 		c.Security.PortalSessionCookieName = "limen_portal"
@@ -250,8 +261,8 @@ func (c *Config) Validate() error {
 	if err := c.Security.Validate(); err != nil {
 		return fmt.Errorf("security: %w", err)
 	}
-	if err := c.OAuthServer.Validate(); err != nil {
-		return fmt.Errorf("oauth_server: %w", err)
+	if err := c.OAuthProxy.Validate(); err != nil {
+		return fmt.Errorf("oauth_proxy: %w", err)
 	}
 	if err := c.OIDC.Validate(c.Server.BaseURL); err != nil {
 		return fmt.Errorf("oidc: %w", err)
@@ -321,23 +332,16 @@ func (s SecurityConfig) Validate() error {
 	return nil
 }
 
-// Validate enforces non-zero TTLs and a recognised consent mode.
-func (o OAuthServerConfig) Validate() error {
-	if o.AccessTokenTTL <= 0 {
-		return errors.New("access_token_ttl must be > 0")
+// Validate enforces non-negative rate-limit parameters with burst >= rps.
+func (o OAuthProxyConfig) Validate() error {
+	if o.RateLimit.RPS < 0 {
+		return errors.New("rate_limit.rps must be >= 0")
 	}
-	if o.RefreshTokenTTL <= 0 {
-		return errors.New("refresh_token_ttl must be > 0")
+	if o.RateLimit.Burst < 0 {
+		return errors.New("rate_limit.burst must be >= 0")
 	}
-	switch o.AuthorizeConsent {
-	case "skip", "always", "first_time":
-	default:
-		return fmt.Errorf("authorize_consent %q is not one of skip|always|first_time", o.AuthorizeConsent)
-	}
-	switch o.SigningAlgorithm {
-	case "RS256", "ES256", "PS256":
-	default:
-		return fmt.Errorf("signing_algorithm %q is not supported", o.SigningAlgorithm)
+	if o.RateLimit.Burst < o.RateLimit.RPS {
+		return fmt.Errorf("rate_limit.burst (%d) must be >= rate_limit.rps (%d)", o.RateLimit.Burst, o.RateLimit.RPS)
 	}
 	return nil
 }

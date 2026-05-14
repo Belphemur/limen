@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func randomHexKey(t *testing.T) string {
@@ -41,11 +40,8 @@ database:
 security:
   token_encryption_key: "%s"
 
-oauth_server:
-  signing_algorithm: RS256
-  access_token_ttl: 10m
-  refresh_token_ttl: 720h
-  authorize_consent: skip
+oauth_proxy:
+  dcr_enabled: true
 
 oidc:
   issuer: "https://auth.limen.example.com"
@@ -69,8 +65,11 @@ func TestLoad_MinimalValid(t *testing.T) {
 	if cfg.Server.Port != 8080 {
 		t.Fatalf("port: %d", cfg.Server.Port)
 	}
-	if cfg.OAuthServer.AccessTokenTTL != 10*time.Minute {
-		t.Fatalf("access_token_ttl: %v", cfg.OAuthServer.AccessTokenTTL)
+	if !cfg.OAuthProxy.DCREnabled {
+		t.Fatalf("dcr_enabled not parsed")
+	}
+	if cfg.OAuthProxy.RateLimit.RPS != 10 || cfg.OAuthProxy.RateLimit.Burst != 20 {
+		t.Fatalf("default rate limit not applied: %+v", cfg.OAuthProxy.RateLimit)
 	}
 	if cfg.Database.MaxOpenConns != 25 {
 		t.Fatalf("default max_open_conns not applied: %d", cfg.Database.MaxOpenConns)
@@ -95,9 +94,8 @@ database:
 security:
   token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
 
-oauth_server:
-  access_token_ttl: 5m
-  refresh_token_ttl: 24h
+oauth_proxy:
+  dcr_enabled: true
 
 oidc:
   issuer: "https://auth.example.com"
@@ -132,9 +130,8 @@ database:
   dsn: "postgres://localhost/limen"
 security:
   token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
-oauth_server:
-  access_token_ttl: 1m
-  refresh_token_ttl: 1h
+oauth_proxy:
+  dcr_enabled: true
   dcr_initial_access_token: "${LIMEN_OPTIONAL_THING:-fallback-token}"
 
 oidc:
@@ -153,8 +150,8 @@ zitadel:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.OAuthServer.DCRInitialAccessToken != "fallback-token" {
-		t.Fatalf("fallback not applied: %q", cfg.OAuthServer.DCRInitialAccessToken)
+	if cfg.OAuthProxy.DCRInitialAccessToken != "fallback-token" {
+		t.Fatalf("fallback not applied: %q", cfg.OAuthProxy.DCRInitialAccessToken)
 	}
 }
 
@@ -169,9 +166,6 @@ database:
   dsn: "${LIMEN_DEFINITELY_NOT_SET}"
 security:
   token_encryption_key: "deadbeef"
-oauth_server:
-  access_token_ttl: 1m
-  refresh_token_ttl: 1h
 `
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Fatalf("Load accepted missing required env var")
@@ -185,43 +179,33 @@ func TestLoad_ValidationErrors(t *testing.T) {
 server: { port: 8080, base_url: "/relative" }
 database: { dsn: "postgres://localhost/limen" }
 security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h }
 `,
 		"trailing-slash base_url": `
 server: { port: 8080, base_url: "https://example.com/" }
 database: { dsn: "postgres://localhost/limen" }
 security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h }
 `,
 		"missing dsn": `
 server: { port: 8080 }
 database: { dsn: "" }
 security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h }
 `,
 		"short key": `
 server: { port: 8080 }
 database: { dsn: "postgres://localhost/limen" }
 security: { token_encryption_key: "abcd" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h }
 `,
-		"negative access_token_ttl": `
+		"negative rps": `
 server: { port: 8080 }
 database: { dsn: "postgres://localhost/limen" }
 security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: -1s, refresh_token_ttl: 1h }
+oauth_proxy: { rate_limit: { rps: -1, burst: 5 } }
 `,
-		"bad consent mode": `
+		"burst below rps": `
 server: { port: 8080 }
 database: { dsn: "postgres://localhost/limen" }
 security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h, authorize_consent: maybe }
-`,
-		"bad signing algo": `
-server: { port: 8080 }
-database: { dsn: "postgres://localhost/limen" }
-security: { token_encryption_key: "` + key + `" }
-oauth_server: { access_token_ttl: 1m, refresh_token_ttl: 1h, signing_algorithm: HS256 }
+oauth_proxy: { rate_limit: { rps: 50, burst: 5 } }
 `,
 	}
 	for name, body := range cases {
