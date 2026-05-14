@@ -15,7 +15,7 @@ This phase intentionally sits **after** the customer-facing portal (Phase 9) and
 
 ### Staff tenant identity
 
-- Reserved slug: **`_staff`**. The leading underscore is outside the tenant-slug regex (`^[a-z0-9]...`, see [Phase 4](phase-04-tenant-auth-session.md)), so customer tenants can never collide with it.
+- Reserved tenant: **`_staff`** is mounted directly under `/t/_staff/`. Customer tenants always use a `tnt_<ULID>` `PublicID` as their URL segment (see [Phase 4](phase-04-tenant-auth-session.md)), so the leading underscore is structurally outside the customer namespace — collisions are impossible by construction.
 - A new `Tenant.Kind` column (enum `customer` | `staff`) — `customer` is the default; `staff` is enforced unique via a partial index `WHERE kind='staff' AND deleted_at IS NULL`. There is exactly one staff tenant per deployment.
 - The staff tenant is bound 1:1 to a Zitadel organization `limen-staff` (created by the bootstrap script alongside the demo org in [Phase 0](phase-00-dev-environment.md)).
 - The staff tenant **has no upstream MCP links of its own**. Visiting `/t/_staff/portal/` loads the backoffice routes; everything in the customer dashboard (Upstreams, Members, MCP Clients) is hidden.
@@ -51,8 +51,8 @@ Backoffice users can launch a "View as" session for a specific customer user. Th
 1. Staff hits **Impersonate** on a user row. A modal collects a free-text **reason** (required, stored in the audit row).
 2. Limen verifies the staff user has MFA-on-current-session via `SessionService.GetSession` (`factors.mfa.verified_at` recent). If not, redirect to Zitadel `prompt=mfa`. This is enforced server-side; the SPA cannot skip it.
 3. Limen calls Zitadel token-exchange (RFC 8693, `urn:ietf:params:oauth:grant-type:token-exchange`) with `actor_token = <staff session token>` and `subject_token` referencing the target user. If the running Zitadel version doesn't expose token-exchange, fall back to `SessionService.CreateSession` with `checks.user.userId = <target>` and `actor = <staff_sub>` annotated on the new session.
-4. Limen mints a **separate** impersonation cookie at `Path=/t/<target-slug>; HttpOnly; Secure; SameSite=Lax; Max-Age=900` (15 min hard cap, configurable down — never up). The cookie payload includes `impersonation: true`, `actor_user_id: <staff_sub>`, and `acted_reason_id: <audit_row_id>`. The staff session cookie at `Path=/t/_staff` is untouched, so staff returns to the backoffice cleanly when impersonation ends.
-5. SPA at `/t/<target-slug>/portal/` detects `impersonation=true` (from the bootstrap call's response) and renders a **persistent red banner**: _"You are viewing **`alice@example.com`** on behalf of **`staff@limen.dev`**. Reason: `<reason>`. Expires in `09:42`. [End impersonation]"_. The banner cannot be dismissed; it pins to the viewport.
+4. Limen mints a **separate** impersonation cookie at `Path=/t/<target-tenant>; HttpOnly; Secure; SameSite=Lax; Max-Age=900` (15 min hard cap, configurable down — never up). The cookie payload includes `impersonation: true`, `actor_user_id: <staff_sub>`, and `acted_reason_id: <audit_row_id>`. The staff session cookie at `Path=/t/_staff` is untouched, so staff returns to the backoffice cleanly when impersonation ends.
+5. SPA at `/t/<target-tenant>/portal/` detects `impersonation=true` (from the bootstrap call's response) and renders a **persistent red banner**: _"You are viewing **`alice@example.com`** on behalf of **`staff@limen.dev`**. Reason: `<reason>`. Expires in `09:42`. [End impersonation]"_. The banner cannot be dismissed; it pins to the viewport.
 6. `EndImpersonation` (or cookie expiry) terminates the Zitadel session, clears the impersonation cookie, writes the audit row's `ended_at`, and bounces back to `/t/_staff/portal/`.
 
 #### Hard constraints
@@ -66,7 +66,7 @@ Backoffice users can launch a "View as" session for a specific customer user. Th
 
 | Surface             | Reads                                                                                                                                                                               | Writes                                                                                                        |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Tenants**         | List + search by slug/name; detail card (members count, configured upstreams, per-state link counts, last activity, Zitadel org id)                                                 | none                                                                                                          |
+| **Tenants**         | List + search by name or `PublicID`; detail card (members count, configured upstreams, per-state link counts, last activity, Zitadel org id)                                                 | none                                                                                                          |
 | **Users**           | Cross-tenant search by Zitadel sub / email; per-user detail (owning tenant, role, last sign-in)                                                                                     | **Impersonate** (audited)                                                                                     |
 | **Upstream health** | Every `UpstreamLink` aggregated by upstream × state; filter by `auto_disabled` reason / `needs_relink` age                                                                          | **Force-unlink** (deletes a user's link, audited); **Force re-enable** (clears `AutoDisabledAt`, audited)     |
 | **System status**   | Refresh-queue depth, circuit-breaker state per dependency (live from `internal/resilience` registry), Zitadel reachability, Postgres replication lag, current `limen` build version | **Trip / reset breaker** for a named dependency (audited; behind a confirmation modal)                        |
@@ -96,11 +96,11 @@ service StaffService {
 }
 ```
 
-Interceptors: `RequireStaffSession` (tenant slug == `_staff`) + `RequireSuperAdmin` (role claim) + a new `AuditingInterceptor` that records every RPC name, argument digest, staff user, target tenant/user (when extractable), and result status into `staff_audit_log`.
+Interceptors: `RequireStaffSession` (tenant `PublicID` == `_staff` reserved literal) + `RequireSuperAdmin` (role claim) + a new `AuditingInterceptor` that records every RPC name, argument digest, staff user, target tenant/user (when extractable), and result status into `staff_audit_log`.
 
 ### Backoffice SPA
 
-Shares the [Phase 9](phase-09-portal-spa.md) Vue 3 codebase and the same static-host deployment (Caddy `file_server` or Cloudflare Pages, see [Phase 11](phase-11-production-deployment.md)). The shell looks at the tenant slug on boot:
+Shares the [Phase 9](phase-09-portal-spa.md) Vue 3 codebase and the same static-host deployment (Caddy `file_server` or Cloudflare Pages, see [Phase 11](phase-11-production-deployment.md)). The shell looks at the tenant segment on boot:
 
 - `_staff` → lazy-load `web/src/staff/*` route bundle; customer routes are not loaded.
 - anything else → existing customer routes; staff bundle is not loaded.
@@ -110,7 +110,7 @@ Both halves use the same `@connectrpc/connect-web` transport (same-origin), the 
 ### Bootstrap
 
 1. **[Phase 0](phase-00-dev-environment.md)** Zitadel bootstrap script gains an additional step: create the `limen-staff` org, add the `super_admin` project role to the shared Limen project, and create one staff user from `LIMEN_STAFF_BOOTSTRAP_EMAIL` (env var, sent to MailHog for password setup in dev). Idempotent on repeat runs.
-2. **[Phase 11](phase-11-production-deployment.md)** `limen-migrate` runs the staff-tenant ensure step after schema migration: `INSERT ... ON CONFLICT DO NOTHING` for slug `_staff`, kind `staff`, linked to the Zitadel org id captured from the bootstrap output (passed via env var `LIMEN_STAFF_ZITADEL_ORG_ID`). Refuses to start if the env var is missing in prod — the deploy script verifies it from `secrets/`.
+2. **[Phase 11](phase-11-production-deployment.md)** `limen-migrate` runs the staff-tenant ensure step after schema migration: `INSERT ... ON CONFLICT DO NOTHING` for the staff tenant row (kind `staff`, well-known URL segment `_staff`), linked to the Zitadel org id captured from the bootstrap output (passed via env var `LIMEN_STAFF_ZITADEL_ORG_ID`). Refuses to start if the env var is missing in prod — the deploy script verifies it from `secrets/`.
 3. CLI: `limen staff bootstrap --email <addr>` for self-host operators running outside the standard Compose stack.
 
 ### Audit log table
@@ -155,7 +155,7 @@ The table is `BYPASSRLS` on read for `limen_admin` only; the runtime `limen_app`
 - **Impersonation MFA gate**: start impersonation from a staff session whose MFA was verified > 5 min ago → redirect to Zitadel MFA challenge; cannot proceed without re-verifying.
 - **Impersonation TTL**: simulate clock advance past 15 min; next request 401s; cookie cleared; audit row's `ended_at` populated by the expiry path.
 - **Force-unlink audit**: `ForceUnlinkUpstream` deletes the link, writes a `force.unlink` audit row with reason + target ids, customer-side `users_audit` also reflects the change with `acted_by=<staff_sub>`.
-- **Bundle separation**: load `/t/_staff/portal/` and `/t/acme/portal/` from a clean cache; the staff bundle is fetched only on the first URL, the customer bundle only on the second.
+- **Bundle separation**: load `/t/_staff/portal/` and `/t/<customer-public-id>/portal/` from a clean cache; the staff bundle is fetched only on the first URL, the customer bundle only on the second.
 
 ## Risks
 
@@ -168,7 +168,7 @@ The table is `BYPASSRLS` on read for `limen_admin` only; the runtime `limen_app`
 ## Checklist
 
 - [ ] `Tenant.Kind` column (`customer` | `staff`) added with partial unique index for `staff`
-- [ ] Reserved slug `_staff` documented in Phase 4 and enforced in tenant-creation paths
+- [ ] Reserved staff tenant `_staff` documented in [Phase 4](phase-04-tenant-auth-session.md) and enforced in tenant-creation paths (customer URLs use `tnt_<ULID>` `PublicID`s, so collisions are structurally impossible)
 - [ ] Zitadel project role `super_admin` defined in the bootstrap script
 - [ ] `limen-staff` org bootstrapped idempotently with one staff user
 - [ ] `Phase 11 limen-migrate` ensures the `_staff` tenant row exists; refuses to run in prod without `LIMEN_STAFF_ZITADEL_ORG_ID`
@@ -178,11 +178,11 @@ The table is `BYPASSRLS` on read for `limen_admin` only; the runtime `limen_app`
 - [ ] `internal/staff/` package implements every RPC and the impersonation flow
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
 - [ ] `staff_audit_log` migration creates partitioned table + monthly partition helper; `audit.append(...)` SECURITY DEFINER function provisions runtime writes
-- [ ] Impersonation cookie is separate from the staff session cookie, scoped to `/t/<target-slug>`, hard 15-min TTL, never auto-renewed
+- [ ] Impersonation cookie is separate from the staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session before any impersonation start
 - [ ] Customer SPA shows a non-dismissible banner whenever an impersonation cookie is present
 - [ ] OAuth-handshake CTAs disabled in impersonated sessions
 - [ ] Upstream tokens remain encrypted-at-rest; decryption still happens only inside the upstream-call transport
-- [ ] SPA route bundles split: `_staff` lazy-loads the backoffice; customer slugs never download the staff bundle
+- [ ] SPA route bundles split: `_staff` lazy-loads the backoffice; customer tenants never download the staff bundle
 - [ ] Integration tests cover: role isolation, RLS staff-mode read, write-blocked-from-staff-mode, impersonation happy path, MFA gate, TTL expiry, force-unlink audit row, bundle separation
 - [ ] Runbook (Phase 10) updated with the impersonation procedure and audit-log query examples

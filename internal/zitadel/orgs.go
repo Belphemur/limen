@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
@@ -67,4 +69,25 @@ func (c *Client) CreateOrganization(ctx context.Context, name string, admin *See
 		out.AdminUserID = admin.ExistingUserID
 	}
 	return out, nil
+}
+
+// SetOrgMetadata writes a single (key, value) metadata entry on the given
+// Zitadel organization. Limen mirrors the tenant's internal PublicID onto
+// its Zitadel org so the two systems can be cross-referenced from either
+// side.
+func (c *Client) SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error {
+	if orgID == "" {
+		return fmt.Errorf("zitadel: SetOrgMetadata: orgID is required")
+	}
+	if key == "" {
+		return fmt.Errorf("zitadel: SetOrgMetadata: key is required")
+	}
+	ctx = middleware.SetOrgID(ctx, orgID)
+	if _, err := c.api.ManagementService().SetOrgMetadata(ctx, &management.SetOrgMetadataRequest{
+		Key:   key,
+		Value: value,
+	}); err != nil {
+		return fmt.Errorf("zitadel: set org metadata (org=%q key=%q): %w", orgID, key, err)
+	}
+	return nil
 }

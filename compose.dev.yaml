@@ -79,7 +79,7 @@ services:
       ZITADEL_PAT_FILE: "/zitadel/bootstrap/admin-sa.pat"
       LIMEN_PORTAL_REDIRECT: "http://localhost:8080/auth/callback"
       LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
-      LIMEN_SAMPLE_TENANT_SLUG: "acme"
+      LIMEN_SAMPLE_TENANT_NAME: "acme"
       LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"
     networks:
       - zitadel

@@ -154,7 +154,7 @@ Routes after Phase 8:
   └─ /upstream/{name}/{connect,callback,disconnect}/ → RequirePortalSession (Phase 7)
 ```
 
-The old top-level `/mcp` route is removed. Deployments that want a default-tenant convenience redirect (`/mcp` → `/t/<default-slug>/mcp`) can wire one at the operator level, but it is not implemented by default.
+The old top-level `/mcp` route is removed. Deployments that want a default-tenant convenience redirect (`/mcp` → `/t/<default-tenant-public-id>/mcp`) can wire one at the operator level, but it is not implemented by default.
 
 ### `mcp-go` server per tenant?
 

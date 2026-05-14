@@ -14,7 +14,7 @@ The dev compose is for fast iteration; the prod compose is the **reference repro
 Same as dev:
 
 - **Zitadel** — OIDC AS for portal users and MCP clients. Authoritative for identity, sessions, MFA, password policy.
-- **Limen** — OIDC RP for the portal; MCP Resource Server for `/t/{slug}/mcp`; DCR proxy onto Zitadel's Management API.
+- **Limen** — OIDC RP for the portal; MCP Resource Server for `/t/{tenant}/mcp`; DCR proxy onto Zitadel's Management API.
 - **Two Postgres 18.2 instances** — one for Limen, one for Zitadel.
 - **Reverse proxy** — terminates TLS, routes by hostname, proxies to Limen and Zitadel.
 
@@ -228,7 +228,7 @@ limen.example.com {
     header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'"
 
     # Routes owned by Limen — OAuth proxy, MCP RS, portal API, upstream connect,
-    # OIDC login callbacks. Anything tenant-scoped under /t/{slug}/ that isn't
+    # OIDC login callbacks. Anything tenant-scoped under /t/{tenant}/ that isn't
     # the portal SPA itself.
     @api {
         path /t/*/api/*
@@ -302,7 +302,7 @@ The init script reads the passwords from secrets (mounted via env / `docker secr
 ## Migration strategy
 
 - Limen schema migration runs as a **one-shot service** (`limen-migrate`) with `restart: "no"` and `condition: service_completed_successfully` gating the long-running `limen` service. This ensures schema is up-to-date before traffic flows.
-- The same `limen-migrate` one-shot **also ensures the `_staff` tenant row exists** (see [Phase 12](phase-12-staff-backoffice.md)) by `INSERT ... ON CONFLICT DO NOTHING` against `tenants` with kind=`staff`, slug=`_staff`, linked to the Zitadel org id passed in via `LIMEN_STAFF_ZITADEL_ORG_ID`. In prod the migrate container refuses to start if this env var is missing — the deploy script sources it from `secrets/`. The Zitadel side (org + `super_admin` role + bootstrap user) is provisioned out-of-band by the Phase 0 bootstrap script run against the prod Zitadel instance.
+- The same `limen-migrate` one-shot **also ensures the `_staff` tenant row exists** (see [Phase 12](phase-12-staff-backoffice.md)) by `INSERT ... ON CONFLICT DO NOTHING` against `tenants` with kind=`staff` and URL segment `_staff`, linked to the Zitadel org id passed in via `LIMEN_STAFF_ZITADEL_ORG_ID`. In prod the migrate container refuses to start if this env var is missing — the deploy script sources it from `secrets/`. The Zitadel side (org + `super_admin` role + bootstrap user) is provisioned out-of-band by the Phase 0 bootstrap script run against the prod Zitadel instance.
 - Zitadel migrations run automatically inside the Zitadel container; no separate service needed.
 - Rolling deploys: `limen-migrate` is run with the new image version _before_ the `limen` service is updated, manually or via the deploy script.
 

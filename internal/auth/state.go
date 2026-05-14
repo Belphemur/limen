@@ -25,11 +25,12 @@ const stateTTL = 10 * time.Minute
 const stateDomainTag = "oidc.state"
 
 // State is the payload signed into the OIDC state cookie. The nonce makes
-// each state unique even for the same (slug, return_to) pair and lets us
-// detect replays if we later add a one-shot store.
+// each state unique even for the same (tenant, return_to) pair and lets us
+// detect replays if we later add a one-shot store. Tenant is the tenant
+// public id (e.g. "tnt_01H...").
 type State struct {
 	Nonce     string    `json:"n"`
-	Slug      string    `json:"s"`
+	Tenant    string    `json:"s"`
 	ReturnTo  string    `json:"r"`
 	ExpiresAt time.Time `json:"e"`
 }
@@ -52,15 +53,15 @@ func NewStateSigner(master []byte) (*StateSigner, error) {
 }
 
 // NewState builds a State with a fresh 16-byte random nonce and the
-// configured TTL.
-func NewState(slug, returnTo string) (State, error) {
+// configured TTL. tenant is the tenant public id.
+func NewState(tenant, returnTo string) (State, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return State{}, fmt.Errorf("auth: state nonce: %w", err)
 	}
 	return State{
 		Nonce:     base64.RawURLEncoding.EncodeToString(b[:]),
-		Slug:      slug,
+		Tenant:    tenant,
 		ReturnTo:  returnTo,
 		ExpiresAt: time.Now().UTC().Add(stateTTL),
 	}, nil

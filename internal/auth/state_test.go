@@ -60,7 +60,7 @@ func TestStateSigner_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if got.Slug != "acme" || got.ReturnTo != "/t/acme/portal/" {
+	if got.Tenant != "acme" || got.ReturnTo != "/t/acme/portal/" {
 		t.Errorf("payload mismatch: %+v", got)
 	}
 	if got.Nonce != st.Nonce {

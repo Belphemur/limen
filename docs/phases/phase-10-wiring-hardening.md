@@ -125,7 +125,7 @@ The current `AGENTS.md` is rewritten in the following sections (not the whole fi
 Implemented in Phase 4, finalized here:
 
 ```
-limen -create-tenant slug=acme name="Acme Corp" owner-email=admin@acme.com
+limen create-tenant name="Acme Corp" owner-email=admin@acme.com
 limen -invite-user tenant=acme email=alice@acme.com role=member
 limen -create-upstream tenant=acme name=atlassian strategy=mcp_spec url=https://mcp.atlassian.com/v1/mcp/authv2
 limen -migrate                                       # run schema + RLS migrations and exit
@@ -179,7 +179,7 @@ All under `tests/integration/` using `testcontainers-go` for Postgres. A `make t
 | 7   | Refresher: a near-expiring `UpstreamLink` is refreshed in-place                                                                        |
 | 8   | Portal role enforcement: matrix of (role × RPC) returns expected `permission_denied`/`ok`                                              |
 | 9   | Cross-tenant portal cookie: cookie for tenant A on tenant B path → unauthenticated                                                     |
-| 10  | OIDC login flow: tenant slug in state → callback validated → portal cookie set with correct Path                                       |
+| 10  | OIDC login flow: tenant `PublicID` in state → callback validated → portal cookie set with correct Path                                       |
 | 11  | DCR proxy: registering creates a Zitadel app in the tenant's org and a `ZitadelApp` mirror row; deleting via RFC 7592 removes both     |
 | 12  | Full Atlassian Rovo manual smoke (documented runbook, not automated)                                                                   |
 

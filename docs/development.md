@@ -31,7 +31,7 @@ The bootstrap script prints (and writes to
 - `LIMEN_OIDC_MCP_RS_CLIENT_ID`
 - `LIMEN_OIDC_PROJECT_ID`
 - `LIMEN_SAMPLE_TENANT_ORG_ID`
-- `LIMEN_SAMPLE_TENANT_SLUG`
+- `LIMEN_SAMPLE_TENANT_NAME`
 - `LIMEN_STAFF_ZITADEL_ORG_ID`
 - `LIMEN_STAFF_BOOTSTRAP_EMAIL`
 
@@ -102,18 +102,20 @@ go run ./cmd/gateway migrate
 # Option A — bind to the bootstrap-created sample org (no Zitadel writes,
 # no PAT required, manage users via the Zitadel Console).
 go run ./cmd/gateway create-tenant \
-  --slug acme \
   --name "Acme" \
   --zitadel-org-id "$LIMEN_SAMPLE_TENANT_ORG_ID"
 
 # Option B — full flow: also create the Zitadel org + seed owner.
 go run ./cmd/gateway create-tenant \
-  --slug demo \
   --name "Demo Tenant" \
   --owner-email you@example.com \
   --owner-given-name You \
   --owner-family-name Example
 ```
+
+Each `create-tenant` invocation prints the new tenant's `PublicID` (a
+`tnt_<ULID>` string). Use that value wherever the docs below say
+`/t/<tenant>/...` — there is no slug.
 
 Option B sends a Zitadel "set initial password" mail to the owner — pick
 it up at http://localhost:8025 (MailHog) and complete the init flow.
@@ -135,21 +137,22 @@ against `http://localhost:8081`.
 
 ### 4. Walk the browser flow
 
-1. Open http://localhost:8080/t/demo/auth/login — Limen redirects to Zitadel.
+1. Open http://localhost:8080/t/<tenant>/auth/login (substitute the
+   `PublicID` printed by `create-tenant`) — Limen redirects to Zitadel.
 2. Log in as the owner you just provisioned.
 3. Zitadel redirects to `http://localhost:8080/auth/callback?state=…&code=…`.
    Limen exchanges the code, sets the `limen_portal` cookie, and lands you
-   on `/t/demo/portal/`.
-4. Hit http://localhost:8080/t/demo/portal/me — you should get JSON with
-   `sub`, `email`, `name`, and the tenant id. This confirms the cookie,
-   tenant resolver, and user upsert all work.
-5. http://localhost:8080/t/demo/auth/logout clears the cookie and
+   on `/t/<tenant>/portal/`.
+4. Hit http://localhost:8080/t/<tenant>/portal/me — you should get JSON
+   with `sub`, `email`, `name`, and the tenant id. This confirms the
+   cookie, tenant resolver, and user upsert all work.
+5. http://localhost:8080/t/<tenant>/auth/logout clears the cookie and
    redirects through Zitadel's `end_session_endpoint`.
 
 ### 5. Negative checks
 
-- `/t/demo/portal/me` with no cookie → 401 + login redirect.
-- `/t/bogus/auth/login` → 404 (unknown tenant slug).
+- `/t/<tenant>/portal/me` with no cookie → 401 + login redirect.
+- `/t/tnt_0000000000000000000000000Z/auth/login` → 404 (unknown tenant).
 
 ### Troubleshooting
 
@@ -162,7 +165,7 @@ against `http://localhost:8081`.
 | `create-tenant` fails with auth error      | Re-read the PAT — it changes on every `make dev-reset`.                                                                     |
 | `invalid state` after restarting `serve`   | `LIMEN_TOKEN_ENCRYPTION_KEY` changed between runs — it seeds the state-cookie HMAC. Pin it (see step 1) and clear the stale `limen_state` cookie in the browser. |
 | `org mismatch want=<id> got=""` in logs, browser shows `access denied` | The Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding) for the why. |
-| `org mismatch want=<acme-id> got=<other-id>` | You logged in as a user whose home org is *not* the one bound to the slug. Create / use a user inside the right org (Zitadel Console → switch to that org → Users → New). |
+| `org mismatch want=<acme-id> got=<other-id>` | You logged in as a user whose home org is *not* the one bound to that tenant. Create / use a user inside the right org (Zitadel Console → switch to that org → Users → New). |
 
 ## Useful URLs
 

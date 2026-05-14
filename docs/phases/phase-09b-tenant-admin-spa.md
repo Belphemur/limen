@@ -9,8 +9,8 @@ Split the customer-facing web surface into **two SPAs** sharing one `web/` codeb
 
 | Phase  | Path                | Audience                       | Bundle            |
 | ------ | ------------------- | ------------------------------ | ----------------- |
-| **9**  | `/t/{slug}/portal/` | Every authenticated user       | `web/src/portal/` |
-| **9b** | `/t/{slug}/admin/`  | Tenant `owner` + `admin` roles | `web/src/admin/`  |
+| **9**  | `/t/{tenant}/portal/` | Every authenticated user       | `web/src/portal/` |
+| **9b** | `/t/{tenant}/admin/`  | Tenant `owner` + `admin` roles | `web/src/admin/`  |
 | 12     | `/t/_staff/portal/` | SaaS operator (`super_admin`)  | `web/src/staff/`  |
 
 Phase 9 handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9b handles the **tenant administrator**'s view of the **Limen-domain** admin surface: upstream catalog CRUD, tenant settings, and the public self-serve signup flow that bootstraps a brand-new tenant.
@@ -26,13 +26,13 @@ Splitting the bundle at the route-loader level means a `member` browsing the cus
 ```
 /                                                  → marketing redirect (out of scope) or 302 → /signup
 /signup                                            → admin SPA: SignupWizard.vue (public)
-/t/{slug}/admin/                                   → admin SPA shell, gated by RequirePortalSession + RequireRole(owner|admin)
-/t/{slug}/admin/api/admin.v1.AdminService/*        → Connect-RPC handlers (this phase)
+/t/{tenant}/admin/                                   → admin SPA shell, gated by RequirePortalSession + RequireRole(owner|admin)
+/t/{tenant}/admin/api/admin.v1.AdminService/*        → Connect-RPC handlers (this phase)
 ```
 
-The admin SPA shares the same Pinia store, router base resolution, `@connectrpc/connect-web` transport, and Zitadel OIDC redirect plumbing as the customer portal — Phase 4's cookie at `Path=/t/<slug>` covers both `/portal/` and `/admin/` subpaths, so a single login serves both UIs. The role interceptor on the admin API rejects calls from `member` sessions; the SPA's router guard mirrors the same check client-side for UX (the server-side check is the only one that matters for security).
+The admin SPA shares the same Pinia store, router base resolution, `@connectrpc/connect-web` transport, and Zitadel OIDC redirect plumbing as the customer portal — Phase 4's cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/` subpaths, so a single login serves both UIs. The role interceptor on the admin API rejects calls from `member` sessions; the SPA's router guard mirrors the same check client-side for UX (the server-side check is the only one that matters for security).
 
-The signup wizard at `/signup` runs unauthenticated. After it finishes, it bounces the browser to `/auth/login?tenant=<slug>&return_to=/t/<slug>/admin/` so the new owner lands directly in the admin SPA with their first session.
+The signup wizard at `/signup` runs unauthenticated. After it finishes, it bounces the browser to `/auth/login?tenant=<tenant>&return_to=/t/<tenant>/admin/` so the new owner lands directly in the admin SPA with their first session.
 
 ### `proto/limen/admin/v1/admin.proto` — admin API
 
@@ -71,27 +71,28 @@ service AdminService {
 
 The admin SPA links to those Console pages instead of routing through Limen. Limen carries no mirror tables, no schema for IdP configs, and no SDK wrappers around Zitadel's IdP / invite APIs.
 
-Requests do **not** carry `tenant_id` for any authenticated method — the slug comes from `/t/{slug}/admin/api/...`, exactly as in Phase 9. `StartSignup` and `CompleteSignup` are tenant-agnostic at the URL level and carry their state via a signed token (see below).
+Requests do **not** carry `tenant_id` for any authenticated method — the tenant `PublicID` comes from `/t/{tenant}/admin/api/...`, exactly as in Phase 9. `StartSignup` and `CompleteSignup` are tenant-agnostic at the URL level and carry their state via a signed token (see below).
 
 ### Self-serve signup (`StartSignup` / `CompleteSignup`)
 
 CLI-driven tenant creation in Phase 4 stays for ops / dev / self-hosted installs. The SaaS path is here:
 
-1. **`SignupWizard.vue`** at `/signup` collects: desired slug, organization name, owner email + name. The page is unauthenticated; a captcha (Cloudflare Turnstile) gates the call.
-2. **`AdminService.StartSignup`** validates the slug (regex + reserved list — same `ValidateSlug` as Phase 4), checks the captcha, and returns a signed signup token `{slug, name, owner_email, owner_name, exp}` HMACed with the Phase 2 encryption key under domain tag `"signup"`. **No Zitadel calls happen yet** — we don't want to leak existence of a slug, and we want abandonment to leave zero side effects.
+1. **`SignupWizard.vue`** at `/signup` collects: organization name, owner email + name. The page is unauthenticated; a captcha (Cloudflare Turnstile) gates the call. There is no "desired slug" field — Limen mints the tenant `PublicID` (`tnt_<ULID>`) server-side on completion.
+2. **`AdminService.StartSignup`** validates inputs (name length, email shape), checks the captcha, and returns a signed signup token `{name, owner_email, owner_name, exp}` HMACed with the Phase 2 encryption key under domain tag `"signup"`. **No Zitadel calls happen yet** — we want abandonment to leave zero side effects.
 3. The browser is sent to `/auth/signup?token=<...>`. That handler validates the token, calls Zitadel:
    - `OrganizationService.CreateOrganization` for the new org,
    - `UserService.AddHumanUser` for the owner (Zitadel emails the password-setup link via SMTP / MailHog),
    - `UserService.AddUserGrant(userId, projectId, orgId, ["owner"])`,
-   - persists the Limen `Tenant` row with `zitadel_org_id`,
-   - sets a one-time `pending_signup` cookie keyed to the new tenant id,
+   - persists the Limen `Tenant` row (minting a fresh `PublicID = tnt_<ULID>`) with `zitadel_org_id`,
+   - mirrors the freshly-minted `PublicID` into the Zitadel org metadata under `limen_tenant_id` (same call as the CLI in Phase 4),
+   - sets a one-time `pending_signup` cookie keyed to the new tenant `PublicID`,
    - redirects to a "Check your email" landing page.
-4. The owner clicks the email link, sets a password in Zitadel's hosted UI, lands back at `/auth/callback`. Phase 4's callback handler observes the `pending_signup` cookie and calls **`AdminService.CompleteSignup`** which finalizes the `User` row, clears the cookie, and redirects the new owner to `/t/<slug>/admin/`.
-5. Idempotency: `StartSignup` is a no-op until step 3 fires; `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent on retry. A duplicate-slug error at step 3 returns a generic "could not complete signup" without revealing whether the slug exists.
+4. The owner clicks the email link, sets a password in Zitadel's hosted UI, lands back at `/auth/callback`. Phase 4's callback handler observes the `pending_signup` cookie and calls **`AdminService.CompleteSignup`** which finalizes the `User` row, clears the cookie, and redirects the new owner to `/t/<tenant-public-id>/admin/`.
+5. Idempotency: `StartSignup` is a no-op until step 3 fires; `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent on retry. Errors at step 3 return a generic "could not complete signup".
 
 Rate limits (`internal/resilience`):
 
-- `StartSignup`: per-IP token bucket (5 / hour) + captcha. Suppresses slug-enumeration.
+- `StartSignup`: per-IP token bucket (5 / hour) + captcha.
 - `CompleteSignup`: per-cookie bucket; the cookie is single-shot, so the cap is effectively 1.
 
 ### Member management — single source of truth
@@ -134,7 +135,7 @@ Mounted with three layered interceptors:
 
 | Interceptor                | Skipped for                     | Enforces                                                 |
 | -------------------------- | ------------------------------- | -------------------------------------------------------- |
-| `tenancyInterceptor`       | `StartSignup`, `CompleteSignup` | Resolve `{slug}` → `*Tenant`                             |
+| `tenancyInterceptor`       | `StartSignup`, `CompleteSignup` | Resolve `{tenant}` → `*Tenant`                             |
 | `portalSessionInterceptor` | `StartSignup`, `CompleteSignup` | Decrypt + validate the portal cookie (Phase 4)           |
 | `roleInterceptor`          | `StartSignup`, `CompleteSignup` | `owner` for Settings/DeleteTenant; `admin` else          |
 
@@ -148,11 +149,11 @@ Same Vue 3 + Vite + Pinia + Vue Router + `@connectrpc/connect-web` stack as Phas
 const routes = [
   { path: "/signup", component: () => import("./admin/SignupWizard.vue") },
   {
-    path: "/t/:slug/portal/:rest*",
+    path: "/t/:tenant/portal/:rest*",
     component: () => import("./portal/PortalShell.vue"),
   },
   {
-    path: "/t/:slug/admin/:rest*",
+    path: "/t/:tenant/admin/:rest*",
     component: () => import("./admin/AdminShell.vue"),
   },
 ];
@@ -160,21 +161,21 @@ const routes = [
 
 Pages:
 
-- `SignupWizard.vue` (public) — slug + name + owner fields, captcha, "Check your email" landing.
+- `SignupWizard.vue` (public) — name + owner fields, captcha, "Check your email" landing.
 - `AdminShell.vue` — top-nav + sidebar; child routes:
   - `Upstreams.vue` (admin scope) — catalog CRUD (this is the **admin** Upstreams page; the per-user link page stays in `/portal/`).
   - `ZitadelDirectory.vue` — the "Manage members & SSO in Zitadel Console" card view described above; one route, no backend.
-  - `Settings.vue` — tenant name, slug (read-only), billing pointer (out of scope for v1), `DeleteTenant`.
+  - `Settings.vue` — tenant name, `PublicID` (read-only), billing pointer (out of scope for v1), `DeleteTenant`.
 
-The customer-portal SPA gets a small chip in its nav ("Admin →") shown only when the session carries `owner` or `admin` roles; clicking it pushes the user into `/t/<slug>/admin/`. Same cookie, no re-auth.
+The customer-portal SPA gets a small chip in its nav ("Admin →") shown only when the session carries `owner` or `admin` roles; clicking it pushes the user into `/t/<tenant>/admin/`. Same cookie, no re-auth.
 
 ### Routing & cookie scope
 
-The Phase 4 portal cookie is set at `Path=/t/<slug>` (no further suffix), so a single cookie covers both `/portal/` and `/admin/`. We deliberately do **not** issue a separate `/admin`-scoped cookie because:
+The Phase 4 portal cookie is set at `Path=/t/<tenant>` (no further suffix), so a single cookie covers both `/portal/` and `/admin/`. We deliberately do **not** issue a separate `/admin`-scoped cookie because:
 
 - The role interceptor is the canonical authorization boundary; cookie scope is not a substitute.
 - A single sign-in produces a single session — splitting would force the user to re-authenticate just to walk between two pages of the same tenant.
-- Cross-tenant isolation (Phase 4's whole point) is still preserved by `/t/<slug>` — a tenant-A cookie still cannot leak to tenant B.
+- Cross-tenant isolation (Phase 4's whole point) is still preserved by `/t/<tenant>` — a tenant-A cookie still cannot leak to tenant B.
 
 The dev Vite proxy and Phase 11's Caddy config gain matching rules to forward `/t/*/admin/api/*` to Limen.
 
@@ -213,17 +214,17 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 
 - **No member / role / IdP code in Limen.** Reviewers should reject any PR that adds an `InviteMember`-style RPC, an `AddOIDCIDP`-style wrapper, or an `internal/admin/members.go`. The boundary is in Phase 4's _Self-service delegation_ table.
 - **Signup token** is HMAC-signed (Phase 2 key + domain tag `"signup"`) with 30-minute TTL; replay is implicitly limited by the one-shot `pending_signup` cookie set at step 3.
-- **Slug enumeration via signup** is prevented by returning a generic error from `StartSignup` and by the per-IP rate limit + captcha.
-- **DeleteTenant** is owner-only, requires typed confirmation of the slug, and soft-deletes (`DeletedAt`) — Zitadel org cleanup is a manual operator task documented in the runbook.
+- **Tenant enumeration via signup** is prevented by returning a generic error from `StartSignup` and by the per-IP rate limit + captcha.
+- **DeleteTenant** is owner-only, requires typed confirmation of the tenant name, and soft-deletes (`DeletedAt`) — Zitadel org cleanup is a manual operator task documented in the runbook.
 - **Console deep-links** point at the configured Zitadel issuer; if a customer ever moves their Zitadel instance, the new issuer URL flows through config, no code change.
 
 ## Verification
 
-- Slug + captcha rejected paths return identical generic errors regardless of slug existence.
-- Signup happy path: `StartSignup` → email lands in MailHog → `/auth/callback` → `CompleteSignup` → new owner lands at `/t/<slug>/admin/` with `owner` role in their cookie.
+- Captcha-rejected paths return identical generic errors.
+- Signup happy path: `StartSignup` → email lands in MailHog → `/auth/callback` → `CompleteSignup` → new owner lands at `/t/<tenant>/admin/` with `owner` role in their cookie.
 - Signup abandonment (token expires unused): zero rows in `tenants`, zero Zitadel orgs created.
 - Role isolation: `member` calling any `AdminService` RPC returns `permission_denied`. Admin SPA route guard mirrors this on the client.
-- Bundle separation: a `member` user navigating `/t/<slug>/portal/` from a clean cache pulls the portal bundle only — DevTools network log shows the admin bundle is not fetched.
+- Bundle separation: a `member` user navigating `/t/<tenant>/portal/` from a clean cache pulls the portal bundle only — DevTools network log shows the admin bundle is not fetched.
 - `ZitadelDirectory.vue` deep-links resolve to the right Zitadel Console page for the calling user's `orgId` (smoke test against the dev Zitadel container).
 - **Delegation guard**: a `grep` in CI fails the build if a Limen file references `InviteMember`, `RemoveMember`, `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, or `tenant_idp_configurations` — those names belong to Zitadel only.
 
@@ -243,12 +244,12 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] No `tenant_idp_configurations` migration; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, `CreateInviteCode`, `AddUserGrant` for non-bootstrap callers, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
-- [ ] Signup completes a full round-trip: slug + email → MailHog → password set → admin SPA
-- [ ] Admin SPA routes lazy-loaded; `/t/<slug>/admin/` shell + `Upstreams` + `ZitadelDirectory` + `Settings` pages implemented (no `Members.vue`, no `Federation.vue`)
+- [ ] Signup completes a full round-trip: name + email → MailHog → password set → admin SPA
+- [ ] Admin SPA routes lazy-loaded; `/t/<tenant>/admin/` shell + `Upstreams` + `ZitadelDirectory` + `Settings` pages implemented (no `Members.vue`, no `Federation.vue`)
 - [ ] `ZitadelDirectory.vue` renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
 - [ ] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [ ] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
-- [ ] Single portal cookie at `Path=/t/<slug>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
+- [ ] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
 - [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen
 - [ ] Bundle-separation test: a clean-cache `member` browsing `/portal/` does not fetch the admin bundle
 - [ ] Phase 9 proto and handlers trimmed: admin RPCs moved out; Phase 9 doc updated to point at this phase

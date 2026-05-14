@@ -56,7 +56,7 @@ RLS: row is visible only when `tenant_id = current_setting('limen.tenant_id')::b
 
 ### Seat definition
 
-A **seat** is a Zitadel user that holds a grant against the Limen project for this tenant's org. Concretely: anyone who can log in to `/t/<slug>/portal/` and `/t/<slug>/mcp` is a seat. Roles (`owner` / `admin` / `member`) do not matter for billing in v1 — all three count equally. The `super_admin` role lives only in the staff org and is **never** billed.
+A **seat** is a Zitadel user that holds a grant against the Limen project for this tenant's org. Concretely: anyone who can log in to `/t/<tenant>/portal/` and `/t/<tenant>/mcp` is a seat. Roles (`owner` / `admin` / `member`) do not matter for billing in v1 — all three count equally. The `super_admin` role lives only in the staff org and is **never** billed.
 
 The seat count is computed from Zitadel, not from Limen's local user table: when an admin removes a grant in Zitadel (via the portal Members RPC, which already calls `UserService.RemoveUserGrant`), the seat count drops the next time the reconciler runs (and reactively, on the RPC itself — see below).
 
@@ -77,15 +77,15 @@ Two layers, both writing through one path (`internal/billing/seats.go::Reconcile
 ### Subscribe flow
 
 ```
-SPA: "Subscribe" CTA on /t/<slug>/portal/billing
+SPA: "Subscribe" CTA on /t/<tenant>/portal/billing
   → SPA calls portal RPC CreateCheckoutSession()
   → Limen: ensure stripe_customer_id (create Customer if absent, name = tenant.name, metadata.tenant_id = <ulid>)
   → Limen: stripe.CheckoutSession.Create({
         mode='subscription',
         customer=<cus>,
         line_items=[{price=<config.seat_price_id>, quantity=<current seat count>}],
-        success_url='/t/<slug>/portal/billing?status=ok',
-        cancel_url='/t/<slug>/portal/billing?status=cancel',
+        success_url='/t/<tenant>/portal/billing?status=ok',
+        cancel_url='/t/<tenant>/portal/billing?status=cancel',
         automatic_tax={enabled: true},
         client_reference_id='<tenant_id>',
         subscription_data={ trial_period_days: <config.trial_days> },
@@ -101,7 +101,7 @@ On `checkout.session.completed` the webhook handler:
 
 ### Customer Portal flow
 
-`OpenStripePortal(tenant)` Connect RPC → `stripe.BillingPortalSession.Create({customer=<cus>, return_url='/t/<slug>/portal/billing'})` → SPA redirects. The hosted portal handles: change payment method, view invoices, update billing address, cancel subscription. We do not reimplement any of that.
+`OpenStripePortal(tenant)` Connect RPC → `stripe.BillingPortalSession.Create({customer=<cus>, return_url='/t/<tenant>/portal/billing'})` → SPA redirects. The hosted portal handles: change payment method, view invoices, update billing address, cancel subscription. We do not reimplement any of that.
 
 ### Webhook endpoint
 
@@ -168,7 +168,7 @@ If `billing.enabled: false` (self-hosters who don't want Stripe), the gating mid
 
 ### Portal SPA changes
 
-New `/t/<slug>/portal/billing` route:
+New `/t/<tenant>/portal/billing` route:
 
 - **No subscription yet**: shows plan card (one plan in v1: seat price × current-seat-count = monthly), seat-count preview, **Subscribe** button → `CreateCheckoutSession` → redirect.
 - **Trialing**: badge "Trial — N days left", current seat count, **Manage subscription** button → `OpenStripePortal`.
@@ -202,7 +202,7 @@ Backoffice **Tenants** detail card gains: current MRR contribution, plan, seat h
 ### Crypto / secrets
 
 - `STRIPE_API_KEY` (server-side) and `STRIPE_WEBHOOK_SECRET` are mounted via `docker secret` (prod) or `.env` (dev). Never logged.
-- `STRIPE_PUBLISHABLE_KEY` is public; surfaced to the SPA at runtime via a `/t/<slug>/api/limen.portal.v1.BillingService/GetBillingSummary` field (saves the SPA from baking it into the build).
+- `STRIPE_PUBLISHABLE_KEY` is public; surfaced to the SPA at runtime via a `/t/<tenant>/api/limen.portal.v1.BillingService/GetBillingSummary` field (saves the SPA from baking it into the build).
 - No card data ever touches Limen. Checkout + Customer Portal are hosted; PCI scope stays Stripe-only.
 
 ### Resilience

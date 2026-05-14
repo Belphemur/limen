@@ -81,24 +81,25 @@ auth:
 
 ## Tenant ↔ Zitadel org binding
 
-Limen is multi-tenant. Every tenant has its own URL prefix (`/t/{slug}/...`)
+Limen is multi-tenant. Every tenant has its own URL prefix (`/t/{tenant}/...`)
 and is mirrored 1:1 to a Zitadel **organization**. Two questions drive the
 design:
 
 1. *How does Limen know which tenant a request belongs to?* — from the
-   `{slug}` in the URL, resolved through the `tenants` table.
+   `{tenant}` (the tenant's `PublicID`, a `tnt_<ULID>`) in the URL,
+   resolved through the `tenants` table.
 2. *How does Limen prove the logged-in user is allowed in that tenant?* —
    by checking that the user's **home org in Zitadel** matches the
    tenant's stored `zitadel_org_id`.
 
 The second check is the whole point of this section. Without it, anyone
-who can log into Zitadel could hit `/t/<any-slug>/portal/` regardless of
+who can log into Zitadel could hit `/t/<any-tenant>/portal/` regardless of
 which org owns them.
 
 ### The trust chain
 
 ```
-URL slug ──▶ tenants.zitadel_org_id (Limen DB)
+URL tenant id (PublicID) ──▶ tenants.zitadel_org_id (Limen DB)
                        │
                        ▼  must equal
 ID token ──▶ urn:zitadel:iam:user:resourceowner:id  (Zitadel)
@@ -144,7 +145,7 @@ if gotOrgID != wantOrgID {
 ```
 
 If the user's home org doesn't match `tenants.zitadel_org_id` for the
-slug in the URL, the callback returns 403 *before* a session cookie is
+tenant in the URL, the callback returns 403 *before* a session cookie is
 ever issued. The user must restart the flow against a tenant they
 actually belong to.
 

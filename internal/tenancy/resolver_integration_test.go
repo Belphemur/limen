@@ -108,11 +108,11 @@ func openMigrated(t *testing.T) *storage.Store {
 	return s
 }
 
-func seedTenant(t *testing.T, s *storage.Store, slug, orgID string) *storage.Tenant {
+func seedTenant(t *testing.T, s *storage.Store, name, orgID string) *storage.Tenant {
 	t.Helper()
-	tn := &storage.Tenant{Slug: slug, Name: slug, ZitadelOrgID: orgID}
+	tn := &storage.Tenant{Name: name, ZitadelOrgID: orgID}
 	if err := s.RawDB().Create(tn).Error; err != nil {
-		t.Fatalf("seed %s: %v", slug, err)
+		t.Fatalf("seed %s: %v", name, err)
 	}
 	return tn
 }
@@ -121,25 +121,34 @@ func TestResolve_FoundReturnsTenant(t *testing.T) {
 	s := openMigrated(t)
 	want := seedTenant(t, s, "acme", "zorg-acme")
 
-	got, err := tenancy.Resolve(context.Background(), s, "acme")
+	got, err := tenancy.Resolve(context.Background(), s, want.PublicID)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got.ID != want.ID || got.Slug != "acme" || got.ZitadelOrgID != "zorg-acme" {
-		t.Errorf("Resolve returned %+v, want id=%d slug=acme", got, want.ID)
+	if got.ID != want.ID || got.PublicID != want.PublicID || got.ZitadelOrgID != "zorg-acme" {
+		t.Errorf("Resolve returned %+v, want id=%d publicID=%s", got, want.ID, want.PublicID)
 	}
 }
 
-func TestResolve_UnknownSlugReturnsErrNotFound(t *testing.T) {
+func TestResolve_UnknownTenantReturnsErrNotFound(t *testing.T) {
 	s := openMigrated(t)
 
-	_, err := tenancy.Resolve(context.Background(), s, "ghost")
+	_, err := tenancy.Resolve(context.Background(), s, "tnt_0000000000000000000000000Z")
 	if !errors.Is(err, tenancy.ErrNotFound) {
-		t.Errorf("Resolve(ghost) err = %v, want ErrNotFound", err)
+		t.Errorf("Resolve(unknown) err = %v, want ErrNotFound", err)
 	}
 }
 
-func TestRequireTenant_404OnUnknownSlug(t *testing.T) {
+func TestResolve_MalformedIDReturnsErrNotFound(t *testing.T) {
+	s := openMigrated(t)
+
+	_, err := tenancy.Resolve(context.Background(), s, "not-an-id")
+	if !errors.Is(err, tenancy.ErrNotFound) {
+		t.Errorf("Resolve(malformed) err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRequireTenant_404OnUnknownTenant(t *testing.T) {
 	s := openMigrated(t)
 	r := chi.NewRouter()
 	r.Route("/t/{tenant}", func(sub chi.Router) {
@@ -152,7 +161,7 @@ func TestRequireTenant_404OnUnknownSlug(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Get(srv.URL + "/t/ghost/portal/")
+	resp, err := http.Get(srv.URL + "/t/tnt_0000000000000000000000000Z/portal/")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -183,7 +192,7 @@ func TestRequireTenant_PinsTenantAndStorageContext(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Get(srv.URL + "/t/acme/portal/")
+	resp, err := http.Get(srv.URL + "/t/" + want.PublicID + "/portal/")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -201,10 +210,10 @@ func TestRequireTenant_PinsTenantAndStorageContext(t *testing.T) {
 
 func TestRequireTenant_CrossTenantCookiePathIsolation(t *testing.T) {
 	// Documents the path-scoping property the middleware relies on. Two
-	// tenants exist; a request to /t/b cannot land in the /t/a handler.
+	// tenants exist; a request to /t/<b> cannot land in the /t/<a> handler.
 	s := openMigrated(t)
-	_ = seedTenant(t, s, "acme", "zorg-acme")
-	_ = seedTenant(t, s, "beta", "zorg-beta")
+	tA := seedTenant(t, s, "alpha", "zorg-alpha")
+	tB := seedTenant(t, s, "beta", "zorg-beta")
 
 	served := make(map[string]string)
 	r := chi.NewRouter()
@@ -212,7 +221,7 @@ func TestRequireTenant_CrossTenantCookiePathIsolation(t *testing.T) {
 		sub.Use(tenancy.RequireTenant(s, zap.NewNop()))
 		sub.Get("/portal/", func(w http.ResponseWriter, req *http.Request) {
 			tn := tenancy.MustTenant(req.Context())
-			served[req.URL.Path] = tn.Slug
+			served[req.URL.Path] = tn.PublicID
 			w.WriteHeader(http.StatusOK)
 		})
 	})
@@ -220,17 +229,17 @@ func TestRequireTenant_CrossTenantCookiePathIsolation(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	for _, slug := range []string{"acme", "beta"} {
-		resp, err := http.Get(srv.URL + "/t/" + slug + "/portal/")
+	for _, tn := range []*storage.Tenant{tA, tB} {
+		resp, err := http.Get(srv.URL + "/t/" + tn.PublicID + "/portal/")
 		if err != nil {
-			t.Fatalf("GET /t/%s: %v", slug, err)
+			t.Fatalf("GET /t/%s: %v", tn.PublicID, err)
 		}
 		_ = resp.Body.Close()
 	}
-	if served["/t/acme/portal/"] != "acme" {
-		t.Errorf("/t/acme served as %q", served["/t/acme/portal/"])
+	if served["/t/"+tA.PublicID+"/portal/"] != tA.PublicID {
+		t.Errorf("/t/<alpha> served as %q", served["/t/"+tA.PublicID+"/portal/"])
 	}
-	if served["/t/beta/portal/"] != "beta" {
-		t.Errorf("/t/beta served as %q", served["/t/beta/portal/"])
+	if served["/t/"+tB.PublicID+"/portal/"] != tB.PublicID {
+		t.Errorf("/t/<beta> served as %q", served["/t/"+tB.PublicID+"/portal/"])
 	}
 }

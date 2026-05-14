@@ -45,8 +45,8 @@ const (
 
 // OIDCConfig wires the relying-party handlers to a configured Zitadel
 // instance. The redirect URI is tenant-agnostic so Zitadel only needs one
-// app registration for the whole portal; the tenant slug travels in the
-// signed state cookie.
+// app registration for the whole portal; the tenant public id travels in
+// the signed state cookie.
 type OIDCConfig struct {
 	// Issuer is the Zitadel issuer URL (e.g. https://auth.limen.example.com).
 	Issuer string
@@ -66,7 +66,7 @@ type OIDCConfig struct {
 	Scopes []string
 	// Secure controls the cookie Secure attribute. Set true in prod.
 	Secure bool
-	// DefaultReturnPath is appended to /t/{slug} when no return_to is
+	// DefaultReturnPath is appended to /t/{tenant} when no return_to is
 	// supplied. Default "/portal".
 	DefaultReturnPath string
 }
@@ -145,14 +145,14 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig, cipher *crypto.Cipher, signer 
 	}, nil
 }
 
-// LoginHandler is mounted at /t/{slug}/auth/login behind RequireTenant. It
-// signs a state cookie carrying (slug, return_to) and redirects to Zitadel.
+// LoginHandler is mounted at /t/{tenant}/auth/login behind RequireTenant. It
+// signs a state cookie carrying (tenant, return_to) and redirects to Zitadel.
 func (o *OIDC) LoginHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := tenancy.MustTenant(r.Context())
 
 		returnTo := safeReturnTo(r.URL.Query().Get("return_to"))
-		st, err := NewState(t.Slug, returnTo)
+		st, err := NewState(t.PublicID, returnTo)
 		if err != nil {
 			o.logger.Error("state mint", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -180,15 +180,15 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 // CallbackHandler is mounted at /auth/callback (root, single redirect URI).
 // It verifies the signed state cookie, exchanges the code for tokens,
 // confirms the token's Zitadel org matches the tenant, upserts the local
-// User row, and sets the per-tenant portal cookie. The tenant slug is
+// User row, and sets the per-tenant portal cookie. The tenant public id is
 // recovered from state, not from the URL.
 //
-// resolveTenant looks up the tenant by slug and returns its int64 ID plus
-// the bound Zitadel org id. upsertUser writes the Limen User row keyed by
-// (tenantID, sub); both callbacks run before the cookie is set so any
-// persistence failure prevents the session from being established.
+// resolveTenant looks up the tenant by public id and returns its int64 ID
+// plus the bound Zitadel org id. upsertUser writes the Limen User row
+// keyed by (tenantID, sub); both callbacks run before the cookie is set so
+// any persistence failure prevents the session from being established.
 func (o *OIDC) CallbackHandler(
-	resolveTenant func(ctx context.Context, slug string) (tenantID int64, orgID string, err error),
+	resolveTenant func(ctx context.Context, tenantPublicID string) (tenantID int64, orgID string, err error),
 	upsertUser func(ctx context.Context, tenantID int64, sub, email, name string) error,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +209,7 @@ func (o *OIDC) CallbackHandler(
 			return
 		}
 		if errMsg := r.URL.Query().Get("error"); errMsg != "" {
-			o.logger.Info("authorize error", zap.String("slug", st.Slug), zap.String("err", errMsg))
+			o.logger.Info("authorize error", zap.String("tenant", st.Tenant), zap.String("err", errMsg))
 			http.Error(w, "authorization denied", http.StatusForbidden)
 			return
 		}
@@ -221,19 +221,19 @@ func (o *OIDC) CallbackHandler(
 
 		tokens, err := rp.CodeExchange[*oidc.IDTokenClaims](r.Context(), code, o.rp)
 		if err != nil {
-			o.logger.Warn("code exchange failed", zap.String("slug", st.Slug), zap.Error(err))
+			o.logger.Warn("code exchange failed", zap.String("tenant", st.Tenant), zap.Error(err))
 			http.Error(w, "authentication failed", http.StatusBadGateway)
 			return
 		}
-		tenantID, wantOrgID, err := resolveTenant(r.Context(), st.Slug)
+		tenantID, wantOrgID, err := resolveTenant(r.Context(), st.Tenant)
 		if err != nil {
-			o.logger.Error("tenant resolve in callback", zap.String("slug", st.Slug), zap.Error(err))
+			o.logger.Error("tenant resolve in callback", zap.String("tenant", st.Tenant), zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		gotOrgID, _ := tokens.IDTokenClaims.Claims[orgIDClaim].(string)
 		if gotOrgID != wantOrgID {
-			o.logger.Warn("org mismatch", zap.String("slug", st.Slug), zap.String("want", wantOrgID), zap.String("got", gotOrgID))
+			o.logger.Warn("org mismatch", zap.String("tenant", st.Tenant), zap.String("want", wantOrgID), zap.String("got", gotOrgID))
 			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
@@ -246,21 +246,21 @@ func (o *OIDC) CallbackHandler(
 		}
 		if upsertUser != nil {
 			if err := upsertUser(r.Context(), tenantID, sub, email, name); err != nil {
-				o.logger.Error("user upsert", zap.String("slug", st.Slug), zap.Error(err))
+				o.logger.Error("user upsert", zap.String("tenant", st.Tenant), zap.Error(err))
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 		}
-		if err := o.writePortalCookie(w, st.Slug, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
+		if err := o.writePortalCookie(w, st.Tenant, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
 			o.logger.Error("portal cookie seal", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		http.Redirect(w, r, "/t/"+st.Slug+st.ReturnTo, http.StatusFound)
+		http.Redirect(w, r, "/t/"+st.Tenant+st.ReturnTo, http.StatusFound)
 	}
 }
 
-// LogoutHandler is mounted at /t/{slug}/auth/logout behind RequireTenant.
+// LogoutHandler is mounted at /t/{tenant}/auth/logout behind RequireTenant.
 // It clears the portal cookie and redirects the BROWSER to Zitadel's
 // end-session endpoint with id_token_hint + post_logout_redirect_uri so
 // Zitadel clears its own SSO cookie and bounces the user back. We must
@@ -271,15 +271,15 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := tenancy.MustTenant(r.Context())
 		var idTokenHint string
-		if tok, err := o.readPortalCookie(r, t.Slug); err == nil {
+		if tok, err := o.readPortalCookie(r, t.PublicID); err == nil {
 			idTokenHint = tok.IDToken
 		}
-		clearCookie(w, portalCookieName, "/t/"+t.Slug, o.cfg.Secure)
+		clearCookie(w, portalCookieName, "/t/"+t.PublicID, o.cfg.Secure)
 
 		endpoint := o.rp.GetEndSessionEndpoint()
 		if endpoint == "" {
 			o.logger.Warn("OP discovery has no end_session_endpoint, falling back to local redirect",
-				zap.String("slug", t.Slug))
+				zap.String("tenant", t.PublicID))
 			http.Redirect(w, r, postLogoutRedirectURI, http.StatusFound)
 			return
 		}
@@ -297,7 +297,7 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 		}
 		target := endpoint + sep + q.Encode()
 		o.logger.Info("redirecting browser to zitadel end_session",
-			zap.String("slug", t.Slug),
+			zap.String("tenant", t.PublicID),
 			zap.String("end_session_endpoint", endpoint))
 		http.Redirect(w, r, target, http.StatusFound)
 	}
@@ -305,14 +305,14 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 
 // RequireSession decrypts the portal cookie, verifies the ID token, and
 // refreshes it transparently when expired. On any failure it redirects to
-// /t/{slug}/auth/login?return_to=<current>. Mount under RequireTenant.
+// /t/{tenant}/auth/login?return_to=<current>. Mount under RequireTenant.
 func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t := tenancy.MustTenant(r.Context())
-			loginURL := "/t/" + t.Slug + "/auth/login?return_to=" + url.QueryEscape(trimTenantPrefix(r.URL.RequestURI(), t.Slug))
+			loginURL := "/t/" + t.PublicID + "/auth/login?return_to=" + url.QueryEscape(trimTenantPrefix(r.URL.RequestURI(), t.PublicID))
 
-			tok, err := o.readPortalCookie(r, t.Slug)
+			tok, err := o.readPortalCookie(r, t.PublicID)
 			if err != nil {
 				http.Redirect(w, r, loginURL, http.StatusFound)
 				return
@@ -321,15 +321,15 @@ func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 			claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](r.Context(), tok.IDToken, o.rp.IDTokenVerifier())
 			if err != nil {
 				if tok.RefreshToken == "" {
-					o.logger.Debug("id token invalid, no refresh", zap.String("slug", t.Slug), zap.Error(err))
-					clearCookie(w, portalCookieName, "/t/"+t.Slug, o.cfg.Secure)
+					o.logger.Debug("id token invalid, no refresh", zap.String("tenant", t.PublicID), zap.Error(err))
+					clearCookie(w, portalCookieName, "/t/"+t.PublicID, o.cfg.Secure)
 					http.Redirect(w, r, loginURL, http.StatusFound)
 					return
 				}
 				refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](r.Context(), o.rp, tok.RefreshToken, "", "")
 				if rerr != nil {
-					o.logger.Info("refresh failed", zap.String("slug", t.Slug), zap.Error(rerr))
-					clearCookie(w, portalCookieName, "/t/"+t.Slug, o.cfg.Secure)
+					o.logger.Info("refresh failed", zap.String("tenant", t.PublicID), zap.Error(rerr))
+					clearCookie(w, portalCookieName, "/t/"+t.PublicID, o.cfg.Secure)
 					http.Redirect(w, r, loginURL, http.StatusFound)
 					return
 				}
@@ -337,7 +337,7 @@ func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 				if newRefresh == "" {
 					newRefresh = tok.RefreshToken
 				}
-				if werr := o.writePortalCookie(w, t.Slug, refreshed.IDToken, newRefresh, refreshed.IDTokenClaims.GetExpiration()); werr != nil {
+				if werr := o.writePortalCookie(w, t.PublicID, refreshed.IDToken, newRefresh, refreshed.IDTokenClaims.GetExpiration()); werr != nil {
 					o.logger.Error("rewrite cookie after refresh", zap.Error(werr))
 					http.Error(w, "internal error", http.StatusInternalServerError)
 					return
@@ -383,7 +383,7 @@ type portalCookieValue struct {
 	ExpiresAt    time.Time `json:"e"`
 }
 
-func (o *OIDC) writePortalCookie(w http.ResponseWriter, slug, idToken, refreshToken string, idExp time.Time) error {
+func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refreshToken string, idExp time.Time) error {
 	payload, err := json.Marshal(portalCookieValue{
 		IDToken:      idToken,
 		RefreshToken: refreshToken,
@@ -392,7 +392,7 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, slug, idToken, refreshTo
 	if err != nil {
 		return err
 	}
-	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: slug, Kind: cookieAADKind})
+	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: cookieAADKind})
 	if err != nil {
 		return err
 	}
@@ -403,7 +403,7 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, slug, idToken, refreshTo
 	http.SetCookie(w, &http.Cookie{
 		Name:     portalCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(sealed),
-		Path:     "/t/" + slug,
+		Path:     "/t/" + tenant,
 		HttpOnly: true,
 		Secure:   o.cfg.Secure,
 		SameSite: http.SameSiteLaxMode,
@@ -412,7 +412,7 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, slug, idToken, refreshTo
 	return nil
 }
 
-func (o *OIDC) readPortalCookie(r *http.Request, slug string) (portalCookieValue, error) {
+func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (portalCookieValue, error) {
 	var zero portalCookieValue
 	c, err := r.Cookie(portalCookieName)
 	if err != nil {
@@ -422,7 +422,7 @@ func (o *OIDC) readPortalCookie(r *http.Request, slug string) (portalCookieValue
 	if err != nil {
 		return zero, fmt.Errorf("auth: portal cookie decode: %w", err)
 	}
-	plain, err := o.cipher.Decrypt(sealed, crypto.AAD{TenantID: slug, Kind: cookieAADKind})
+	plain, err := o.cipher.Decrypt(sealed, crypto.AAD{TenantID: tenant, Kind: cookieAADKind})
 	if err != nil {
 		return zero, fmt.Errorf("auth: portal cookie open: %w", err)
 	}
@@ -490,7 +490,7 @@ func clearCookie(w http.ResponseWriter, name, path string, secure bool) {
 }
 
 // safeReturnTo normalizes user-supplied return_to to a path that lives
-// under /t/{slug}/, defaulting to "/portal". We reject anything that
+// under /t/{tenant}/, defaulting to "/portal". We reject anything that
 // would let the redirect escape the tenant subtree.
 func safeReturnTo(raw string) string {
 	if raw == "" {
@@ -502,11 +502,11 @@ func safeReturnTo(raw string) string {
 	return raw
 }
 
-// trimTenantPrefix returns the request path minus the "/t/{slug}" prefix.
+// trimTenantPrefix returns the request path minus the "/t/{tenant}" prefix.
 // Used to build a return_to that survives the round-trip through the
 // signed state cookie.
-func trimTenantPrefix(reqURI, slug string) string {
-	prefix := "/t/" + slug
+func trimTenantPrefix(reqURI, tenant string) string {
+	prefix := "/t/" + tenant
 	switch {
 	case reqURI == prefix:
 		return "/"

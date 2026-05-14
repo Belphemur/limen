@@ -18,7 +18,7 @@ Under the hood that runs `docker compose --env-file scripts/zitadel/.env -f scri
 Limen does **not** implement an OAuth Authorization Server itself. Zitadel does. The split:
 
 - **Zitadel** — AS for portal users and MCP clients. Issues JWTs. Owns user accounts, password / MFA flows, organization (= tenant) membership, sessions, DCR.
-- **Limen** — OIDC Relying Party (portal login), MCP Resource Server (validates Zitadel JWTs on `/t/{slug}/mcp`), and MCP-spec adapter (exposes PRM + a thin `/register` proxy onto Zitadel's Management API so MCP clients can DCR).
+- **Limen** — OIDC Relying Party (portal login), MCP Resource Server (validates Zitadel JWTs on `/t/{tenant}/mcp`), and MCP-spec adapter (exposes PRM + a thin `/register` proxy onto Zitadel's Management API so MCP clients can DCR).
 
 Tenant ↔ Zitadel **organization** (1:1). One Zitadel project shared across orgs holds the Portal SPA app and the MCP RS app definition.
 

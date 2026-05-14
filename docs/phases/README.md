@@ -6,12 +6,12 @@ This folder breaks the multi-tenant MCP gateway work into fourteen phases (0 thr
 
 Limen becomes a multi-tenant B2B MCP gateway:
 
-- **Identity is delegated to [Zitadel](https://zitadel.com/)**. Limen is an OIDC Relying Party for portal users and an MCP Resource Server for `/t/{slug}/mcp`. Tenant ↔ Zitadel **organization** (1:1). One Zitadel project, shared across orgs, hosts the Portal SPA app and the MCP RS app. MCP clients DCR via Limen's `/register` proxy onto Zitadel's Management API.
+- **Identity is delegated to [Zitadel](https://zitadel.com/)**. Limen is an OIDC Relying Party for portal users and an MCP Resource Server for `/t/{tenant}/mcp`. Tenant ↔ Zitadel **organization** (1:1). One Zitadel project, shared across orgs, hosts the Portal SPA app and the MCP RS app. MCP clients DCR via Limen's `/register` proxy onto Zitadel's Management API.
 - **Authorization roles are Zitadel project roles**, not a Limen DB column. The shared project defines `owner`, `admin`, `member`; per-tenant grants live as Zitadel user grants in each tenant's org and arrive as the `urn:zitadel:iam:org:project:roles` claim. Portal admin RPCs mutate roles via `UserService.{AddUserGrant, UpdateUserGrant, RemoveUserGrant}` — Zitadel stays the single source of truth for both authn and authz.
 - **Storage is PostgreSQL 18.2 with mandatory row-level security** — the only supported database. Runtime connects as `limen_app` (no `BYPASSRLS`); migrations + the cross-tenant refresher use `limen_admin`. Tenant-scoped tables have `FORCE ROW LEVEL SECURITY`.
 - **Outbound** — Limen is an MCP client of upstream servers. Three strategies in v1: **`mcp_spec`** (auto-discovery + DCR + PKCE for OAuth-protected upstreams like Atlassian Rovo), **`static_header`** (admin-configured HTTP header auth — secret can be tenant-wide or per-user; users paste their own API key in the portal when the upstream is in user mode), and **`none`** (unauthenticated upstreams, for self-hosted dev / trusted-network internal MCPs). The strategy interface is designed so future modes (`oauth2_app`, `api_token`, `mtls`) plug in without re-architecting. Users see only the tools belonging to upstreams they've authenticated for (or that don't require per-user auth), and can enable/disable any link from the portal without losing the stored credentials.
-- **Tenancy** is path-prefix (`/t/{slug}/...`); portal cookies are path-scoped.
-- **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<slug>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
+- **Tenancy** is path-prefix (`/t/{tenant}/...`); portal cookies are path-scoped.
+- **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<tenant>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
 - **SaaS operator surface** — a reserved **staff tenant** at `/t/_staff/` with a `super_admin` role, a backoffice SPA for cross-tenant visibility, and audited impersonation via Zitadel ([Phase 12](phase-12-staff-backoffice.md)).
 - **Billing** — per-seat subscriptions via Stripe Billing ([Phase 13](phase-13-billing-stripe.md)). One Stripe Customer per customer tenant, quantity tracks Zitadel user grants, hosted Checkout + Customer Portal handle PCI scope. Usage-based pricing is designed-for but explicitly out of scope for v1. The staff tenant is never billed; self-hosters can disable Stripe entirely via `billing.enabled: false`.
@@ -83,19 +83,19 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 4 — Tenant resolution, OIDC login, portal session
 
-- [x] `internal/tenancy/resolver.go` (URL param → tenant → ctx); reserved-slug list enforced (includes `auth`)
+- [x] `internal/tenancy/resolver.go` (URL `{tenant}` segment → tenant → ctx); `PublicID` validated as `tnt_<ULID>`
 - [x] `internal/auth/oidc.go` (Zitadel as OIDC provider; `rp.RelyingParty` built from config)
 - [x] `/auth/login`, `/auth/callback`, `/auth/logout` routes mounted in `internal/transport`
-- [x] HMAC-signed `state` carrying `(nonce, slug, return_to, expires_at)`; tampering rejected
+- [x] HMAC-signed `state` carrying `(nonce, tenant, return_to, expires_at)`; tampering rejected
 - [x] Token validation: signature, `iss`, `aud`, `exp`, `nonce`, plus `urn:zitadel:iam:user:resourceowner:id` == `tenant.zitadel_org_id`
 - [x] `User` upserted by `(tenant_id, zitadel_subject)` on callback
-- [x] Portal cookie is an AES-SIV-encrypted blob carrying `{idToken, refreshToken, expiresAt}` with AAD `{TenantID: slug, Kind: "portal.oidc.tokens"}`; attributes `HttpOnly; Secure; SameSite=Lax; Path=/t/<slug>` (no server-side session store, no `SessionService` round-trip)
+- [x] Portal cookie is an AES-SIV-encrypted blob carrying `{idToken, refreshToken, expiresAt}` with AAD `{TenantID: <publicID>, Kind: "portal.oidc.tokens"}`; attributes `HttpOnly; Secure; SameSite=Lax; Path=/t/<tenant>` (no server-side session store, no `SessionService` round-trip)
 - [x] `RequireSession` decrypts cookie, verifies via `rp.VerifyIDToken` against cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure; puts `*oidc.IDTokenClaims` on ctx
 - [x] Logout clears the portal cookie and 302s to `rp.EndSession`'s URL with `id_token_hint`
 - [x] `RequireRole(...)` reads roles from the `urn:zitadel:iam:org:project:roles` claim on the live ID token (no DB role column)
 - [x] CLI: `limen create-tenant` (Zitadel org + owner user + `AddUserGrant(owner)` + Limen rows, prints Zitadel Console deep-link). Invites, role changes, member removal, password reset, MFA enrollment, and IdP federation are delegated to Zitadel Console — not Limen CLI subcommands (see Phase 4 _Self-service delegation_).
 - [x] `cmd/gateway/main.go` is a Cobra root bootstrap; Viper binds `--config` + CLI flags to `LIMEN_*`
-- [x] Unit tests for slug validation and state signing
+- [x] Unit tests for tenant id parsing and state signing
 - [x] HTTP integration test for the full OIDC flow against a stub issuer (login → callback → cookie attributes → cross-tenant rejection → org mismatch)
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
@@ -166,10 +166,10 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Interceptors: tenancy + portal-session + role; no `tenant_id` in any request message
 - [ ] Vue 3 + Vite + Pinia + Vue Router + `@connectrpc/connect-web` scaffolded under `web/`
 - [ ] Pages: Login (redirects to `/auth/login`), Dashboard, Upstreams, Members, MCP Clients, Settings
-- [ ] SPA base path resolved at boot from `/t/<slug>/portal/`
+- [ ] SPA base path resolved at boot from `/t/<tenant>/portal/`
 - [ ] No password input in the SPA; logout goes through `/auth/logout`
 - [ ] Built SPA published as plain static assets (no `embed.FS`); served by Caddy `file_server` in self-hosted mode and/or Cloudflare Pages in managed mode; same-origin with the Limen API
-- [ ] SPA build is base-path-agnostic; tenant slug resolved at boot from `window.location.pathname`
+- [ ] SPA build is base-path-agnostic; tenant `PublicID` resolved at boot from `window.location.pathname`
 - [ ] CSP header set on portal HTML responses
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
 - [ ] Unit tests for the role-enforcement interceptor
@@ -204,7 +204,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 ### Phase 12 — Staff tenant & backoffice
 
 - [ ] `Tenant.Kind` enum (`customer` | `staff`) with partial unique index for `staff`
-- [ ] Reserved slug `_staff` documented in Phase 4 and enforced in tenant-creation paths
+- [ ] Reserved staff tenant `_staff` documented in Phase 4 and enforced in tenant-creation paths (customer URLs are `tnt_<ULID>` so collisions are structurally impossible)
 - [ ] Zitadel `super_admin` project role defined in the bootstrap script; honored only inside the staff tenant
 - [ ] Phase 0 bootstrap idempotently creates the `limen-staff` org + one staff user from `LIMEN_STAFF_BOOTSTRAP_EMAIL`
 - [ ] Phase 11 `limen-migrate` ensures the `_staff` tenant row exists; refuses prod start without `LIMEN_STAFF_ZITADEL_ORG_ID`
@@ -214,12 +214,12 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/staff/` package implements every RPC + impersonation flow
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
 - [ ] `staff_audit_log` partitioned table + `audit.append(...)` SECURITY DEFINER insert function
-- [ ] Impersonation cookie separate from staff session cookie, scoped to `/t/<target-slug>`, hard 15-min TTL, never auto-renewed
+- [ ] Impersonation cookie separate from staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session enforced server-side before impersonation start
 - [ ] Customer SPA renders a non-dismissible banner whenever an impersonation cookie is present
 - [ ] OAuth-handshake CTAs (`mcp_spec` connect, `static_header` user-key submission) disabled inside impersonated sessions
 - [ ] Upstream tokens stay encrypted-at-rest under staff visibility; decryption remains inside the upstream-call transport only
-- [ ] SPA route bundles split: customer slugs never download the staff bundle, and vice versa
+- [ ] SPA route bundles split: customer tenants never download the staff bundle, and vice versa
 - [ ] Integration tests cover: role isolation, RLS staff-mode read, write blocked from staff-mode, impersonation happy path, MFA gate, TTL expiry, force-unlink audit row, bundle separation
 - [ ] Phase 10 runbook updated with the impersonation procedure and audit-log query examples
 
@@ -241,7 +241,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ## Cross-cutting decisions
 
-- **Tenancy**: path prefix `/t/{slug}/...`; cookies path-scoped.
+- **Tenancy**: path prefix `/t/{tenant}/...`; cookies path-scoped.
 - **IDs**: every entity has an internal `int64` PK (used for FKs and joins) plus a public ULID with a Stripe-style type prefix (`tnt_`, `usr_`, `ups_`, `usc_`, `ureg_`, `ulnk_`, `zapp_`). Only the prefixed ULID appears in APIs, URLs, the SPA, and operator logs. ULIDs are time-sortable at millisecond resolution (and monotonic within a process), so cursor pagination uses `WHERE public_id > $cursor`.
 - **Audit columns**: every table embeds `CreatedAt`, `UpdatedAt`, `DeletedAt` (`timestamptz`). `UpdatedAt` is maintained by a Postgres `BEFORE UPDATE` trigger; `DeletedAt` uses GORM's `gorm.DeletedAt` so soft-deleted rows are invisible by default and require `Unscoped()` to see. Composite uniques are partial (`WHERE deleted_at IS NULL`) so soft-deletes don't block re-creation.
 - **Identity**: Zitadel is the OIDC provider. Tenant ↔ Zitadel organization (1:1). No local passwords in Limen.

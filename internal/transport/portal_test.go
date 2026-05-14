@@ -336,14 +336,14 @@ func newPortalHarness(t *testing.T) *portalHarness {
 	return &portalHarness{t: t, server: server, stub: stub, store: store}
 }
 
-func (h *portalHarness) seedTenant(slug, orgID string) *storage.Tenant {
+func (h *portalHarness) seedTenant(name, orgID string) *storage.Tenant {
 	h.t.Helper()
 	ctx := storage.WithSuperuser(context.Background())
 	db, commit, err := h.store.Session(ctx)
 	if err != nil {
 		h.t.Fatalf("session: %v", err)
 	}
-	tenant := &storage.Tenant{Slug: slug, Name: strings.ToUpper(slug), ZitadelOrgID: orgID}
+	tenant := &storage.Tenant{Name: name, ZitadelOrgID: orgID}
 	if err := db.Create(tenant).Error; err != nil {
 		_ = commit()
 		h.t.Fatalf("create tenant: %v", err)
@@ -370,9 +370,9 @@ func noRedirectClient() *http.Client {
 
 func TestPortal_LoginRedirectsToIssuer(t *testing.T) {
 	h := newPortalHarness(t)
-	h.seedTenant("acme", "zorg-acme")
+	tenant := h.seedTenant("acme", "zorg-acme")
 
-	resp, err := noRedirectClient().Get(h.server.URL + "/t/acme/auth/login?return_to=/portal/home")
+	resp, err := noRedirectClient().Get(h.server.URL + "/t/" + tenant.PublicID + "/auth/login?return_to=/portal/home")
 	if err != nil {
 		t.Fatalf("login GET: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestPortal_LoginRedirectsToIssuer(t *testing.T) {
 func TestPortal_LoginUnknownTenant_404(t *testing.T) {
 	h := newPortalHarness(t)
 	// no seed
-	resp, err := noRedirectClient().Get(h.server.URL + "/t/ghost/auth/login")
+	resp, err := noRedirectClient().Get(h.server.URL + "/t/tnt_0000000000000000000000000Z/auth/login")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestPortal_CallbackHappyPath(t *testing.T) {
 	h := newPortalHarness(t)
 	tenant := h.seedTenant("acme", "zorg-acme")
 
-	cookies, state := h.driveLogin("acme", "")
+	cookies, state := h.driveLogin(tenant.PublicID, "")
 
 	// Exchange code at /auth/callback.
 	resp := h.callback(cookies, state)
@@ -437,15 +437,15 @@ func TestPortal_CallbackHappyPath(t *testing.T) {
 		body := readBody(resp)
 		t.Fatalf("callback status: got %d want 302; body=%s", resp.StatusCode, body)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/t/acme/portal" {
-		t.Fatalf("post-callback location: got %q want /t/acme/portal", loc)
+	if loc := resp.Header.Get("Location"); loc != "/t/"+tenant.PublicID+"/portal" {
+		t.Fatalf("post-callback location: got %q want /t/%s/portal", loc, tenant.PublicID)
 	}
 	portal := findCookie(resp.Cookies(), "limen_portal")
 	if portal == nil {
 		t.Fatal("missing limen_portal cookie")
 	}
-	if portal.Path != "/t/acme" {
-		t.Fatalf("portal cookie path: got %q want /t/acme", portal.Path)
+	if portal.Path != "/t/"+tenant.PublicID {
+		t.Fatalf("portal cookie path: got %q want /t/%s", portal.Path, tenant.PublicID)
 	}
 	if !portal.HttpOnly || portal.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("portal cookie attrs wrong: %+v", portal)
@@ -460,7 +460,7 @@ func TestPortal_CallbackHappyPath(t *testing.T) {
 	// Second login is idempotent — same row, possibly updated fields.
 	h.stub.claims.email = "alice2@acme.test"
 	h.stub.claims.name = "Alice Two"
-	cookies2, state2 := h.driveLogin("acme", "")
+	cookies2, state2 := h.driveLogin(tenant.PublicID, "")
 	resp2 := h.callback(cookies2, state2)
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusFound {
@@ -472,11 +472,11 @@ func TestPortal_CallbackHappyPath(t *testing.T) {
 
 func TestPortal_CallbackOrgMismatch_403(t *testing.T) {
 	h := newPortalHarness(t)
-	h.seedTenant("acme", "zorg-acme")
+	tenant := h.seedTenant("acme", "zorg-acme")
 	// Stub will return a token bound to a different org.
 	h.stub.claims.orgID = "zorg-evil"
 
-	cookies, state := h.driveLogin("acme", "")
+	cookies, state := h.driveLogin(tenant.PublicID, "")
 	resp := h.callback(cookies, state)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
@@ -489,9 +489,9 @@ func TestPortal_CallbackOrgMismatch_403(t *testing.T) {
 
 func TestPortal_CallbackTamperedState_400(t *testing.T) {
 	h := newPortalHarness(t)
-	h.seedTenant("acme", "zorg-acme")
+	tenant := h.seedTenant("acme", "zorg-acme")
 
-	cookies, state := h.driveLogin("acme", "")
+	cookies, state := h.driveLogin(tenant.PublicID, "")
 	// Flip a char in the signed state.
 	tampered := flipLastChar(state)
 
@@ -508,11 +508,11 @@ func TestPortal_CallbackTamperedState_400(t *testing.T) {
 // Helpers
 // -----------------------------------------------------------------------------
 
-// driveLogin issues GET /t/{slug}/auth/login, follows the authorize hop to
+// driveLogin issues GET /t/{tenant}/auth/login, follows the authorize hop to
 // the stub, and returns the cookies + state needed to drive /auth/callback.
-func (h *portalHarness) driveLogin(slug, returnTo string) ([]*http.Cookie, string) {
+func (h *portalHarness) driveLogin(tenant, returnTo string) ([]*http.Cookie, string) {
 	h.t.Helper()
-	u := h.server.URL + "/t/" + slug + "/auth/login"
+	u := h.server.URL + "/t/" + tenant + "/auth/login"
 	if returnTo != "" {
 		u += "?return_to=" + url.QueryEscape(returnTo)
 	}

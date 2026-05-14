@@ -45,7 +45,7 @@ Every model from Phase 1 except `Tenant` itself:
 
 `User`, `Upstream`, `UpstreamStrategyConfig`, `UpstreamRegistration`, `UpstreamLink`, `ZitadelApp`.
 
-`Tenant` itself stays without RLS — its rows are looked up by slug at request entry to _establish_ the tenant context.
+`Tenant` itself stays without RLS — its rows are looked up by `PublicID` at request entry to _establish_ the tenant context.
 
 ### Audit-column trigger (every Limen-owned table)
 
@@ -116,7 +116,7 @@ Two pools (`appDB`, `adminDB`) each with their own `max_open_conns`. Default siz
 - **Single most common mistake**: forgetting `FORCE ROW LEVEL SECURITY` and discovering during a postmortem that policies didn't apply to the table owner. The migration test must explicitly catch this.
 - **Service-role escape hatches are dangerous**: `WithSuperuser` is the only path to `adminDB`. Code reviews enforce that this marker is only set in `migrate.go` and the upstream refresher (`internal/upstream/refresher.go`). Add a `// nolint:limen.superuser` style comment on every legitimate call site so a grep audit can verify them.
 - **`current_setting('app.current_tenant', true)`** — the `true` second arg means "return NULL if missing"; without it, an unset GUC raises an error. Use the safer NULL form.
-- The `Tenant` table is intentionally non-RLS — lookup by slug runs against `adminDB` at request entry. The slug → tenant resolver (Phase 4) is the only Limen code path that touches `Tenant`.
+- The `Tenant` table is intentionally non-RLS — lookup by `PublicID` runs against `adminDB` at request entry. The `PublicID` → tenant resolver (Phase 4) is the only Limen code path that touches `Tenant`.
 
 ## Verification
 

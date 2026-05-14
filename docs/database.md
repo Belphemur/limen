@@ -96,9 +96,9 @@ The two RLS-relevant migrations are:
    client issued the `UPDATE`. Composes cleanly with GORM soft-deletes (which
    are just `UPDATE … SET deleted_at = …`).
 
-The `tenants` table itself is **not** under RLS — the slug → tenant lookup
-runs against the admin pool at request entry to _establish_ the tenant
-context.
+The `tenants` table itself is **not** under RLS — the tenant lookup
+(by `PublicID`, a `tnt_<ULID>` string) runs against the admin pool at
+request entry to _establish_ the tenant context.
 
 ### Where role provisioning lives (and why not in goose)
 
@@ -207,7 +207,6 @@ if err != nil {
 defer func() { _ = commit() }()
 
 t := &storage.Tenant{
-    Slug:         "acme",                 // path component for /t/<slug>/...
     Name:         "Acme, Inc.",
     ZitadelOrgID: "<id from zitadel>",    // set after Phase 5 lands
     DCREnabled:   false,                  // toggle in the portal later
@@ -216,20 +215,25 @@ if err := db.Create(t).Error; err != nil {
     return err
 }
 // t.ID is the internal int64 PK; t.PublicID is the tnt_… ULID
-// the portal / APIs see.
+// the portal / APIs see and is the only externally visible
+// identifier (used as the {tenant} URL segment everywhere).
 ```
 
-The end-to-end CLI flow ships in Phase 4 as `./limen -create-tenant
---slug=acme --name="Acme, Inc."`, which wraps the snippet above plus the
-Zitadel org + owner-grant calls.
+The end-to-end CLI flow ships in Phase 4 as `./limen create-tenant
+--name="Acme, Inc." --owner-email=...`, which wraps the snippet above plus
+the Zitadel org + owner-grant calls and mirrors the new `PublicID` into
+the Zitadel org metadata under the key `limen_tenant_id`.
 
-### Slugs
+### Tenant identifiers
 
-- URL-safe (`[a-z0-9-]+`).
-- Reserved words (`auth`, `oauth`, `mcp`, `t`, …) are rejected by the
-  resolver in Phase 4.
-- Unique under a partial index filtered by `deleted_at IS NULL`, so a
-  soft-deleted tenant does not block re-creating the same slug.
+- The tenant has no slug. Its `PublicID` (a `tnt_<ULID>` string from
+  [`internal/ids`](../internal/ids/)) is the only externally visible
+  identifier and is used as the `{tenant}` URL segment everywhere.
+- The `PublicID` is mirrored into the Zitadel organization metadata
+  under the key `limen_tenant_id` so the two systems can be
+  cross-referenced from either side.
+- `ZitadelOrgID` is uniquely indexed; one Limen tenant maps 1:1 to one
+  Zitadel organization.
 
 ### Public IDs
 

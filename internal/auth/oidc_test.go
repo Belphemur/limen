@@ -111,7 +111,7 @@ func TestSafeReturnTo(t *testing.T) {
 
 func TestTrimTenantPrefix(t *testing.T) {
 	tests := []struct {
-		req, slug, want string
+		req, tenant, want string
 	}{
 		{"/t/acme", "acme", "/"},
 		{"/t/acme/", "acme", "/"},
@@ -122,8 +122,8 @@ func TestTrimTenantPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.req, func(t *testing.T) {
-			if got := trimTenantPrefix(tt.req, tt.slug); got != tt.want {
-				t.Errorf("trimTenantPrefix(%q,%q) = %q, want %q", tt.req, tt.slug, got, tt.want)
+			if got := trimTenantPrefix(tt.req, tt.tenant); got != tt.want {
+				t.Errorf("trimTenantPrefix(%q,%q) = %q, want %q", tt.req, tt.tenant, got, tt.want)
 			}
 		})
 	}

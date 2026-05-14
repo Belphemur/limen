@@ -3,8 +3,8 @@
 //
 // Layout:
 //
-//	GET  /auth/callback                          (root — tenant slug rides in signed state)
-//	/t/{tenant}                                  (subrouter behind tenancy.RequireTenant)
+//	GET  /auth/callback                          (root — tenant public id rides in signed state)
+//	/t/{tenant}                                  (subrouter behind tenancy.RequireTenant; {tenant} is a tnt_<ULID> public id)
 //	  GET  /auth/login
 //	  GET  /auth/logout
 //
@@ -41,8 +41,8 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		logger = zap.NewNop()
 	}
 
-	resolveTenant := func(ctx context.Context, slug string) (int64, string, error) {
-		t, err := tenancy.Resolve(ctx, deps.Store, slug)
+	resolveTenant := func(ctx context.Context, tenantPublicID string) (int64, string, error) {
+		t, err := tenancy.Resolve(ctx, deps.Store, tenantPublicID)
 		if err != nil {
 			return 0, "", err
 		}

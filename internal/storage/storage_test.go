@@ -146,7 +146,6 @@ func TestPublicID_PrefixAssignedOnCreate(t *testing.T) {
 	db := s.RawDB()
 
 	tenant := &storage.Tenant{
-		Slug:         "acme",
 		Name:         "Acme Inc",
 		ZitadelOrgID: "zorg-1",
 	}
@@ -195,7 +194,7 @@ func TestSoftDelete_RowInvisibleByDefaultVisibleUnscoped(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
 
-	tenant := &storage.Tenant{Slug: "acme", Name: "Acme", ZitadelOrgID: "z1"}
+	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
 	if err := db.Create(tenant).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
@@ -234,7 +233,7 @@ func TestSoftDelete_DoesNotBlockReinsert(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
 
-	tenant := &storage.Tenant{Slug: "acme", Name: "Acme", ZitadelOrgID: "z1"}
+	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
 	if err := db.Create(tenant).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
@@ -275,7 +274,7 @@ func TestUniqueConstraints_TenantEmailAndUpstreamName(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
 
-	tenant := &storage.Tenant{Slug: "acme", Name: "Acme", ZitadelOrgID: "z1"}
+	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
 	if err := db.Create(tenant).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
@@ -324,7 +323,6 @@ func TestULID_LexicographicOrdering(t *testing.T) {
 	publicIDs := make([]string, 0, n)
 	for i := range n {
 		tnt := &storage.Tenant{
-			Slug:         fmt.Sprintf("t-%d-%d", time.Now().UnixNano(), i),
 			Name:         fmt.Sprintf("T%d", i),
 			ZitadelOrgID: fmt.Sprintf("zorg-%d-%d", time.Now().UnixNano(), i),
 		}
@@ -352,7 +350,7 @@ func TestSession_RequiresTenantOrSuperuser(t *testing.T) {
 
 	// With tenant → sets the GUC and commits cleanly.
 	db := s.RawDB()
-	tenant := &storage.Tenant{Slug: "acme", Name: "Acme", ZitadelOrgID: "z1"}
+	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
 	if err := db.Create(tenant).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}

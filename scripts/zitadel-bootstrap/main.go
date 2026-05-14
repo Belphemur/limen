@@ -452,12 +452,12 @@ func main() {
 	}
 	log.Printf("roles: member, admin, owner, super_admin")
 
-	sampleSlug := getenvDefault("LIMEN_SAMPLE_TENANT_SLUG", "acme")
-	orgID, err := b.ensureOrg(ctx, sampleSlug)
+	sampleName := getenvDefault("LIMEN_SAMPLE_TENANT_NAME", "acme")
+	orgID, err := b.ensureOrg(ctx, sampleName)
 	if err != nil {
 		log.Fatalf("ensure sample org: %v", err)
 	}
-	log.Printf("sample org %q: %s", sampleSlug, orgID)
+	log.Printf("sample org %q: %s", sampleName, orgID)
 
 	allRoles := []string{"member", "admin", "owner", "super_admin"}
 	if err := b.ensureProjectGrant(ctx, projectID, orgID, allRoles); err != nil {
@@ -495,7 +495,7 @@ func main() {
 		"LIMEN_OIDC_MCP_RS_CLIENT_ID": mcpClientID,
 		"LIMEN_OIDC_PROJECT_ID":       projectID,
 		"LIMEN_SAMPLE_TENANT_ORG_ID":  orgID,
-		"LIMEN_SAMPLE_TENANT_SLUG":    sampleSlug,
+		"LIMEN_SAMPLE_TENANT_NAME":    sampleName,
 		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
 		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
 	}

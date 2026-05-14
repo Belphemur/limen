@@ -31,7 +31,7 @@ Response shape:
 }
 ```
 
-`resource` is derived from `server.base_url` + tenant slug (no trailing slash). `authorization_servers` points at Limen's per-tenant **AS metadata wrapper** (Phase 5) — that document in turn declares Zitadel as the actual issuer and surfaces Limen's DCR proxy `registration_endpoint`. PRM is **public** — no auth required to fetch it.
+`resource` is derived from `server.base_url` + the tenant's `PublicID` (no trailing slash). `authorization_servers` points at Limen's per-tenant **AS metadata wrapper** (Phase 5) — that document in turn declares Zitadel as the actual issuer and surfaces Limen's DCR proxy `registration_endpoint`. PRM is **public** — no auth required to fetch it.
 
 ### `internal/mcprs/challenge.go` — `WWW-Authenticate` builder
 

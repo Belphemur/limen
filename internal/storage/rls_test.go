@@ -15,8 +15,8 @@ import (
 func seedTwoTenants(t *testing.T, s *storage.Store) (a, b *storage.Tenant) {
 	t.Helper()
 	db := s.RawDB()
-	a = &storage.Tenant{Slug: "alpha", Name: "Alpha", ZitadelOrgID: "zorg-a"}
-	b = &storage.Tenant{Slug: "beta", Name: "Beta", ZitadelOrgID: "zorg-b"}
+	a = &storage.Tenant{Name: "Alpha", ZitadelOrgID: "zorg-a"}
+	b = &storage.Tenant{Name: "Beta", ZitadelOrgID: "zorg-b"}
 	if err := db.Create(a).Error; err != nil {
 		t.Fatalf("create A: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestSession_RejectsNoTenantNoSuperuser(t *testing.T) {
 func TestUpdatedAt_TriggerFiresOnRawUpdate(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
-	a := &storage.Tenant{Slug: "trig", Name: "Trig", ZitadelOrgID: "zorg-trig"}
+	a := &storage.Tenant{Name: "Trig", ZitadelOrgID: "zorg-trig"}
 	if err := db.Create(a).Error; err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestUpdatedAt_TriggerFiresOnRawUpdate(t *testing.T) {
 func TestUpdatedAt_TriggerFiresOnSoftDelete(t *testing.T) {
 	s := openMigrated(t)
 	db := s.RawDB()
-	a := &storage.Tenant{Slug: "sd", Name: "SD", ZitadelOrgID: "zorg-sd"}
+	a := &storage.Tenant{Name: "SD", ZitadelOrgID: "zorg-sd"}
 	if err := db.Create(a).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
