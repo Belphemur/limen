@@ -256,6 +256,6 @@ internal/zitadel/
 - [x] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
 - [x] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
 - [ ] Integration test: full inbound discovery → DCR → authorize → token → `/mcp` roundtrip against the dev Zitadel container
-- [ ] Integration test: DCR with missing initial access token → 401
-- [ ] Integration test: RFC 7592 GET/PUT/DELETE with valid and invalid registration access tokens
-- [ ] Contract test: Zitadel app-create field mapping (covers a future API drift)
+- [x] Integration test: DCR with missing initial access token → 401
+- [x] Integration test: RFC 7592 GET/PUT/DELETE with valid and invalid registration access tokens
+- [x] Contract test: Zitadel app-create field mapping (covers a future API drift)
