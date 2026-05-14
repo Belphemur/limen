@@ -100,8 +100,8 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
 
-- [ ] Dead `OAuthServerConfig` removed; replaced by `OAuthProxyConfig` in `internal/config/config.go` and `config.yaml`
-- [ ] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` on the existing shared client (no second wrapper)
+- [x] Dead `OAuthServerConfig` removed; replaced by `OAuthProxyConfig` in `internal/config/config.go` and `config.yaml`
+- [x] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` on the existing shared client (no second wrapper)
 - [ ] `internal/oauthproxy/metadata.go` serves AS metadata with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
 - [ ] `internal/oauthproxy/redirector.go` issues 302 (GETs) / 307 (POSTs) redirects to Zitadel for `authorize`, `token`, `userinfo`, `revoke`, `introspect`, `end_session`
 - [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`

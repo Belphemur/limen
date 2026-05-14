@@ -235,8 +235,8 @@ internal/zitadel/
 
 ## Checklist
 
-- [ ] Dead `OAuthServerConfig` removed from `internal/config/config.go` (and `config.yaml`); replaced by `OAuthProxyConfig`
-- [ ] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` to the existing client (no second wrapper package)
+- [x] Dead `OAuthServerConfig` removed from `internal/config/config.go` (and `config.yaml`); replaced by `OAuthProxyConfig`
+- [x] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` to the existing client (no second wrapper package)
 - [ ] `internal/oauthproxy/metadata.go` serves a static metadata document with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
 - [ ] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `end_session` and 307 redirects for `token`, `revoke`, `introspect`
 - [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (default 10 rps / burst 20)
