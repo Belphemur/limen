@@ -51,24 +51,25 @@ The DCR proxy is the _only_ OAuth-shaped endpoint Limen actually owns in this ph
 
 Mounted behind `RequireTenant` (no portal session required — these are MCP-client-facing).
 
-| Method         | Path                                      | Behavior                                                                                                                  |
-| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| GET            | `/.well-known/oauth-authorization-server` | **Static** JSON proxying Zitadel's AS metadata with one adjustment: `registration_endpoint` points at Limen's `/register` |
-| GET            | `/.well-known/openid-configuration`       | Same — alias                                                                                                              |
-| POST           | `/register`                               | Limen's DCR proxy (see below)                                                                                             |
-| GET/PUT/DELETE | `/register/{client_id}`                   | RFC 7592 client management — proxied to Zitadel Management API                                                            |
-| GET            | `/authorize`                              | **302** to Zitadel's `/oauth/v2/authorize` with the same query (Zitadel handles login UI, MFA, consent)                   |
-| POST           | `/token`                                  | **302/proxy** to Zitadel's `/oauth/v2/token`                                                                              |
-| GET            | `/userinfo`                               | **302** to Zitadel's `/oidc/v1/userinfo`                                                                                  |
-| GET            | `/jwks`                                   | **302** to Zitadel's `/oauth/v2/keys`                                                                                     |
-| POST           | `/revoke`                                 | **302/proxy** to Zitadel's `/oauth/v2/revoke`                                                                             |
-| POST           | `/introspect`                             | **302/proxy** to Zitadel's `/oauth/v2/introspect`                                                                         |
-| GET            | `/end_session`                            | **302** to Zitadel's `/oidc/v1/end_session`                                                                               |
+| Method         | Path                                      | Behavior                                                                                                                                         |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET            | `/.well-known/oauth-authorization-server` | **Static** JSON proxying Zitadel's AS metadata with one adjustment: `registration_endpoint` points at Limen's `/register`                        |
+| GET            | `/.well-known/openid-configuration`       | Same — alias                                                                                                                                     |
+| POST           | `/register`                               | Limen's DCR proxy (see below)                                                                                                                    |
+| GET/PUT/DELETE | `/register/{client_id}`                   | RFC 7592 client management — proxied to Zitadel Management API                                                                                   |
+| GET            | `/authorize`                              | **302** to Zitadel's `/oauth/v2/authorize` with the same query (Zitadel handles login UI, MFA, consent)                                          |
+| POST           | `/token`                                  | **302/proxy** to Zitadel's `/oauth/v2/token`                                                                                                     |
+| GET            | `/userinfo`                               | **302** to Zitadel's `/oidc/v1/userinfo`                                                                                                         |
+| —              | `/jwks`                                   | **Not mounted** — `jwks_uri` in the metadata points directly at Zitadel so Phase 6's in-process JWT verifier fetches keys without a redirect hop |
+| POST           | `/revoke`                                 | **302/proxy** to Zitadel's `/oauth/v2/revoke`                                                                                                    |
+| POST           | `/introspect`                             | **302/proxy** to Zitadel's `/oauth/v2/introspect`                                                                                                |
+| GET            | `/end_session`                            | **302** to Zitadel's `/oidc/v1/end_session`                                                                                                      |
 
 ### Why proxy vs. redirect
 
-- **GET endpoints (authorize, jwks, userinfo, end_session)** → 302 redirects. The user agent / MCP client follows them. No request bodies to forward. Zero crypto in Limen.
+- **GET endpoints (authorize, userinfo, end_session)** → 302 redirects. The user agent / MCP client follows them. No request bodies to forward. Zero crypto in Limen.
 - **POST endpoints (token, revoke, introspect)** can either redirect (HTTP 307/308 preserve POST and bodies — supported by all modern clients) or reverse-proxy. Pick **redirect** for simplicity; document the MCP client compatibility footprint.
+- **`jwks_uri`** advertised in the metadata document is Zitadel's URL directly. Limen does **not** redirect or proxy JWKS — the RS (Phase 6) is in-process and fetches Zitadel's JWKS itself, with caching. Adding a redirector layer would only slow key resolution down.
 - **`/register`** is genuinely intercepted because Limen needs to translate the MCP client's DCR request into a Zitadel Management API call scoped to the tenant's org.
 
 ### Metadata document
@@ -80,7 +81,7 @@ Limen serves the metadata file itself (rather than redirecting) because it must 
   "issuer": "https://auth.limen.example.com",
   "authorization_endpoint": "https://limen.example.com/t/acme/oauth/authorize",
   "token_endpoint": "https://limen.example.com/t/acme/oauth/token",
-  "jwks_uri": "https://limen.example.com/t/acme/oauth/jwks",
+  "jwks_uri": "https://auth.limen.example.com/oauth/v2/keys",
   "userinfo_endpoint": "https://limen.example.com/t/acme/oauth/userinfo",
   "registration_endpoint": "https://limen.example.com/t/acme/oauth/register",
   "revocation_endpoint": "https://limen.example.com/t/acme/oauth/revoke",
@@ -108,8 +109,8 @@ Flow:
 1. Receive `POST /t/{tenant}/oauth/register` with the MCP client's metadata document.
 2. Validate input: `redirect_uris` is non-empty and each is a valid URI; `grant_types` ⊆ {`authorization_code`, `refresh_token`}; `token_endpoint_auth_method` ∈ {`none`, `client_secret_basic`}; `application_type` defaults to `native`.
 3. If `tenant.DCREnabled == false` → 403.
-4. If `oauth_server.dcr_initial_access_token` is configured, require it on the request.
-5. Call Zitadel's Management API to create an OIDC app inside `tenant.zitadel_org_id`'s project. Map the MCP DCR fields to Zitadel's app-create payload:
+4. If `oauth_proxy.dcr_initial_access_token` is configured, require it on the request.
+5. Call Zitadel's Management API (via the shared `*zitadel.Client` — see [internal/zitadel/](../../internal/zitadel/)) to create an OIDC app inside `tenant.zitadel_org_id`'s project. Map the MCP DCR fields to Zitadel's app-create payload:
 
    | MCP DCR field                     | Zitadel app field                                        |
    | --------------------------------- | -------------------------------------------------------- |
@@ -121,36 +122,20 @@ Flow:
    | `application_type=native`         | `appType=OIDC_APP_TYPE_NATIVE`                           |
    | `software_id`, `software_version` | persisted in Limen's mirror row, not Zitadel             |
 
-6. Persist a `ZitadelApp` row in Limen with `(tenant_id, zitadel_app_id, client_id, client_secret_encrypted?, name, software_id, software_version, created_at, registration_access_token_encrypted)`. This mirror exists so the portal can list MCP clients per tenant without re-querying Zitadel on every page load, and so RFC 7592 (`/register/{client_id}`) can authenticate the management token.
+6. Persist a `ZitadelApp` row in Limen with `(tenant_id, zitadel_app_id, client_id, client_secret_encrypted?, name, software_id, software_version, created_at, registration_access_token_hash)`. This mirror exists so the portal can list MCP clients per tenant without re-querying Zitadel on every page load, and so RFC 7592 (`/register/{client_id}`) can authenticate the management token.
 7. Return the DCR response: `client_id`, optional `client_secret`, `client_id_issued_at`, `client_secret_expires_at=0`, `registration_access_token`, `registration_client_uri=<Limen>/t/{tenant}/oauth/register/{client_id}`.
 
-`registration_access_token` is generated by Limen (not Zitadel), stored encrypted with AAD `tenant|client_id|"dcr.registration_access_token"`, and required on `/register/{client_id}` operations.
+`registration_access_token` is generated by Limen with `crypto/rand` (32 bytes, base64url-encoded). Only its **SHA-256 hash** is persisted — same model as OAuth client secrets elsewhere — and verified with `subtle.ConstantTimeCompare` on `/register/{client_id}` operations. Hashing is sufficient on its own; we don't double-wrap with AES-SIV because the row already isn't reversible to a usable credential.
 
-### `internal/oauthproxy/management.go`
+### Zitadel app management
 
-Wraps the Zitadel Management API client. Uses a **service account PAT** (Personal Access Token) loaded from secrets at startup. Exposes:
+App CRUD against Zitadel is **not** wrapped by a second adapter in `oauthproxy`. Instead, we extend the existing shared client at [internal/zitadel/](../../internal/zitadel/) with `apps.go`, adding `AddOIDCApp`, `UpdateOIDCApp`, `DeleteOIDCApp`, and `GetOIDCApp`. The `oauthproxy` package declares a small consumer-side interface (`type appManager interface { ... }`) that `*zitadel.Client` satisfies — SOLID's ISP, DRY for the existing auth-mode + transport plumbing.
 
-```go
-type Management interface {
-    CreateOrganization(ctx, name string) (orgID string, err error)
-    DisableOrganization(ctx, orgID string) error
-    EnableOrganization(ctx, orgID string) error
+This keeps **one** Zitadel client in the binary, used by:
 
-    CreateOIDCApp(ctx, orgID string, req CreateAppReq) (CreateAppResp, error)
-    UpdateOIDCApp(ctx, orgID, appID string, req UpdateAppReq) (UpdateAppResp, error)
-    DeleteOIDCApp(ctx, orgID, appID string) error
-
-    CreateHumanUser(ctx, orgID string, req CreateUserReq) (CreateUserResp, error)
-    DisableUser(ctx, orgID, userID string) error
-    GrantProjectRole(ctx, orgID, userID, role string) error
-}
-```
-
-This is reused by:
-
-- Tenant creation CLI ([Phase 4](phase-04-tenant-auth-session.md)).
-- DCR proxy (this phase).
-- Portal admin RPCs ([Phase 9](phase-09-portal-spa.md)) for invite/disable/role-change.
+- Tenant creation CLI ([Phase 4](phase-04-tenant-auth-session.md)) — orgs + users.
+- DCR proxy (this phase) — apps.
+- Portal admin RPCs ([Phase 9](phase-09-portal-spa.md)) — invite / disable / role-change / MCP-client revocation.
 
 ### Routes mounted in `internal/transport/http.go`
 
@@ -159,7 +144,7 @@ This is reused by:
 /t/{tenant}/oauth/.well-known/openid-configuration         → metadata handler (alias)
 /t/{tenant}/oauth/register                                 → DCR proxy
 /t/{tenant}/oauth/register/{client_id}                     → DCR management proxy
-/t/{tenant}/oauth/{authorize,token,userinfo,jwks,revoke,introspect,end_session}  → redirector
+/t/{tenant}/oauth/{authorize,token,userinfo,revoke,introspect,end_session}       → redirector
 ```
 
 All behind `RequireTenant`.
@@ -169,24 +154,27 @@ All behind `RequireTenant`.
 ```
 internal/oauthproxy/
 ├── metadata.go       // /.well-known/* → static rewritten Zitadel metadata
-├── redirector.go     // /authorize, /token, /userinfo, /jwks, /revoke, /introspect, /end_session
+├── redirector.go     // /authorize, /token, /userinfo, /revoke, /introspect, /end_session
 ├── dcr.go            // /register and /register/{client_id}
-└── management.go     // Zitadel Management API client wrapper
+└── ratelimit.go      // per-tenant token-bucket middleware (golang.org/x/time/rate)
+
+internal/zitadel/
+└── apps.go           // (new) AddOIDCApp / UpdateOIDCApp / DeleteOIDCApp / GetOIDCApp
 ```
 
 ## Deliverables
 
-- New files listed above under `internal/oauthproxy/`.
-- New model `ZitadelApp` in [Phase 1's](phase-01-database-foundation.md) `internal/storage/models.go`. (See the model-list update there.)
-- `internal/config/config.go` additions: `oauth_proxy.dcr_enabled`, `oauth_proxy.dcr_initial_access_token`, `oauth_proxy.zitadel_management_pat`, `oauth_proxy.zitadel_project_id`.
+- New files listed above under `internal/oauthproxy/` and `internal/zitadel/apps.go`.
+- Existing `ZitadelApp` model ([Phase 1](phase-01-database-foundation.md)) gets a migration adding the `registration_access_token_hash` column (replacing the originally planned encrypted variant — see DCR proxy section).
+- `internal/config/config.go`: the dead `OAuthServerConfig` (signing algo / TTLs / consent — all moot now that Zitadel is the AS) is **dropped** and replaced with `OAuthProxyConfig { DCREnabled bool; DCRInitialAccessToken string; RateLimit { RPS, Burst int } }`. The Zitadel PAT / project ID are **not** duplicated here — the proxy reuses the existing top-level `zitadel:` block (and the `*zitadel.Client` constructed from it).
 - Updated `internal/transport/http.go` to mount the routes.
 
 ## Security & operational notes
 
 - **Service account PAT** is the most sensitive credential after the encryption key. Stored in the configured secret store; never in `config.yaml` literally. Rotate periodically (Zitadel supports multiple PATs per service user).
 - **PAT scope** must be limited to the Limen project: grant only the org/user/app management permissions actually used. Audit via Zitadel's admin console.
-- **DCR rate limiting** at the proxy is recommended — an unauthenticated `/register` is otherwise an abuse vector. A simple per-tenant token-bucket suffices (10 reg/min).
-- **`registration_access_token`** is generated by Limen with `crypto/rand` (32 bytes), stored hashed (SHA-256) + encrypted, and constant-time-compared on management requests.
+- **DCR rate limiting** at the proxy is mandatory — an unauthenticated `/register` is otherwise an abuse vector. Per-tenant `golang.org/x/time/rate` token bucket (default 10 rps / burst 20), keyed by `tenant.PublicID`, applied only to the `/register*` subtree.
+- **`registration_access_token`** is generated by Limen with `crypto/rand` (32 bytes), base64url-encoded. Only the SHA-256 hash is persisted; verification uses `subtle.ConstantTimeCompare`.
 - **PKCE S256 mandatory** on the Zitadel app — Limen configures every DCR'd app with PKCE required.
 - **Redirect URIs validated** as absolute URIs with allowed schemes (`https`, plus `http://localhost*` for native clients).
 - **307 redirects on POST endpoints**: tested with the MCP client matrix (VS Code, Claude Desktop, Cursor) — fall back to reverse-proxy if any client mishandles 307 with bodies.
@@ -209,18 +197,18 @@ internal/oauthproxy/
 
 ## Checklist
 
-- [ ] `internal/oauthproxy/metadata.go` serves a static metadata document with `registration_endpoint` rewritten to Limen
-- [ ] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `jwks`, `end_session`
-- [ ] POST endpoints (`token`, `revoke`, `introspect`) use 307 redirects (or reverse-proxy as fallback)
-- [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the Management API
+- [ ] Dead `OAuthServerConfig` removed from `internal/config/config.go` (and `config.yaml`); replaced by `OAuthProxyConfig`
+- [ ] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` to the existing client (no second wrapper package)
+- [ ] `internal/oauthproxy/metadata.go` serves a static metadata document with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
+- [ ] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `end_session` and 307 redirects for `token`, `revoke`, `introspect`
+- [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (default 10 rps / burst 20)
+- [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
 - [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
 - [ ] PKCE S256 required on every DCR'd app
-- [ ] `redirect_uris` validated (HTTPS or localhost)
-- [ ] DCR rate limit applied per tenant
-- [ ] `ZitadelApp` mirror row persisted per registration, with `registration_access_token` encrypted (AAD-bound)
+- [ ] `redirect_uris` validated (HTTPS or `http://localhost*`)
+- [ ] `ZitadelApp` mirror row persisted per registration; `registration_access_token_hash` column added by migration and used for constant-time auth
 - [ ] RFC 7592 management endpoints (`GET/PUT/DELETE /register/{client_id}`) implemented and authenticated via the registration access token
-- [ ] `internal/oauthproxy/management.go` wraps Zitadel Management API with PAT-based auth
-- [ ] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, zitadel_management_pat, zitadel_project_id}`
+- [ ] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
 - [ ] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
 - [ ] Integration test: full inbound discovery → DCR → authorize → token → `/mcp` roundtrip against the dev Zitadel container
 - [ ] Integration test: DCR with missing initial access token → 401

@@ -100,14 +100,16 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 5 — Zitadel integration (AS delegation + DCR proxy)
 
-- [ ] `internal/oauthproxy/metadata.go` serves AS metadata with `registration_endpoint` rewritten to Limen
-- [ ] `internal/oauthproxy/redirector.go` issues 302/307 redirects to Zitadel for `authorize`, `token`, `userinfo`, `jwks`, `revoke`, `introspect`, `end_session`
-- [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the Management API
-- [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`; rate-limited per tenant
+- [ ] Dead `OAuthServerConfig` removed; replaced by `OAuthProxyConfig` in `internal/config/config.go` and `config.yaml`
+- [ ] `internal/zitadel/apps.go` adds `AddOIDCApp` / `UpdateOIDCApp` / `DeleteOIDCApp` / `GetOIDCApp` on the existing shared client (no second wrapper)
+- [ ] `internal/oauthproxy/metadata.go` serves AS metadata with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
+- [ ] `internal/oauthproxy/redirector.go` issues 302 (GETs) / 307 (POSTs) redirects to Zitadel for `authorize`, `token`, `userinfo`, `revoke`, `introspect`, `end_session`
+- [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
+- [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
+- [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (`golang.org/x/time/rate`)
 - [ ] PKCE S256 required on every DCR'd app; `redirect_uris` validated
-- [ ] `ZitadelApp` mirror row persisted; `registration_access_token` encrypted with AAD
+- [ ] `ZitadelApp` mirror row persisted; `registration_access_token_hash` column (SHA-256) added by migration and used for constant-time auth
 - [ ] RFC 7592 management endpoints implemented (`GET/PUT/DELETE /register/{client_id}`)
-- [ ] `internal/oauthproxy/management.go` wraps the Zitadel Management API (PAT-based)
 - [ ] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
 - [ ] Integration tests: full discovery + DCR + authorize + token + /mcp roundtrip against the dev Zitadel
 - [ ] Contract test: Zitadel app-create field mapping

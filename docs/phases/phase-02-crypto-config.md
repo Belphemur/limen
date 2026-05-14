@@ -68,7 +68,10 @@ security: # new
   portal_session_cookie_name: "limen_portal"
   portal_session_cookie_secure: true
 
-oauth_server: # new — Phase 5 uses these
+oauth_server: # placeholder — replaced in Phase 5 by `oauth_proxy:` once the AS is
+  # delegated to Zitadel. The signing/TTL/consent fields below are dead weight
+  # and will be dropped; only `dcr_initial_access_token` survives (and moves to
+  # `oauth_proxy.dcr_initial_access_token`).
   signing_algorithm: RS256
   access_token_ttl: 10m
   refresh_token_ttl: 720h
@@ -143,7 +146,7 @@ internal/config/
 - [x] AAD constructed from `tenant|user|kind`; empty `TenantID`/`Kind` and pipe characters rejected
 - [x] `SecretField.Scan`/`Value` integrated with GORM and exercised by a unit test (plaintext mode + encrypted mode)
 - [x] `${ENV}` and `${ENV:-default}` substitution in `internal/config/config.go`
-- [x] `DatabaseConfig`, `SecurityConfig`, `OAuthServerConfig` structs added with `Validate()` methods
+- [x] `DatabaseConfig`, `SecurityConfig`, `OAuthServerConfig` structs added with `Validate()` methods _(note: `OAuthServerConfig` is a transitional placeholder — Phase 5 drops it in favour of `OAuthProxyConfig` once the AS is delegated to Zitadel)_
 - [x] Top-level `Config.Validate()` runs all section validations and reports the first failure
 - [x] `config.yaml` example file updated with the new sections (commented placeholders, no real secrets)
 - [x] Unit tests for crypto: roundtrip, fresh-nonce, tamper, AAD mismatch, version mismatch, short ciphertext

@@ -20,7 +20,7 @@ This phase ships no new feature surface. Anything missed earlier gets caught her
 4. run AutoMigrate (Phase 1) using adminDB
 5. run RLS migration (Phase 3) using adminDB
 6. initialize crypto.Cipher and call crypto.SetCipher (Phase 2)
-7. construct Zitadel Management client (Phase 5) using the configured PAT
+7. construct the shared `*zitadel.Client` (Phase 4) — reused by tenant CLI, DCR proxy (Phase 5), and portal admin RPCs (Phase 9)
 8. construct OIDC RelyingParty (Phase 4) for portal login
 9. construct upstream.Registry, register strategies (mcp_spec, none) (Phase 7)
 10. start upstream.Refresher goroutine (Phase 7)
@@ -92,8 +92,11 @@ oidc:
 oauth_proxy:
   dcr_enabled: true
   dcr_initial_access_token: "" # if set, /register requires it
-  zitadel_project_id: "${LIMEN_OIDC_PROJECT_ID}"
-  zitadel_management_pat: "${LIMEN_OIDC_MGMT_PAT}" # service account PAT
+  rate_limit:
+    rps: 10
+    burst: 20
+  # Zitadel project / management credentials are reused from the
+  # top-level `zitadel:` block (single shared client) — not duplicated here.
 
 upstream_refresher:
   interval: 2m
