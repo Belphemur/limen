@@ -48,6 +48,10 @@ type Tenant struct {
 	Name         string `gorm:"type:text;not null"`
 	ZitadelOrgID string `gorm:"type:text;uniqueIndex;not null"`
 	DCREnabled   bool   `gorm:"not null;default:false"`
+	// DCRRedirectURIAllowlist is the per-tenant subtractive glob filter on
+	// redirect_uri values accepted by Limen's DCR proxy. Empty list = floor
+	// only; see internal/oauthproxy/uripolicy.go.
+	DCRRedirectURIAllowlist []string `gorm:"type:jsonb;serializer:json;not null;default:'[]'"`
 }
 
 func (t *Tenant) BeforeCreate(_ *gorm.DB) error {
@@ -170,15 +174,19 @@ func (u *UpstreamLink) BeforeCreate(_ *gorm.DB) error {
 // authenticate RFC 7592 management requests without round-tripping Zitadel.
 type ZitadelApp struct {
 	Base
-	TenantID                int64              `gorm:"not null;index;uniqueIndex:idx_zapp_tenant_zid,where:deleted_at IS NULL"`
-	ZitadelAppID            string             `gorm:"type:text;not null;uniqueIndex:idx_zapp_tenant_zid,where:deleted_at IS NULL"`
-	ClientID                string             `gorm:"type:text;not null"`
-	ClientSecret            crypto.SecretField `gorm:"type:bytea"`
-	Name                    string             `gorm:"type:text;not null"`
-	RedirectURIs            string             `gorm:"type:text;not null;default:''"` // newline-joined; Phase 5 may swap for pq.StringArray
-	SoftwareID              string             `gorm:"type:text"`
-	SoftwareVersion         string             `gorm:"type:text"`
-	RegistrationAccessToken crypto.SecretField `gorm:"type:bytea"`
+	TenantID        int64              `gorm:"not null;index;uniqueIndex:idx_zapp_tenant_zid,where:deleted_at IS NULL"`
+	ZitadelAppID    string             `gorm:"type:text;not null;uniqueIndex:idx_zapp_tenant_zid,where:deleted_at IS NULL"`
+	ClientID        string             `gorm:"type:text;not null"`
+	ClientSecret    crypto.SecretField `gorm:"type:bytea"`
+	Name            string             `gorm:"type:text;not null"`
+	RedirectURIs    string             `gorm:"type:text;not null;default:''"` // newline-joined; Phase 5 may swap for pq.StringArray
+	SoftwareID      string             `gorm:"type:text"`
+	SoftwareVersion string             `gorm:"type:text"`
+	// RegistrationAccessTokenHash is the SHA-256 digest of the token issued
+	// on DCR; the plaintext token is returned to the client once and never
+	// stored. RFC 7592 management endpoints compare via
+	// subtle.ConstantTimeCompare. See docs/phases/phase-05-authorization-server.md.
+	RegistrationAccessTokenHash []byte `gorm:"type:bytea;not null;default:'\\x'"`
 
 	Tenant *Tenant `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 }

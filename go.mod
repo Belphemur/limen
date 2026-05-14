@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/httprate v0.15.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jedisct1/go-aes-siv v1.0.0
 	github.com/mark3labs/mcp-go v0.53.0
@@ -60,6 +61,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
@@ -93,6 +95,7 @@ require (
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	github.com/zeebo/xxh3 v1.0.2 // indirect
 	github.com/zitadel/logging v0.7.0 // indirect
 	github.com/zitadel/schema v1.3.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

@@ -1,0 +1,97 @@
+package oauthproxy
+
+import (
+	"net/http"
+)
+
+// UpstreamEndpoints names the Zitadel-side OAuth/OIDC URLs the redirector
+// forwards user agents and MCP clients to. The metadata handler is the
+// canonical owner of these values; the redirector accepts them by value
+// to keep a single instance reusable in tests.
+type UpstreamEndpoints struct {
+	Authorize  string
+	Token      string
+	Userinfo   string
+	Revoke     string
+	Introspect string
+	EndSession string
+}
+
+// Redirector forwards the OAuth/OIDC endpoints Limen advertises in its AS
+// metadata to Zitadel. GETs use 302 (the user agent picks up the new
+// location naturally). POSTs use 307 because the RFC 7231 status code
+// preserves the method *and* the request body, which is what Zitadel's
+// token / revoke / introspect endpoints actually need.
+//
+// The path is `/t/{tenant}/oauth/{authorize|token|userinfo|revoke|
+// introspect|end_session}`; the handler reads the raw query string off the
+// request and appends it untouched. No header, body, or query rewriting
+// happens here — Limen is a pass-through.
+type Redirector struct {
+	ep UpstreamEndpoints
+}
+
+// NewRedirector builds a Redirector wired to the given Zitadel endpoints.
+// All six fields must be set; otherwise the chosen handler will 500 at
+// runtime.
+func NewRedirector(ep UpstreamEndpoints) *Redirector { return &Redirector{ep: ep} }
+
+// Authorize 302-redirects the user agent to Zitadel's `/oauth/v2/authorize`
+// with the inbound query preserved.
+func (h *Redirector) Authorize(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.Authorize, http.StatusFound)
+}
+
+// Userinfo 302-redirects to Zitadel's userinfo endpoint. GET-only; bearer
+// tokens travel in the Authorization header which the redirected request
+// reissues unchanged.
+func (h *Redirector) Userinfo(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.Userinfo, http.StatusFound)
+}
+
+// EndSession 302-redirects to Zitadel's `/oidc/v1/end_session`.
+func (h *Redirector) EndSession(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.EndSession, http.StatusFound)
+}
+
+// Token 307-redirects to Zitadel's `/oauth/v2/token`. 307 (vs. 302/303)
+// preserves both the POST method and the request body — clients must not
+// downgrade to GET.
+func (h *Redirector) Token(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.Token, http.StatusTemporaryRedirect)
+}
+
+// Revoke 307-redirects to Zitadel's `/oauth/v2/revoke`.
+func (h *Redirector) Revoke(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.Revoke, http.StatusTemporaryRedirect)
+}
+
+// Introspect 307-redirects to Zitadel's `/oauth/v2/introspect`.
+func (h *Redirector) Introspect(w http.ResponseWriter, r *http.Request) {
+	redirect(w, r, h.ep.Introspect, http.StatusTemporaryRedirect)
+}
+
+func redirect(w http.ResponseWriter, r *http.Request, base string, status int) {
+	if base == "" {
+		http.Error(w, "oauth proxy not configured", http.StatusInternalServerError)
+		return
+	}
+	target := base
+	if q := r.URL.RawQuery; q != "" {
+		if containsQuery(base) {
+			target = base + "&" + q
+		} else {
+			target = base + "?" + q
+		}
+	}
+	http.Redirect(w, r, target, status)
+}
+
+func containsQuery(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '?' {
+			return true
+		}
+	}
+	return false
+}
