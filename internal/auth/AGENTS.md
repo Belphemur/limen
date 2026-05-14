@@ -107,6 +107,16 @@ Target middleware responsibilities:
   role. Don't conflate.
 - The middleware never logs raw tokens. Log only `sub`, `aud`, and the
   decision outcome.
+- **Zitadel SDK / API policy:** any direct Zitadel SDK call from this
+  package (e.g. JWKS fetch, future RS-side metadata or session lookups)
+  MUST use the **v2 resource-based services** (`oidc/v2`, `session/v2`,
+  `webkey/v2`, …). The legacy v1 services (`management/`, `admin/`,
+  `auth/`, `system/`) and any SDK method carrying a `// Deprecated:`
+  comment are off-limits — `staticcheck` (SA1019) is enforced by the
+  pre-commit `golangci-lint` run and must stay green. See
+  [`internal/zitadel/AGENTS.md`](../zitadel/AGENTS.md#zitadel-sdk--api-policy--read-before-touching-code)
+  for the full policy and v2 mapping table, and Zitadel's own guidance
+  at <https://zitadel.com/docs/apis/introduction>.
 
 ## What this package is NOT
 
