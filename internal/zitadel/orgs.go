@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
@@ -82,10 +80,11 @@ func (c *Client) SetOrgMetadata(ctx context.Context, orgID, key string, value []
 	if key == "" {
 		return fmt.Errorf("zitadel: SetOrgMetadata: key is required")
 	}
-	ctx = middleware.SetOrgID(ctx, orgID)
-	if _, err := c.api.ManagementService().SetOrgMetadata(ctx, &management.SetOrgMetadataRequest{
-		Key:   key,
-		Value: value,
+	if _, err := c.api.OrganizationServiceV2().SetOrganizationMetadata(ctx, &orgV2.SetOrganizationMetadataRequest{
+		OrganizationId: orgID,
+		Metadata: []*orgV2.Metadata{
+			{Key: key, Value: value},
+		},
 	}); err != nil {
 		return fmt.Errorf("zitadel: set org metadata (org=%q key=%q): %w", orgID, key, err)
 	}

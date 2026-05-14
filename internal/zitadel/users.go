@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
-	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
-	userV1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
+	authorizationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authorization/v2"
+	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 )
 
 // HumanUser is the input for AddHumanUser.
@@ -43,25 +40,27 @@ func (c *Client) AddHumanUser(ctx context.Context, u HumanUser) (string, error) 
 		return "", fmt.Errorf("zitadel: AddHumanUser: Email is required")
 	}
 
-	req := &userV2.AddHumanUserRequest{
-		Organization: &objectV2.Organization{
-			Org: &objectV2.Organization_OrgId{OrgId: u.OrgID},
+	req := &userV2.CreateUserRequest{
+		OrganizationId: u.OrgID,
+		UserType: &userV2.CreateUserRequest_Human_{
+			Human: &userV2.CreateUserRequest_Human{
+				Profile: &userV2.SetHumanProfile{
+					GivenName:  u.GivenName,
+					FamilyName: u.FamilyName,
+				},
+				Email: &userV2.SetHumanEmail{Email: u.Email},
+			},
 		},
-		Profile: &userV2.SetHumanProfile{
-			GivenName:  u.GivenName,
-			FamilyName: u.FamilyName,
-		},
-		Email: &userV2.SetHumanEmail{Email: u.Email},
 	}
 	if u.Username != "" {
 		req.Username = &u.Username
 	}
 
-	resp, err := c.api.UserServiceV2().AddHumanUser(ctx, req)
+	resp, err := c.api.UserServiceV2().CreateUser(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("zitadel: add human user %q: %w", u.Email, err)
+		return "", fmt.Errorf("zitadel: create user %q: %w", u.Email, err)
 	}
-	return resp.GetUserId(), nil
+	return resp.GetId(), nil
 }
 
 // CreateInviteCode triggers Zitadel to send an invite email to userID using
@@ -87,17 +86,16 @@ func (c *Client) AddUserGrant(ctx context.Context, orgID, userID string, roleKey
 	if orgID == "" {
 		return "", fmt.Errorf("zitadel: AddUserGrant: orgID is required")
 	}
-	ctx = middleware.SetOrgID(ctx, orgID)
-	req := &management.AddUserGrantRequest{
-		UserId:    userID,
-		ProjectId: c.projectID,
-		RoleKeys:  roleKeys,
-	}
-	resp, err := c.api.ManagementService().AddUserGrant(ctx, req)
+	resp, err := c.api.AuthorizationServiceV2().CreateAuthorization(ctx, &authorizationV2.CreateAuthorizationRequest{
+		UserId:         userID,
+		ProjectId:      c.projectID,
+		OrganizationId: orgID,
+		RoleKeys:       roleKeys,
+	})
 	if err != nil {
-		return "", fmt.Errorf("zitadel: add user grant (user=%q org=%q): %w", userID, orgID, err)
+		return "", fmt.Errorf("zitadel: create authorization (user=%q org=%q): %w", userID, orgID, err)
 	}
-	return resp.GetUserGrantId(), nil
+	return resp.GetId(), nil
 }
 
 // ListUserGrants returns all grants on the configured project, optionally
@@ -106,33 +104,47 @@ func (c *Client) ListUserGrants(ctx context.Context, orgID, userID string) ([]Us
 	if orgID == "" {
 		return nil, fmt.Errorf("zitadel: ListUserGrants: orgID is required")
 	}
-	ctx = middleware.SetOrgID(ctx, orgID)
 
-	queries := []*userV1.UserGrantQuery{{
-		Query: &userV1.UserGrantQuery_ProjectIdQuery{
-			ProjectIdQuery: &userV1.UserGrantProjectIDQuery{ProjectId: c.projectID},
+	filters := []*authorizationV2.AuthorizationsSearchFilter{
+		{
+			Filter: &authorizationV2.AuthorizationsSearchFilter_OrganizationId{
+				OrganizationId: &filterV2.IDFilter{Id: orgID},
+			},
 		},
-	}}
+		{
+			Filter: &authorizationV2.AuthorizationsSearchFilter_ProjectId{
+				ProjectId: &filterV2.IDFilter{Id: c.projectID},
+			},
+		},
+	}
 	if userID != "" {
-		queries = append(queries, &userV1.UserGrantQuery{
-			Query: &userV1.UserGrantQuery_UserIdQuery{
-				UserIdQuery: &userV1.UserGrantUserIDQuery{UserId: userID},
+		filters = append(filters, &authorizationV2.AuthorizationsSearchFilter{
+			Filter: &authorizationV2.AuthorizationsSearchFilter_InUserIds{
+				InUserIds: &filterV2.InIDsFilter{Ids: []string{userID}},
 			},
 		})
 	}
 
-	resp, err := c.api.ManagementService().ListUserGrants(ctx, &management.ListUserGrantRequest{Queries: queries})
+	resp, err := c.api.AuthorizationServiceV2().ListAuthorizations(ctx, &authorizationV2.ListAuthorizationsRequest{
+		Filters: filters,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("zitadel: list user grants (org=%q user=%q): %w", orgID, userID, err)
+		return nil, fmt.Errorf("zitadel: list authorizations (org=%q user=%q): %w", orgID, userID, err)
 	}
-	out := make([]UserGrant, 0, len(resp.GetResult()))
-	for _, g := range resp.GetResult() {
+	authzs := resp.GetAuthorizations()
+	out := make([]UserGrant, 0, len(authzs))
+	for _, a := range authzs {
+		roles := a.GetRoles()
+		keys := make([]string, 0, len(roles))
+		for _, r := range roles {
+			keys = append(keys, r.GetKey())
+		}
 		out = append(out, UserGrant{
-			ID:        g.GetId(),
-			UserID:    g.GetUserId(),
-			ProjectID: g.GetProjectId(),
-			OrgID:     g.GetOrgId(),
-			RoleKeys:  g.GetRoleKeys(),
+			ID:        a.GetId(),
+			UserID:    a.GetUser().GetId(),
+			ProjectID: a.GetProject().GetId(),
+			OrgID:     a.GetOrganization().GetId(),
+			RoleKeys:  keys,
 		})
 	}
 	return out, nil
