@@ -54,6 +54,7 @@ zitadel:
   auth_mode: "pat"
   pat: "dev-pat"
   project_id: "proj-1"
+  mcp_resource_audience: "limen-mcp"
 `
 
 func TestLoad_MinimalValid(t *testing.T) {
@@ -108,6 +109,7 @@ zitadel:
   auth_mode: "pat"
   pat: "dev-pat"
   project_id: "proj-1"
+  mcp_resource_audience: "limen-mcp"
 `
 	cfg, err := Load(writeConfig(t, body))
 	if err != nil {
@@ -145,6 +147,7 @@ zitadel:
   auth_mode: "pat"
   pat: "dev-pat"
   project_id: "proj-1"
+  mcp_resource_audience: "limen-mcp"
 `
 	cfg, err := Load(writeConfig(t, body))
 	if err != nil {

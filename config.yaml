@@ -51,12 +51,6 @@ codemode:
   execution_timeout: "30s"
   max_memory_mb: 64
 
-# Legacy: obsolete after Phase 6 wires Zitadel-backed JWT validation.
-auth:
-  enabled: false
-  jwks_url: "${LIMEN_JWKS_URL:-}"
-  audience: "${LIMEN_AUDIENCE:-limen}"
-
 # Phase 4 — portal OIDC relying party against Zitadel.
 oidc:
   issuer: "${LIMEN_OIDC_ISSUER:-http://localhost:8081}"
@@ -83,4 +77,8 @@ zitadel:
   pat: "${LIMEN_ZITADEL_PAT:-}"
   jwt_key_path: "${LIMEN_ZITADEL_JWT_KEY_PATH:-}"
   project_id: "${LIMEN_ZITADEL_PROJECT_ID}"
+  # Audience MCP access tokens must carry in `aud`. Typically the Zitadel
+  # project audience id emitted as "<project_id>@<project_name>". The MCP
+  # resource server (Phase 6) rejects any token whose `aud` does not match.
+  mcp_resource_audience: "${LIMEN_ZITADEL_MCP_RESOURCE_AUDIENCE}"
   http_timeout: "30s"

@@ -31,7 +31,6 @@ type Config struct {
 	OAuthProxy OAuthProxyConfig `yaml:"oauth_proxy"`
 	Upstreams  []UpstreamConfig `yaml:"upstreams"`
 	CodeMode   CodeModeConfig   `yaml:"codemode"`
-	Auth       AuthConfig       `yaml:"auth"`
 	OIDC       OIDCConfig       `yaml:"oidc"`
 	Zitadel    ZitadelConfig    `yaml:"zitadel"`
 }
@@ -113,15 +112,6 @@ type CodeModeConfig struct {
 	MaxMemoryMB      int           `yaml:"max_memory_mb"`
 }
 
-// AuthConfig is the legacy single-issuer JWKS validator. Phase 6 replaces
-// it with the multi-tenant Zitadel resource server. Retained for the
-// transition.
-type AuthConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	JWKSURL  string `yaml:"jwks_url,omitempty"`
-	Audience string `yaml:"audience,omitempty"`
-}
-
 // OIDCConfig wires the portal relying-party (Phase 4) to a Zitadel issuer.
 // Limen never sees the user's password — Zitadel renders the login UI,
 // enforces MFA, and issues the tokens. Limen seals the resulting
@@ -165,6 +155,11 @@ type ZitadelConfig struct {
 	// ProjectID is the shared Limen project's resource id (Phase 0 bootstrap).
 	// Required for AddUserGrant and for requesting the project-roles claim.
 	ProjectID string `yaml:"project_id"`
+	// MCPResourceAudience is the Zitadel project audience (or per-app resource
+	// id) that MCP access tokens carry in `aud`. Phase 6's RS verifier rejects
+	// any token whose audience set does not contain this value. Typically the
+	// Zitadel project audience id emitted as `<project_id>@<project_name>`.
+	MCPResourceAudience string `yaml:"mcp_resource_audience"`
 	// HTTPTimeout caps any single API request. Default 30s.
 	HTTPTimeout time.Duration `yaml:"http_timeout,omitempty"`
 }
@@ -383,6 +378,9 @@ func (z ZitadelConfig) Validate() error {
 	}
 	if strings.TrimSpace(z.ProjectID) == "" {
 		return errors.New("project_id is required")
+	}
+	if strings.TrimSpace(z.MCPResourceAudience) == "" {
+		return errors.New("mcp_resource_audience is required")
 	}
 	switch z.AuthMode {
 	case "pat":
