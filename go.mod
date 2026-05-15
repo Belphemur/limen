@@ -15,6 +15,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
+	github.com/valkey-io/valkey-go v1.0.75
 	github.com/zitadel/oidc/v3 v3.47.5
 	github.com/zitadel/zitadel-go/v3 v3.29.0
 	go.uber.org/zap v1.28.0

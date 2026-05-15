@@ -54,6 +54,22 @@ services:
     networks:
       - zitadel
 
+  # Phase 7 — Limen-owned Valkey for short-lived state (one-shot OAuth
+  # state, future rate-limit counters). Separate from the Zitadel cache
+  # so we can scale / restart it independently.
+  limen-valkey:
+    image: valkey/valkey:latest
+    command: ["--save", "", "--appendonly", "no"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - zitadel
+
   # One-shot. Provisions the Limen project, Portal/MCP RS apps, project roles,
   # sample tenant org, and staff org via the Zitadel Management API.
   # Idempotent. Run via `make dev-bootstrap`.

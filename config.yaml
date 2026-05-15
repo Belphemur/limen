@@ -88,7 +88,7 @@ zitadel:
 # In dev this is the Valkey container co-located with the Zitadel cache;
 # in prod, a dedicated Valkey is fine. Limen owns the "limen:*" keyspace.
 valkey:
-  address: "${LIMEN_VALKEY_ADDRESS:-redis:6379}"
+  address: "${LIMEN_VALKEY_ADDRESS:-limen-valkey:6379}"
   password: "${LIMEN_VALKEY_PASSWORD:-}"
   dial_timeout: "5s"
 
