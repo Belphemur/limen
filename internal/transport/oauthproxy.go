@@ -77,5 +77,18 @@ func MountOAuthProxy(r chi.Router, deps OAuthProxyDeps) error {
 			rr.Delete("/register/{client_id}", dcr.Delete)
 		})
 	})
+
+	// RFC 8414 §3 / OIDC Discovery: well-known goes between the origin
+	// and the issuer's path component. Strict clients (mcp-inspector,
+	// the MCP TypeScript SDK, Claude Desktop) only probe these forms;
+	// the suffix forms above are kept for laxer clients.
+	r.Route("/.well-known/oauth-authorization-server/t/{tenant}/oauth", func(wr chi.Router) {
+		wr.Use(tenancy.RequireTenant(deps.Store, logger))
+		wr.Get("/", metadata.ServeHTTP)
+	})
+	r.Route("/.well-known/openid-configuration/t/{tenant}/oauth", func(wr chi.Router) {
+		wr.Use(tenancy.RequireTenant(deps.Store, logger))
+		wr.Get("/", metadata.ServeHTTP)
+	})
 	return nil
 }
