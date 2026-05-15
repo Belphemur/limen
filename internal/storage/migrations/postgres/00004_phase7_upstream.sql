@@ -18,12 +18,12 @@
 --   ORDER BY expires_at
 --   LIMIT $batch
 -- so the index covers the live, refreshable, expiring-soonest rows.
-CREATE INDEX IF NOT EXISTS idx_upstream_links_refresh_candidates
-ON upstream_links (expires_at)
-WHERE deleted_at IS NULL
-  AND expires_at IS NOT NULL
-  AND needs_relink = false
-  AND auto_disabled_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_upstream_links_refresh_candidates ON upstream_links (expires_at)
+WHERE
+    deleted_at IS NULL
+    AND expires_at IS NOT NULL
+    AND needs_relink = false
+    AND auto_disabled_at IS NULL;
 -- +goose StatementEnd
 
 -- +goose Down
