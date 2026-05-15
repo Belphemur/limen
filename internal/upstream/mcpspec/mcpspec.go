@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -230,12 +231,7 @@ func fetchJSON[T any](ctx context.Context, hc *http.Client, urlStr string) (*T, 
 }
 
 func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(haystack, needle)
 }
 
 // --- Provision (DCR) ---------------------------------------------------

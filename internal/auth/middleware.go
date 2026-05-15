@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -225,12 +226,7 @@ func extractBearerToken(r *http.Request) string {
 }
 
 func audienceContains(got []string, want string) bool {
-	for _, a := range got {
-		if a == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(got, want)
 }
 
 // ctx plumbing for the verified user + claims.

@@ -257,11 +257,11 @@ func (p Pattern) Matches(raw string) bool {
 	}
 	if p.custom {
 		// Custom schemes: treat everything after `scheme://` as opaque path.
-		idx := strings.Index(raw, "://")
-		if idx < 0 {
+		_, after, ok := strings.Cut(raw, "://")
+		if !ok {
 			return false
 		}
-		rest := raw[idx+3:]
+		rest := after
 		return matchPath(p.pathParts, strings.Split(rest, "/"))
 	}
 	if !matchHostLabels(p.hostParts, strings.Split(u.Hostname(), ".")) {
