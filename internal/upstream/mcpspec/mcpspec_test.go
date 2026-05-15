@@ -59,7 +59,7 @@ func TestFetchPRM_RoundTrip(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(prmDoc{Resource: "https://upstream.example/mcp", AuthorizationServers: []string{srv2URL(t)}})
+		_ = json.NewEncoder(w).Encode(prmDoc{Resource: []string{"https://upstream.example/mcp"}, AuthorizationServers: []string{srv2URL(t)}})
 	}))
 	defer srv.Close()
 
@@ -68,7 +68,7 @@ func TestFetchPRM_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchPRM: %v", err)
 	}
-	if prm.Resource != "https://upstream.example/mcp" {
+	if prm.primaryResource() != "https://upstream.example/mcp" {
 		t.Fatalf("Resource = %q", prm.Resource)
 	}
 }
@@ -81,7 +81,7 @@ func TestFetchPRM_LegacyPathSuffix(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(prmDoc{Resource: "https://upstream.example/mcp", AuthorizationServers: []string{srv2URL(t)}})
+		_ = json.NewEncoder(w).Encode(prmDoc{Resource: []string{"https://upstream.example/mcp"}, AuthorizationServers: []string{srv2URL(t)}})
 	}))
 	defer srv.Close()
 
@@ -90,7 +90,7 @@ func TestFetchPRM_LegacyPathSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchPRM: %v", err)
 	}
-	if prm.Resource != "https://upstream.example/mcp" {
+	if prm.primaryResource() != "https://upstream.example/mcp" {
 		t.Fatalf("Resource = %q", prm.Resource)
 	}
 }
@@ -104,7 +104,7 @@ func TestFetchPRM_WWWAuthenticateHint(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 		case "/prm":
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(prmDoc{Resource: "https://upstream.example/mcp", AuthorizationServers: []string{srv2URL(t)}})
+			_ = json.NewEncoder(w).Encode(prmDoc{Resource: []string{"https://upstream.example/mcp"}, AuthorizationServers: []string{srv2URL(t)}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -117,8 +117,66 @@ func TestFetchPRM_WWWAuthenticateHint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchPRM: %v", err)
 	}
-	if prm.Resource != "https://upstream.example/mcp" {
+	if prm.primaryResource() != "https://upstream.example/mcp" {
 		t.Fatalf("Resource = %q", prm.Resource)
+	}
+}
+
+func TestPRMDoc_UnmarshalResource(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "rfc9728_string",
+			body: `{"resource":"https://upstream.example/mcp","authorization_servers":["https://as.example"]}`,
+			want: []string{"https://upstream.example/mcp"},
+		},
+		{
+			name: "gitlab_array",
+			body: `{"resource":["https://gitlab.com/api/v4/mcp"],"authorization_servers":["https://gitlab.com"]}`,
+			want: []string{"https://gitlab.com/api/v4/mcp"},
+		},
+		{
+			name: "array_multiple",
+			body: `{"resource":["https://a","https://b"]}`,
+			want: []string{"https://a", "https://b"},
+		},
+		{
+			name: "missing",
+			body: `{"authorization_servers":["https://as.example"]}`,
+			want: nil,
+		},
+		{
+			name:    "wrong_type",
+			body:    `{"resource":42}`,
+			wantErr: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var p prmDoc
+			err := json.Unmarshal([]byte(c.body), &p)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got Resource=%v", p.Resource)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(p.Resource) != len(c.want) {
+				t.Fatalf("Resource len = %d, want %d (%v)", len(p.Resource), len(c.want), p.Resource)
+			}
+			for i, v := range c.want {
+				if p.Resource[i] != v {
+					t.Errorf("Resource[%d] = %q, want %q", i, p.Resource[i], v)
+				}
+			}
+		})
 	}
 }
 

@@ -66,7 +66,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 		clientSecret = cfg.ClientSecret
 	}
 
-	row := s.buildRegistrationRow(lctx, tenantStr, prm.Resource, as.Issuer,
+	row := s.buildRegistrationRow(lctx, tenantStr, prm.primaryResource(), as.Issuer,
 		clientID, clientSecret, registrationAccessToken, registrationClientURI)
 	if err := s.persistRegistration(ctx, lctx.Tenant.ID, row); err != nil {
 		return err

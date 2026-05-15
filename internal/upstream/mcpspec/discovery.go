@@ -16,8 +16,45 @@ import (
 )
 
 type prmDoc struct {
-	Resource             string   `json:"resource"`
+	Resource             []string `json:"resource"`
 	AuthorizationServers []string `json:"authorization_servers"`
+}
+
+// UnmarshalJSON tolerates servers that publish `resource` as a JSON string
+// (RFC 9728 §3.2) as well as servers that return a JSON array of strings
+// (GitLab does this — it returns `"resource": ["https://gitlab.com/api/v4/mcp"]`).
+// Both shapes are normalized to a slice; downstream code always treats
+// Resource as a list and uses the first entry when a single value is needed.
+func (p *prmDoc) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Resource             json.RawMessage `json:"resource"`
+		AuthorizationServers []string        `json:"authorization_servers"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	p.AuthorizationServers = raw.AuthorizationServers
+	if len(raw.Resource) == 0 || string(raw.Resource) == "null" {
+		return nil
+	}
+	if raw.Resource[0] == '[' {
+		return json.Unmarshal(raw.Resource, &p.Resource)
+	}
+	var s string
+	if err := json.Unmarshal(raw.Resource, &s); err != nil {
+		return fmt.Errorf("mcpspec: PRM resource: %w", err)
+	}
+	p.Resource = []string{s}
+	return nil
+}
+
+// primaryResource returns the first PRM resource URI, or "" when none
+// was published.
+func (p *prmDoc) primaryResource() string {
+	if len(p.Resource) == 0 {
+		return ""
+	}
+	return p.Resource[0]
 }
 
 type asMetadata struct {
@@ -63,7 +100,7 @@ func (s *Strategy) discover(ctx context.Context, lctx upstream.LinkContext) (*pr
 			return nil, nil, prmErr
 		}
 		// Synthesize a PRM from the config so callers can proceed.
-		prm = &prmDoc{Resource: up.McpServerURL, AuthorizationServers: []string{cfg.Issuer}}
+		prm = &prmDoc{Resource: []string{up.McpServerURL}, AuthorizationServers: []string{cfg.Issuer}}
 	}
 	if len(prm.AuthorizationServers) == 0 {
 		if cfg.Issuer == "" {
