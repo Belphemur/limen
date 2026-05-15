@@ -27,12 +27,20 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 )
 
-// Strategy types — the values stored in upstreams.strategy_type.
+// StrategyType is the value stored in upstreams.strategy_type. Modelled
+// as a named string so the compiler distinguishes a raw upstream label
+// from any other free-form string at every call site, the same way
+// FailureReason does for upstream_links.last_failure_reason.
+type StrategyType string
+
 const (
-	StrategyNone         = "none"
-	StrategyStaticHeader = "static_header"
-	StrategyMCPSpec      = "mcp_spec"
+	StrategyNone         StrategyType = "none"
+	StrategyStaticHeader StrategyType = "static_header"
+	StrategyMCPSpec      StrategyType = "mcp_spec"
 )
+
+// String lets StrategyType satisfy fmt.Stringer for logging.
+func (s StrategyType) String() string { return string(s) }
 
 // FailureReason is a short enum string written into
 // upstream_links.last_failure_reason. Keeps the column human-readable
@@ -79,8 +87,8 @@ type StartLinkResult struct {
 // internal/upstream/{none,statichdr,mcpspec}/. Methods that don't apply to
 // a strategy return a non-nil ErrUnsupported.
 type Strategy interface {
-	// Type is the string written to upstreams.strategy_type.
-	Type() string
+	// Type is the value written to upstreams.strategy_type.
+	Type() StrategyType
 
 	// RequiresLink reports whether this strategy needs per-user
 	// UpstreamLink rows. mcp_spec and user-mode static_header do;
@@ -125,14 +133,14 @@ type Strategy interface {
 // the Service layer can return a clean 400.
 var ErrUnsupported = errors.New("upstream: operation not supported by this strategy")
 
-// Registry maps strategy type strings to Strategy implementations.
+// Registry maps strategy types to Strategy implementations.
 type Registry struct {
 	mu  sync.RWMutex
-	all map[string]Strategy
+	all map[StrategyType]Strategy
 }
 
 // NewRegistry returns an empty registry.
-func NewRegistry() *Registry { return &Registry{all: make(map[string]Strategy)} }
+func NewRegistry() *Registry { return &Registry{all: make(map[StrategyType]Strategy)} }
 
 // Register installs s under its Type(). Panics on duplicate registration —
 // startup wiring, not runtime.
@@ -147,7 +155,10 @@ func (r *Registry) Register(s Strategy) {
 }
 
 // Resolve returns the Strategy registered for t, or an error if unknown.
-func (r *Registry) Resolve(t string) (Strategy, error) {
+// The string form is what storage hands us (upstreams.strategy_type is a
+// plain TEXT column), so this is the one place we cross the named-type
+// boundary.
+func (r *Registry) Resolve(t StrategyType) (Strategy, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.all[t]
@@ -158,10 +169,10 @@ func (r *Registry) Resolve(t string) (Strategy, error) {
 }
 
 // Known reports the registered strategy types — diagnostic only.
-func (r *Registry) Known() []string {
+func (r *Registry) Known() []StrategyType {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]string, 0, len(r.all))
+	out := make([]StrategyType, 0, len(r.all))
 	for t := range r.all {
 		out = append(out, t)
 	}
