@@ -75,7 +75,7 @@ func TestRedirector_Statuses(t *testing.T) {
 		ZitadelIssuer: "https://auth.example.com",
 		BaseURL:       "https://limen.example.com",
 	})
-	rd := NewRedirector(mh.UpstreamEndpoints())
+	rd := NewRedirector(mh.UpstreamEndpoints(), "")
 
 	cases := []struct {
 		name     string
@@ -109,6 +109,28 @@ func TestRedirector_Statuses(t *testing.T) {
 				t.Fatalf("Location = %q, want %q", got, c.wantLoc)
 			}
 		})
+	}
+}
+
+func TestRedirector_Authorize_InjectsMCPRSAudienceScope(t *testing.T) {
+	mh, _ := NewMetadataHandler(MetadataConfig{
+		ZitadelIssuer: "https://auth.example.com",
+		BaseURL:       "https://limen.example.com",
+	})
+	rd := NewRedirector(mh.UpstreamEndpoints(), "999111")
+
+	req := httptest.NewRequest(http.MethodGet, "/?client_id=abc&scope=openid+profile", strings.NewReader(""))
+	rr := httptest.NewRecorder()
+	rd.Authorize(rr, req)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "urn%3Azitadel%3Aiam%3Auser%3Aresourceowner") {
+		t.Errorf("Location missing resourceowner scope: %q", loc)
+	}
+	if !strings.Contains(loc, "urn%3Azitadel%3Aiam%3Aorg%3Aproject%3Aid%3A999111%3Aaud") {
+		t.Errorf("Location missing MCP RS audience scope: %q", loc)
 	}
 }
 

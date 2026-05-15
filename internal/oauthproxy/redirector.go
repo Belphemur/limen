@@ -13,6 +13,15 @@ import (
 // — most clients (Cursor, Inspector) don't request it themselves.
 const zitadelResourceOwnerScope = "urn:zitadel:iam:user:resourceowner"
 
+// projectAudienceScopePrefix is the Zitadel-vendored scope prefix that
+// adds a project id to the access token's `aud` claim. Limen's MCP
+// resource server expects its project id in `aud`; since DCR-created
+// apps live in their own per-client project (phase 7b), the MCP RS
+// project no longer lands in `aud` automatically, so we inject this
+// scope on /authorize.
+const projectAudienceScopePrefix = "urn:zitadel:iam:org:project:id:"
+const projectAudienceScopeSuffix = ":aud"
+
 // UpstreamEndpoints names the Zitadel-side OAuth/OIDC URLs the redirector
 // forwards user agents and MCP clients to. The metadata handler is the
 // canonical owner of these values; the redirector accepts them by value
@@ -38,19 +47,30 @@ type UpstreamEndpoints struct {
 // happens here — Limen is a pass-through.
 type Redirector struct {
 	ep UpstreamEndpoints
+	// mcpRSProjectID is the Zitadel project id of the MCP resource
+	// server app. Injected as a project-audience scope on /authorize
+	// so the MCP RS project lands in the token's `aud`. Empty
+	// disables the injection (handy in tests).
+	mcpRSProjectID string
 }
 
 // NewRedirector builds a Redirector wired to the given Zitadel endpoints.
-// All six fields must be set; otherwise the chosen handler will 500 at
-// runtime.
-func NewRedirector(ep UpstreamEndpoints) *Redirector { return &Redirector{ep: ep} }
+// All six endpoint fields must be set; otherwise the chosen handler will
+// 500 at runtime. mcpRSProjectID, when non-empty, is added to the
+// /authorize scope as `urn:zitadel:iam:org:project:id:<id>:aud` so the
+// MCP resource server's audience binding survives DCR-created apps
+// living in per-client projects (phase 7b).
+func NewRedirector(ep UpstreamEndpoints, mcpRSProjectID string) *Redirector {
+	return &Redirector{ep: ep, mcpRSProjectID: mcpRSProjectID}
+}
 
 // Authorize 302-redirects the user agent to Zitadel's `/oauth/v2/authorize`
-// with the inbound query preserved. The Zitadel resource-owner scope is
-// added to the request when missing so the issued access token carries
-// the org_id claim Limen's MCP middleware verifies.
+// with the inbound query preserved. The Zitadel resource-owner scope and
+// the MCP RS project-audience scope are added when missing so the
+// issued access token carries both the org_id claim and the MCP RS
+// audience that Limen's MCP middleware enforces.
 func (h *Redirector) Authorize(w http.ResponseWriter, r *http.Request) {
-	redirectWithQuery(w, r, h.ep.Authorize, http.StatusFound, ensureResourceOwnerScope(r.URL.RawQuery))
+	redirectWithQuery(w, r, h.ep.Authorize, http.StatusFound, h.ensureRequiredScopes(r.URL.RawQuery))
 }
 
 // Userinfo 302-redirects to Zitadel's userinfo endpoint. GET-only; bearer
@@ -102,13 +122,22 @@ func redirectWithQuery(w http.ResponseWriter, r *http.Request, base string, stat
 	http.Redirect(w, r, target, status)
 }
 
-// ensureResourceOwnerScope returns rawQuery with the Zitadel resource-owner
-// scope appended to the `scope` parameter when not already present. The
-// rest of the query is preserved verbatim, including ordering and any
-// duplicate keys clients may have added.
-func ensureResourceOwnerScope(rawQuery string) string {
+// ensureRequiredScopes returns rawQuery with the Zitadel resource-owner
+// scope and the MCP RS project-audience scope appended to the `scope`
+// parameter when not already present. The rest of the query is preserved
+// verbatim, including ordering and any duplicate keys clients may have
+// added.
+func (h *Redirector) ensureRequiredScopes(rawQuery string) string {
+	required := []string{zitadelResourceOwnerScope}
+	if h.mcpRSProjectID != "" {
+		required = append(required, projectAudienceScopePrefix+h.mcpRSProjectID+projectAudienceScopeSuffix)
+	}
+	return appendScopes(rawQuery, required)
+}
+
+func appendScopes(rawQuery string, required []string) string {
 	if rawQuery == "" {
-		return "scope=" + url.QueryEscape("openid "+zitadelResourceOwnerScope)
+		return "scope=" + url.QueryEscape(strings.Join(append([]string{"openid"}, required...), " "))
 	}
 	values, err := url.ParseQuery(rawQuery)
 	if err != nil {
@@ -116,12 +145,22 @@ func ensureResourceOwnerScope(rawQuery string) string {
 	}
 	scope := strings.TrimSpace(values.Get("scope"))
 	parts := strings.Fields(scope)
+	have := make(map[string]struct{}, len(parts))
 	for _, p := range parts {
-		if p == zitadelResourceOwnerScope {
-			return rawQuery
-		}
+		have[p] = struct{}{}
 	}
-	parts = append(parts, zitadelResourceOwnerScope)
+	changed := false
+	for _, r := range required {
+		if _, ok := have[r]; ok {
+			continue
+		}
+		parts = append(parts, r)
+		have[r] = struct{}{}
+		changed = true
+	}
+	if !changed {
+		return rawQuery
+	}
 	values.Set("scope", strings.Join(parts, " "))
 	return values.Encode()
 }

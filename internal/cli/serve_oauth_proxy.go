@@ -33,12 +33,13 @@ func mountOAuthProxy(r chi.Router, d *serverDeps) error {
 		return nil
 	}
 	if err := transport.MountOAuthProxy(r, transport.OAuthProxyDeps{
-		Store:    d.store,
-		Zitadel:  zclient,
-		Logger:   d.logger,
-		BaseURL:  d.cfg.Server.BaseURL,
-		Issuer:   d.cfg.OIDC.Issuer,
-		OAuthCfg: d.cfg.OAuthProxy,
+		Store:          d.store,
+		Zitadel:        zclient,
+		Logger:         d.logger,
+		BaseURL:        d.cfg.Server.BaseURL,
+		Issuer:         d.cfg.OIDC.Issuer,
+		MCPRSProjectID: d.cfg.Zitadel.MCPResourceAudience,
+		OAuthCfg:       d.cfg.OAuthProxy,
 	}); err != nil {
 		return fmt.Errorf("mount oauth proxy: %w", err)
 	}

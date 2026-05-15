@@ -20,12 +20,16 @@ import (
 
 // OAuthProxyDeps bundles everything MountOAuthProxy needs.
 type OAuthProxyDeps struct {
-	Store    *storage.Store
-	Zitadel  *zitadel.Client
-	Logger   *zap.Logger
-	BaseURL  string // public origin of the Limen deployment (no trailing slash required)
-	Issuer   string // Zitadel issuer URL — advertised as the AS-metadata `issuer`
-	OAuthCfg config.OAuthProxyConfig
+	Store   *storage.Store
+	Zitadel *zitadel.Client
+	Logger  *zap.Logger
+	BaseURL string // public origin of the Limen deployment (no trailing slash required)
+	Issuer  string // Zitadel issuer URL — advertised as the AS-metadata `issuer`
+	// MCPRSProjectID is the Zitadel project id of the MCP resource
+	// server app. Injected into the /authorize scope so DCR-app tokens
+	// carry the MCP RS audience (phase 7b).
+	MCPRSProjectID string
+	OAuthCfg       config.OAuthProxyConfig
 }
 
 // MountOAuthProxy attaches the AS-metadata, redirector, DCR, and RFC 7592
@@ -44,7 +48,7 @@ func MountOAuthProxy(r chi.Router, deps OAuthProxyDeps) error {
 	if err != nil {
 		return err
 	}
-	redirector := oauthproxy.NewRedirector(metadata.UpstreamEndpoints())
+	redirector := oauthproxy.NewRedirector(metadata.UpstreamEndpoints(), deps.MCPRSProjectID)
 
 	dcr, err := oauthproxy.NewDCRHandler(oauthproxy.DCRConfig{
 		DCREnabled:         deps.OAuthCfg.DCREnabled,
