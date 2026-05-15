@@ -39,13 +39,12 @@ oauth_proxy:
     rps: 10
     burst: 20
 
-# Legacy: replaced by per-tenant outbound strategies in Phase 7.
-upstreams:
-  - name: "github"
-    url: "https://api.github.com/mcp"
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN:-}"
-    timeout: "30s"
+# Pre-Phase-7 global downstream MCP upstreams. These are connected at
+# boot and exposed via /mcp on every tenant — useful for built-in /
+# server-shared tools that don't need per-user credentials. Per-tenant
+# user-linked MCP servers (Phase 7) live in the database instead — see
+# `limen create-upstream` and the portal Upstreams section.
+upstreams: []
 
 codemode:
   execution_timeout: "30s"
@@ -95,9 +94,9 @@ valkey:
 # Phase 7 — background refresher + auto-disable tunables. Defaults are
 # fine for most deployments; override only what you want to move.
 upstream_refresh:
-  interval: "2m"             # how often the refresher wakes up
-  refresh_window: "5m"       # tokens expiring within this window get rotated
-  proactive_window: "60s"    # per-request fast-path refresh threshold
-  fail_threshold: 5          # min consecutive failures to trip auto-disable
-  fail_window: "15m"         # min streak elapsed time to trip auto-disable
+  interval: "2m" # how often the refresher wakes up
+  refresh_window: "5m" # tokens expiring within this window get rotated
+  proactive_window: "60s" # per-request fast-path refresh threshold
+  fail_threshold: 5 # min consecutive failures to trip auto-disable
+  fail_window: "15m" # min streak elapsed time to trip auto-disable
   needs_relink_window: "24h" # NeedsRelink=true for this long → auto-disable
