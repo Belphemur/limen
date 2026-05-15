@@ -174,9 +174,87 @@ func (s *Strategy) fetchPRM(ctx context.Context, mcpURL string) (*prmDoc, error)
 	if err != nil {
 		return nil, fmt.Errorf("mcpspec: parse mcp url: %w", err)
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/.well-known/oauth-protected-resource"
-	u.RawQuery = ""
-	return fetchJSON[prmDoc](ctx, s.http, u.String())
+	path := strings.TrimRight(u.Path, "/")
+
+	// Candidate well-known locations, in order:
+	//   1. RFC 9728 §3.1 canonical: <origin>/.well-known/oauth-protected-resource<path>
+	//   2. Legacy / pre-RFC: <origin><path>/.well-known/oauth-protected-resource
+	candidates := []string{
+		buildPRMURL(u, "/.well-known/oauth-protected-resource"+path),
+		buildPRMURL(u, path+"/.well-known/oauth-protected-resource"),
+	}
+	var lastErr error
+	for _, c := range candidates {
+		prm, err := fetchJSON[prmDoc](ctx, s.http, c)
+		if err == nil {
+			return prm, nil
+		}
+		lastErr = err
+	}
+
+	// Last resort: probe the resource itself; a compliant server responds
+	// with 401 + WWW-Authenticate: Bearer resource_metadata="<URL>".
+	if prmURL := s.probePRMHint(ctx, mcpURL); prmURL != "" {
+		prm, err := fetchJSON[prmDoc](ctx, s.http, prmURL)
+		if err == nil {
+			return prm, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func buildPRMURL(base *url.URL, path string) string {
+	c := *base
+	c.Path = path
+	c.RawQuery = ""
+	return c.String()
+}
+
+// probePRMHint issues an unauthenticated GET to mcpURL and parses any
+// resource_metadata="..." parameter from the WWW-Authenticate header.
+// Returns "" if no hint is found.
+func (s *Strategy) probePRMHint(ctx context.Context, mcpURL string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<14))
+	for _, h := range resp.Header.Values("WWW-Authenticate") {
+		if u := extractResourceMetadata(h); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// extractResourceMetadata pulls resource_metadata="<url>" out of a
+// WWW-Authenticate header value (RFC 9728 §5.1).
+func extractResourceMetadata(header string) string {
+	const key = "resource_metadata="
+	idx := strings.Index(header, key)
+	if idx < 0 {
+		return ""
+	}
+	v := header[idx+len(key):]
+	v = strings.TrimLeft(v, " \t")
+	if strings.HasPrefix(v, `"`) {
+		v = v[1:]
+		end := strings.IndexByte(v, '"')
+		if end < 0 {
+			return ""
+		}
+		return v[:end]
+	}
+	if end := strings.IndexAny(v, ", "); end >= 0 {
+		return v[:end]
+	}
+	return v
 }
 
 func (s *Strategy) fetchASMetadata(ctx context.Context, issuer string) (*asMetadata, error) {

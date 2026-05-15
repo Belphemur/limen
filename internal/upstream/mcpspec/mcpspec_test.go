@@ -53,6 +53,29 @@ func TestSliceContains(t *testing.T) {
 
 func TestFetchPRM_RoundTrip(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RFC 9728 canonical: well-known at the origin, path appended.
+		if r.URL.Path != "/.well-known/oauth-protected-resource/mcp" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(prmDoc{Resource: "https://upstream.example/mcp", AuthorizationServers: []string{srv2URL(t)}})
+	}))
+	defer srv.Close()
+
+	s := &Strategy{http: srv.Client()}
+	prm, err := s.fetchPRM(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("fetchPRM: %v", err)
+	}
+	if prm.Resource != "https://upstream.example/mcp" {
+		t.Fatalf("Resource = %q", prm.Resource)
+	}
+}
+
+func TestFetchPRM_LegacyPathSuffix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Pre-RFC form: well-known appended to the path.
 		if r.URL.Path != "/mcp/.well-known/oauth-protected-resource" {
 			http.NotFound(w, r)
 			return
@@ -69,6 +92,50 @@ func TestFetchPRM_RoundTrip(t *testing.T) {
 	}
 	if prm.Resource != "https://upstream.example/mcp" {
 		t.Fatalf("Resource = %q", prm.Resource)
+	}
+}
+
+func TestFetchPRM_WWWAuthenticateHint(t *testing.T) {
+	var prmURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mcp":
+			w.Header().Set("WWW-Authenticate", `Bearer realm="rovo", resource_metadata="`+prmURL+`"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/prm":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(prmDoc{Resource: "https://upstream.example/mcp", AuthorizationServers: []string{srv2URL(t)}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	prmURL = srv.URL + "/prm"
+
+	s := &Strategy{http: srv.Client()}
+	prm, err := s.fetchPRM(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("fetchPRM: %v", err)
+	}
+	if prm.Resource != "https://upstream.example/mcp" {
+		t.Fatalf("Resource = %q", prm.Resource)
+	}
+}
+
+func TestExtractResourceMetadata(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{`Bearer realm="r", resource_metadata="https://a/b"`, "https://a/b"},
+		{`Bearer resource_metadata=https://a/b, realm="r"`, "https://a/b"},
+		{`Bearer resource_metadata=https://a/b`, "https://a/b"},
+		{`Bearer realm="r"`, ""},
+	}
+	for _, c := range cases {
+		if got := extractResourceMetadata(c.in); got != c.want {
+			t.Errorf("extractResourceMetadata(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 
