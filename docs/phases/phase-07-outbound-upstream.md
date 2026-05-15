@@ -60,7 +60,7 @@ Behaviors worth pinning:
 
 - **PKCE S256** mandatory.
 - **`resource` parameter** populated with the upstream's resource URI from PRM.
-- **State parameter** is an HMAC-signed bundle of `(tenant_id, user_id, upstream_id, nonce, return_to)`. HMAC key is `security.token_encryption_key` (re-use OK — different domain separation string). Stored in a short-lived `OAuthState` table or in a signed cookie; pick whichever is simpler — DB rows are easier to clean up and audit.
+- **State parameter** is an HMAC-signed bundle of `(tenant_id, user_id, upstream_id, nonce, return_to)`. HMAC key is derived from `security.token_encryption_key` via HKDF with the domain tag `"upstream.oauth.state"` (so it cannot be confused with the Phase 4 portal-state MAC). State is **persisted in Valkey** (the same instance Zitadel uses for its cache; Limen owns its own logical keyspace under `limen:upstream:state:<state_value>`) with a 10-minute TTL. Valkey handles expiry, so no janitor is needed; one-shot enforcement uses `GETDEL` so a replay of the same `state` value finds nothing. The Valkey payload carries the signed envelope plus the PKCE verifier, encrypted with AAD `tenant|user|"upstream.pkce"` — Valkey never sees a plaintext verifier.
 - **Token storage**: access + refresh tokens encrypted with AAD `tenant|user|"upstream.<access|refresh>_token"`.
 - **Refresh window**: if `expires_at - now < 60 s` at request time, do a synchronous refresh; otherwise rely on the background refresher.
 - **Refresh-token rotation**: many providers (including Atlassian and Zitadel) issue a new refresh token on every refresh. The refresh path **must** persist whichever of `access_token`, `refresh_token`, `expires_at`, and `scopes` the response returned; never assume the old refresh token still works after a successful exchange.
@@ -219,30 +219,26 @@ The goal is to stop hammering an upstream that is reliably failing for a specifi
 - **What counts as a success**: any tool call that returns 2xx, or any successful refresh exchange.
 - **Where the counter is updated**: Phase 8's `authInjectingTransport` (tool calls) and Phase 7's `refreshLocked` (refresh path) bump or reset `ConsecutiveFailures` in the same DB transaction that persists the call outcome, so it never drifts from reality.
 - **Auto-disable thresholds** (config-driven, with shipped defaults):
-  - `≥5 consecutive failures` **and** `LastFailureAt - first-failure-of-streak ≥ 15 min`, **or**
+  - `≥5 consecutive failures` **and** `LastFailureAt - FirstFailureAt ≥ 15 min` (where `FirstFailureAt` is a dedicated column set on the 0→1 transition and cleared on any success), **or**
   - `NeedsRelink=true` continuously for `≥ 24 h` without a successful re-link.
 
-  On trip: set `AutoDisabledAt = now()`, leave `Enabled` as-is, log an audit event `upstream_auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`, and emit a notification (v1: structured log; future: email via Zitadel's notification hooks).
+  On trip: set `AutoDisabledAt = now()`, leave `Enabled` as-is, emit an audit event `upstream.auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)` and a notification. **v1**: the audit event is a structured zap log at INFO level; [Phase 12](phase-12-staff-backoffice.md) introduces the `audit_events` table + `audit.Append` writer and retrofits this emission to persist there. **future**: email via Zitadel's notification hooks.
 
 - **Effect**: Phase 8's tool-visibility filter treats `AutoDisabledAt != NULL` the same as `Enabled=false` — the upstream's tools disappear from `tools/list` and `CallTool` returns the structured "re-link or re-enable required" MCP error. The round-tripper short-circuits before hitting the network if `AutoDisabledAt != NULL`.
 - **Recovery**: the portal shows the auto-disabled banner with a one-click **Re-enable** (clears `AutoDisabledAt` + `ConsecutiveFailures`, lets the next request try again) or **Reconnect** (full `StartLink` flow, used when `NeedsRelink=true` is also set). Any successful subsequent call clears `AutoDisabledAt` automatically on its way through.
 - **Background refresher** skips `AutoDisabledAt != NULL` rows just like it skips `NeedsRelink=true` ones — there's no point burning quota on a known-broken link until the user acts.
 
-### State table (optional, choose this path or signed cookie)
+### One-shot OAuth state (Valkey-backed)
 
 ```
-OAuthState
-- ID
-- TenantID
-- UserID
-- UpstreamID
-- StateValue (random 32 bytes, base64url)
-- ReturnTo
-- ExpiresAt (now+10 min)
-- Used bool
+Key:   limen:upstream:state:<state_value>           (state_value = 32 random bytes, base64url)
+Value: JSON { tenant_id, user_id, upstream_id, return_to, expires_at,
+              pkce_verifier_ciphertext (AAD tenant|user|"upstream.pkce") }
+TTL:   10 minutes (server-side; Valkey handles expiry, no janitor)
+Read:  GETDEL — atomic one-shot consumption (replay finds nil)
 ```
 
-Cleaned up by the janitor. Lookup is constant-time on `StateValue`.
+The random `state_value` is what the upstream AS echoes back on `/callback`; Limen verifies the signed HMAC envelope **and** that the Valkey `GETDEL` returned a payload, in that order. A cookie-backed alternative is rejected because one-shot enforcement still requires server-side state (a cookie can be replayed by the browser).
 
 ### Tool visibility rule (handed to Phase 8)
 
@@ -261,7 +257,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 ## Deliverables
 
 - New files (under `internal/upstream/`): `strategy.go`, `handlers.go`, `refresher.go`, `mcpspec/{discovery,registrar,link,headers}.go`, `statichdr/{config,link,headers}.go`, `none/none.go`.
-- Optional model addition: `OAuthState` (or use a signed-cookie approach).
+- Optional model addition: `UpstreamLink.FirstFailureAt *time.Time` (streak start) alongside the other health columns. No new DB-backed state table — OAuth state lives in Valkey.
 - Schema migration adding `enabled BOOLEAN NOT NULL DEFAULT true`, `needs_relink BOOLEAN NOT NULL DEFAULT false`, `consecutive_failures INT NOT NULL DEFAULT 0`, `last_failure_at TIMESTAMPTZ`, `last_failure_reason TEXT NOT NULL DEFAULT ''`, and `auto_disabled_at TIMESTAMPTZ` to `upstream_links`.
 - Updated `internal/transport/http.go` to mount `/t/{tenant}/upstream/{name}/*` routes.
 
@@ -312,7 +308,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
 - [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
-- [ ] `UpstreamLink` health-tracking columns added: `ConsecutiveFailures`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; migration shipped
+- [ ] `UpstreamLink` health-tracking columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; migration shipped
 - [ ] Auto-disable rule: ≥5 consecutive failures over ≥15 min **or** `NeedsRelink=true` for ≥24 h → set `AutoDisabledAt=now()`; thresholds config-driven
 - [ ] Successful tool call or refresh atomically resets `ConsecutiveFailures` and clears `AutoDisabledAt` in the same DB tx that records the outcome
 - [ ] Background refresher skips rows where `AutoDisabledAt IS NOT NULL` (as it already does for `NeedsRelink=true`)
@@ -322,7 +318,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [ ] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
 - [ ] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
 - [ ] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true`
-- [ ] State table (or signed cookie) implemented with one-shot enforcement
+- [ ] Valkey-backed one-shot OAuth state (HMAC-signed envelope + encrypted PKCE verifier; `GETDEL`-style consumption; 10-minute TTL)
 - [ ] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
 - [ ] Integration test for full mcp_spec connect flow against an httptest stub
 - [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds

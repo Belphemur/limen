@@ -11,6 +11,18 @@ Also: the tool list exposed to a user is filtered by visibility (Phase 7's rule)
 
 ## Design
 
+### Seams provided by Phase 7
+
+This phase consumes — it does not re-implement — three pieces of machinery that [Phase 7](phase-07-outbound-upstream.md) already shipped:
+
+| Seam | Phase 7 surface | Phase 8 use |
+| ---- | --------------- | ----------- |
+| Force-refresh of an `mcp_spec` link | `strategy.HeadersForceRefresh(ctx, upstream, link)` — funnels through Phase 7's `refreshLocked` (single-flight + `SELECT FOR UPDATE SKIP LOCKED` + rotation + `invalid_grant`→`NeedsRelink`) | The round-tripper's reactive 401 handler calls this exactly once per request via `AuthProvider.HeadersForceRefresh`. |
+| Health-counter mutation | `upstream.RecordSuccess(ctx, link)` / `upstream.RecordFailure(ctx, link, reason)` — atomic SQL `UPDATE` that resets or bumps `ConsecutiveFailures` / `FirstFailureAt` / `LastFailureAt` / `LastFailureReason` and flips `AutoDisabledAt` when the threshold trips | The round-tripper calls these from the post-response branch in the same goroutine; failure to update is logged, never bubbled to the caller. |
+| "Re-link required" signal | `errors.Is(err, upstream.ErrNeedsRelink)` returned by `refreshLocked` | The round-tripper maps a refresh that returns `ErrNeedsRelink` — and a second consecutive 401 after a fresh token — to the structured MCP error documented below. |
+
+Nothing in this phase reaches into the strategy implementations directly; everything goes through the `AuthProvider` (whose `DBAuthProvider` is just a thin facade over `upstream.Registry`) and the three helpers above.
+
 ### `AuthProvider` interface and roundtripper
 
 ```go

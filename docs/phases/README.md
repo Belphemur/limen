@@ -143,9 +143,9 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
 - [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
-- [ ] `UpstreamLink` health columns added: `ConsecutiveFailures`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; auto-disable when ≥5 consecutive failures over ≥15 min, or `NeedsRelink=true` for ≥24 h; successful call/refresh resets the counter atomically
+- [ ] `UpstreamLink` health columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; auto-disable when ≥5 consecutive failures over ≥15 min, or `NeedsRelink=true` for ≥24 h; successful call/refresh resets the counter atomically
 - [ ] `mcp_spec` refresh is centralized: one `refreshLocked` function called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background); single-flight + `SELECT FOR UPDATE SKIP LOCKED` collapse concurrent refreshes; refresh-token rotation is persisted; `invalid_grant` flips `NeedsRelink=true`
-- [ ] State signed with HMAC, one-shot consumption
+- [ ] State signed with HMAC, one-shot consumption via Valkey (`GETDEL` + TTL)
 - [ ] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
 - [ ] Unit + integration tests for state signing, discovery, registration, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch, link enable/disable visibility
 

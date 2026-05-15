@@ -115,30 +115,70 @@ Both halves use the same `@connectrpc/connect-web` transport (same-origin), the 
 
 ### Audit log table
 
+The audit log is **not staff-only**. Every consequential action — staff, tenant admin, end user, and automated system events — funnels into a single `audit_events` table. Per-actor surfaces (staff backoffice, tenant admin SPA, user portal) project the same rows through different filters. Centralizing the table is what makes it possible to answer questions like "who touched this upstream link in the last 24 h, in any role?" without joining three different logs.
+
 ```sql
-CREATE TABLE staff_audit_log (
-  id              BIGSERIAL PRIMARY KEY,
-  public_id       TEXT NOT NULL UNIQUE,             -- aud_<ulid>
-  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  staff_user_id   BIGINT NOT NULL REFERENCES users(id),
-  action          TEXT NOT NULL,                    -- 'impersonate.start', 'force.unlink', ...
-  target_tenant_id BIGINT REFERENCES tenants(id),
-  target_user_id  BIGINT REFERENCES users(id),
-  reason          TEXT,                             -- required for impersonation, optional otherwise
-  payload_json    JSONB NOT NULL,                   -- redacted RPC args
-  result          TEXT NOT NULL,                    -- 'ok' | 'error:<code>'
-  ended_at        TIMESTAMPTZ                       -- for impersonation rows, set on EndImpersonation
+-- Single audit table. Phase 12 ships it; earlier phases that emit structured
+-- zap logs (Phase 7 upstream lifecycle, Phase 9 portal mutations) start
+-- writing here once the writer is available. Until then their log lines are
+-- the historical record; no backfill is attempted.
+CREATE TYPE audit_actor_type AS ENUM ('user', 'staff', 'system');
+
+CREATE TABLE audit_events (
+  id                BIGSERIAL PRIMARY KEY,
+  public_id         TEXT NOT NULL UNIQUE,                -- aev_<ulid>
+  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor_type        audit_actor_type NOT NULL,
+  actor_user_id     BIGINT REFERENCES users(id),         -- NULL when actor_type='system'
+  actor_tenant_id   BIGINT REFERENCES tenants(id),       -- NULL when actor_type='system' or staff cross-tenant
+  -- For impersonation rows, the on-behalf-of subject:
+  on_behalf_of_user_id BIGINT REFERENCES users(id),
+  action            TEXT NOT NULL,                       -- 'upstream.connected', 'upstream.disconnected',
+                                                         -- 'upstream.link.enabled', 'upstream.link.disabled',
+                                                         -- 'upstream.link.api_key_rotated',
+                                                         -- 'upstream.auto_disabled', 'upstream.refresh_failed',
+                                                         -- 'mcp_client.revoked',
+                                                         -- 'staff.impersonate.start', 'staff.impersonate.end',
+                                                         -- 'staff.force.unlink', 'staff.force.reenable',
+                                                         -- 'staff.breaker.trip', 'staff.breaker.reset', ...
+  target_tenant_id  BIGINT REFERENCES tenants(id),       -- the tenant the action affects (== actor_tenant_id for non-staff)
+  target_user_id    BIGINT REFERENCES users(id),
+  target_kind       TEXT,                                -- 'upstream_link', 'mcp_client', 'breaker', ...
+  target_public_id  TEXT,                                -- public ID of the target row, when applicable
+  reason            TEXT,                                -- required for staff impersonation / force-actions
+  payload_json      JSONB NOT NULL DEFAULT '{}',         -- redacted RPC args / event details
+  result            TEXT NOT NULL,                       -- 'ok' | 'error:<code>'
+  ended_at          TIMESTAMPTZ                          -- impersonation rows: set on end
 ) PARTITION BY RANGE (occurred_at);
+
+CREATE INDEX audit_events_target_tenant_idx ON audit_events (target_tenant_id, occurred_at DESC);
+CREATE INDEX audit_events_actor_user_idx    ON audit_events (actor_user_id, occurred_at DESC);
+CREATE INDEX audit_events_action_idx        ON audit_events (action, occurred_at DESC);
 ```
 
-The table is `BYPASSRLS` on read for `limen_admin` only; the runtime `limen_app` role inserts via a `SECURITY DEFINER` function (`audit.append(...)`) so application code cannot tamper with rows. Monthly partitions; retention ≥ 24 months (operator-configurable). Reads are paginated by `(occurred_at DESC, id DESC)` cursor.
+The table is `BYPASSRLS` for `limen_admin` only; the runtime `limen_app` role inserts via a `SECURITY DEFINER` function (`audit.append(actor_type, actor_user, actor_tenant, action, target_*, reason, payload, result)`) so application code cannot tamper with existing rows — only append. Monthly partitions; retention ≥ 24 months (operator-configurable). Reads are paginated by `(occurred_at DESC, id DESC)` cursor.
+
+#### Read surfaces
+
+- **Staff backoffice** (this phase): unrestricted, paginated, filterable by `actor_type`, `action`, `target_tenant_id`, time range.
+- **Tenant admin SPA** ([Phase 9b](phase-09b-tenant-admin-spa.md)): rows where `target_tenant_id = <viewer tenant>` AND `actor_type IN ('user','system')` — admins see their tenant's history, never staff actions performed on the tenant.
+- **User portal** ([Phase 9](phase-09-portal-spa.md)): rows where `actor_user_id = <viewer user>` OR `target_user_id = <viewer user>` — "my activity". Out of scope for v1 SPA; the row format is the input.
+
+#### Write surfaces
+
+- **Phase 7** emits `upstream.connected`, `upstream.disconnected`, `upstream.link.enabled`, `upstream.link.disabled`, `upstream.link.api_key_rotated`, `upstream.auto_disabled`, `upstream.refresh_failed`. Until Phase 12 ships the writer, these are **structured zap logs** at INFO level carrying the same field set — no backfill is done when the table arrives.
+- **Phase 9 / 9b** emits portal + admin mutations through the writer once available (`mcp_client.revoked`, `tenant.settings.updated`, etc.).
+- **Phase 12** (this phase) emits every staff action through the same writer.
+
+A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`), the SQL function binding, and the actor extraction from ctx so call sites stay trivial.
 
 ## Deliverables
 
 - New `proto/limen/staff/v1/staff.proto` + buf wiring.
-- New `internal/staff/` package: RPC handlers, impersonation flow, breaker control, audit writer.
+- New `internal/staff/` package: RPC handlers, impersonation flow, breaker control.
 - New `internal/storage/staff.go`: `WithStaffRead(ctx)` helper, staff-mode RLS migration.
-- New `internal/audit/` writer + `staff_audit_log` migration (partitioned).
+- New `internal/audit/` writer + `audit_events` migration (partitioned, **shared** across user / staff / system actors).
+- Retrofit prior phases (Phase 7 first, then Phase 9 / 9b) to route their existing structured-log audit events through `audit.Append` once the writer is available.
 - Extension to [Phase 0](phase-00-dev-environment.md) bootstrap: staff org + `super_admin` role + bootstrap user.
 - Extension to [Phase 11](phase-11-production-deployment.md) `limen-migrate`: ensure `_staff` tenant row exists.
 - SPA: new `web/src/staff/` route module; shared shell decides which bundle to load on boot.
@@ -177,7 +217,9 @@ The table is `BYPASSRLS` on read for `limen_admin` only; the runtime `limen_app`
 - [ ] `proto/limen/staff/v1/staff.proto` defined and codegen wired
 - [ ] `internal/staff/` package implements every RPC and the impersonation flow
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
-- [ ] `staff_audit_log` migration creates partitioned table + monthly partition helper; `audit.append(...)` SECURITY DEFINER function provisions runtime writes
+- [ ] `audit_events` migration creates partitioned table + monthly partition helper; `audit.append(...)` SECURITY DEFINER function provisions append-only runtime writes
+- [ ] `audit_events` schema covers all three actor types (`user` / `staff` / `system`) and is reused by user-facing audit surfaces in Phase 9 / 9b, not just the staff backoffice
+- [ ] Phase 7's `upstream.*` audit events (previously zap-only) are routed through `audit.Append` once this phase lands; the retrofit is part of this phase's deliverables
 - [ ] Impersonation cookie is separate from the staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session before any impersonation start
 - [ ] Customer SPA shows a non-dismissible banner whenever an impersonation cookie is present

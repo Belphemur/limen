@@ -90,6 +90,8 @@ internal/portal/
 └── errors.go          // Connect error mapping
 ```
 
+**Boundary with Phase 7.** [Phase 7](phase-07-outbound-upstream.md) ships the upstream linking engine and exposes a plain Go API (`internal/upstream.Service`) with `StartConnect(ctx, upstreamName, returnTo) (redirectURL string, err error)`, `Disconnect(ctx, upstreamName) error`, and `PersistUserStaticHeaderSecret(ctx, upstreamName, secret) error`. Phase 9's `StartConnect`, `Disconnect`, and `SubmitUpstreamAPIKey` Connect-RPC handlers are thin wrappers around those methods; they perform no OAuth/strategy logic of their own. The only HTTP route Phase 7 owns is `GET /t/{tenant}/upstream/{name}/callback` — the protocol-mandated OAuth redirect URI, behind `tenancy.RequireTenant` + `OIDC.RequireSession`. Everything else is Connect-RPC.
+
 Admin / owner operations split two ways: anything Zitadel ships as self-service (members, invites, role grants, password / MFA, external IdP federation, branding) goes to Zitadel Console — see Phase 4's _Self-service delegation_ table. Limen-domain admin operations (upstream catalog CRUD, tenant settings, self-serve tenant signup) live in `internal/admin/` under [Phase 9b](phase-09b-tenant-admin-spa.md).
 
 Mounting:
