@@ -30,8 +30,12 @@ import (
 type appManager interface {
 	AddOIDCApp(ctx context.Context, in zitadel.AddOIDCAppInput) (*zitadel.OIDCApp, error)
 	UpdateOIDCApp(ctx context.Context, in zitadel.UpdateOIDCAppInput) error
-	DeleteOIDCApp(ctx context.Context, orgID, appID string) error
-	GetOIDCApp(ctx context.Context, orgID, appID string) (*zitadel.OIDCApp, error)
+	DeleteOIDCApp(ctx context.Context, orgID, projectID, appID string) error
+	GetOIDCApp(ctx context.Context, orgID, projectID, appID string) (*zitadel.OIDCApp, error)
+	// EnsureProject is the JIT find-or-create used by DCR to give each
+	// MCP client a dedicated Zitadel project under the tenant org. See
+	// docs/phases/phase-07b-dcr-per-client-project.md.
+	EnsureProject(ctx context.Context, orgID, name string) (string, error)
 }
 
 // DCRConfig configures the DCR proxy handler.
@@ -167,6 +171,17 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projectID, err := h.apps.EnsureProject(r.Context(), tenant.ZitadelOrgID, normalized.ClientName)
+	if err != nil {
+		h.logger.Error("zitadel project ensure failed",
+			zap.String("tenant", tenant.PublicID),
+			zap.String("client_name", normalized.ClientName),
+			zap.Error(err))
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider rejected the registration")
+		return
+	}
+	zitadelInput.ProjectID = projectID
+
 	app, err := h.apps.AddOIDCApp(r.Context(), zitadelInput)
 	if err != nil {
 		h.logger.Error("zitadel app create failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
@@ -177,7 +192,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 	rawToken, tokenHash, err := newRegistrationAccessToken()
 	if err != nil {
 		h.logger.Error("registration access token mint failed", zap.Error(err))
-		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, app.AppID)
+		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, projectID, app.AppID)
 		dcrError(w, http.StatusInternalServerError, "server_error", "failed to mint registration access token")
 		return
 	}
@@ -185,6 +200,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 	row := storage.ZitadelApp{
 		TenantID:                    tenant.ID,
 		ZitadelAppID:                app.AppID,
+		ZitadelProjectID:            projectID,
 		ClientID:                    app.ClientID,
 		Name:                        normalized.ClientName,
 		RedirectURIs:                strings.Join(normalized.RedirectURIs, "\n"),
@@ -198,7 +214,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err := h.persist(r.Context(), &row); err != nil {
 		h.logger.Error("mirror persist failed; rolling back zitadel app",
 			zap.String("tenant", tenant.PublicID), zap.String("app_id", app.AppID), zap.Error(err))
-		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, app.AppID)
+		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, projectID, app.AppID)
 		dcrError(w, http.StatusInternalServerError, "server_error", "failed to persist client registration")
 		return
 	}
@@ -213,7 +229,7 @@ func (h *DCRHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if !authedOK {
 		return
 	}
-	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID)
+	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelProjectID, row.ZitadelAppID)
 	if err != nil {
 		h.logger.Error("zitadel app get failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
 		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider unavailable")
@@ -253,6 +269,7 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.apps.UpdateOIDCApp(r.Context(), zitadel.UpdateOIDCAppInput{
 		OrgID:                  tenant.ZitadelOrgID,
+		ProjectID:              row.ZitadelProjectID,
 		AppID:                  row.ZitadelAppID,
 		RedirectURIs:           normalized.RedirectURIs,
 		PostLogoutRedirectURIs: normalized.PostLogoutRedirectURIs,
@@ -272,7 +289,7 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 		dcrError(w, http.StatusInternalServerError, "server_error", "failed to persist client update")
 		return
 	}
-	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID)
+	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelProjectID, row.ZitadelAppID)
 	if err != nil {
 		h.logger.Error("zitadel app reread failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
 		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider unavailable")
@@ -289,7 +306,7 @@ func (h *DCRHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !authedOK {
 		return
 	}
-	if err := h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID); err != nil {
+	if err := h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelProjectID, row.ZitadelAppID); err != nil {
 		h.logger.Error("zitadel app delete failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
 		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider rejected the delete")
 		return

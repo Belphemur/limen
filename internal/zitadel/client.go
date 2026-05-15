@@ -163,3 +163,14 @@ func (c *Client) API() *zsdk.Client { return c.api }
 
 // ProjectID returns the configured Limen project id.
 func (c *Client) ProjectID() string { return c.projectID }
+
+// projectIDOr returns override when non-empty, otherwise the configured
+// Limen project id. Used by app-service calls so callers can target a
+// per-client project (DCR path) or fall back to the shared project
+// (bootstrap path).
+func (c *Client) projectIDOr(override string) string {
+	if override != "" {
+		return override
+	}
+	return c.projectID
+}

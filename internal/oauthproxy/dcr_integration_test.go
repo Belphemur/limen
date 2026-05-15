@@ -32,6 +32,32 @@ type fakeZitadel struct {
 	deleteErr     error
 	deletedAppIDs []string
 	state         *zitadel.OIDCApp
+
+	projectIDs         map[string]string // org|name -> projectID
+	ensureProjectErr   error
+	ensureProjectCalls []ensureProjectCall
+}
+
+type ensureProjectCall struct {
+	OrgID string
+	Name  string
+}
+
+func (f *fakeZitadel) EnsureProject(_ context.Context, orgID, name string) (string, error) {
+	if f.ensureProjectErr != nil {
+		return "", f.ensureProjectErr
+	}
+	f.ensureProjectCalls = append(f.ensureProjectCalls, ensureProjectCall{OrgID: orgID, Name: name})
+	key := orgID + "|" + name
+	if f.projectIDs == nil {
+		f.projectIDs = map[string]string{}
+	}
+	if pid, ok := f.projectIDs[key]; ok {
+		return pid, nil
+	}
+	pid := "proj_" + name
+	f.projectIDs[key] = pid
+	return pid, nil
 }
 
 func (f *fakeZitadel) AddOIDCApp(_ context.Context, in zitadel.AddOIDCAppInput) (*zitadel.OIDCApp, error) {
@@ -65,7 +91,7 @@ func (f *fakeZitadel) UpdateOIDCApp(_ context.Context, in zitadel.UpdateOIDCAppI
 	return nil
 }
 
-func (f *fakeZitadel) DeleteOIDCApp(_ context.Context, _, appID string) error {
+func (f *fakeZitadel) DeleteOIDCApp(_ context.Context, _, _, appID string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
@@ -74,7 +100,7 @@ func (f *fakeZitadel) DeleteOIDCApp(_ context.Context, _, appID string) error {
 	return nil
 }
 
-func (f *fakeZitadel) GetOIDCApp(_ context.Context, _, _ string) (*zitadel.OIDCApp, error) {
+func (f *fakeZitadel) GetOIDCApp(_ context.Context, _, _, _ string) (*zitadel.OIDCApp, error) {
 	if f.state == nil {
 		return nil, errors.New("not found")
 	}

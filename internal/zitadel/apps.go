@@ -31,7 +31,13 @@ const (
 // the fields the DCR proxy actually writes; Zitadel's other knobs (token
 // type, role assertions, clock skew, ...) keep their defaults.
 type AddOIDCAppInput struct {
-	OrgID                  string
+	OrgID string
+	// ProjectID picks the Zitadel project the app is created in. Empty
+	// falls back to Client.projectID (Limen's shared gateway project),
+	// used by the bootstrap path. DCR-created apps always pass a
+	// per-client project id — see
+	// docs/phases/phase-07b-dcr-per-client-project.md.
+	ProjectID              string
 	Name                   string
 	RedirectURIs           []string
 	PostLogoutRedirectURIs []string
@@ -42,7 +48,10 @@ type AddOIDCAppInput struct {
 // UpdateOIDCAppInput is the full-replace payload for UpdateOIDCApp,
 // matching the semantics of RFC 7592 `PUT /register/{client_id}`.
 type UpdateOIDCAppInput struct {
-	OrgID                  string
+	OrgID string
+	// ProjectID picks the Zitadel project hosting the app. Empty falls
+	// back to Client.projectID.
+	ProjectID              string
 	AppID                  string
 	RedirectURIs           []string
 	PostLogoutRedirectURIs []string
@@ -88,7 +97,7 @@ func (c *Client) AddOIDCApp(ctx context.Context, in AddOIDCAppInput) (*OIDCApp, 
 	}
 
 	resp, err := c.api.ApplicationServiceV2().CreateApplication(ctx, &applicationV2.CreateApplicationRequest{
-		ProjectId: c.projectID,
+		ProjectId: c.projectIDOr(in.ProjectID),
 		Name:      in.Name,
 		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
@@ -150,7 +159,7 @@ func (c *Client) UpdateOIDCApp(ctx context.Context, in UpdateOIDCAppInput) error
 
 	if _, err := c.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
 		ApplicationId: in.AppID,
-		ProjectId:     c.projectID,
+		ProjectId:     c.projectIDOr(in.ProjectID),
 		ApplicationType: &applicationV2.UpdateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationV2.UpdateOIDCApplicationConfigurationRequest{
 				RedirectUris:           in.RedirectURIs,
@@ -172,8 +181,9 @@ func (c *Client) UpdateOIDCApp(ctx context.Context, in UpdateOIDCAppInput) error
 	return nil
 }
 
-// DeleteOIDCApp removes an OIDC app from orgID's project.
-func (c *Client) DeleteOIDCApp(ctx context.Context, orgID, appID string) error {
+// DeleteOIDCApp removes an OIDC app from a project. If projectID is empty
+// the client falls back to Client.projectID (Limen's shared project).
+func (c *Client) DeleteOIDCApp(ctx context.Context, orgID, projectID, appID string) error {
 	if orgID == "" {
 		return fmt.Errorf("zitadel: DeleteOIDCApp: orgID is required")
 	}
@@ -182,7 +192,7 @@ func (c *Client) DeleteOIDCApp(ctx context.Context, orgID, appID string) error {
 	}
 	if _, err := c.api.ApplicationServiceV2().DeleteApplication(ctx, &applicationV2.DeleteApplicationRequest{
 		ApplicationId: appID,
-		ProjectId:     c.projectID,
+		ProjectId:     c.projectIDOr(projectID),
 	}); err != nil {
 		return fmt.Errorf("zitadel: delete app (app=%q org=%q): %w", appID, orgID, err)
 	}
@@ -190,8 +200,11 @@ func (c *Client) DeleteOIDCApp(ctx context.Context, orgID, appID string) error {
 }
 
 // GetOIDCApp fetches an OIDC app by id. Returns an error if the app exists
-// but is not an OIDC application (e.g. API or SAML).
-func (c *Client) GetOIDCApp(ctx context.Context, orgID, appID string) (*OIDCApp, error) {
+// but is not an OIDC application (e.g. API or SAML). projectID is accepted
+// for API symmetry but the GetApplication call resolves the app by id
+// alone — Zitadel verifies project scoping on its side.
+func (c *Client) GetOIDCApp(ctx context.Context, orgID, projectID, appID string) (*OIDCApp, error) {
+	_ = projectID
 	if orgID == "" {
 		return nil, fmt.Errorf("zitadel: GetOIDCApp: orgID is required")
 	}

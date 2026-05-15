@@ -43,9 +43,14 @@ func (f *fakeAppManager) AddOIDCApp(_ context.Context, in zitadel.AddOIDCAppInpu
 func (f *fakeAppManager) UpdateOIDCApp(context.Context, zitadel.UpdateOIDCAppInput) error {
 	return nil
 }
-func (f *fakeAppManager) DeleteOIDCApp(context.Context, string, string) error { return nil }
-func (f *fakeAppManager) GetOIDCApp(context.Context, string, string) (*zitadel.OIDCApp, error) {
+func (f *fakeAppManager) DeleteOIDCApp(context.Context, string, string, string) error {
+	return nil
+}
+func (f *fakeAppManager) GetOIDCApp(context.Context, string, string, string) (*zitadel.OIDCApp, error) {
 	return nil, nil
+}
+func (f *fakeAppManager) EnsureProject(_ context.Context, _, name string) (string, error) {
+	return "proj_" + name, nil
 }
 
 func dcrRequestCtx(req *http.Request, t *storage.Tenant) *http.Request {
