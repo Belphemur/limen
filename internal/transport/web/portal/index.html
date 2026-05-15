@@ -86,6 +86,45 @@
     details {
       margin-top: 1rem;
     }
+
+    table.upstreams {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+    }
+
+    table.upstreams th,
+    table.upstreams td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+      vertical-align: middle;
+    }
+
+    table.upstreams th {
+      font-size: 0.85rem;
+      color: #666;
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      border: 1px solid currentColor;
+    }
+
+    .badge.connected     { color: #137333; }
+    .badge.disconnected  { color: #888;    }
+    .badge.needs_relink  { color: #b06000; }
+    .badge.auto_disabled { color: #b00020; }
+    .badge.disabled      { color: #888;    }
+    .badge.error         { color: #b00020; }
+
+    .row-actions { display: flex; gap: 0.5rem; }
+    .row-actions button { padding: 0.3rem 0.7rem; font-size: 0.9rem; }
+    .empty { color: #888; font-style: italic; }
   </style>
 </head>
 
@@ -118,6 +157,27 @@
         <button id="refresh">Refresh</button>
         <a id="logout" class="button">Sign out</a>
       </div>
+<h2 style="margin-top:2rem">MCP Upstreams</h2>
+<p class="muted">Phase 7 PoC — connect / disconnect upstream MCP servers for this user.</p>
+<div id="upstreams-loading">Loading upstreams…</div>
+<table class="upstreams" id="upstreams-table" hidden>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Strategy</th>
+      <th>URL</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody id="upstreams-body"></tbody>
+</table>
+<p id="upstreams-empty" class="empty" hidden>
+  No upstreams registered for this tenant. Use
+  <code>limen create-upstream</code> to add one.
+</p>
+<p id="upstreams-error" class="empty" hidden></p>
+
       <details>
         <summary>Raw claims</summary>
         <pre id="raw"></pre>
@@ -181,9 +241,135 @@
           document.getElementById("exp").textContent = fmtExp(me.exp);
           document.getElementById("raw").textContent = JSON.stringify(me, null, 2);
           show($signedIn);
+          fetchUpstreams();
         } catch (e) {
           document.getElementById("error-msg").textContent = String(e);
           show($error);
+        }
+      }
+
+      function renderUpstreams(items) {
+        const $loading = document.getElementById("upstreams-loading");
+        const $table = document.getElementById("upstreams-table");
+        const $body = document.getElementById("upstreams-body");
+        const $empty = document.getElementById("upstreams-empty");
+        const $err = document.getElementById("upstreams-error");
+        $loading.hidden = true;
+        $err.hidden = true;
+        if (!items || !items.length) {
+          $table.hidden = true;
+          $empty.hidden = false;
+          return;
+        }
+        $empty.hidden = true;
+        $body.innerHTML = "";
+        for (const it of items) {
+          const tr = document.createElement("tr");
+
+          const nameTd = document.createElement("td");
+          nameTd.innerHTML = `<strong>${it.name}</strong><br><small style="color:#888">${it.public_id}</small>`;
+
+          const stratTd = document.createElement("td");
+          stratTd.innerHTML = `<code>${it.strategy}</code>`;
+
+          const urlTd = document.createElement("td");
+          urlTd.style.fontFamily = "ui-monospace, monospace";
+          urlTd.style.fontSize = "0.85rem";
+          urlTd.style.wordBreak = "break-all";
+          urlTd.textContent = it.mcp_server_url;
+
+          const statusTd = document.createElement("td");
+          const badge = document.createElement("span");
+          badge.className = `badge ${it.status}`;
+          badge.textContent = it.status.replace(/_/g, " ");
+          statusTd.appendChild(badge);
+
+          const actTd = document.createElement("td");
+          actTd.className = "row-actions";
+          const connectable = it.status !== "connected";
+          const disconnectable = it.status !== "disconnected";
+          if (connectable) {
+            const b = document.createElement("button");
+            b.textContent = it.status === "needs_relink" ? "Relink" : "Connect";
+            b.addEventListener("click", () => connectUpstream(it.name, b));
+            actTd.appendChild(b);
+          }
+          if (disconnectable) {
+            const b = document.createElement("button");
+            b.textContent = "Disconnect";
+            b.addEventListener("click", () => disconnectUpstream(it.name, b));
+            actTd.appendChild(b);
+          }
+
+          tr.append(nameTd, stratTd, urlTd, statusTd, actTd);
+          $body.appendChild(tr);
+        }
+        $table.hidden = false;
+      }
+
+      async function fetchUpstreams() {
+        const $loading = document.getElementById("upstreams-loading");
+        const $err = document.getElementById("upstreams-error");
+        $loading.hidden = false;
+        $err.hidden = true;
+        try {
+          const r = await fetch(`${tenantPrefix}/portal/upstreams`, { credentials: "same-origin" });
+          if (!r.ok) {
+            $loading.hidden = true;
+            $err.textContent = `upstreams failed: HTTP ${r.status}`;
+            $err.hidden = false;
+            return;
+          }
+          renderUpstreams(await r.json());
+        } catch (e) {
+          $loading.hidden = true;
+          $err.textContent = String(e);
+          $err.hidden = false;
+        }
+      }
+
+      async function connectUpstream(name, btn) {
+        btn.disabled = true;
+        try {
+          const r = await fetch(`${tenantPrefix}/portal/upstreams/${encodeURIComponent(name)}/connect`, {
+            method: "POST",
+            credentials: "same-origin",
+          });
+          if (!r.ok) {
+            alert(`connect ${name}: HTTP ${r.status}\n${await r.text()}`);
+            btn.disabled = false;
+            return;
+          }
+          const body = await r.json();
+          if (body.redirect_url) {
+            window.location.href = body.redirect_url;
+            return;
+          }
+          // tenant-mode strategies link in-place — just refresh the list.
+          fetchUpstreams();
+        } catch (e) {
+          alert(String(e));
+          btn.disabled = false;
+        }
+      }
+
+      async function disconnectUpstream(name, btn) {
+        if (!confirm(`Disconnect "${name}"?`)) return;
+        btn.disabled = true;
+        try {
+          const r = await fetch(`${tenantPrefix}/portal/upstreams/${encodeURIComponent(name)}/disconnect`, {
+            method: "POST",
+            credentials: "same-origin",
+          });
+          if (!r.ok) {
+            alert(`disconnect ${name}: HTTP ${r.status}\n${await r.text()}`);
+            btn.disabled = false;
+            return;
+          }
+          fetchUpstreams();
+        } catch (e) {
+          alert(String(e));
+          btn.disabled = false;
         }
       }
 
