@@ -130,6 +130,9 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 
 		token := extractBearerToken(r)
 		if token == "" {
+			m.logger.Warn("mcp auth: missing bearer token",
+				zap.String("tenant", t.PublicID),
+				zap.String("path", r.URL.Path))
 			mcprs.WriteChallenge(w, http.StatusUnauthorized, metadataURL,
 				mcprs.ErrInvalidRequest, "missing bearer token")
 			return
@@ -137,7 +140,7 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 
 		claims, err := op.VerifyAccessToken[*MCPAccessClaims](r.Context(), token, m.verifier)
 		if err != nil {
-			m.logger.Debug("access token verify failed",
+			m.logger.Warn("mcp auth: access token verify failed",
 				zap.String("tenant", t.PublicID), zap.Error(err))
 			mcprs.WriteChallenge(w, http.StatusUnauthorized, metadataURL,
 				mcprs.ErrInvalidToken, "token validation failed")
@@ -145,7 +148,7 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 		}
 
 		if !audienceContains(claims.Audience, m.audience) {
-			m.logger.Debug("aud mismatch",
+			m.logger.Warn("mcp auth: audience mismatch",
 				zap.String("tenant", t.PublicID),
 				zap.Strings("got", claims.Audience),
 				zap.String("want", m.audience))
