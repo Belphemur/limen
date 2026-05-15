@@ -51,13 +51,17 @@ func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user
 		return "", err
 	}
 	link, _ := s.loadLink(ctx, tenant.ID, user.ID, up.ID) // best-effort; may be nil
-	result, err := strat.StartLink(ctx, LinkContext{
+	lctx := LinkContext{
 		Tenant:   tenant,
 		User:     user,
 		Upstream: up,
 		Link:     link,
 		ReturnTo: returnTo,
-	})
+	}
+	if err := strat.Provision(ctx, lctx); err != nil {
+		return "", err
+	}
+	result, err := strat.StartLink(ctx, lctx)
 	if err != nil {
 		return "", err
 	}
