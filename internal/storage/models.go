@@ -158,6 +158,22 @@ type UpstreamLink struct {
 	ResourceURI  string             `gorm:"type:text;not null;default:''"`
 	ExtraJSON    crypto.SecretField `gorm:"type:bytea"`
 
+	// Phase 7 — health / lifecycle. See docs/phases/phase-07-outbound-upstream.md.
+	//
+	// Enabled is the user's explicit toggle; AutoDisabledAt is set by the
+	// auto-disable trip in health.RecordFailure. NeedsRelink flips true
+	// when the AS returns invalid_grant during a refresh. FirstFailureAt
+	// is the streak-start timestamp (set on the 0→1 transition; cleared
+	// on any success) so the "≥15 min over the streak" rule has a stable
+	// anchor that LastFailureAt alone cannot provide.
+	Enabled             bool       `gorm:"not null;default:true"`
+	NeedsRelink         bool       `gorm:"not null;default:false;index"`
+	ConsecutiveFailures int        `gorm:"not null;default:0"`
+	FirstFailureAt      *time.Time `gorm:"type:timestamptz"`
+	LastFailureAt       *time.Time `gorm:"type:timestamptz"`
+	LastFailureReason   string     `gorm:"type:text;not null;default:''"`
+	AutoDisabledAt      *time.Time `gorm:"type:timestamptz;index"`
+
 	User     *User     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
