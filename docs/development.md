@@ -53,6 +53,10 @@ keeps running. Re-launch Limen alone with `make dev-run`.
 | `make dev`                            | Full bring-up: stack → bootstrap → migrate → serve.                     |
 | `make dev-run`                        | Migrate + serve, auto-loading the env. Assumes the stack is already up. |
 | `make dev-bootstrap`                  | Re-run the Zitadel bootstrap. Idempotent.                               |
+| `make dev-cmd ARGS="…"`               | Run any `cmd/gateway` subcommand with the dev env auto-loaded.          |
+| `make dev-migrate`                    | Run `migrate` with the dev env auto-loaded.                             |
+| `make dev-create-tenant ARGS="…"`     | Run `create-tenant` with the dev env auto-loaded.                       |
+| `make dev-create-upstream ARGS="…"`   | Run `create-upstream` with the dev env auto-loaded.                     |
 | `make dev-down`                       | Stop services (keeps volumes).                                          |
 | `make dev-reset`                      | Stop services, wipe volumes, drop `.env.dev` and `.bootstrap-out.env`.  |
 | `make build`                          | `go build -o limen ./cmd/gateway`.                                      |
@@ -69,8 +73,16 @@ keeps running. Re-launch Limen alone with `make dev-run`.
 | `create-tenant`   | Provision a Limen tenant. Optionally creates the matching Zitadel org.       |
 | `create-upstream` | Insert / update an MCP upstream registration for a tenant (PoC, `mcp_spec`). |
 
-When the stack is up, the env that `make dev-run` exports is what these
-commands expect. To invoke them outside the Makefile, see
+All of them need the dev env (DB DSN, OIDC client, Zitadel PAT, …). The
+easiest way to run them is via the `make dev-*` wrappers above —
+`dev-cmd ARGS="…"` covers anything not pre-wired. Example:
+
+```bash
+make dev-create-upstream ARGS='--tenant tnt_01KRH7… --name github --url https://api.githubcopilot.com/mcp/'
+make dev-cmd ARGS='create-tenant --help'
+```
+
+To invoke them from a plain shell (e.g. to attach a debugger), see
 [§ Running commands manually](#running-commands-manually).
 
 ## Walking the Phase 4 OIDC flow
@@ -82,17 +94,11 @@ After `make dev` is up:
    ```bash
    # Bind to the bootstrap-created `acme` org (no Zitadel writes, no PAT
    # required, manage users via the Zitadel Console).
-   go run ./cmd/gateway create-tenant \
-     --name "Acme" \
-     --zitadel-org-id "$LIMEN_SAMPLE_TENANT_ORG_ID"
+   make dev-create-tenant ARGS='--name Acme --zitadel-org-id '"$LIMEN_SAMPLE_TENANT_ORG_ID"
 
    # Or: full flow — create the Zitadel org + seed owner. Owner gets an
    # "initial password" email at http://localhost:8025 (MailHog).
-   go run ./cmd/gateway create-tenant \
-     --name "Demo Tenant" \
-     --owner-email you@example.com \
-     --owner-given-name You \
-     --owner-family-name Example
+   make dev-create-tenant ARGS='--name "Demo Tenant" --owner-email you@example.com --owner-given-name You --owner-family-name Example'
    ```
 
    Each invocation prints a `PublicID` (`tnt_<ULID>`). Use that for every
@@ -125,10 +131,7 @@ test surface — Phase 9 replaces it with a real SPA.
    speak):
 
    ```bash
-   go run ./cmd/gateway create-upstream \
-     --tenant "$TENANT_PUBLIC_ID" \
-     --name rovo \
-     --url https://mcp.atlassian.com/v1/rovo
+   make dev-create-upstream ARGS="--tenant $TENANT_PUBLIC_ID --name rovo --url https://mcp.atlassian.com/v1/rovo"
    ```
 
    Idempotent on `(tenant, name)` — re-running updates the MCP URL in
