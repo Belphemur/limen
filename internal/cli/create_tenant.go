@@ -116,7 +116,7 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 					zap.String("owner_user_id", org.AdminUserID))
 
 				if org.AdminUserID == "" {
-					return errors.New("Zitadel returned no admin user id; cannot grant owner role")
+					return errors.New("zitadel returned no admin user id; cannot grant owner role")
 				}
 
 				logger.Info("granting owner role",

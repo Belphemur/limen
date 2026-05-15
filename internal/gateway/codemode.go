@@ -44,10 +44,10 @@ func (h *CodeModeHandler) Search(ctx context.Context, code string) (any, error) 
 	}
 
 	toolsJSON, _ := json.Marshal(defs)
-	vm.Set("__tools", string(toolsJSON))
+	_ = vm.Set("__tools", string(toolsJSON))
 
 	codemode := vm.NewObject()
-	codemode.Set("tools", func() ([]ToolDefinition, error) {
+	_ = codemode.Set("tools", func() ([]ToolDefinition, error) {
 		var parsed []ToolDefinition
 		if err := json.Unmarshal([]byte(vm.Get("__tools").String()), &parsed); err != nil {
 			return nil, err
@@ -55,7 +55,7 @@ func (h *CodeModeHandler) Search(ctx context.Context, code string) (any, error) 
 		return parsed, nil
 	})
 
-	vm.Set("codemode", codemode)
+	_ = vm.Set("codemode", codemode)
 
 	return h.runCode(ctx, vm, code)
 }
@@ -67,12 +67,12 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (any, error)
 	proxy := vm.NewObject()
 
 	for _, tool := range tools {
-		proxy.Set(tool.Name, func(call goja.FunctionCall) goja.Value {
+		_ = proxy.Set(tool.Name, func(call goja.FunctionCall) goja.Value {
 			var args map[string]any
 			if len(call.Arguments) > 0 {
 				exported := call.Argument(0).Export()
 				b, _ := json.Marshal(exported)
-				json.Unmarshal(b, &args)
+				_ = json.Unmarshal(b, &args)
 			}
 
 			result, err := h.gateway.CallTool(ctx, tool.Upstream, tool.Name, args)
@@ -86,7 +86,7 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (any, error)
 	}
 
 	codemode := vm.NewObject()
-	codemode.Set("tools", func() ([]ToolDefinition, error) {
+	_ = codemode.Set("tools", func() ([]ToolDefinition, error) {
 		var defs []ToolDefinition
 		for _, t := range tools {
 			defs = append(defs, ToolDefinition{
@@ -97,13 +97,13 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (any, error)
 		}
 		return defs, nil
 	})
-	codemode.Set("call", func(call goja.FunctionCall) goja.Value {
+	_ = codemode.Set("call", func(call goja.FunctionCall) goja.Value {
 		name := call.Argument(0).String()
 		var args map[string]any
 		if len(call.Arguments) > 1 {
 			exported := call.Argument(1).Export()
 			b, _ := json.Marshal(exported)
-			json.Unmarshal(b, &args)
+			_ = json.Unmarshal(b, &args)
 		}
 
 		tool, ok := h.gateway.FindTool(name)
@@ -120,7 +120,7 @@ func (h *CodeModeHandler) Execute(ctx context.Context, code string) (any, error)
 		return val
 	})
 
-	vm.Set("codemode", codemode)
+	_ = vm.Set("codemode", codemode)
 
 	return h.runCode(ctx, vm, code)
 }
