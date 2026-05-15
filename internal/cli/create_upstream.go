@@ -14,6 +14,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
+	"github.com/belphemur/limen/internal/upstream/mcpspec"
 )
 
 type createUpstreamFlags struct {
@@ -21,6 +22,15 @@ type createUpstreamFlags struct {
 	name           string
 	strategy       string
 	mcpURL         string
+
+	// Optional static OAuth client (mcp_spec upstreams whose AS does not
+	// support RFC 7591 Dynamic Client Registration — e.g. GitHub).
+	clientID      string
+	clientSecret  string
+	issuer        string
+	authEndpoint  string
+	tokenEndpoint string
+	scopes        []string
 }
 
 func newCreateUpstreamCommand(rflags *rootFlags, v *viper.Viper) *cobra.Command {
@@ -78,18 +88,36 @@ the same name updates the URL in place.`,
 				return err
 			}
 
+			staticCfg := mcpspec.Config{
+				Issuer:                strings.TrimSpace(f.issuer),
+				ClientID:              strings.TrimSpace(f.clientID),
+				ClientSecret:          f.clientSecret,
+				AuthorizationEndpoint: strings.TrimSpace(f.authEndpoint),
+				TokenEndpoint:         strings.TrimSpace(f.tokenEndpoint),
+				Scopes:                f.scopes,
+			}
+			if !staticCfg.IsZero() {
+				if err := upsertMCPSpecConfig(ctx, store, tenant.ID, up.ID, staticCfg); err != nil {
+					return err
+				}
+			}
+
 			logger.Info("upstream registered",
 				zap.String("public_id", up.PublicID),
 				zap.String("tenant", tenant.PublicID),
 				zap.String("name", up.Name),
 				zap.String("strategy", up.StrategyType),
-				zap.String("mcp_server_url", up.McpServerURL))
+				zap.String("mcp_server_url", up.McpServerURL),
+				zap.Bool("static_client", staticCfg.HasStaticClient()))
 
 			fmt.Printf("Upstream %s ready.\n", up.PublicID)
 			fmt.Printf("  Tenant     : %s (%d)\n", tenant.PublicID, tenant.ID)
 			fmt.Printf("  Name       : %s\n", up.Name)
 			fmt.Printf("  Strategy   : %s\n", up.StrategyType)
 			fmt.Printf("  MCP URL    : %s\n", up.McpServerURL)
+			if staticCfg.HasStaticClient() {
+				fmt.Printf("  Static OAuth client: %s\n", staticCfg.ClientID)
+			}
 			fmt.Printf("  Connect at : %s/t/%s/portal/\n", strings.TrimRight(cfg.Server.BaseURL, "/"), tenant.PublicID)
 			return nil
 		},
@@ -99,6 +127,12 @@ the same name updates the URL in place.`,
 	cmd.Flags().StringVar(&f.name, "name", "", "upstream name (per-tenant unique; appears in URLs)")
 	cmd.Flags().StringVar(&f.strategy, "strategy", string(upstream.StrategyMCPSpec), "linking strategy (only mcp_spec supported in v1)")
 	cmd.Flags().StringVar(&f.mcpURL, "url", "", "MCP server URL (the resource the OAuth flow will discover)")
+	cmd.Flags().StringVar(&f.clientID, "client-id", "", "pre-provisioned OAuth client_id (use when the AS doesn't support DCR, e.g. GitHub)")
+	cmd.Flags().StringVar(&f.clientSecret, "client-secret", "", "pre-provisioned OAuth client_secret (paired with --client-id)")
+	cmd.Flags().StringVar(&f.issuer, "issuer", "", "override OAuth issuer URL (used when PRM discovery can't reach it)")
+	cmd.Flags().StringVar(&f.authEndpoint, "authorization-endpoint", "", "override authorization_endpoint when AS metadata is missing")
+	cmd.Flags().StringVar(&f.tokenEndpoint, "token-endpoint", "", "override token_endpoint when AS metadata is missing")
+	cmd.Flags().StringSliceVar(&f.scopes, "scope", nil, "OAuth scope to request (repeatable)")
 
 	_ = cmd.MarkFlagRequired("tenant")
 	_ = cmd.MarkFlagRequired("name")
@@ -108,8 +142,54 @@ the same name updates the URL in place.`,
 	bindFlag(v, "name")
 	bindFlag(v, "strategy")
 	bindFlag(v, "url")
+	bindFlag(v, "client-id")
+	bindFlag(v, "client-secret")
+	bindFlag(v, "issuer")
+	bindFlag(v, "authorization-endpoint")
+	bindFlag(v, "token-endpoint")
+	bindFlag(v, "scope")
 
 	return cmd
+}
+
+// upsertMCPSpecConfig creates / replaces the UpstreamStrategyConfig row
+// holding the static OAuth client for an mcp_spec upstream. Idempotent on
+// the unique (upstream_id) index.
+func upsertMCPSpecConfig(ctx context.Context, store *storage.Store, tenantID, upstreamID int64, cfg mcpspec.Config) error {
+	sf, err := mcpspec.EncodeConfig(tenantID, cfg)
+	if err != nil {
+		return fmt.Errorf("encode mcpspec config: %w", err)
+	}
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return fmt.Errorf("open session: %w", err)
+	}
+	var existing storage.UpstreamStrategyConfig
+	err = tx.Where("upstream_id = ?", upstreamID).First(&existing).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		row := &storage.UpstreamStrategyConfig{
+			TenantID:   tenantID,
+			UpstreamID: upstreamID,
+			Type:       string(upstream.StrategyMCPSpec),
+			ConfigJSON: sf,
+		}
+		if err := tx.Create(row).Error; err != nil {
+			_ = commit()
+			return fmt.Errorf("create strategy config: %w", err)
+		}
+	case err != nil:
+		_ = commit()
+		return fmt.Errorf("load strategy config: %w", err)
+	default:
+		existing.Type = string(upstream.StrategyMCPSpec)
+		existing.ConfigJSON = sf
+		if err := tx.Save(&existing).Error; err != nil {
+			_ = commit()
+			return fmt.Errorf("update strategy config: %w", err)
+		}
+	}
+	return commit()
 }
 
 // upsertUpstream creates or updates the Upstream row for (tenant, name).

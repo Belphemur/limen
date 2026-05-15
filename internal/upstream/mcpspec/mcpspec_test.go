@@ -182,10 +182,9 @@ func TestStrategy_Type_RequiresLink(t *testing.T) {
 }
 
 func TestHeadersFromLink(t *testing.T) {
-	s := &Strategy{}
 	link := &storage.UpstreamLink{}
 	link.AccessToken.Set([]byte("tok-abc"))
-	h := s.headersFromLink(link)
+	h := headersFromLink(link)
 	if h["Authorization"] != "Bearer tok-abc" {
 		t.Fatalf("Authorization = %q", h["Authorization"])
 	}
