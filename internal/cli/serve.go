@@ -15,6 +15,7 @@ import (
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/mcprs"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/transport"
 	"github.com/belphemur/limen/internal/zitadel"
@@ -129,7 +130,32 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 				return fmt.Errorf("mount oauth proxy: %w", err)
 			}
 
-			mcpServer.Mount(r)
+			// Phase 6: MCP Resource Server under /t/{tenant}/mcp/*.
+			// Build the PRM handler then the access-token middleware (which
+			// performs OIDC discovery against the configured issuer to fetch
+			// jwks_uri at startup).
+			metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{
+				BaseURL: cfg.Server.BaseURL,
+			})
+			if err != nil {
+				return fmt.Errorf("build mcp resource metadata: %w", err)
+			}
+			mcpAuth, err := auth.NewMCPAuth(ctx, auth.MCPAuthConfig{
+				Issuer:   cfg.OIDC.Issuer,
+				Audience: cfg.Zitadel.MCPResourceAudience,
+			}, metadataHandler, store, logger)
+			if err != nil {
+				return fmt.Errorf("build mcp auth: %w", err)
+			}
+			if err := transport.MountMCPRS(r, transport.MCPRSDeps{
+				Store:     store,
+				MCPServer: mcpServer,
+				MCPAuth:   mcpAuth,
+				Metadata:  metadataHandler,
+				Logger:    logger,
+			}); err != nil {
+				return fmt.Errorf("mount mcp resource server: %w", err)
+			}
 
 			addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 			logger.Info("starting gateway",

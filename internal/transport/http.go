@@ -6,62 +6,61 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/tenancy"
 )
 
+// MCPServer wraps a single mcp-go SSE server configured with a dynamic
+// base path. The base path is derived from the request's resolved tenant
+// so a single server instance correctly advertises per-tenant message
+// endpoints under /t/{tenant}/mcp/message.
 type MCPServer struct {
 	gateway *gateway.Gateway
 	handler *gateway.CodeModeHandler
 	logger  *zap.Logger
-	server  *server.MCPServer
+	core    *server.MCPServer
+	sse     *server.SSEServer
 }
 
 func NewMCPServer(gw *gateway.Gateway, handler *gateway.CodeModeHandler, logger *zap.Logger) *MCPServer {
-	return &MCPServer{
+	s := &MCPServer{
 		gateway: gw,
 		handler: handler,
 		logger:  logger,
 	}
-}
-
-func (s *MCPServer) Start(ctx context.Context, addr string) error {
-	r := chi.NewRouter()
-	s.Mount(r)
-
-	s.logger.Info("starting limen gateway", zap.String("addr", addr))
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- http.ListenAndServe(addr, r)
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// Mount attaches the MCP SSE handler at /mcp and /mcp/ on the provided
-// chi router. Intended for callers that compose MCP routes with the
-// portal / OIDC routes on a single listener (see internal/cli/serve.go).
-func (s *MCPServer) Mount(r chi.Router) {
-	s.server = server.NewMCPServer(
+	s.core = server.NewMCPServer(
 		"limen",
 		"0.1.0",
 		server.WithToolCapabilities(true),
 	)
 	s.registerCodeModeTools()
-	sseServer := server.NewSSEServer(s.server)
-	r.Handle("/mcp", sseServer)
-	r.Handle("/mcp/", sseServer)
+	s.sse = server.NewSSEServer(
+		s.core,
+		server.WithDynamicBasePath(func(r *http.Request, _ string) string {
+			if t, ok := tenancy.TenantFromContext(r.Context()); ok {
+				return "/t/" + t.PublicID + "/mcp"
+			}
+			return "/mcp"
+		}),
+	)
+	return s
 }
+
+// SSEHandler returns the SSE stream handler. Mount at the tenant subroute
+// path "/sse".
+func (s *MCPServer) SSEHandler() http.Handler { return s.sse.SSEHandler() }
+
+// MessageHandler returns the JSON-RPC message ingestion handler. Mount at
+// the tenant subroute path "/message".
+func (s *MCPServer) MessageHandler() http.Handler { return s.sse.MessageHandler() }
+
+// Core exposes the underlying mcp-go server for callers that need to
+// register additional tools after construction.
+func (s *MCPServer) Core() *server.MCPServer { return s.core }
 
 func (s *MCPServer) registerCodeModeTools() {
 	searchTool := mcp.NewTool("codemode_search",
@@ -159,8 +158,8 @@ Use codemode_search first to discover tool names and their argument schemas.`),
 		),
 	)
 
-	s.server.AddTool(searchTool, s.handleSearch)
-	s.server.AddTool(executeTool, s.handleExecute)
+	s.core.AddTool(searchTool, s.handleSearch)
+	s.core.AddTool(executeTool, s.handleExecute)
 }
 
 func (s *MCPServer) handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
