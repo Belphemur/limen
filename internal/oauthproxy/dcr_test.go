@@ -3,7 +3,6 @@ package oauthproxy
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,27 +69,23 @@ func newDCRHandlerForValidation(t *testing.T, cfg DCRConfig, apps appManager) *D
 	return h
 }
 
-func TestDCR_RejectsUnknownFields(t *testing.T) {
+func TestDCR_IgnoresUnknownMetadataFields(t *testing.T) {
+	// RFC 7591 §2: the authorization server MUST ignore unknown client
+	// metadata. The decoder should accept and silently drop extra fields
+	// rather than returning 400.
 	tn := &storage.Tenant{ZitadelOrgID: "org_a", DCREnabled: true}
 	tn.PublicID = "tnt_a"
 	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
 
-	body := []byte(`{"redirect_uris":["https://app.example.com/cb"],"future_flag":true}`)
+	body := []byte(`{"redirect_uris":["https://app.example.com/cb"],"future_flag":true,"logo_uri":"https://app.example.com/logo.png"}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req = dcrRequestCtx(req, tn)
 	rr := httptest.NewRecorder()
 	h.Register(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d (%s)", rr.Code, rr.Body.String())
-	}
-	var resp map[string]string
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode error body: %v", err)
-	}
-	if resp["error"] != "invalid_client_metadata" {
-		t.Fatalf("error code = %q", resp["error"])
+	if rr.Code == http.StatusBadRequest {
+		t.Fatalf("unknown fields should be ignored, got 400: %s", rr.Body.String())
 	}
 }
 

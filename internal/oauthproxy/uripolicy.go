@@ -89,9 +89,6 @@ func validateCustomSchemeRedirect(u *url.URL, raw string) error {
 	if !customSchemeRE.MatchString(scheme) {
 		return fmt.Errorf("redirect_uri %q has an invalid custom scheme", raw)
 	}
-	if !strings.Contains(scheme, ".") {
-		return fmt.Errorf("redirect_uri %q custom scheme must be reverse-DNS shaped (contain at least one dot)", raw)
-	}
 	if _, banned := disallowedCustomSchemes[scheme]; banned {
 		return fmt.Errorf("redirect_uri %q uses a disallowed scheme", raw)
 	}
@@ -146,9 +143,6 @@ func CompilePattern(raw string) (Pattern, error) {
 	default:
 		if !customSchemeRE.MatchString(scheme) {
 			return Pattern{}, fmt.Errorf("pattern %q has an invalid custom scheme", raw)
-		}
-		if !strings.Contains(scheme, ".") {
-			return Pattern{}, fmt.Errorf("pattern %q custom scheme must be reverse-DNS shaped", raw)
 		}
 		if _, banned := disallowedCustomSchemes[scheme]; banned {
 			return Pattern{}, fmt.Errorf("pattern %q uses a disallowed scheme", raw)

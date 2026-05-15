@@ -28,11 +28,11 @@ func TestValidateRedirectURI_Floor(t *testing.T) {
 		{"https ip literal", "https://1.2.3.4/", "IP literal"},
 		{"https idn", "https://exämple.com/", "ASCII"},
 		{"http non-loopback", "http://app.acme.com/", "loopback"},
-		{"custom no dot", "cursor://x", "reverse-DNS"},
+		{"custom no dot", "cursor://x", ""},
 		{"custom file scheme", "file.x://nope", ""}, // dot present → ok structurally; not in disallow set as-is
-		{"banned data", "data://x", "reverse-DNS"},
-		{"banned javascript", "javascript://x", "reverse-DNS"},
-		{"banned file", "file://x", "reverse-DNS"},
+		{"banned data", "data://x", "disallowed"},
+		{"banned javascript", "javascript://x", "disallowed"},
+		{"banned file", "file://x", "disallowed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

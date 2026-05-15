@@ -82,8 +82,9 @@ func NewDCRHandler(cfg DCRConfig, store *storage.Store, apps appManager, logger 
 }
 
 // dcrRequest is the subset of OAuth 2.0 DCR (RFC 7591) metadata Limen
-// accepts. DisallowUnknownFields on the decoder enforces default-deny
-// against future-spec fields the proxy hasn't been audited against.
+// accepts. RFC 7591 §2 requires authorization servers to ignore unknown
+// client metadata, so the decoder is tolerant — fields not listed here
+// are silently dropped after decode rather than rejected.
 type dcrRequest struct {
 	ClientName              string   `json:"client_name,omitempty"`
 	RedirectURIs            []string `json:"redirect_uris"`
@@ -94,6 +95,19 @@ type dcrRequest struct {
 	SoftwareID              string   `json:"software_id,omitempty"`
 	SoftwareVersion         string   `json:"software_version,omitempty"`
 	PostLogoutRedirectURIs  []string `json:"post_logout_redirect_uris,omitempty"`
+
+	// Accepted-and-passed-through descriptive metadata. Not validated and
+	// not currently surfaced to Zitadel, but parsed so spec-compliant
+	// clients (Cursor, Claude Desktop, MCP Inspector) don't fail on
+	// otherwise standard fields.
+	ClientURI string   `json:"client_uri,omitempty"`
+	LogoURI   string   `json:"logo_uri,omitempty"`
+	TOSURI    string   `json:"tos_uri,omitempty"`
+	PolicyURI string   `json:"policy_uri,omitempty"`
+	Scope     string   `json:"scope,omitempty"`
+	Contacts  []string `json:"contacts,omitempty"`
+	JwksURI   string   `json:"jwks_uri,omitempty"`
+	Jwks      any      `json:"jwks,omitempty"`
 }
 
 // dcrResponse is the RFC 7591 §3.2.1 success body Limen returns on POST
@@ -125,37 +139,37 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.cfg.DCREnabled {
-		dcrError(w, http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled")
+		h.dcrFail(w, r, "register", http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled")
 		return
 	}
 	if !tenant.DCREnabled {
-		dcrError(w, http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled for this tenant")
+		h.dcrFail(w, r, "register", http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled for this tenant")
 		return
 	}
 	if h.cfg.InitialAccessToken != "" {
 		got := extractBearer(r)
 		if subtle.ConstantTimeCompare([]byte(got), []byte(h.cfg.InitialAccessToken)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="dcr"`)
-			dcrError(w, http.StatusUnauthorized, "invalid_token", "initial access token required")
+			h.dcrFail(w, r, "register", http.StatusUnauthorized, "invalid_token", "initial access token required")
 			return
 		}
 	}
 
 	req, err := decodeDCRRequest(r)
 	if err != nil {
-		dcrError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "decode"))
 		return
 	}
 	normalized, zitadelInput, err := h.normalize(tenant, req)
 	if err != nil {
-		dcrError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "normalize"))
 		return
 	}
 
 	app, err := h.apps.AddOIDCApp(r.Context(), zitadelInput)
 	if err != nil {
 		h.logger.Error("zitadel app create failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider rejected the registration")
 		return
 	}
 
@@ -163,7 +177,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("registration access token mint failed", zap.Error(err))
 		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, app.AppID)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		dcrError(w, http.StatusInternalServerError, "server_error", "failed to mint registration access token")
 		return
 	}
 
@@ -184,7 +198,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("mirror persist failed; rolling back zitadel app",
 			zap.String("tenant", tenant.PublicID), zap.String("app_id", app.AppID), zap.Error(err))
 		_ = h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, app.AppID)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		dcrError(w, http.StatusInternalServerError, "server_error", "failed to persist client registration")
 		return
 	}
 
@@ -201,7 +215,7 @@ func (h *DCRHandler) Get(w http.ResponseWriter, r *http.Request) {
 	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID)
 	if err != nil {
 		h.logger.Error("zitadel app get failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider unavailable")
 		return
 	}
 	normalized := dcrRequest{
@@ -228,12 +242,12 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 	}
 	req, err := decodeDCRRequest(r)
 	if err != nil {
-		dcrError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		h.dcrFail(w, r, "put", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "decode"), zap.String("client_id", row.ClientID))
 		return
 	}
 	normalized, _, err := h.normalize(tenant, req)
 	if err != nil {
-		dcrError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		h.dcrFail(w, r, "put", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "normalize"), zap.String("client_id", row.ClientID))
 		return
 	}
 	if err := h.apps.UpdateOIDCApp(r.Context(), zitadel.UpdateOIDCAppInput{
@@ -245,7 +259,7 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 		AuthMethod:             zitadel.OIDCAuthMethod(normalized.TokenEndpointAuthMethod),
 	}); err != nil {
 		h.logger.Error("zitadel app update failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider rejected the update")
 		return
 	}
 	row.Name = normalized.ClientName
@@ -254,13 +268,13 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 	row.SoftwareVersion = normalized.SoftwareVersion
 	if err := h.update(r.Context(), row); err != nil {
 		h.logger.Error("mirror update failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		dcrError(w, http.StatusInternalServerError, "server_error", "failed to persist client update")
 		return
 	}
 	app, err := h.apps.GetOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID)
 	if err != nil {
 		h.logger.Error("zitadel app reread failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider unavailable")
 		return
 	}
 	resp := h.buildResponse(tenant.PublicID, app, normalized, "")
@@ -276,12 +290,12 @@ func (h *DCRHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.apps.DeleteOIDCApp(r.Context(), tenant.ZitadelOrgID, row.ZitadelAppID); err != nil {
 		h.logger.Error("zitadel app delete failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		dcrError(w, http.StatusBadGateway, "server_error", "upstream identity provider rejected the delete")
 		return
 	}
 	if err := h.softDelete(r.Context(), row); err != nil {
 		h.logger.Error("mirror delete failed", zap.String("tenant", tenant.PublicID), zap.Error(err))
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		dcrError(w, http.StatusInternalServerError, "server_error", "failed to record client deletion")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -308,18 +322,20 @@ func (h *DCRHandler) authManagement(w http.ResponseWriter, r *http.Request) (*st
 	bearer := extractBearer(r)
 	if bearer == "" {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="dcr"`)
-		dcrError(w, http.StatusUnauthorized, "invalid_token", "registration access token required")
+		h.dcrFail(w, r, "auth", http.StatusUnauthorized, "invalid_token", "registration access token required", zap.String("client_id", clientID))
 		return nil, nil, false
 	}
 	row, err := h.loadByClientID(r.Context(), tenant.ID, clientID)
 	if err != nil {
+		h.logger.Warn("dcr management: client_id not found",
+			zap.String("tenant", tenant.PublicID), zap.String("client_id", clientID), zap.Error(err))
 		http.NotFound(w, r)
 		return nil, nil, false
 	}
 	got := sha256.Sum256([]byte(bearer))
 	if subtle.ConstantTimeCompare(got[:], row.RegistrationAccessTokenHash) != 1 {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="dcr"`)
-		dcrError(w, http.StatusUnauthorized, "invalid_token", "registration access token mismatch")
+		h.dcrFail(w, r, "auth", http.StatusUnauthorized, "invalid_token", "registration access token mismatch", zap.String("client_id", clientID))
 		return nil, nil, false
 	}
 	return tenant, row, true
@@ -477,20 +493,18 @@ func (h *DCRHandler) loadByClientID(ctx context.Context, tenantID int64, clientI
 	return &row, nil
 }
 
-// decodeDCRRequest reads the JSON body with unknown-field rejection, so
-// future-spec metadata fields fail loudly rather than silently disappearing.
+// decodeDCRRequest reads the JSON body. RFC 7591 §2 requires the
+// authorization server to ignore unknown client metadata, so the
+// decoder is tolerant — extra fields are dropped on the floor.
 func decodeDCRRequest(r *http.Request) (dcrRequest, error) {
 	if !isJSONContentType(r) {
 		return dcrRequest{}, errors.New("Content-Type must be application/json")
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<16))
-	dec.DisallowUnknownFields()
 	var req dcrRequest
 	if err := dec.Decode(&req); err != nil {
 		return dcrRequest{}, fmt.Errorf("decode: %w", err)
 	}
-	// Reject trailing junk so `{"x":1}{"y":2}` doesn't sneak past
-	// DisallowUnknownFields by hiding in a second object.
 	if dec.More() {
 		return dcrRequest{}, errors.New("unexpected trailing JSON")
 	}
@@ -527,6 +541,26 @@ func newRegistrationAccessToken() (string, []byte, error) {
 func dcrError(w http.ResponseWriter, status int, code, description string) {
 	body := map[string]string{"error": code, "error_description": description}
 	writeJSON(w, status, body)
+}
+
+// dcrFail writes an RFC 7591 error response and emits a structured log
+// line so 4xx outcomes are visible in operator logs. The caller passes
+// the operation name ("register", "get", "put", "delete") plus any
+// extra zap fields worth surfacing.
+func (h *DCRHandler) dcrFail(w http.ResponseWriter, r *http.Request, op string, status int, code, description string, extra ...zap.Field) {
+	fields := make([]zap.Field, 0, 5+len(extra))
+	fields = append(fields,
+		zap.String("op", op),
+		zap.Int("status", status),
+		zap.String("error", code),
+		zap.String("error_description", description),
+	)
+	if tenant, ok := tenancy.TenantFromContext(r.Context()); ok {
+		fields = append(fields, zap.String("tenant", tenant.PublicID))
+	}
+	fields = append(fields, extra...)
+	h.logger.Warn("dcr request rejected", fields...)
+	dcrError(w, status, code, description)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

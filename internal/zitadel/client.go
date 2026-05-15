@@ -22,6 +22,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,11 +121,39 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 		)
 	}
 
-	api, err := zsdk.New(ctx, zitadel.New(cfg.Domain), zsdk.WithAuth(authInit))
+	api, err := zsdk.New(ctx, buildSDKZitadel(cfg.Domain), zsdk.WithAuth(authInit))
 	if err != nil {
 		return nil, fmt.Errorf("zitadel: build SDK client: %w", err)
 	}
 	return &Client{api: api, projectID: cfg.ProjectID}, nil
+}
+
+// buildSDKZitadel translates the human-friendly Config.Domain URL
+// (e.g. "http://localhost:8081", "https://auth.example.com") into the
+// (host, options) shape the SDK's gRPC dialer expects. Passing the raw
+// URL string through verbatim is wrong: the gRPC dialer treats the
+// `scheme://` as part of the host and ends up with `http://host:port:443`.
+func buildSDKZitadel(domain string) *zitadel.Zitadel {
+	u, err := url.Parse(domain)
+	if err != nil || u.Host == "" {
+		// Fall back to verbatim — preserves prior behaviour for callers
+		// who already pass a bare host[:port].
+		return zitadel.New(domain)
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if strings.EqualFold(u.Scheme, "http") {
+		if port == "" {
+			port = "80"
+		}
+		return zitadel.New(host, zitadel.WithInsecure(port))
+	}
+	if port != "" {
+		if n, err := strconv.ParseUint(port, 10, 16); err == nil {
+			return zitadel.New(host, zitadel.WithPort(uint16(n)))
+		}
+	}
+	return zitadel.New(host)
 }
 
 // API exposes the raw SDK handle for callers that genuinely need a service
