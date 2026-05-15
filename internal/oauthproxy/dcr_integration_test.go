@@ -169,8 +169,8 @@ func TestDCR_Integration_HappyPath(t *testing.T) {
 	if apps.lastAdd.OrgID != tn.ZitadelOrgID {
 		t.Errorf("OrgID=%q", apps.lastAdd.OrgID)
 	}
-	if apps.lastAdd.Name != "Test MCP" {
-		t.Errorf("Name=%q", apps.lastAdd.Name)
+	if !strings.HasPrefix(apps.lastAdd.Name, "Test MCP ") {
+		t.Errorf("Name=%q (expected prefix %q)", apps.lastAdd.Name, "Test MCP ")
 	}
 	if got := apps.lastAdd.AuthMethod; got != zitadel.OIDCAuthMethodNone {
 		t.Errorf("AuthMethod=%q", got)

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/crypto"
@@ -407,14 +408,25 @@ func (h *DCRHandler) normalize(tenant *storage.Tenant, req dcrRequest) (dcrReque
 	}
 
 	zin := zitadel.AddOIDCAppInput{
-		OrgID:                  tenant.ZitadelOrgID,
-		Name:                   req.ClientName,
+		OrgID: tenant.ZitadelOrgID,
+		// Zitadel enforces unique application names within a project.
+		// DCR has no such uniqueness requirement (RFC 7591 lets many
+		// clients register with the same client_name), so we suffix the
+		// upstream name with random bytes and keep the original
+		// client_name in the DCR response + our mirror row.
+		Name:                   uniqueZitadelAppName(req.ClientName),
 		RedirectURIs:           req.RedirectURIs,
 		PostLogoutRedirectURIs: req.PostLogoutRedirectURIs,
 		AppType:                zitadel.OIDCAppType(req.ApplicationType),
 		AuthMethod:             zitadel.OIDCAuthMethod(req.TokenEndpointAuthMethod),
 	}
 	return req, zin, nil
+}
+
+// uniqueZitadelAppName appends a ULID suffix to the requested client_name
+// to dodge Zitadel's per-project app-name uniqueness check.
+func uniqueZitadelAppName(base string) string {
+	return fmt.Sprintf("%s [%s]", base, ulid.Make().String())
 }
 
 func (h *DCRHandler) buildResponse(tenantPublicID string, app *zitadel.OIDCApp, normalized dcrRequest, registrationToken string) dcrResponse {
