@@ -21,15 +21,16 @@ import (
 	"github.com/belphemur/limen/internal/valkey"
 )
 
-// mountUpstreamLinking wires the upstream linking suite: Valkey-backed
-// OAuth state, the strategy registry, the /callback HTTP route, and
-// the background token refresher.
+// setupUpstreamLinking builds the upstream strategy registry, the
+// Valkey-backed one-shot OAuth state store, the upstream.Service that
+// wraps them, and launches the background token refresher.
 //
-// Disabled (with a warn log) when valkey.address is empty so early-stage
-// dev configs that haven't stood up Valkey yet still boot. Returns a
-// cleanup func that closes the Valkey client; the caller defers it. The
-// cleanup is a no-op when the suite is disabled.
-func mountUpstreamLinking(r chi.Router, d *serverDeps) (cleanup func(), err error) {
+// Stashes the resulting Service on d so other suites (the portal PoC)
+// can pick it up. Returns a cleanup func that closes the Valkey client.
+//
+// Disabled (with a warn log + nil service) when valkey.address is empty
+// so early-stage dev configs that haven't stood up Valkey yet still boot.
+func setupUpstreamLinking(d *serverDeps) (cleanup func(), err error) {
 	cleanup = func() {}
 	if d.cfg.Valkey.Address == "" {
 		d.logger.Warn("valkey.address empty: upstream linking disabled")
@@ -60,13 +61,7 @@ func mountUpstreamLinking(r chi.Router, d *serverDeps) (cleanup func(), err erro
 	}
 	registry.Register(mcpStrat)
 
-	svc := upstream.NewService(d.store, registry)
-	transport.MountUpstream(r, transport.UpstreamDeps{
-		Store:   d.store,
-		OIDC:    d.oidc,
-		Service: svc,
-		Logger:  d.logger,
-	})
+	d.upstreamService = upstream.NewService(d.store, registry)
 
 	refresher := upstream.NewRefresher(d.store, registry, upstream.RefresherOptions{
 		Interval:      d.cfg.UpstreamRefresh.Interval,
@@ -83,4 +78,19 @@ func mountUpstreamLinking(r chi.Router, d *serverDeps) (cleanup func(), err erro
 		zap.Duration("interval", d.cfg.UpstreamRefresh.Interval),
 		zap.Duration("refresh_window", d.cfg.UpstreamRefresh.RefreshWindow))
 	return cleanup, nil
+}
+
+// mountUpstreamLinking attaches the OAuth /callback route. Requires
+// setupUpstreamLinking to have populated d.upstreamService; no-op when
+// the service is nil (upstream linking disabled).
+func mountUpstreamLinking(r chi.Router, d *serverDeps) {
+	if d.upstreamService == nil {
+		return
+	}
+	transport.MountUpstream(r, transport.UpstreamDeps{
+		Store:   d.store,
+		OIDC:    d.oidc,
+		Service: d.upstreamService,
+		Logger:  d.logger,
+	})
 }

@@ -115,6 +115,23 @@ func (s *Service) LoadUpstream(ctx context.Context, tenantID int64, name string)
 	return s.loadUpstream(ctx, tenantID, name)
 }
 
+// ListUpstreams returns every (non-deleted) Upstream row for the tenant,
+// ordered by name. Used by the portal PoC to render a connect/disconnect
+// table; Phase 9's Connect-RPC will expose a richer shape.
+func (s *Service) ListUpstreams(ctx context.Context, tenantID int64) ([]storage.Upstream, error) {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	var ups []storage.Upstream
+	if err := tx.Where("tenant_id = ?", tenantID).Order("name ASC").Find(&ups).Error; err != nil {
+		return nil, fmt.Errorf("upstream: list: %w", err)
+	}
+	return ups, nil
+}
+
 // LoadLink returns the UpstreamLink for (tenant, user, upstream) or
 // ErrLinkNotFound. Public so the per-request roundtripper (Phase 8) can
 // pull the link without re-running the resolution logic.

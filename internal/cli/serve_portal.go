@@ -65,5 +65,6 @@ func mountPortal(r chi.Router, d *serverDeps) {
 		OIDC:                  d.oidc,
 		Logger:                d.logger,
 		PostLogoutRedirectURI: d.cfg.OIDC.PostLogoutRedirectURI,
+		UpstreamService:       d.upstreamService,
 	})
 }

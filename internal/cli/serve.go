@@ -46,6 +46,14 @@ func runServe(flags *rootFlags) error {
 	defer func() { _ = store.Close() }()
 	d.cipher, d.store, d.signer, d.oidc = cipher, store, signer, oidcHandler
 
+	// Upstream linking suite: build the strategy registry + Service before
+	// mounting the portal so the portal PoC endpoints can consume it.
+	upstreamCleanup, err := setupUpstreamLinking(d)
+	if err != nil {
+		return err
+	}
+	defer upstreamCleanup()
+
 	// MCP suite: downstream gateway + MCP transport.
 	gw, mcpServer := setupMCPGateway(d)
 
@@ -59,11 +67,7 @@ func runServe(flags *rootFlags) error {
 	if err := mountMCPResource(r, d, mcpServer); err != nil {
 		return err
 	}
-	upstreamCleanup, err := mountUpstreamLinking(r, d)
-	if err != nil {
-		return err
-	}
-	defer upstreamCleanup()
+	mountUpstreamLinking(r, d)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	logger.Info("starting gateway",

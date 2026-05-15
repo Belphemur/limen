@@ -24,6 +24,7 @@ import (
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
+	"github.com/belphemur/limen/internal/upstream"
 )
 
 // PortalDeps bundles everything MountPortal needs.
@@ -32,6 +33,10 @@ type PortalDeps struct {
 	OIDC                  *auth.OIDC
 	Logger                *zap.Logger
 	PostLogoutRedirectURI string
+	// UpstreamService, when non-nil, enables the portal PoC endpoints
+	// for connecting/disconnecting MCP upstreams. Phase 9 replaces these
+	// with a Connect-RPC service.
+	UpstreamService *upstream.Service
 }
 
 // MountPortal attaches the OIDC + tenant routes onto r.
@@ -62,6 +67,7 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		tr.Route("/portal", func(pr chi.Router) {
 			pr.Use(deps.OIDC.RequireSession())
 			pr.Get("/me", portalMeHandler)
+			mountPortalUpstreams(pr, deps)
 			pr.Get("/", portalStaticHandler())
 			pr.Get("/*", portalStaticHandler())
 		})

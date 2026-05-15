@@ -9,6 +9,7 @@ import (
 	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
+	"github.com/belphemur/limen/internal/upstream"
 )
 
 // serverDeps bundles the cross-suite wiring built early in runServe so
@@ -18,8 +19,9 @@ type serverDeps struct {
 	cfg    *config.Config
 	logger *zap.Logger
 
-	cipher *crypto.Cipher
-	signer *auth.StateSigner
-	store  *storage.Store
-	oidc   *auth.OIDC
+	cipher          *crypto.Cipher
+	signer          *auth.StateSigner
+	store           *storage.Store
+	oidc            *auth.OIDC
+	upstreamService *upstream.Service
 }
