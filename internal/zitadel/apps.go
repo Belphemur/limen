@@ -104,6 +104,10 @@ func (c *Client) AddOIDCApp(ctx context.Context, in AddOIDCAppInput) (*OIDCApp, 
 				ApplicationType: appType,
 				AuthMethodType:  authMethod,
 				Version:         applicationV2.OIDCVersion_OIDC_VERSION_1_0,
+				// JWT access tokens so the MCP resource server can verify
+				// them locally against Zitadel's JWKS instead of running
+				// an introspection round-trip per request.
+				AccessTokenType: applicationV2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT,
 			},
 		},
 	})
