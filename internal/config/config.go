@@ -25,14 +25,16 @@ import (
 
 // Config is the top-level configuration shape.
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Database   DatabaseConfig   `yaml:"database"`
-	Security   SecurityConfig   `yaml:"security"`
-	OAuthProxy OAuthProxyConfig `yaml:"oauth_proxy"`
-	Upstreams  []UpstreamConfig `yaml:"upstreams"`
-	CodeMode   CodeModeConfig   `yaml:"codemode"`
-	OIDC       OIDCConfig       `yaml:"oidc"`
-	Zitadel    ZitadelConfig    `yaml:"zitadel"`
+	Server          ServerConfig          `yaml:"server"`
+	Database        DatabaseConfig        `yaml:"database"`
+	Security        SecurityConfig        `yaml:"security"`
+	OAuthProxy      OAuthProxyConfig      `yaml:"oauth_proxy"`
+	Upstreams       []UpstreamConfig      `yaml:"upstreams"`
+	UpstreamRefresh UpstreamRefreshConfig `yaml:"upstream_refresh"`
+	CodeMode        CodeModeConfig        `yaml:"codemode"`
+	OIDC            OIDCConfig            `yaml:"oidc"`
+	Zitadel         ZitadelConfig         `yaml:"zitadel"`
+	Valkey          ValkeyConfig          `yaml:"valkey"`
 }
 
 // ServerConfig governs the inbound HTTP listener and the public base URL
@@ -110,6 +112,45 @@ type UpstreamConfig struct {
 type CodeModeConfig struct {
 	ExecutionTimeout time.Duration `yaml:"execution_timeout"`
 	MaxMemoryMB      int           `yaml:"max_memory_mb"`
+}
+
+// ValkeyConfig wires the Valkey (Redis-protocol) client used by Phase 7
+// for one-shot OAuth state and any future short-lived key/value needs.
+// Limen owns its own logical keyspace ("limen:*"); the same Valkey
+// instance Zitadel uses for its cache is fine to share.
+type ValkeyConfig struct {
+	// Address is host:port, e.g. "redis:6379". Required when any feature
+	// that depends on Valkey is enabled (Phase 7 upstream linking).
+	Address string `yaml:"address"`
+	// Password is optional; empty for the dev/no-auth deployment.
+	Password string `yaml:"password,omitempty"`
+	// DialTimeout caps the initial TCP+AUTH dial. Default 5s.
+	DialTimeout time.Duration `yaml:"dial_timeout,omitempty"`
+}
+
+// UpstreamRefreshConfig governs Phase 7's background-refresher and
+// auto-disable behaviour. Zero values fall back to the defaults shown
+// in applyDefaults; operators only need to override knobs they want to
+// move.
+type UpstreamRefreshConfig struct {
+	// Interval is how often the refresher wakes up. Default 2m.
+	Interval time.Duration `yaml:"interval,omitempty"`
+	// RefreshWindow refreshes any token whose ExpiresAt is within this
+	// window of now. Default 5m.
+	RefreshWindow time.Duration `yaml:"refresh_window,omitempty"`
+	// ProactiveWindow is the per-request fast-path threshold used by the
+	// Headers strategy method when a tool call is about to go out.
+	// Default 60s.
+	ProactiveWindow time.Duration `yaml:"proactive_window,omitempty"`
+	// FailThreshold is the minimum consecutive-failure count that can
+	// trip auto-disable. Default 5.
+	FailThreshold int `yaml:"fail_threshold,omitempty"`
+	// FailWindow is the minimum elapsed time from the streak start to
+	// the latest failure before auto-disable trips. Default 15m.
+	FailWindow time.Duration `yaml:"fail_window,omitempty"`
+	// NeedsRelinkWindow is how long NeedsRelink=true must hold before
+	// auto-disable trips on the "long-broken" branch. Default 24h.
+	NeedsRelinkWindow time.Duration `yaml:"needs_relink_window,omitempty"`
 }
 
 // OIDCConfig wires the portal relying-party (Phase 4) to a Zitadel issuer.
@@ -220,6 +261,27 @@ func (c *Config) applyDefaults() {
 	if c.Zitadel.HTTPTimeout == 0 {
 		c.Zitadel.HTTPTimeout = 30 * time.Second
 	}
+	if c.Valkey.DialTimeout == 0 {
+		c.Valkey.DialTimeout = 5 * time.Second
+	}
+	if c.UpstreamRefresh.Interval == 0 {
+		c.UpstreamRefresh.Interval = 2 * time.Minute
+	}
+	if c.UpstreamRefresh.RefreshWindow == 0 {
+		c.UpstreamRefresh.RefreshWindow = 5 * time.Minute
+	}
+	if c.UpstreamRefresh.ProactiveWindow == 0 {
+		c.UpstreamRefresh.ProactiveWindow = 60 * time.Second
+	}
+	if c.UpstreamRefresh.FailThreshold == 0 {
+		c.UpstreamRefresh.FailThreshold = 5
+	}
+	if c.UpstreamRefresh.FailWindow == 0 {
+		c.UpstreamRefresh.FailWindow = 15 * time.Minute
+	}
+	if c.UpstreamRefresh.NeedsRelinkWindow == 0 {
+		c.UpstreamRefresh.NeedsRelinkWindow = 24 * time.Hour
+	}
 	if c.OIDC.Issuer == "" && c.Zitadel.Domain != "" {
 		c.OIDC.Issuer = c.Zitadel.Domain
 	}
@@ -264,6 +326,12 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Zitadel.Validate(); err != nil {
 		return fmt.Errorf("zitadel: %w", err)
+	}
+	if err := c.Valkey.Validate(); err != nil {
+		return fmt.Errorf("valkey: %w", err)
+	}
+	if err := c.UpstreamRefresh.Validate(); err != nil {
+		return fmt.Errorf("upstream_refresh: %w", err)
 	}
 	return nil
 }
@@ -393,6 +461,47 @@ func (z ZitadelConfig) Validate() error {
 		}
 	default:
 		return fmt.Errorf("auth_mode %q is not one of pat|jwt_key", z.AuthMode)
+	}
+	return nil
+}
+
+// Validate enforces an address shape; auth/network are tested at dial time.
+// An empty Address is allowed and signals "Valkey-dependent features are
+// disabled" — callers that need it must error themselves.
+func (v ValkeyConfig) Validate() error {
+	addr := strings.TrimSpace(v.Address)
+	if addr == "" {
+		return nil
+	}
+	if !strings.Contains(addr, ":") {
+		return errors.New(`address must be "host:port"`)
+	}
+	if v.DialTimeout < 0 {
+		return errors.New("dial_timeout must be >= 0")
+	}
+	return nil
+}
+
+// Validate keeps the refresher tunables in a sane range. All fields are
+// optional; defaults are filled in applyDefaults before this runs.
+func (u UpstreamRefreshConfig) Validate() error {
+	if u.Interval <= 0 {
+		return errors.New("interval must be > 0")
+	}
+	if u.RefreshWindow <= 0 {
+		return errors.New("refresh_window must be > 0")
+	}
+	if u.ProactiveWindow <= 0 {
+		return errors.New("proactive_window must be > 0")
+	}
+	if u.FailThreshold <= 0 {
+		return errors.New("fail_threshold must be > 0")
+	}
+	if u.FailWindow <= 0 {
+		return errors.New("fail_window must be > 0")
+	}
+	if u.NeedsRelinkWindow <= 0 {
+		return errors.New("needs_relink_window must be > 0")
 	}
 	return nil
 }

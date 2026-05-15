@@ -82,3 +82,22 @@ zitadel:
   # resource server (Phase 6) rejects any token whose `aud` does not match.
   mcp_resource_audience: "${LIMEN_ZITADEL_MCP_RESOURCE_AUDIENCE}"
   http_timeout: "30s"
+
+# Phase 7 — Valkey (Redis-protocol) client. Used for one-shot OAuth state
+# during upstream linking; TTL-driven so no janitor process is needed.
+# In dev this is the Valkey container co-located with the Zitadel cache;
+# in prod, a dedicated Valkey is fine. Limen owns the "limen:*" keyspace.
+valkey:
+  address: "${LIMEN_VALKEY_ADDRESS:-redis:6379}"
+  password: "${LIMEN_VALKEY_PASSWORD:-}"
+  dial_timeout: "5s"
+
+# Phase 7 — background refresher + auto-disable tunables. Defaults are
+# fine for most deployments; override only what you want to move.
+upstream_refresh:
+  interval: "2m"             # how often the refresher wakes up
+  refresh_window: "5m"       # tokens expiring within this window get rotated
+  proactive_window: "60s"    # per-request fast-path refresh threshold
+  fail_threshold: 5          # min consecutive failures to trip auto-disable
+  fail_window: "15m"         # min streak elapsed time to trip auto-disable
+  needs_relink_window: "24h" # NeedsRelink=true for this long → auto-disable
