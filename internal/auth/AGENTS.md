@@ -7,8 +7,8 @@ share this package:
 
 1. **Portal RP** (Phase 4, implemented): OIDC relying party for the
    browser — `internal/auth/oidc.go`, `state.go`.
-2. **MCP Resource Server** (Phase 6, stub): JWT bearer validator for
-   `/t/{slug}/mcp` — `internal/auth/middleware.go`.
+2. **MCP Resource Server** (Phase 6, implemented): JWT bearer validator
+   for `/t/{slug}/mcp` — `internal/auth/middleware.go` (`MCPAuth`).
 
 Limen never issues tokens and never sees passwords. Zitadel is the
 authoritative OIDC provider, user store, and session manager.
@@ -73,28 +73,33 @@ What this flow is **not**:
 
 ---
 
-## MCP Resource Server (Phase 6 — stub)
+## MCP Resource Server (Phase 6 — implemented)
 
 File: `middleware.go`.
 
-**Current state**: Bearer-token extraction stub. JWT signature, `iss`,
-`aud`, and `exp` validation are **not** implemented yet — do not deploy
-this to production.
+`MCPAuth` validates inbound bearer access tokens against Zitadel's JWKS
+in-process. Built once at startup with `NewMCPAuth(ctx, cfg, metadata,
+store, logger)` — discovery against `cfg.Issuer` resolves `jwks_uri` and
+the verifier is configured RS256-only.
 
-Target middleware responsibilities:
+`RequireMCPAuth` is the chi middleware, mounted under
+`tenancy.RequireTenant` by `internal/transport/MountMCPRS`:
 
-1. Extract the `Authorization: Bearer <jwt>` header.
-2. Validate the JWT against Zitadel's JWKS (cached, rotating — shared
-   with the portal RP's JWKS cache).
-3. Verify `iss` == configured `LIMEN_OIDC_ISSUER`.
-4. Verify `aud` includes the MCP RS resource URI (RFC 8707 `resource`).
-5. Verify `exp` / `nbf`.
-6. Resolve the tenant from the URL path (`/t/{slug}/...`) and confirm
-   the `urn:zitadel:iam:user:resourceowner:id` claim matches that
-   tenant's `ZitadelOrgID`.
-7. Pin the tenant into ctx via `storage.WithTenant`.
-8. Extract project roles from `urn:zitadel:iam:org:project:roles` and
-   stash them in ctx for downstream authorization checks.
+1. Extract `Authorization: Bearer <jwt>`. Missing → 401.
+2. `op.VerifyAccessToken[*MCPAccessClaims]` — checks `iss`, signature
+   (RS256), `exp`, `nbf`. Failure → 401.
+3. Verify `aud` contains `cfg.Audience`. Mismatch → 401.
+4. Verify `urn:zitadel:iam:user:resourceowner:id` claim equals the URL
+   tenant's `ZitadelOrgID`. Mismatch → **403**.
+5. Resolve the local `users` row by `(tenant_id, zitadel_subject)` via
+   `store.Session(ctx)`. Missing → 401 (no auto-provision on the RS
+   path; provisioning happens portal-side).
+6. Stash `*storage.User` + `*MCPAccessClaims` on ctx via
+   `MCPUserFromContext` / `MCPClaimsFromContext`.
+
+Every 401/403 carries the RFC 9728 `WWW-Authenticate` challenge built by
+`internal/mcprs`, pointing at
+`/t/{tenant}/mcp/.well-known/oauth-protected-resource`.
 
 ---
 
@@ -131,7 +136,8 @@ Target middleware responsibilities:
 - `oidc.go` (Phase 4 — done) — portal RP, handlers, `RequireSession`,
   `RequireRole`, claims ctx helpers.
 - `state.go` (Phase 4 — done) — signed state cookie helper.
-- `middleware.go` (Phase 6 — stub) — JWT/JWKS bearer validator for MCP RS.
+- `middleware.go` (Phase 6 — done) — `MCPAuth` JWT bearer validator for
+  the MCP RS, RFC 9728 challenge on every 401/403.
 - `jwks.go` (Phase 6) — shared cached JWKS fetcher with rotation (may
   reuse the `rp` package's `RemoteKeySet` instead).
 - `roles.go` (Phase 6) — Zitadel role-claim parsing helpers (currently

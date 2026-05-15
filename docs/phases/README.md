@@ -26,7 +26,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                                | 1                  | ✅     |
 | 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)       | 0, 1, 2, 3         | ☐      |
 | 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)    | 4                  | ☐      |
-| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                            | 5                  | ☐      |
+| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                            | 5                  | ✅     |
 | 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                | 4                  | ☐      |
 | 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)            | 6, 7               | ☐      |
 | 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                     | 4, 7               | ☐      |
@@ -119,18 +119,18 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 6 — Limen as MCP Resource Server
 
-- [ ] `internal/mcprs/metadata.go` exposes PRM at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`
-- [ ] `internal/mcprs/challenge.go` constructs `WWW-Authenticate` with `resource_metadata` on every 401
-- [ ] `internal/auth/middleware.go` validates Zitadel-issued JWTs
-- [ ] `iss` checked against the configured Zitadel issuer
-- [ ] `aud` checked against the configured MCP RS audience
-- [ ] `urn:zitadel:iam:user:resourceowner:id` claim matched against `tenant.zitadel_org_id`
-- [ ] Algorithm allowlist (`RS256`); `kid`-based key selection via cached `JWKSResolver`
-- [ ] `*User` upserted/loaded by `(tenant_id, zitadel_subject)` and placed in ctx
-- [ ] `Mcp-Session-Id` explicitly **not** used for identity
-- [ ] Integration test: full discovery chain end-to-end
-- [ ] Integration test: cross-tenant rejection via `org_id` mismatch
-- [ ] Unit tests for each failure mode
+- [x] `internal/mcprs/metadata.go` exposes PRM at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`
+- [x] `internal/mcprs/challenge.go` constructs `WWW-Authenticate` with `resource_metadata` on every 401/403
+- [x] `internal/auth/middleware.go` validates Zitadel-issued JWTs (`MCPAuth` / `RequireMCPAuth`)
+- [x] `iss` checked against the configured Zitadel issuer
+- [x] `aud` checked against the configured MCP RS audience (`zitadel.mcp_resource_audience`)
+- [x] `urn:zitadel:iam:user:resourceowner:id` claim matched against `tenant.zitadel_org_id` (→ 403 on mismatch)
+- [x] Algorithm allowlist (`RS256`); `kid`-based key selection via cached `rp.RemoteKeySet`
+- [x] `*User` loaded by `(tenant_id, zitadel_subject)` and placed in ctx (no auto-provision on RS path)
+- [x] `Mcp-Session-Id` explicitly **not** used for identity
+- [x] Integration test: discovery chain end-to-end (in-process; full Zitadel-backed pass deferred to Phase 10)
+- [x] Integration test: cross-tenant rejection via `org_id` mismatch
+- [x] Unit tests for each failure mode
 
 ### Phase 7 — Outbound upstream linking
 

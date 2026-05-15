@@ -93,11 +93,11 @@ Defines typed configuration structs and YAML loading:
 
 | Type | Fields |
 |------|--------|
-| `Config` | `Server`, `Upstreams`, `CodeMode`, `Auth` |
-| `ServerConfig` | `Host` (string), `Port` (int) |
+| `Config` | `Server`, `Upstreams`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy` |
+| `ServerConfig` | `Host` (string), `Port` (int), `BaseURL` (string) |
 | `UpstreamConfig` | `Name` (string), `URL` (string), `Headers` (map[string]string), `Timeout` (time.Duration) |
 | `CodeModeConfig` | `ExecutionTimeout` (time.Duration), `MaxMemoryMB` (int) |
-| `AuthConfig` | `Enabled` (bool), `JWKSURL` (string), `Audience` (string) |
+| `ZitadelConfig` | `Domain`, `AuthMode`, `PAT`, `JWTKeyPath`, `ProjectID`, `MCPResourceAudience`, `HTTPTimeout` |
 
 The `Load()` function reads a YAML file, applies defaults (port: 8080, host: 0.0.0.0, timeout: 30s, memory: 64 MB), and returns a validated `*Config`.
 
@@ -128,23 +128,25 @@ Three files form the core:
 
 ### `internal/transport` -- HTTP/SSE Server
 
-Exposes the MCP endpoint to LLM clients:
+Exposes the MCP endpoint to LLM clients under `/t/{tenant}/mcp/*`:
 
-- **`MCPServer`**: Wraps `mcp-go/server.MCPServer` with chi routing.
-- **`Start()`**: Creates the MCP server with tool capabilities, registers Code Mode tools, configures a chi router with `/mcp` and `/mcp/` routes pointing to the SSE server, and starts `http.ListenAndServe`.
-- **`registerCodeModeTools()`**: Defines `codemode_search` and `codemode_execute` with rich descriptions and examples, then registers them with handlers via `server.AddTool()`.
-- **`handleSearch` / `handleExecute`**: Extract the `code` argument from the MCP request, delegate to the handler, and format results as `mcp.CallToolResult` (text content with JSON payload).
+- **`MCPServer`**: Wraps `mcp-go/server.MCPServer` and a single `SSEServer` configured with `WithDynamicBasePath` so one server instance correctly advertises per-tenant message endpoints (`/t/{tenant}/mcp/message`) depending on the resolved request tenant. Exposes `SSEHandler()` and `MessageHandler()` for chi mounting.
+- **`MountMCPRS(r, MCPRSDeps{...})`**: Wires the PRM document, `RequireMCPAuth`, and the SSE/Message handlers under `/t/{tenant}/mcp` behind `tenancy.RequireTenant` (see `internal/transport/mcprs.go`).
+- **`registerCodeModeTools()`**: Defines `codemode_search` and `codemode_execute` with rich descriptions and examples, then registers them with the core mcp-go server via `AddTool()`.
 
-### `internal/auth` -- JWT/JWKS Middleware (Stubbed)
+### `internal/auth` -- Portal RP + MCP Resource Server
 
-Provides the skeleton for HTTP-level authentication:
+Two roles share this package:
 
-- **`Middleware`**: Holds JWKS URL and audience configuration.
-- **`RequireAuth()`**: HTTP middleware that extracts Bearer tokens and validates them before passing requests downstream.
-- **`validateToken()`**: Placeholder -- currently returns an error noting JWKS validation is not yet implemented.
-- **`SetClaims` / `GetClaims`**: Context-based claim storage for downstream handlers.
+- **Portal RP** (`oidc.go`, `state.go`): the Zitadel-backed login/callback/logout flow for the management SPA.
+- **MCP Resource Server** (`middleware.go`): `MCPAuth` validates inbound bearer access tokens in-process. Pipeline: bearer extract → `op.VerifyAccessToken` (iss / sig / exp / RS256-only) → audience check → `urn:zitadel:iam:user:resourceowner:id` claim must match `tenant.zitadel_org_id` → local user lookup. On any failure the handler emits an RFC 9728 `WWW-Authenticate: Bearer realm="mcp", resource_metadata="…"` challenge pointing at the per-tenant PRM document.
 
-Currently not wired into the HTTP server (see [Roadmap](../README.md#roadmap) in README).
+### `internal/mcprs` -- Protected Resource Metadata
+
+Tiny package serving the RFC 9728 PRM document at
+`/t/{tenant}/mcp/.well-known/oauth-protected-resource` and building the
+`WWW-Authenticate` challenge consumed by `MCPAuth`. Public — no bearer
+required, per RFC 9728 §3.
 
 ## Key Types
 

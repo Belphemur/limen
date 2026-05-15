@@ -179,21 +179,21 @@ internal/auth/
 
 ## Checklist
 
-- [ ] Drop legacy `AuthConfig` from `internal/config/config.go`; add `zitadel.project_audience` (or reuse `zitadel.project_id`) for the `aud` check
-- [ ] `internal/transport/mcprs.go` exposes `MountMCPRS` and is wired from `internal/cli/serve.go`
-- [ ] Remove the global `/mcp` mount from `internal/transport/http.go` (or rework `MCPServer.Mount` to take a subrouter); MCP only reachable under `/t/{tenant}/mcp`
-- [ ] `internal/mcprs/metadata.go` exposes PRM at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`
-- [ ] PRM response includes correct `resource`, `authorization_servers`, `scopes_supported`
-- [ ] `internal/mcprs/challenge.go` constructs the `WWW-Authenticate` header with `resource_metadata` for every 401
-- [ ] `internal/auth/middleware.go` rewritten with full JWT validation pipeline
-- [ ] `iss` checked against the configured Zitadel issuer
-- [ ] `aud` checked against the configured MCP RS audience
-- [ ] `urn:zitadel:iam:user:resourceowner:id` claim checked against `tenant.zitadel_org_id` (cross-tenant defense)
-- [ ] Algorithm allowlist enforced (`RS256` only)
-- [ ] `kid`-based key selection via `JWKSResolver` with caching + miss-driven refresh
-- [ ] `*User` upserted/loaded by `(tenant_id, zitadel_subject)` and placed in ctx for downstream handlers
-- [ ] `Mcp-Session-Id` explicitly **not** used for identity; comment + test enforces this
-- [ ] PRM route registered before catch-all MCP handler (no shadowing)
-- [ ] Integration test: full inbound discovery chain (401 → PRM → AS metadata → DCR proxy → authorize on Zitadel → token → /mcp 200)
-- [ ] Integration test: cross-tenant rejection via `org_id` mismatch
-- [ ] Unit tests for each failure mode (no header, bad sig, expired, wrong iss, wrong aud, wrong org_id)
+- [x] Drop legacy `AuthConfig` from `internal/config/config.go`; add `zitadel.mcp_resource_audience` for the `aud` check
+- [x] `internal/transport/mcprs.go` exposes `MountMCPRS` and is wired from `internal/cli/serve.go`
+- [x] Remove the global `/mcp` mount from `internal/transport/http.go` (`MCPServer` now exposes `SSEHandler()` / `MessageHandler()` and the dynamic base path resolves per-tenant); MCP only reachable under `/t/{tenant}/mcp`
+- [x] `internal/mcprs/metadata.go` exposes PRM at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`
+- [x] PRM response includes correct `resource`, `authorization_servers`, `scopes_supported`
+- [x] `internal/mcprs/challenge.go` constructs the `WWW-Authenticate` header with `resource_metadata` for every 401/403
+- [x] `internal/auth/middleware.go` rewritten with full JWT validation pipeline (`MCPAuth` / `RequireMCPAuth`)
+- [x] `iss` checked against the configured Zitadel issuer (via `op.NewAccessTokenVerifier`)
+- [x] `aud` checked against the configured MCP RS audience (`zitadel.mcp_resource_audience`)
+- [x] `urn:zitadel:iam:user:resourceowner:id` claim checked against `tenant.zitadel_org_id` (cross-tenant defense → 403)
+- [x] Algorithm allowlist enforced (`op.WithSupportedAccessTokenSigningAlgorithms("RS256")`)
+- [x] `kid`-based key selection via `rp.NewRemoteKeySet` with caching + miss-driven refresh
+- [x] `*User` loaded by `(tenant_id, zitadel_subject)` and placed in ctx for downstream handlers (no auto-provision on RS path)
+- [x] `Mcp-Session-Id` explicitly **not** used for identity; comment + test enforces this
+- [x] PRM route registered before the auth group (no shadowing)
+- [x] Integration test: inbound discovery chain (401 → PRM → authorization_servers link → token → /mcp 200). Full Zitadel-backed end-to-end pass is deferred to Phase 10.
+- [x] Integration test: cross-tenant rejection via `org_id` mismatch
+- [x] Unit tests for each failure mode (no header, bad sig, expired, wrong iss, wrong aud, wrong org_id, unprovisioned user)

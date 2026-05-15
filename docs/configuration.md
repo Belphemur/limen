@@ -74,10 +74,12 @@ codemode:
   execution_timeout: "60s"
   max_memory_mb: 128
 
-auth:
-  enabled: true
-  jwks_url: "https://auth.example.com/.well-known/jwks.json"
-  audience: "limen"
+zitadel:
+  domain: "https://auth.example.com"
+  auth_mode: "pat"
+  pat: "${LIMEN_ZITADEL_PAT}"
+  project_id: "my-zitadel-project-id"
+  mcp_resource_audience: "my-zitadel-project-id"
 ```
 
 ---
@@ -113,15 +115,22 @@ Settings for the JavaScript sandbox (Code Mode) that executes LLM-generated code
 | `execution_timeout` | `duration` | `30s` | Maximum time allowed for a single JS execution (both `search` and `execute`). Prevents infinite loops. Parsed as Go duration string. If the timeout fires, the Goja VM is interrupted and an error is returned. |
 | `max_memory_mb` | `int` | `64` | Intended cap on JS heap size. **Note:** This value is configured but not yet enforced in the runtime. Reserved for future implementation. |
 
-### `auth`
+### `zitadel`
 
-JWT/JWKS authentication for the SSE endpoint. When enabled, all requests to `/mcp` must include a valid Bearer token.
+Zitadel-specific settings. Drives both the OAuth proxy (Phase 5) and the
+MCP Resource Server (Phase 6) — Limen validates inbound MCP access tokens
+against Zitadel's JWKS (discovered from `oidc.issuer`) and rejects any
+token whose `aud` claim does not contain `mcp_resource_audience`.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Whether to enforce auth middleware. When `false`, the `/mcp` endpoint is open. When `true`, a valid JWT is required (see note below). |
-| `jwks_url` | `string` | `""` | URL of the JWKS (JSON Web Key Set) endpoint used to fetch public keys for JWT signature validation. Required when `enabled: true`. **Note:** JWKS validation is stubbed but not yet implemented (see [Roadmap](../README.md#roadmap) in README). |
-| `audience` | `string` | `""` | Expected JWT `aud` (audience) claim. Tokens with a non-matching audience will be rejected. Required when `enabled: true`. |
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `domain` | `string` | Yes | -- | Zitadel domain (e.g. `https://auth.example.com`). |
+| `auth_mode` | `string` | Yes | -- | Admin auth mode for the Management API — `pat` or `jwt`. |
+| `pat` | `string` | Conditional | -- | Personal access token. Required when `auth_mode: pat`. |
+| `jwt_key_path` | `string` | Conditional | -- | Path to service-user JWT key file. Required when `auth_mode: jwt`. |
+| `project_id` | `string` | Yes | -- | Zitadel project id holding the MCP application. |
+| `mcp_resource_audience` | `string` | Yes | -- | Expected `aud` claim on inbound MCP access tokens. Typically equals `project_id` or a configured Zitadel audience. |
+| `http_timeout` | `duration` | No | `15s` | Timeout for outbound Zitadel Management API calls. |
 
 ## Environment Variable Substitution
 

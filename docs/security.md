@@ -53,30 +53,35 @@ When the timeout fires, the Goja runtime raises an interrupt that immediately ha
 
 ## Authentication
 
-Limen validates client requests through JWT Bearer token authentication:
+Limen validates inbound MCP requests as a standards-compliant OAuth 2.0
+Resource Server. Every request to `/t/{tenant}/mcp/*` (except the public
+PRM document) must carry a Bearer access token issued by the configured
+Zitadel issuer.
 
-### Current State
+### Validation pipeline
 
-The auth middleware in `auth/middleware.go` extracts and validates Bearer tokens from the `Authorization` header. **JWKS (JSON Web Key Set) validation is currently stubbed** and needs real implementation before production use.
-
-### Planned: JWKS Validation
-
-The intended flow:
-
-1. Client sends request with `Authorization: Bearer <token>`
-2. Gateway extracts the JWT
-3. Gateway fetches the public key from the configured JWKS endpoint
-4. Gateway validates the token signature, expiry, and claims
-5. Request proceeds only if validation succeeds
+1. Client sends request with `Authorization: Bearer <token>`.
+2. Gateway extracts the JWT and validates `iss`, signature (RS256 only),
+   `exp`, and `nbf` against the issuer's JWKS (fetched and cached via
+   OIDC discovery at startup).
+3. Gateway verifies the `aud` claim contains the configured
+   `zitadel.mcp_resource_audience`.
+4. Gateway enforces tenant binding: the
+   `urn:zitadel:iam:user:resourceowner:id` claim must equal the URL
+   tenant's `zitadel_org_id` — cross-tenant tokens get a 403.
+5. Gateway resolves the local `users` row by `(tenant_id, zitadel_subject)`;
+   unprovisioned users get a 401 (no auto-provision on the RS path).
+6. On every failure the response carries an RFC 9728-compliant
+   `WWW-Authenticate: Bearer realm="mcp", resource_metadata="…"` header
+   pointing at `/t/{tenant}/mcp/.well-known/oauth-protected-resource`.
 
 ### Configuration
 
 ```yaml
-auth:
-  jwks_url: "https://auth.example.com/.well-known/jwks.json"
-  required_claims:
-    - "aud"
-    - "sub"
+oidc:
+  issuer: "https://auth.example.com"
+zitadel:
+  mcp_resource_audience: "my-zitadel-project-id"
 ```
 
 ## Tenant ↔ Zitadel org binding
