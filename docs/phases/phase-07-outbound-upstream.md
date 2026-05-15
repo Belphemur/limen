@@ -290,37 +290,37 @@ This is exactly what makes the portal experience feel right: a freshly created t
 
 ## Checklist
 
-- [ ] `internal/upstream/strategy.go` defines the `Strategy` interface (including `RequiresLink`) and `Registry`
-- [ ] Registry populated in `cmd/gateway/main.go` with `mcp_spec`, `static_header`, and `none` strategies
-- [ ] `internal/upstream/mcpspec/discovery.go` fetches PRM + AS metadata with timeouts and caches the result
-- [ ] `internal/upstream/mcpspec/registrar.go` performs DCR once per (tenant, upstream); persists `UpstreamRegistration`
-- [ ] `internal/upstream/mcpspec/link.go` builds PKCE+`resource`+state authorize URL and handles token exchange
-- [ ] HMAC state is signed with a domain-separated key; persisted (or signed-cookied) with one-shot semantics
-- [ ] `internal/upstream/mcpspec/headers.go` injects `Authorization: Bearer ...` and refreshes inline when within 60 s of expiry
-- [ ] `internal/upstream/statichdr/config.go` validates header name/template + mode; refuses unknown modes
-- [ ] `internal/upstream/statichdr/headers.go` reads the tenant secret (tenant mode) or the user link (user mode) and formats the header
-- [ ] `static_header` user-mode `StartLink` returns a portal SPA URL (no third-party redirect); rotation overwrites the stored key atomically
-- [ ] `static_header` `RequiresLink()` returns `false` in tenant mode, `true` in user mode
-- [ ] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
-- [ ] `internal/upstream/handlers.go` exposes connect / callback / disconnect under `/t/{tenant}/upstream/{name}/*` behind `RequirePortalSession`
-- [ ] `internal/upstream/refresher.go` runs a single goroutine under `WithSuperuser(ctx)`, audited with a `// nolint:limen.superuser` comment, skips strategies whose `Maintain` is a no-op
-- [ ] Refresher interval and refresh window come from config (sensible defaults)
-- [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
-- [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
-- [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
-- [ ] `UpstreamLink` health-tracking columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; migration shipped
-- [ ] Auto-disable rule: ≥5 consecutive failures over ≥15 min **or** `NeedsRelink=true` for ≥24 h → set `AutoDisabledAt=now()`; thresholds config-driven
-- [ ] Successful tool call or refresh atomically resets `ConsecutiveFailures` and clears `AutoDisabledAt` in the same DB tx that records the outcome
-- [ ] Background refresher skips rows where `AutoDisabledAt IS NOT NULL` (as it already does for `NeedsRelink=true`)
-- [ ] Audit event `upstream_auto_disabled` emitted with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`
-- [ ] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background)
-- [ ] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
-- [ ] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
-- [ ] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
-- [ ] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true`
-- [ ] Valkey-backed one-shot OAuth state (HMAC-signed envelope + encrypted PKCE verifier; `GETDEL`-style consumption; 10-minute TTL)
-- [ ] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
-- [ ] Integration test for full mcp_spec connect flow against an httptest stub
-- [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds
-- [ ] Integration test for `static_header` user-mode: submit key via portal RPC → tool becomes visible → toggle disable → tool hidden → toggle enable → tool visible again
-- [ ] Integration test: sustained upstream 5xx → link auto-disables for that user → tools hidden → portal Re-enable restores visibility → next successful call keeps it healthy
+- [x] `internal/upstream/strategy.go` defines the `Strategy` interface (including `RequiresLink`) and `Registry`
+- [x] Registry populated in `cmd/gateway/main.go` with `mcp_spec`, `static_header`, and `none` strategies _(wired in [internal/cli/serve_upstream.go](../../internal/cli/serve_upstream.go))_
+- [x] `internal/upstream/mcpspec/discovery.go` fetches PRM + AS metadata with timeouts and caches the result _(merged into [internal/upstream/mcpspec/mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
+- [x] `internal/upstream/mcpspec/registrar.go` performs DCR once per (tenant, upstream); persists `UpstreamRegistration` _(merged into [mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
+- [x] `internal/upstream/mcpspec/link.go` builds PKCE+`resource`+state authorize URL and handles token exchange _(merged into [mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
+- [x] HMAC state is signed with a domain-separated key; persisted (or signed-cookied) with one-shot semantics _(AES-SIV envelope via [internal/upstream/oauthstate/oauthstate.go](../../internal/upstream/oauthstate/oauthstate.go), Valkey `GETDEL`)_
+- [x] `internal/upstream/mcpspec/headers.go` injects `Authorization: Bearer ...` and refreshes inline when within 60 s of expiry
+- [x] `internal/upstream/statichdr/config.go` validates header name/template + mode; refuses unknown modes _(merged into [internal/upstream/statichdr/statichdr.go](../../internal/upstream/statichdr/statichdr.go))_
+- [x] `internal/upstream/statichdr/headers.go` reads the tenant secret (tenant mode) or the user link (user mode) and formats the header
+- [x] `static_header` user-mode `StartLink` returns a portal SPA URL (no third-party redirect); rotation overwrites the stored key atomically _(via `PersistUserSecret`; portal RPC wiring lands in Phase 9)_
+- [x] `static_header` `RequiresLink()` returns `false` in tenant mode, `true` in user mode
+- [x] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
+- [x] `internal/upstream/handlers.go` exposes connect / callback / disconnect under `/t/{tenant}/upstream/{name}/*` behind `RequirePortalSession` _(callback HTTP route in [internal/transport/upstream.go](../../internal/transport/upstream.go); connect/disconnect ship as portal Connect-RPC mutations in Phase 9)_
+- [x] `internal/upstream/refresher.go` runs a single goroutine under `WithSuperuser(ctx)`, audited with a `// nolint:limen.superuser` comment, skips strategies whose `Maintain` is a no-op
+- [x] Refresher interval and refresh window come from config (sensible defaults)
+- [x] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
+- [x] `UpstreamLink.Enabled` field added (default `true`); migration shipped _(migration `00004_phase7_upstream.sql`)_
+- [x] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [x] `UpstreamLink` health-tracking columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; migration shipped
+- [x] Auto-disable rule: ≥5 consecutive failures over ≥15 min **or** `NeedsRelink=true` for ≥24 h → set `AutoDisabledAt=now()`; thresholds config-driven _(implemented in [internal/upstream/health.go](../../internal/upstream/health.go); thresholds in `config.UpstreamRefreshConfig`)_
+- [x] Successful tool call or refresh atomically resets `ConsecutiveFailures` and clears `AutoDisabledAt` in the same DB tx that records the outcome _(refresh path; tool-call-side reset wires through Phase 8's round-tripper using the same `RecordSuccess` helper)_
+- [x] Background refresher skips rows where `AutoDisabledAt IS NOT NULL` (as it already does for `NeedsRelink=true`)
+- [ ] Audit event `upstream_auto_disabled` emitted with `(tenant_id, user_id, upstream_id, reason, streak_started_at)` _(persisted `audit_events` writer lands in [Phase 12](phase-12-staff-backoffice.md); v1 is a structured zap log per the spec)_
+- [x] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background) _(round-tripper reactive 401 path lands in Phase 8 against this same function)_
+- [x] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
+- [x] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
+- [x] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
+- [x] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true` _(portal CTA wiring is Phase 9; the model flag and refresher skip are in place)_
+- [x] Valkey-backed one-shot OAuth state (HMAC-signed envelope + encrypted PKCE verifier; `GETDEL`-style consumption; 10-minute TTL)
+- [x] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
+- [ ] Integration test for full mcp_spec connect flow against an httptest stub _(deferred to Phase 8 — requires the round-tripper to assert end-to-end Headers injection)_
+- [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds _(Phase 8 — round-tripper)_
+- [ ] Integration test for `static_header` user-mode: submit key via portal RPC → tool becomes visible → toggle disable → tool hidden → toggle enable → tool visible again _(Phase 9 — portal RPC)_
+- [ ] Integration test: sustained upstream 5xx → link auto-disables for that user → tools hidden → portal Re-enable restores visibility → next successful call keeps it healthy _(Phase 8 + 9)_
