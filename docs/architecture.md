@@ -148,6 +148,19 @@ Tiny package serving the RFC 9728 PRM document at
 `WWW-Authenticate` challenge consumed by `MCPAuth`. Public — no bearer
 required, per RFC 9728 §3.
 
+### `internal/oauthproxy` -- DCR + AS-metadata proxy
+
+Inbound DCR (RFC 7591 / 7592) under `/t/{tenant}/oauth/register*`, plus the
+`/.well-known/oauth-authorization-server` metadata redirector and the
+`/authorize` redirector that injects Zitadel's
+`urn:zitadel:iam:user:resourceowner` vendor scope (so the issued access
+token carries `urn:zitadel:iam:user:resourceowner:id`, which `MCPAuth`
+binds to the tenant org). DCR-created OIDC applications are placed in a
+per-`client_name` Zitadel project, JIT-created under the tenant's
+organization — see [phase 7b](phases/phase-07b-dcr-per-client-project.md).
+Limen's shared `zitadel.project_id` project is reserved for the Portal SPA
+app and the MCP Resource Server app.
+
 ### `internal/upstream` -- Outbound upstream linking
 
 Upstream connections are driven by a **strategy registry**. Each upstream row carries a `strategy_type`, and the `Strategy` interface (`Provision`, `StartLink`, `FinishLink`, `Headers`, `Maintain`, `RequiresLink`) picks the right behavior at runtime. v1 ships three strategies:

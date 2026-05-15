@@ -28,6 +28,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)    | 4                  | ☐      |
 | 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                            | 5                  | ✅     |
 | 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                | 4                  | ✅     |
+| 7b  | [DCR per-client Zitadel projects (JIT in tenant org)](phase-07b-dcr-per-client-project.md) | 5, 6           | ☐      |
 | 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)            | 6, 7               | ☐      |
 | 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                     | 4, 7               | ☐      |
 | 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)      | 4, 7, 9            | ☐      |

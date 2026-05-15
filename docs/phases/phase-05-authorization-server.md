@@ -3,6 +3,13 @@
 **Depends on**: Phase 4 (tenant resolution + OIDC RP)
 **Unblocks**: Phase 6
 
+> **Update (Phase 7b)**: DCR-created OIDC applications no longer land in
+> Limen's shared project. They are placed in a per-`client_name` project
+> JIT-created under the **tenant's** Zitadel organization. See
+> [Phase 7b](phase-07b-dcr-per-client-project.md) for the find-or-create
+> flow, the `ZitadelApp.ZitadelProjectID` mirror column, and the rewired
+> `AddOIDCApp`/`Update`/`Delete` signatures.
+
 ## Goal
 
 Make Limen a **first-class MCP-spec citizen without implementing an Authorization Server itself**. Zitadel is the AS. Limen's job in this phase:
