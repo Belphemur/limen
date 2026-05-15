@@ -25,7 +25,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	}
 	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
 
-	if exists, err := s.registrationExists(ctx, lctx.Tenant.ID, lctx.Upstream.ID, tenantStr); err != nil {
+	if exists, err := s.registrationExists(ctx, lctx.Tenant.ID, lctx.Upstream.ID); err != nil {
 		return err
 	} else if exists {
 		return nil
@@ -77,14 +77,12 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 
 // registrationExists reports whether an UpstreamRegistration row already
 // exists for (tenant, upstream). Used as Provision's idempotency check.
-func (s *Strategy) registrationExists(ctx context.Context, tenantID, upstreamID int64, tenantStr string) (bool, error) {
+func (s *Strategy) registrationExists(ctx context.Context, tenantID, upstreamID int64) (bool, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
 		return false, fmt.Errorf("mcpspec: open session: %w", err)
 	}
 	var existing storage.UpstreamRegistration
-	existing.ClientSecret.SetAAD(tenantStr, "", kindClientSecret)
-	existing.RegistrationAccessToken.SetAAD(tenantStr, "", kindRegAccessToken)
 	queryErr := tx.Where("upstream_id = ?", upstreamID).First(&existing).Error
 	if commitErr := commit(); commitErr != nil {
 		return false, commitErr
@@ -182,10 +180,14 @@ func (s *Strategy) loadRegistration(ctx context.Context, tenantID, upstreamID in
 	defer func() { _ = commit() }()
 
 	var row storage.UpstreamRegistration
-	row.ClientSecret.SetAAD(tenantStr, "", kindClientSecret)
-	row.RegistrationAccessToken.SetAAD(tenantStr, "", kindRegAccessToken)
 	if err := tx.Where("upstream_id = ?", upstreamID).First(&row).Error; err != nil {
 		return nil, fmt.Errorf("mcpspec: load registration: %w", err)
+	}
+	if err := row.ClientSecret.Decrypt(tenantStr, "", kindClientSecret); err != nil {
+		return nil, fmt.Errorf("mcpspec: decrypt client_secret: %w", err)
+	}
+	if err := row.RegistrationAccessToken.Decrypt(tenantStr, "", kindRegAccessToken); err != nil {
+		return nil, fmt.Errorf("mcpspec: decrypt registration_access_token: %w", err)
 	}
 	return &row, nil
 }

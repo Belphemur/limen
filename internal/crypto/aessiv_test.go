@@ -222,9 +222,14 @@ func TestSecretField_EncryptedRoundtripWithCipher(t *testing.T) {
 	}
 
 	var dst SecretField
-	dst.SetAAD("tnt_1", "usr_2", "upstream.access_token")
 	if err := dst.Scan(enc); err != nil {
 		t.Fatalf("Scan: %v", err)
+	}
+	if got := dst.String(); got != "" {
+		t.Fatalf("plaintext leaked before Decrypt: %q", got)
+	}
+	if err := dst.Decrypt("tnt_1", "usr_2", "upstream.access_token"); err != nil {
+		t.Fatalf("Decrypt: %v", err)
 	}
 	if got := dst.String(); got != "super-secret" {
 		t.Fatalf("roundtrip mismatch: %q", got)
@@ -241,9 +246,14 @@ func TestSecretField_MissingAADWithCipher(t *testing.T) {
 		t.Fatalf("Value succeeded without AAD")
 	}
 
+	// Scan stashes raw ciphertext without needing AAD; the failure surfaces
+	// at Decrypt time when the wrong/empty AAD is supplied.
 	var g SecretField
-	if err := g.Scan([]byte("anything")); err == nil {
-		t.Fatalf("Scan succeeded without AAD")
+	if err := g.Scan([]byte("not-a-real-ciphertext")); err != nil {
+		t.Fatalf("Scan should accept raw bytes, got %v", err)
+	}
+	if err := g.Decrypt("", "", ""); err == nil {
+		t.Fatalf("Decrypt succeeded with empty AAD")
 	}
 }
 

@@ -266,6 +266,14 @@ func (s *Strategy) Headers(ctx context.Context, lctx upstream.LinkContext) (map[
 		if lctx.Link == nil || lctx.Link.ExtraJSON.IsZero() {
 			return nil, upstream.ErrNeedsRelink
 		}
+		if lctx.Tenant == nil || lctx.User == nil {
+			return nil, errors.New("statichdr: tenant/user missing for user-mode header")
+		}
+		tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
+		userStr := fmt.Sprintf("%d", lctx.User.ID)
+		if err := lctx.Link.ExtraJSON.Decrypt(tenantStr, userStr, kindUserExtra); err != nil {
+			return nil, fmt.Errorf("statichdr: decrypt extra: %w", err)
+		}
 		var ux userExtra
 		if jsonErr := json.Unmarshal(lctx.Link.ExtraJSON.Bytes(), &ux); jsonErr != nil {
 			return nil, fmt.Errorf("statichdr: parse extra: %w", jsonErr)
@@ -305,7 +313,6 @@ func (s *Strategy) loadConfig(ctx context.Context, lctx upstream.LinkContext) (C
 		return zero, fmt.Errorf("statichdr: open session: %w", err)
 	}
 	var row storage.UpstreamStrategyConfig
-	row.ConfigJSON.SetAAD(tenantStr, "", kindStrategyConfig)
 	if err := tx.Where("upstream_id = ?", lctx.Upstream.ID).First(&row).Error; err != nil {
 		_ = commit()
 		return zero, fmt.Errorf("statichdr: load config: %w", err)
@@ -315,6 +322,9 @@ func (s *Strategy) loadConfig(ctx context.Context, lctx upstream.LinkContext) (C
 	}
 	if row.ConfigJSON.IsZero() {
 		return zero, errors.New("statichdr: config row is empty")
+	}
+	if err := row.ConfigJSON.Decrypt(tenantStr, "", kindStrategyConfig); err != nil {
+		return zero, fmt.Errorf("statichdr: decrypt config: %w", err)
 	}
 	var cfg Config
 	if err := json.Unmarshal(row.ConfigJSON.Bytes(), &cfg); err != nil {

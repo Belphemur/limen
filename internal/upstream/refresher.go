@@ -12,6 +12,7 @@ package upstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -151,9 +152,15 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 
 	tenantStr := strconv.FormatInt(tenant.ID, 10)
 	userStr := strconv.FormatInt(user.ID, 10)
-	link.AccessToken.SetAAD(tenantStr, userStr, "upstream.access_token")
-	link.RefreshToken.SetAAD(tenantStr, userStr, "upstream.refresh_token")
-	link.ExtraJSON.SetAAD(tenantStr, userStr, "upstream.extra")
+	if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt access_token: %w", err)
+	}
+	if err := link.RefreshToken.Decrypt(tenantStr, userStr, "upstream.refresh_token"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt refresh_token: %w", err)
+	}
+	if err := link.ExtraJSON.Decrypt(tenantStr, userStr, "upstream.extra"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt extra: %w", err)
+	}
 
 	strat, err := r.registry.Resolve(StrategyType(up.StrategyType))
 	if err != nil {

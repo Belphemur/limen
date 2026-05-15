@@ -112,8 +112,6 @@ func (s *Strategy) refreshLink(ctx context.Context, lctx upstream.LinkContext) (
 	}
 
 	var locked storage.UpstreamLink
-	locked.AccessToken.SetAAD(tenantStr, userStr, kindAccessToken)
-	locked.RefreshToken.SetAAD(tenantStr, userStr, kindRefreshToken)
 	if err := tx.Raw(`SELECT * FROM upstream_links WHERE id = ? FOR UPDATE SKIP LOCKED`, lctx.Link.ID).
 		Scan(&locked).Error; err != nil {
 		_ = commit()
@@ -123,6 +121,14 @@ func (s *Strategy) refreshLink(ctx context.Context, lctx upstream.LinkContext) (
 		// Another worker holds the lock; reload from caller's link.
 		_ = commit()
 		return lctx.Link, nil
+	}
+	if err := locked.AccessToken.Decrypt(tenantStr, userStr, kindAccessToken); err != nil {
+		_ = commit()
+		return nil, fmt.Errorf("mcpspec: decrypt access_token: %w", err)
+	}
+	if err := locked.RefreshToken.Decrypt(tenantStr, userStr, kindRefreshToken); err != nil {
+		_ = commit()
+		return nil, fmt.Errorf("mcpspec: decrypt refresh_token: %w", err)
 	}
 	// Another worker may have already refreshed it.
 	if locked.ExpiresAt != nil && time.Until(*locked.ExpiresAt) > s.proWin {

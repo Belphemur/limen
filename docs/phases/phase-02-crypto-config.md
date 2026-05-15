@@ -43,7 +43,9 @@ These two are bundled because they're both small, both blocking, and the encrypt
   func ActiveCipher() *Cipher
   ```
 
-- **GORM glue**: `SecretField` (stubbed in Phase 1) becomes a real type that holds plaintext in memory and delegates encrypt/decrypt to `ActiveCipher()` on `Value()`/`Scan()`. The AAD has to be set on the field before `Save` and before `Find` via `field.SetAAD(tenantID, userID, kind)`. This is verbose but keeps AAD binding explicit and auditable. If no `Cipher` is registered (e.g. storage integration tests), `SecretField` falls back to plaintext passthrough.
+- **GORM glue**: `SecretField` (stubbed in Phase 1) becomes a real type that holds plaintext in memory and delegates encryption to `ActiveCipher()` on `Value()`. The read path is **asymmetric**: `Scan` stashes the raw column bytes, and the caller must call `field.Decrypt(tenantID, userID, kind)` on the loaded row before reading plaintext via `Bytes()` / `String()`. The write path stays explicit — `field.SetAAD(tenantID, userID, kind)` is required before `Save` when a `Cipher` is active. If no `Cipher` is registered (e.g. storage integration tests), `SecretField` falls back to plaintext passthrough in both directions.
+
+  > **Post-implementation note.** The original plan assumed `Scan` could decrypt eagerly using AAD pre-set on the destination field. This is incompatible with GORM v2, which scans into a `sync.Pool`-allocated `SecretField` and only copies the result into the destination afterwards — the destination's AAD is invisible during the in-flight `Scan`. The read API was therefore split into `Scan` (stash ciphertext) + `Decrypt` (apply AAD on the loaded row).
 - **Key rotation** (forward-compat): the on-disk format is `version(1) | nonce(16) | tag(16) | ciphertext(N)`. Version `0x01` = primary key only. Future rotation can introduce `0x02` with a key-id byte and multi-key decrypt without breaking existing rows.
 
 ### Config upgrades — `internal/config/config.go`
@@ -135,7 +137,7 @@ internal/config/
 
 ## Risks
 
-- **GORM custom-type ergonomics**: `Value`/`Scan` don't have ctx, so AAD has to be threaded via the field itself or a thread-local. Plan to thread it via the field (`SetAAD`). Document this clearly.
+- **GORM custom-type ergonomics**: `Value`/`Scan` don't have ctx, so AAD has to be threaded via the field itself or a thread-local. Plan to thread it via the field — `SetAAD` on the write path and an explicit `Decrypt(tenantID, userID, kind)` call on the read path (GORM v2's value-pool prevents the destination's pre-set AAD from reaching the in-flight `Scan`). Document this clearly.
 - **Migration of existing data**: not applicable yet — no production data exists.
 
 ## Checklist

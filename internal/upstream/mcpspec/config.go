@@ -68,7 +68,6 @@ func (s *Strategy) loadConfig(ctx context.Context, tenantID, upstreamID int64) (
 		return zero, fmt.Errorf("mcpspec: open session: %w", err)
 	}
 	var row storage.UpstreamStrategyConfig
-	row.ConfigJSON.SetAAD(tenantStr, "", kindStrategyConfig)
 	err = tx.Where("upstream_id = ?", upstreamID).First(&row).Error
 	if commitErr := commit(); commitErr != nil && err == nil {
 		err = commitErr
@@ -81,6 +80,9 @@ func (s *Strategy) loadConfig(ctx context.Context, tenantID, upstreamID int64) (
 	}
 	if row.ConfigJSON.IsZero() {
 		return zero, nil
+	}
+	if err := row.ConfigJSON.Decrypt(tenantStr, "", kindStrategyConfig); err != nil {
+		return zero, fmt.Errorf("mcpspec: decrypt config: %w", err)
 	}
 	var cfg Config
 	if err := json.Unmarshal(row.ConfigJSON.Bytes(), &cfg); err != nil {
