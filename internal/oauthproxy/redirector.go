@@ -2,7 +2,16 @@ package oauthproxy
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 )
+
+// zitadelResourceOwnerScope is the Zitadel-vendored scope that tells the
+// AS to emit the `urn:zitadel:iam:user:resourceowner:id` claim on access
+// tokens. Limen's MCP resource server uses that claim to bind a token
+// to the calling tenant's org, so every authorize request must carry it
+// — most clients (Cursor, Inspector) don't request it themselves.
+const zitadelResourceOwnerScope = "urn:zitadel:iam:user:resourceowner"
 
 // UpstreamEndpoints names the Zitadel-side OAuth/OIDC URLs the redirector
 // forwards user agents and MCP clients to. The metadata handler is the
@@ -37,9 +46,11 @@ type Redirector struct {
 func NewRedirector(ep UpstreamEndpoints) *Redirector { return &Redirector{ep: ep} }
 
 // Authorize 302-redirects the user agent to Zitadel's `/oauth/v2/authorize`
-// with the inbound query preserved.
+// with the inbound query preserved. The Zitadel resource-owner scope is
+// added to the request when missing so the issued access token carries
+// the org_id claim Limen's MCP middleware verifies.
 func (h *Redirector) Authorize(w http.ResponseWriter, r *http.Request) {
-	redirect(w, r, h.ep.Authorize, http.StatusFound)
+	redirectWithQuery(w, r, h.ep.Authorize, http.StatusFound, ensureResourceOwnerScope(r.URL.RawQuery))
 }
 
 // Userinfo 302-redirects to Zitadel's userinfo endpoint. GET-only; bearer
@@ -72,19 +83,47 @@ func (h *Redirector) Introspect(w http.ResponseWriter, r *http.Request) {
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, base string, status int) {
+	redirectWithQuery(w, r, base, status, r.URL.RawQuery)
+}
+
+func redirectWithQuery(w http.ResponseWriter, r *http.Request, base string, status int, rawQuery string) {
 	if base == "" {
 		http.Error(w, "oauth proxy not configured", http.StatusInternalServerError)
 		return
 	}
 	target := base
-	if q := r.URL.RawQuery; q != "" {
+	if rawQuery != "" {
 		if containsQuery(base) {
-			target = base + "&" + q
+			target = base + "&" + rawQuery
 		} else {
-			target = base + "?" + q
+			target = base + "?" + rawQuery
 		}
 	}
 	http.Redirect(w, r, target, status)
+}
+
+// ensureResourceOwnerScope returns rawQuery with the Zitadel resource-owner
+// scope appended to the `scope` parameter when not already present. The
+// rest of the query is preserved verbatim, including ordering and any
+// duplicate keys clients may have added.
+func ensureResourceOwnerScope(rawQuery string) string {
+	if rawQuery == "" {
+		return "scope=" + url.QueryEscape("openid "+zitadelResourceOwnerScope)
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return rawQuery
+	}
+	scope := strings.TrimSpace(values.Get("scope"))
+	parts := strings.Fields(scope)
+	for _, p := range parts {
+		if p == zitadelResourceOwnerScope {
+			return rawQuery
+		}
+	}
+	parts = append(parts, zitadelResourceOwnerScope)
+	values.Set("scope", strings.Join(parts, " "))
+	return values.Encode()
 }
 
 func containsQuery(s string) bool {

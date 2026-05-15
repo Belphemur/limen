@@ -85,7 +85,7 @@ func TestRedirector_Statuses(t *testing.T) {
 		wantLoc  string
 	}{
 		{"authorize GET", http.MethodGet, rd.Authorize, http.StatusFound,
-			"https://auth.example.com/oauth/v2/authorize?client_id=abc"},
+			"https://auth.example.com/oauth/v2/authorize?client_id=abc&scope=urn%3Azitadel%3Aiam%3Auser%3Aresourceowner"},
 		{"userinfo GET", http.MethodGet, rd.Userinfo, http.StatusFound,
 			"https://auth.example.com/oidc/v1/userinfo?client_id=abc"},
 		{"end_session GET", http.MethodGet, rd.EndSession, http.StatusFound,
