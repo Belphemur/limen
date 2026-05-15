@@ -7,7 +7,9 @@
 
 Replace the current static, single-config-per-process upstream model with a **strategy-driven, per-tenant, per-user** linking system. v1 ships three strategies:
 
-- **`mcp_spec`** — the upstream is itself an MCP-spec-compliant OAuth resource (e.g. Atlassian Rovo at `https://mcp.atlassian.com/v1/mcp/authv2`). Limen acts as the **OAuth client**, performs PRM discovery, dynamic-client-registers itself once per `(tenant, upstream)`, and drives a code+PKCE flow per user.
+- **`mcp_spec`** — the upstream is itself an MCP-spec-compliant OAuth resource (e.g. Atlassian Rovo at `https://mcp.atlassian.com/v1/mcp/authv2`). Limen acts as the **OAuth client** and drives a code+PKCE flow per user. The strategy supports two client-provisioning modes, picked automatically per upstream:
+  - **DCR (default)** — when the upstream's authorization server advertises a `registration_endpoint`, Limen dynamic-client-registers itself once per `(tenant, upstream)` via RFC 7591.
+  - **Static OAuth client** — when the AS does **not** support DCR (e.g. `https://github.com/login/oauth`), the operator provisions a client out-of-band and passes the credentials at upstream creation time. Limen stores them encrypted in `UpstreamStrategyConfig.ConfigJSON` and uses them as if DCR had run. The same payload can carry `issuer`, `authorization_endpoint`, `token_endpoint`, and `scopes` overrides for servers that ship no AS metadata document at all.
 - **`static_header`** — the upstream authenticates via a static HTTP header (typically `Authorization: Bearer <token>` or `X-API-Key: <key>`). Two sub-modes, chosen by the admin at upstream creation:
   - **`tenant`**: the admin supplies a single shared secret encrypted on the `UpstreamStrategyConfig`. All users of the tenant share it. `RequiresLink()` returns `false` (the tools become visible to everyone in the tenant automatically).
   - **`user`**: each user must paste their own API key in the portal before the upstream is usable. The secret lives encrypted on the `UpstreamLink`. `RequiresLink()` returns `true`.
@@ -39,7 +41,7 @@ Method-by-method:
 
 | Method         | When called                                                     | Notes                                                                                                                                                                                                                                                                                                                                  |
 | -------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Provision`    | Once after an admin creates an upstream                         | `mcp_spec`: discovers PRM + AS metadata, performs DCR, persists `UpstreamRegistration`. `static_header`: validates config (header name, template, mode); persists tenant secret encrypted if mode==`tenant`. `none`: optional HEAD probe — refuses if upstream advertises PRM (would indicate the operator picked the wrong strategy). |
+| `Provision`    | Once after an admin creates an upstream                         | `mcp_spec`: discovers PRM + AS metadata; if the AS advertises `registration_endpoint` performs DCR, otherwise reads the static OAuth client from `UpstreamStrategyConfig` (errors with an actionable message if neither is available). Persists `UpstreamRegistration` either way. `static_header`: validates config (header name, template, mode); persists tenant secret encrypted if mode==`tenant`. `none`: optional HEAD probe — refuses if upstream advertises PRM (would indicate the operator picked the wrong strategy). |
 | `RequiresLink` | Tool listing                                                    | Drives whether `Phase 8` should expose tools to users without a `UpstreamLink`. `false` for `none` and `static_header` (tenant mode); `true` for `mcp_spec` and `static_header` (user mode).                                                                                                                                           |
 | `StartLink`    | User clicks "Connect" in the portal                             | `mcp_spec`: builds an OAuth authorize URL with PKCE + `resource` + state. `static_header` (user mode): returns a portal SPA URL where the user pastes their key (no external redirect). `none` / `static_header` (tenant mode): returns an error (never called).                                                                       |
 | `FinishLink`   | OAuth callback hit                                              | `mcp_spec`: validates state, exchanges code for tokens, persists `UpstreamLink`. `static_header` (user mode): wired through the portal `SubmitUpstreamAPIKey` RPC, not an HTTP callback. `none`: not applicable.                                                                                                                       |
@@ -48,13 +50,50 @@ Method-by-method:
 
 ### `mcp_spec` package layout
 
+The strategy lives under `internal/upstream/mcpspec/`, split by concern:
+
 ```
 internal/upstream/mcpspec/
-├── discovery.go    // fetch PRM + AS metadata; cache per tenant+upstream
-├── registrar.go    // DCR against upstream AS; persist UpstreamRegistration
-├── link.go         // StartLink (authorize URL), FinishLink (token exchange)
-└── headers.go      // Headers() + Maintain() — refresh on expiry
+├── strategy.go   // Strategy struct, Options, constructor, Type/RequiresLink
+├── discovery.go  // PRM + AS metadata discovery; RFC 9728 canonical + legacy
+│                 // well-known paths; WWW-Authenticate fallback; config overlay
+├── config.go     // static-client Config (JSON in UpstreamStrategyConfig);
+│                 // EncodeConfig + loadConfig
+├── provision.go  // Provision() — DCR or static-client fallback; loadRegistration
+├── link.go       // StartLink (authorize URL), FinishLink (token exchange), PKCE
+└── refresh.go    // Headers, ensureFresh, refreshLink, Maintain, tokenRequest
 ```
+
+#### PRM discovery (RFC 9728)
+
+The strategy tries each well-known location, in order, before giving up:
+
+1. RFC 9728 §3.1 canonical: `<origin>/.well-known/oauth-protected-resource<path>`
+2. Legacy / pre-RFC: `<origin><path>/.well-known/oauth-protected-resource`
+3. `WWW-Authenticate` hint: an unauthenticated GET against the MCP URL itself; if the server responds with `401 Bearer realm="...", resource_metadata="<URL>"`, fetch that URL.
+
+If none of those return a PRM document **and** the operator has provisioned a static `Config` with an `issuer`, the strategy synthesizes a PRM from the upstream URL + configured issuer so the rest of the flow can proceed. This is what makes servers like `api.githubcopilot.com/mcp/` work — they don't expose the well-known paths.
+
+#### AS metadata overlay
+
+`discover()` fetches the OAuth AS metadata document (trying the four well-known shapes — RFC 8414 and OIDC, with and without path-suffix). When any of `issuer`, `authorization_endpoint`, or `token_endpoint` are missing from the network response — or the document is missing entirely — the static `Config` fills them in. Network values always win when present; the config is a fallback, never an override.
+
+#### Static OAuth client `Config`
+
+Stored encrypted as JSON in `UpstreamStrategyConfig.ConfigJSON` (AAD `tenant|""|"upstream.mcpspec.strategy_config"`):
+
+```jsonc
+{
+  "issuer":                  "https://github.com/login/oauth",      // optional override
+  "authorization_endpoint":  "https://github.com/login/oauth/authorize", // optional override
+  "token_endpoint":          "https://github.com/login/oauth/access_token", // optional override
+  "client_id":               "Iv1.xxxxxxxxxxxxxxxx",                // required for static mode
+  "client_secret":           "...",                                  // required for confidential clients
+  "scopes":                  ["read:user", "repo"]                   // appended to the authorize URL
+}
+```
+
+The presence of `client_id` is the signal that `Provision()` should skip DCR.
 
 Behaviors worth pinning:
 
@@ -203,8 +242,8 @@ Notes:
 ### Models (already created in Phase 1, recap here)
 
 - `Upstream` — `(tenant_id, name, strategy_type, mcp_server_url)`.
-- `UpstreamStrategyConfig` — `(upstream_id, type, config_json)`; encrypted. Populated for `static_header` (header name, template, mode, optional tenant secret); empty for `mcp_spec` and `none` in v1.
-- `UpstreamRegistration` — `(tenant_id, upstream_id, issuer, client_id, client_secret, registration_access_token, registration_client_uri, resource_uri)`; empty for `none` and `static_header`.
+- `UpstreamStrategyConfig` — `(upstream_id, type, config_json)`; encrypted. Populated for `static_header` (header name, template, mode, optional tenant secret) and for `mcp_spec` upstreams whose AS does not support DCR (static client_id / client_secret + optional issuer / endpoint / scopes overrides). Empty for `none` and for `mcp_spec` upstreams that use DCR.
+- `UpstreamRegistration` — `(tenant_id, upstream_id, issuer, client_id, client_secret, registration_access_token, registration_client_uri, resource_uri)`. Populated for every `mcp_spec` upstream, regardless of whether the credentials came from DCR or from a static `Config`; empty for `none` and `static_header`.
 - `UpstreamLink` — `(tenant_id, user_id, upstream_id, access_token, refresh_token, expires_at, scopes, resource_uri, extra_json, enabled, needs_relink, consecutive_failures, last_failure_at, last_failure_reason, auto_disabled_at)`.
   - **`Enabled bool` (new in this phase)** — defaults to `true` on create. The portal exposes a toggle so a user can mute an upstream without losing their stored credentials. Phase 8's tool-visibility filter treats `Enabled=false` the same as "no link".
   - **`NeedsRelink bool` (new in this phase)** — defaults to `false`. Set by `refreshLocked` when the upstream returns `invalid_grant`; cleared on the next successful refresh or when the user re-runs `StartLink`. The portal renders a "Reconnect" CTA on rows where this is true.
@@ -263,7 +302,8 @@ This is exactly what makes the portal experience feel right: a freshly created t
 
 ## Security & operational notes
 
-- **DCR happens once per `(tenant, upstream)`** — guarded by a uniqueness check on `UpstreamRegistration`. Re-running `Provision` after a successful DCR is a no-op (or refreshes registration metadata via RFC 7592 if needed).
+- **DCR happens once per `(tenant, upstream)`** — guarded by a uniqueness check on `UpstreamRegistration`. Re-running `Provision` after a successful DCR is a no-op (or refreshes registration metadata via RFC 7592 if needed). The same uniqueness guard applies to static-client provisioning: once `UpstreamRegistration` exists, `Provision` is a no-op regardless of whether DCR or a static `Config` produced it.
+- **Static OAuth clients are operator-provisioned**. When an AS doesn't support DCR (GitHub being the canonical example), the operator registers a client through the upstream's own developer console, then passes `--client-id` / `--client-secret` (and any `--issuer` / `--authorization-endpoint` / `--token-endpoint` / `--scope` overrides needed) to `limen create-upstream`. The CLI encrypts the bundle into `UpstreamStrategyConfig.ConfigJSON` with AAD `tenant|""|"upstream.mcpspec.strategy_config"`. The portal's per-tenant admin UI grows the same affordance in Phase 9b.
 - **State must be one-shot** — set `Used=true` on consumption, reject reuse.
 - **Scopes are recorded** so the portal can show what's permitted; do not request `offline_access` if the upstream's PRM/AS metadata doesn't advertise refresh tokens.
 - **Token storage AAD** binds tokens to the linking user — a stolen token from one row can't be decrypted into another row's slot.
@@ -284,7 +324,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 
 ## Risks
 
-- **PRM/DCR variations across vendors** — Atlassian is the reference; some upstreams may deviate (different scope naming, non-standard metadata). The discovery code should be forgiving on optional fields and strict on the mandatory ones.
+- **PRM/DCR variations across vendors** — Atlassian is the reference for the full DCR path; GitHub is the reference for the static-client fallback. Some upstreams may deviate further (different scope naming, non-standard metadata). The discovery code is forgiving on optional fields, strict on the mandatory ones, and overlays `UpstreamStrategyConfig` overrides on top of whatever metadata it could fetch.
 - **OAuth client secret may not be issued** for public client registrations — the model permits null `client_secret` and the token-exchange path treats public-client registrations with PKCE-only.
 - **Long-lived refresher under `WithSuperuser`** is a privileged code path; keep it narrow and audited.
 
@@ -292,11 +332,12 @@ This is exactly what makes the portal experience feel right: a freshly created t
 
 - [x] `internal/upstream/strategy.go` defines the `Strategy` interface (including `RequiresLink`) and `Registry`
 - [x] Registry populated in `cmd/gateway/main.go` with `mcp_spec`, `static_header`, and `none` strategies _(wired in [internal/cli/serve_upstream.go](../../internal/cli/serve_upstream.go))_
-- [x] `internal/upstream/mcpspec/discovery.go` fetches PRM + AS metadata with timeouts and caches the result _(merged into [internal/upstream/mcpspec/mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
-- [x] `internal/upstream/mcpspec/registrar.go` performs DCR once per (tenant, upstream); persists `UpstreamRegistration` _(merged into [mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
-- [x] `internal/upstream/mcpspec/link.go` builds PKCE+`resource`+state authorize URL and handles token exchange _(merged into [mcpspec.go](../../internal/upstream/mcpspec/mcpspec.go))_
+- [x] `internal/upstream/mcpspec/discovery.go` fetches PRM + AS metadata with timeouts and caches the result; tries the RFC 9728 canonical well-known path, the legacy path-suffixed form, and a `WWW-Authenticate: resource_metadata="…"` hint in that order; overlays `UpstreamStrategyConfig` (issuer / endpoints) on top of network metadata
+- [x] `internal/upstream/mcpspec/provision.go` performs DCR once per (tenant, upstream) when the AS advertises `registration_endpoint`; falls back to a static OAuth client read from `UpstreamStrategyConfig` otherwise (errors with an actionable message when neither is available); persists `UpstreamRegistration` either way
+- [x] `internal/upstream/mcpspec/config.go` defines the static-client JSON payload (`client_id`, `client_secret`, optional `issuer` / `authorization_endpoint` / `token_endpoint` / `scopes`), with `EncodeConfig` / `loadConfig` helpers and AAD `tenant|""|"upstream.mcpspec.strategy_config"`
+- [x] `internal/upstream/mcpspec/link.go` builds PKCE+`resource`+state authorize URL (appending any config-provided scopes) and handles token exchange
 - [x] HMAC state is signed with a domain-separated key; persisted (or signed-cookied) with one-shot semantics _(AES-SIV envelope via [internal/upstream/oauthstate/oauthstate.go](../../internal/upstream/oauthstate/oauthstate.go), Valkey `GETDEL`)_
-- [x] `internal/upstream/mcpspec/headers.go` injects `Authorization: Bearer ...` and refreshes inline when within 60 s of expiry
+- [x] `internal/upstream/mcpspec/refresh.go` injects `Authorization: Bearer ...` and refreshes inline when within 60 s of expiry
 - [x] `internal/upstream/statichdr/config.go` validates header name/template + mode; refuses unknown modes _(merged into [internal/upstream/statichdr/statichdr.go](../../internal/upstream/statichdr/statichdr.go))_
 - [x] `internal/upstream/statichdr/headers.go` reads the tenant secret (tenant mode) or the user link (user mode) and formats the header
 - [x] `static_header` user-mode `StartLink` returns a portal SPA URL (no third-party redirect); rotation overwrites the stored key atomically _(via `PersistUserSecret`; portal RPC wiring lands in Phase 9)_
