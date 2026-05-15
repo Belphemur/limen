@@ -1,193 +1,239 @@
 # Local development
 
 This guide gets you from a fresh clone to a Limen instance signing users in
-through Zitadel — without leaving your laptop.
+through Zitadel, provisioning tenants, and linking outbound MCP upstreams —
+without leaving your laptop.
 
 ## Prerequisites
 
 - Docker (with `docker compose`)
 - Go 1.26+
-- `curl` (for `scripts/wait-for-zitadel.sh`)
+- `curl`, `openssl` (used by `scripts/wait-for-zitadel.sh` and the Makefile)
 
-## First run
-
-```bash
-cp .env.example .env
-
-# Brings up postgres, postgres-zitadel, zitadel, mailhog. Zitadel writes its
-# initial admin PAT to scripts/zitadel-bootstrap/.pat on first start.
-docker compose -f compose.dev.yaml up -d postgres postgres-zitadel zitadel mailhog
-./scripts/wait-for-zitadel.sh
-
-# Creates the Limen project, Portal + MCP RS apps, project roles, and a
-# sample tenant org. Idempotent — safe to re-run.
-make dev-bootstrap
-```
-
-The bootstrap script prints (and writes to
-`scripts/zitadel-bootstrap/.bootstrap-out.env`):
-
-- `LIMEN_OIDC_PORTAL_CLIENT_ID`
-- `LIMEN_OIDC_MCP_RS_CLIENT_ID`
-- `LIMEN_OIDC_PROJECT_ID`
-- `LIMEN_SAMPLE_TENANT_ORG_ID`
-- `LIMEN_SAMPLE_TENANT_NAME`
-- `LIMEN_STAFF_ZITADEL_ORG_ID`
-- `LIMEN_STAFF_BOOTSTRAP_EMAIL`
-
-Copy those values into your `.env`, then start Limen on the host:
+## Quickstart
 
 ```bash
-go run ./cmd/gateway serve
-```
-
-Or do the whole flow in one shot:
-
-```bash
+cp .env.example .env   # optional — most overrides come from the Makefile
 make dev
 ```
 
-## Testing the Phase 4 OIDC POC
+That single command brings the whole environment up. It:
 
-After `make dev-bootstrap` succeeds and the stack is up, you can walk the
-end-to-end portal login flow in your browser.
+1. Starts the merged docker stack (Zitadel + login UI + Traefik + Zitadel
+   Postgres + Limen Postgres + MailHog + Valkey) via three layered compose
+   files — see the `COMPOSE :=` block in [Makefile](../Makefile).
+2. Waits for Zitadel to be ready (`scripts/wait-for-zitadel.sh`).
+3. Runs the idempotent Zitadel bootstrap (`make dev-bootstrap`), which
+   creates the **Limen Gateway** project, the Portal (OIDC) and MCP RS
+   (API) apps, the project roles, a sample tenant org (`acme`), and the
+   staff org. Output lands in
+   `scripts/zitadel-bootstrap/.bootstrap-out.env`.
+4. Generates `.env.dev` (pinned `LIMEN_TOKEN_ENCRYPTION_KEY`) if missing.
+5. Runs `make dev-run`, which sources the bootstrap output + `.env.dev`,
+   reads `admin-sa.pat` live from the docker volume, inlines all dev
+   defaults (DB DSNs, OIDC URLs, Zitadel host, Valkey address), and runs
+   `go run ./cmd/gateway migrate && go run ./cmd/gateway serve`.
 
-### 1. Wire the environment
-
-```bash
-# Pull the bootstrap output into the current shell.
-set -a
-source scripts/zitadel-bootstrap/.bootstrap-out.env
-set +a
-
-# Limen runtime config.
-export LIMEN_BASE_URL=http://localhost:8080
-export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
-export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
-
-# IMPORTANT: pin the encryption key once, in a file you re-source in every
-# shell, rather than regenerating with `openssl rand` each time. It seeds
-# both the portal cookie cipher AND the state-cookie HMAC; rotating it
-# invalidates every in-flight login (yields "invalid state" on callback)
-# and every existing portal session.
-[ -f .env.dev ] || echo "export LIMEN_TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)" > .env.dev
-source .env.dev
-
-# OIDC RP (Phase 4 — Portal app created by bootstrap).
-export LIMEN_OIDC_ISSUER=http://localhost:8081
-export LIMEN_OIDC_CLIENT_ID=$LIMEN_OIDC_PORTAL_CLIENT_ID
-export LIMEN_OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
-
-# Zitadel Management client (used by `create-tenant`).
-export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
-export LIMEN_ZITADEL_PROJECT_ID=$LIMEN_OIDC_PROJECT_ID
-export LIMEN_ZITADEL_AUTH_MODE=pat
-export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)
-```
+Limen listens on `http://localhost:8080`. Stop with `Ctrl-C`; the stack
+keeps running. Re-launch Limen alone with `make dev-run`.
 
 > **Cookie note** — on plain `http://localhost`, set
-> `security.portal_session_cookie_secure: false` in `config.yaml` (or the
-> equivalent env override). Otherwise the browser drops the session cookie
-> and the callback loops back to login.
+> `security.portal_session_cookie_secure: false` in [config.yaml](../config.yaml).
+> Otherwise the browser drops the session cookie and the callback loops
+> back to login.
+>
+> **Encryption-key note** — `.env.dev` is generated only when missing.
+> `make dev-reset` deletes it (along with the docker volumes) so a fresh
+> run starts with a new key.
 
-### 2. Migrate Limen's database and create a test tenant
+## Make targets
 
-`limen create-tenant` either provisions a fresh Zitadel org + Limen row in
-one shot, or binds the Limen row to an existing Zitadel org (e.g. the
-`acme` org the bootstrap created):
+| Target                                | What it does                                                            |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| `make dev`                            | Full bring-up: stack → bootstrap → migrate → serve.                     |
+| `make dev-run`                        | Migrate + serve, auto-loading the env. Assumes the stack is already up. |
+| `make dev-bootstrap`                  | Re-run the Zitadel bootstrap. Idempotent.                               |
+| `make dev-down`                       | Stop services (keeps volumes).                                          |
+| `make dev-reset`                      | Stop services, wipe volumes, drop `.env.dev` and `.bootstrap-out.env`.  |
+| `make build`                          | `go build -o limen ./cmd/gateway`.                                      |
+| `make test` / `make vet` / `make fmt` | Standard Go toolchain wrappers.                                         |
 
-```bash
-go run ./cmd/gateway migrate
+## CLI commands
 
-# Option A — bind to the bootstrap-created sample org (no Zitadel writes,
-# no PAT required, manage users via the Zitadel Console).
-go run ./cmd/gateway create-tenant \
-  --name "Acme" \
-  --zitadel-org-id "$LIMEN_SAMPLE_TENANT_ORG_ID"
+`./cmd/gateway` (a.k.a. `limen`) exposes these subcommands:
 
-# Option B — full flow: also create the Zitadel org + seed owner.
-go run ./cmd/gateway create-tenant \
-  --name "Demo Tenant" \
-  --owner-email you@example.com \
-  --owner-given-name You \
-  --owner-family-name Example
-```
+| Command           | Purpose                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `serve`           | Run the HTTP gateway. Reads `config.yaml` + env overrides.                   |
+| `migrate`         | Apply Goose migrations under `internal/storage/migrations/`.                 |
+| `create-tenant`   | Provision a Limen tenant. Optionally creates the matching Zitadel org.       |
+| `create-upstream` | Insert / update an MCP upstream registration for a tenant (PoC, `mcp_spec`). |
 
-Each `create-tenant` invocation prints the new tenant's `PublicID` (a
-`tnt_<ULID>` string). Use that value wherever the docs below say
-`/t/<tenant>/...` — there is no slug.
+When the stack is up, the env that `make dev-run` exports is what these
+commands expect. To invoke them outside the Makefile, see
+[§ Running commands manually](#running-commands-manually).
 
-Option B sends a Zitadel "set initial password" mail to the owner — pick
-it up at http://localhost:8025 (MailHog) and complete the init flow.
+## Walking the Phase 4 OIDC flow
 
-> If you get `password authentication failed for user "limen_app"`, your
-> Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Apply
-> it manually with
-> `docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`,
-> or wipe the volume with `make dev-reset`.
+After `make dev` is up:
 
-### 3. Run the gateway
+1. Create a tenant. Two options:
 
-```bash
-go run ./cmd/gateway serve
-```
+   ```bash
+   # Bind to the bootstrap-created `acme` org (no Zitadel writes, no PAT
+   # required, manage users via the Zitadel Console).
+   go run ./cmd/gateway create-tenant \
+     --name "Acme" \
+     --zitadel-org-id "$LIMEN_SAMPLE_TENANT_ORG_ID"
 
-You should see it bind to `:8080` and log a successful OIDC discovery
-against `http://localhost:8081`.
+   # Or: full flow — create the Zitadel org + seed owner. Owner gets an
+   # "initial password" email at http://localhost:8025 (MailHog).
+   go run ./cmd/gateway create-tenant \
+     --name "Demo Tenant" \
+     --owner-email you@example.com \
+     --owner-given-name You \
+     --owner-family-name Example
+   ```
 
-### 4. Walk the browser flow
+   Each invocation prints a `PublicID` (`tnt_<ULID>`). Use that for every
+   `/t/<tenant>/...` URL below — there is no slug.
 
-1. Open http://localhost:8080/t/<tenant>/auth/login (substitute the
-   `PublicID` printed by `create-tenant`) — Limen redirects to Zitadel.
-2. Log in as the owner you just provisioned.
-3. Zitadel redirects to `http://localhost:8080/auth/callback?state=…&code=…`.
-   Limen exchanges the code, sets the `limen_portal` cookie, and lands you
-   on `/t/<tenant>/portal/`.
-4. Hit http://localhost:8080/t/<tenant>/portal/me — you should get JSON
-   with `sub`, `email`, `name`, and the tenant id. This confirms the
-   cookie, tenant resolver, and user upsert all work.
-5. http://localhost:8080/t/<tenant>/auth/logout clears the cookie and
-   redirects through Zitadel's `end_session_endpoint`.
+2. Open `http://localhost:8080/t/<tenant>/auth/login` — Limen redirects to
+   Zitadel.
+3. Log in as the tenant owner.
+4. Zitadel redirects to `/auth/callback`; Limen exchanges the code, sets
+   the `limen_portal` cookie, and lands you on `/t/<tenant>/portal/`.
+5. `GET /t/<tenant>/portal/me` returns JSON with `sub`, `email`, `name`,
+   and the tenant id — confirms the cookie, tenant resolver, and user
+   upsert all work.
+6. `/t/<tenant>/auth/logout` clears the cookie and redirects through
+   Zitadel's `end_session_endpoint`.
 
-### 5. Negative checks
+Negative checks:
 
 - `/t/<tenant>/portal/me` with no cookie → 401 + login redirect.
 - `/t/tnt_0000000000000000000000000Z/auth/login` → 404 (unknown tenant).
 
-### Troubleshooting
+## Walking the Phase 7 outbound-upstream PoC
 
-| Symptom                                    | Cause / fix                                                                                                                 |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `Project Grant not found` during bootstrap | Stale state from before the v2 rewrite. `make dev-reset && make dev`.                                                       |
-| SDK error `ExternalDomain mismatch`        | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`. |
-| `invalid_client` at the token endpoint     | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                         |
-| Callback loops back to login               | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`.                               |
-| `create-tenant` fails with auth error      | Re-read the PAT — it changes on every `make dev-reset`.                                                                     |
-| `invalid state` after restarting `serve`   | `LIMEN_TOKEN_ENCRYPTION_KEY` changed between runs — it seeds the state-cookie HMAC. Pin it (see step 1) and clear the stale `limen_state` cookie in the browser. |
-| `org mismatch want=<id> got=""` in logs, browser shows `access denied` | The Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding) for the why. |
-| `org mismatch want=<acme-id> got=<other-id>` | You logged in as a user whose home org is *not* the one bound to that tenant. Create / use a user inside the right org (Zitadel Console → switch to that org → Users → New). |
+Once you have a tenant and a logged-in user, the portal page drives the
+full connect / refresh / disconnect flow. The portal HTML is a developer
+test surface — Phase 9 replaces it with a real SPA.
+
+1. **Register an upstream.** v1 only supports the `mcp_spec` strategy
+   (OAuth-via-PRM discovery — what Atlassian Rovo, GitHub MCP, etc.
+   speak):
+
+   ```bash
+   go run ./cmd/gateway create-upstream \
+     --tenant "$TENANT_PUBLIC_ID" \
+     --name rovo \
+     --url https://mcp.atlassian.com/v1/rovo
+   ```
+
+   Idempotent on `(tenant, name)` — re-running updates the MCP URL in
+   place. Prints the new `ups_<ULID>` and the portal URL to visit.
+
+2. **Connect from the portal.** Reload `http://localhost:8080/t/<tenant>/portal/`
+   — the **MCP Upstreams** table shows the row as `disconnected`. Click
+   **Connect**; the portal POSTs `/portal/upstreams/<name>/connect`, Limen
+   runs MCP-spec discovery, performs DCR if needed, mints a state token,
+   and returns the upstream AS's `authorize` URL. The browser follows the
+   redirect.
+
+3. **Approve at the upstream AS.** It redirects back to
+   `/t/<tenant>/upstream/<name>/callback`; Limen finishes PKCE + token
+   exchange, seals the access + refresh token into an `UpstreamLink`, and
+   lands you back on the portal. Status flips to `connected`.
+
+4. **Refresh.** The background refresher (`upstream_refresh:` in
+   [config.yaml](../config.yaml)) rotates the access token whenever its
+   expiry falls inside `refresh_window`.
+
+5. **Disconnect.** The **Disconnect** button soft-deletes the
+   `UpstreamLink`. The row flips back to `disconnected`; a subsequent
+   **Connect** starts a fresh flow. Phase 8 will use the link's
+   `Enabled` / `NeedsRelink` / `AutoDisabledAt` columns to gate tool
+   calls; Phase 7 only persists state.
+
+PoC notes:
+
+- The four endpoints (`GET /portal/upstreams`, `POST .../connect`,
+  `POST .../disconnect`) live in
+  [internal/transport/portal_upstreams.go](../internal/transport/portal_upstreams.go),
+  behind the same `RequireSession` middleware as `/portal/me`. Phase 9
+  replaces them with a typed Connect-RPC service — do not build external
+  integrations against this shape.
+- The `none` and `static_header` strategies work end-to-end at the
+  `upstream.Service` layer but have no admin surface yet. Add them via
+  SQL or extend `create-upstream` if you need them before Phase 9.
+- If you don't want Valkey at all, set `LIMEN_VALKEY_ADDRESS=` (empty) —
+  linking is disabled and the gateway logs
+  `valkey.address empty: upstream linking disabled` at boot.
+
+## Running commands manually
+
+`make dev-run` is the easy path. If you need to run `serve`,
+`create-tenant`, `create-upstream` etc. from a plain shell — e.g. to
+attach a debugger — replicate the env block from the `dev-run` recipe:
+
+```bash
+set -a
+source scripts/zitadel-bootstrap/.bootstrap-out.env
+source .env.dev
+export LIMEN_BASE_URL=http://localhost:8080
+export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
+export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
+export LIMEN_OIDC_ISSUER=http://localhost:8081
+export LIMEN_OIDC_CLIENT_ID=$LIMEN_OIDC_PORTAL_CLIENT_ID
+export LIMEN_OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
+export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
+export LIMEN_ZITADEL_AUTH_MODE=pat
+export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)
+export LIMEN_ZITADEL_PROJECT_ID=$LIMEN_OIDC_PROJECT_ID
+export LIMEN_ZITADEL_MCP_RESOURCE_AUDIENCE=$LIMEN_OIDC_MCP_RS_CLIENT_ID
+export LIMEN_VALKEY_ADDRESS=localhost:6380
+set +a
+```
+
+Fish users: run `bash -l`, paste, then invoke `go run ./cmd/gateway …`
+from there. The Makefile recipes pin `SHELL := /bin/bash` and work from
+any interactive shell.
 
 ## Useful URLs
 
 | URL                                                    | What                                                |
 | ------------------------------------------------------ | --------------------------------------------------- |
 | http://localhost:8080                                  | Limen (this gateway)                                |
-| http://localhost:8081                                  | Zitadel console (root / RootPassword1!)             |
+| http://localhost:8081                                  | Zitadel console (`root` / `RootPassword1!`)         |
 | http://localhost:8081/.well-known/openid-configuration | OIDC discovery (Limen validates `iss` against this) |
-| http://localhost:8025                                  | MailHog inbox (Zitadel sends mail here)             |
+| http://localhost:8025                                  | MailHog inbox                                       |
 | localhost:5432                                         | Limen Postgres (user `limen`, db `limen`)           |
+| localhost:6380                                         | Limen Valkey                                        |
 
 ## Resetting
 
 ```bash
-make dev-reset   # nukes both Postgres volumes and the .pat file
+make dev-reset   # nukes Postgres volumes, the PAT, .env.dev, .bootstrap-out.env
+make dev         # fresh stack + new bootstrap + new encryption key
 ```
 
-After a reset, the next `up` re-initializes Zitadel and produces a new PAT.
-Re-run `make dev-bootstrap` to recreate the project/apps/org.
-
-## Configuration
-
-`compose.dev.yaml` is optimized for iteration (TLS off, weak secrets, ports
-exposed). It is **not** suitable for production — see
+`compose.dev.yaml` is optimized for iteration (TLS off, weak secrets,
+ports exposed). It is **not** production-ready — see
 [Phase 11](phases/phase-11-production-deployment.md) for the hardened stack.
+
+## Troubleshooting
+
+| Symptom                                               | Cause / fix                                                                                                                                                                                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `refers to undefined network zitadel`                 | You ran `docker compose -f compose.dev.yaml …` directly. The `zitadel` network lives in the upstream Zitadel compose file — use `make dev` (or copy the full `COMPOSE :=` chain from the Makefile).                                         |
+| `Project Grant not found` during bootstrap            | Stale Zitadel state. `make dev-reset && make dev`.                                                                                                                                                                                          |
+| SDK error `ExternalDomain mismatch`                   | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`.                                                                                                                 |
+| `invalid_client` at the token endpoint                | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                                                                                                                                         |
+| Callback loops back to login                          | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`.                                                                                                                                               |
+| `password authentication failed for user "limen_app"` | Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Either run it manually (`docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`) or `make dev-reset`.                  |
+| `dial limen-valkey: no such host`                     | Limen on the host can't resolve docker DNS. `make dev-run` exports `LIMEN_VALKEY_ADDRESS=localhost:6380` — make sure that's set if you run `serve` manually.                                                                                |
+| `create-tenant` fails with auth error                 | PAT changed (every `dev-reset` mints a new one). `make dev-run` re-reads it live; manual shells need to re-export.                                                                                                                          |
+| `invalid state` after restarting `serve`              | `LIMEN_TOKEN_ENCRYPTION_KEY` rotated — it seeds the state-cookie HMAC. Keep `.env.dev` pinned and clear the stale `limen_state` cookie.                                                                                                     |
+| `org mismatch want=<id> got=""`                       | Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding). |
+| `org mismatch want=<acme-id> got=<other-id>`          | Logged-in user's home org isn't the tenant's bound org. Create / use a user inside the right org (Zitadel Console → switch org → Users → New).                                                                                              |
