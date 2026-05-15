@@ -16,6 +16,8 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -76,8 +78,13 @@ func openPool(dsn string, maxOpen, maxIdle int, maxLifetime time.Duration) (*gor
 		// Sessions/transactions are managed explicitly through Session(ctx);
 		// keep GORM's implicit transactions off for clarity and perf.
 		SkipDefaultTransaction: true,
-		Logger:                 logger.Default.LogMode(logger.Warn),
-		NowFunc:                func() time.Time { return time.Now().UTC() },
+		Logger: logger.New(log.New(os.Stderr, "\r\n", log.LstdFlags), logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		}),
+		NowFunc: func() time.Time { return time.Now().UTC() },
 	}
 	db, err := gorm.Open(postgres.Open(dsn), gormCfg)
 	if err != nil {
