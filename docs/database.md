@@ -250,7 +250,7 @@ Integration tests live alongside the package
 ([`internal/storage/storage_test.go`](../internal/storage/storage_test.go),
 [`rls_test.go`](../internal/storage/rls_test.go)) and follow this shape:
 
-1. `startPostgres(t)` brings up a fresh `postgres:18.2-alpine` testcontainer
+1. `startPostgres(t)` brings up a fresh `postgres:18-alpine` testcontainer
    (one per test — ~1–2 s cost buys total isolation).
 2. `provisionRoles(t, bootstrapDSN)` connects as the container superuser and
    creates `limen_admin` (BYPASSRLS) and `limen_app`, granting `limen_app`

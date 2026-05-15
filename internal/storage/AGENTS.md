@@ -15,7 +15,7 @@ read/write goes through. Postgres 18.2 is the only supported driver.
 | `migrate.go`      | `Store.Migrate(ctx)` — runs `AutoMigrate` then goose-managed SQL migrations under the admin pool.    |
 | `tenant.go`       | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
 | `migrations/postgres/*.sql` | Embedded goose migrations (annotated `-- +goose Up` / `Down`): `00001_rls.sql` and `00002_audit_triggers.sql`. Add new ones following [`MIGRATIONS.md`](MIGRATIONS.md). |
-| `storage_test.go` / `rls_test.go` | Phase 1 + Phase 3 integration suites — testcontainers `postgres:18.2-alpine`. The `startPostgres(t)` / `provisionRoles(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
+| `storage_test.go` / `rls_test.go` | Phase 1 + Phase 3 integration suites — testcontainers `postgres:18-alpine`. The `startPostgres(t)` / `provisionRoles(t)` / `openMigrated(t)` helpers are the canonical shape new tests should follow. |
 
 Phase 3 is fully landed: the admin pool, RLS policies, the `set_updated_at`
 trigger, and the dual-DSN config (`DSN` / `AdminDSN`) are all in place.

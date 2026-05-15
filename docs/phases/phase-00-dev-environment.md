@@ -40,7 +40,7 @@ Key version pins (kept in `scripts/zitadel/.env`):
 
 - `ZITADEL_VERSION=v4.15.0`
 - `TRAEFIK_IMAGE=traefik:v3.6.8`
-- `POSTGRES_IMAGE=postgres:18.2-alpine` (Zitadel's bundled DB; matches the Limen DB pin)
+- `POSTGRES_IMAGE=postgres:18-alpine` (Zitadel's bundled DB; matches the Limen DB pin)
 - `REDIS_IMAGE=valkey/valkey:latest` (Valkey replaces Redis everywhere in the Limen stack)
 - `ZITADEL_TLS_ENABLED=false` (env var, not a CLI flag — the v2-era `--tls-mode disabled` flag was removed in v4)
 
@@ -142,8 +142,8 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 
 - [x] Three-file layered compose (`scripts/zitadel/docker-compose.yml`, `scripts/zitadel/docker-compose.limen.yaml`, `compose.dev.yaml`) merges into the `limen-dev` project
 - [x] Upstream Zitadel compose vendored verbatim and refreshable via `curl` from `zitadel/zitadel@main/deploy/compose/`
-- [x] Zitadel pinned to `v4.15.0`; Traefik to `v3.6.8`; both Postgres instances to `postgres:18.2-alpine`
-- [x] Limen Postgres pinned to `postgres:18.2-alpine` with `scripts/postgres-init/limen-roles.sql` provisioning `limen_admin` (BYPASSRLS) + `limen_app` roles
+- [x] Zitadel pinned to `v4.15.0`; Traefik to `v3.6.8`; both Postgres instances to `postgres:18-alpine`
+- [x] Limen Postgres pinned to `postgres:18-alpine` with `scripts/postgres-init/limen-roles.sql` provisioning `limen_admin` (BYPASSRLS) + `limen_app` roles
 - [x] `ZITADEL_TLS_ENABLED=false` env (no `--tls-mode` flag — removed in v4)
 - [x] `zitadel-login` Next.js container reachable at `http://localhost:8081/ui/v2/login/`
 - [x] `LOGINV2_REQUIRED=true` and `OIDC_DEFAULTLOGINURLV2`/`DEFAULTLOGOUTURLV2` set so the API redirects to the v2 Login UI

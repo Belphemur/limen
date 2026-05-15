@@ -45,7 +45,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 ### Phase 0 — Development environment
 
 - [x] `compose.dev.yaml` defines `postgres`, `postgres-zitadel`, `zitadel`, `zitadel-bootstrap`, `mailhog` with healthchecks
-- [x] Postgres images pinned to `postgres:18.2-alpine`; Zitadel image pinned to a specific tag
+- [x] Postgres images pinned to `postgres:18-alpine`; Zitadel image pinned to a specific tag
 - [x] Named volumes for both Postgres instances; data persists across `up`/`down`
 - [x] `scripts/zitadel-bootstrap/` idempotently ensures Limen project + Portal app + MCP RS app + sample org + `super_admin` role + `limen-staff` operator org + staff user (Phase 12 prerequisite); emits `LIMEN_STAFF_ZITADEL_ORG_ID`
 - [x] `.env.example` documents every Limen env var the dev workflow needs
@@ -61,7 +61,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] `internal/storage/models.go` — `Base` struct (`ID`, `PublicID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`) embedded in every model; `Tenant` (with `ZitadelOrgID`), `User` (with `ZitadelSubject`, no password), `Upstream`, `UpstreamStrategyConfig`, `UpstreamRegistration`, `UpstreamLink`, `ZitadelApp`. Composite uniques are partial (`WHERE deleted_at IS NULL`). Invitations and portal sessions live in Zitadel (no Limen tables).
 - [x] `internal/storage/migrate.go` (`AutoMigrate` for portable parts)
 - [x] `internal/storage/tenant.go` (`WithTenant`, `TenantFromCtx`, `Session(ctx)`, `WithSuperuser(ctx)`)
-- [x] Integration CRUD tests against a `postgres:18.2-alpine` testcontainer
+- [x] Integration CRUD tests against a `postgres:18-alpine` testcontainer
 
 ### Phase 2 — Crypto + config
 
@@ -78,7 +78,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] `migrations/postgres/0002_audit_triggers.sql` installs the `set_updated_at()` BEFORE-UPDATE trigger on every Limen-owned table (including `Tenant`)
 - [x] `limen_app` runtime role + `limen_admin` `BYPASSRLS` role created and granted appropriately
 - [x] `internal/storage/rls.go` wires `SET LOCAL app.current_tenant` into every `Session(ctx)` (Postgres path)
-- [x] Tests against `postgres:18.2-alpine` prove cross-tenant `SELECT`/`INSERT` are blocked
+- [x] Tests against `postgres:18-alpine` prove cross-tenant `SELECT`/`INSERT` are blocked
 - [x] Test proves `db.Unscoped().Find(...)` inside a tenant session returns 0 rows
 
 ### Phase 4 — Tenant resolution, OIDC login, portal session
@@ -195,7 +195,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 ### Phase 11 — Production deployment
 
 - [ ] `compose.prod.yaml` defines `caddy`, `postgres`, `postgres-zitadel`, `limen-migrate`, `limen`, `zitadel`, `backup`, `backup-zitadel`
-- [ ] All images pinned to specific versions; Postgres at `postgres:18.2-alpine`
+- [ ] All images pinned to specific versions; Postgres at `postgres:18-alpine`
 - [ ] All secrets sourced from `docker secret` files
 - [ ] `limen-migrate` one-shot gates `limen` via `condition: service_completed_successfully`
 - [ ] Healthchecks on every long-running service; `restart: unless-stopped`

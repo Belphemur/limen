@@ -195,7 +195,7 @@ func startPostgres(t *testing.T) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	pg, err := postgres.Run(ctx,
-		"postgres:18.2-alpine",
+		"postgres:18-alpine",
 		postgres.WithDatabase("limen"),
 		postgres.WithUsername("limen"),
 		postgres.WithPassword("limen_test"),

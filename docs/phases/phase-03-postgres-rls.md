@@ -120,7 +120,7 @@ Two pools (`appDB`, `adminDB`) each with their own `max_open_conns`. Default siz
 
 ## Verification
 
-- Spin a `postgres:18.2-alpine` container in CI (or rely on `testcontainers-go`).
+- Spin a `postgres:18-alpine` container in CI (or rely on `testcontainers-go`).
 - Apply migrations as `limen_admin`, then run all tests under `limen_app`.
 - Test cases:
   - Insert user into tenant A with `app.current_tenant=A` → succeeds.

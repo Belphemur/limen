@@ -22,7 +22,7 @@ name: limen-dev
 
 services:
   limen-postgres:
-    image: postgres:18.2-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: limen
       POSTGRES_PASSWORD: limen_dev

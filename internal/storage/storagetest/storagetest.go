@@ -1,5 +1,5 @@
 // Package storagetest provides shared helpers for tests that need a real
-// Postgres + Limen schema. It spins up a postgres:18.2-alpine container
+// Postgres + Limen schema. It spins up a postgres:18-alpine container
 // per call, provisions the limen_admin / limen_app roles, opens both
 // pools, and runs the full migration chain.
 //
@@ -22,7 +22,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 )
 
-// StartPostgres spins up a postgres:18.2-alpine container and returns a
+// StartPostgres spins up a postgres:18-alpine container and returns a
 // superuser DSN pointing at it.
 func StartPostgres(t *testing.T) string {
 	t.Helper()
@@ -30,7 +30,7 @@ func StartPostgres(t *testing.T) string {
 	defer cancel()
 
 	pg, err := postgres.Run(ctx,
-		"postgres:18.2-alpine",
+		"postgres:18-alpine",
 		postgres.WithDatabase("limen"),
 		postgres.WithUsername("limen"),
 		postgres.WithPassword("limen_test"),

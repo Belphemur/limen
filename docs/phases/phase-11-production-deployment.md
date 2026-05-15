@@ -57,7 +57,7 @@ services:
     depends_on: [limen, zitadel]
 
   postgres:
-    image: postgres:18.2-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER_FILE: /run/secrets/limen_pg_owner_user
@@ -78,7 +78,7 @@ services:
         limits: { cpus: "2.0", memory: "2g" }
 
   postgres-zitadel:
-    image: postgres:18.2-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER_FILE: /run/secrets/zitadel_pg_user
@@ -354,7 +354,7 @@ The init script reads the passwords from secrets (mounted via env / `docker secr
 
 - [ ] `compose.prod.yaml` defines `caddy`, `postgres`, `postgres-zitadel`, `limen-migrate`, `limen`, `zitadel`, `backup`, `backup-zitadel`
 - [ ] All images pinned to specific versions (no `latest`)
-- [ ] Postgres images are `postgres:18.2-alpine`
+- [ ] Postgres images are `postgres:18-alpine`
 - [ ] All secrets sourced from `docker secret` files (never inline env values)
 - [ ] `limen-migrate` runs as a one-shot, gates `limen` via `condition: service_completed_successfully`
 - [ ] `limen-migrate` ensures the `_staff` tenant row exists (Phase 12) and refuses to start in prod without `LIMEN_STAFF_ZITADEL_ORG_ID`

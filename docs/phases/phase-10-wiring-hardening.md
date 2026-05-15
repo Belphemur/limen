@@ -186,7 +186,7 @@ All under `tests/integration/` using `testcontainers-go` for Postgres. A `make t
 | 11  | DCR proxy: registering creates a Zitadel app in the tenant's org and a `ZitadelApp` mirror row; deleting via RFC 7592 removes both     |
 | 12  | Full Atlassian Rovo manual smoke (documented runbook, not automated)                                                                   |
 
-All scenarios run against the `postgres:18.2-alpine` testcontainer ([Phase 0](phase-00-dev-environment.md)'s dev stack mirrors the same image).
+All scenarios run against the `postgres:18-alpine` testcontainer ([Phase 0](phase-00-dev-environment.md)'s dev stack mirrors the same image).
 
 ### Operator runbook (new section in `docs/`)
 

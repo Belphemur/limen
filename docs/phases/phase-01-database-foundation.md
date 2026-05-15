@@ -206,7 +206,7 @@ internal/storage/
 ## Verification
 
 - `go build ./...` and `go vet ./...` pass.
-- Integration tests run against a `postgres:18.2-alpine` container brought up via `testcontainers-go`:
+- Integration tests run against a `postgres:18-alpine` container brought up via `testcontainers-go`:
   - Round-trip create/read/update/delete for every model.
   - Unique-constraint violations are reported as such (e.g. duplicate `(tenant_id, email)` on `User`).
   - `Session(ctx)` returns a `*gorm.DB` that yields tenant A's rows only.
@@ -231,7 +231,7 @@ internal/storage/
 - [x] `internal/storage/migrate.go` exports `Migrate(ctx)` running `AutoMigrate`
 - [x] `internal/storage/tenant.go` exports `WithTenant`, `TenantFromCtx`, `Session`, `WithSuperuser`, `RawDB`
 - [x] `DatabaseConfig` added to `internal/config/config.go`
-- [x] Integration tests cover CRUD for every model against a `postgres:18.2-alpine` testcontainer, asserting `PublicID` round-trips and has the expected prefix
+- [x] Integration tests cover CRUD for every model against a `postgres:18-alpine` testcontainer, asserting `PublicID` round-trips and has the expected prefix
 - [x] Test verifies ULID lexicographic ordering matches insertion order
 - [x] Test verifies soft-deleted rows are invisible to default queries and visible under `Unscoped()`
 - [x] Test verifies a soft-deleted row does not block re-insertion of a new row with the same logical key (partial-unique-index behavior)

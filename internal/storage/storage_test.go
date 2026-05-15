@@ -20,7 +20,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 )
 
-// startPostgres spins up a postgres:18.2-alpine container and returns a DSN
+// startPostgres spins up a postgres:18-alpine container and returns a DSN
 // pointing at it.
 func startPostgres(t *testing.T) string {
 	t.Helper()
@@ -28,7 +28,7 @@ func startPostgres(t *testing.T) string {
 	defer cancel()
 
 	pg, err := postgres.Run(ctx,
-		"postgres:18.2-alpine",
+		"postgres:18-alpine",
 		postgres.WithDatabase("limen"),
 		postgres.WithUsername("limen"),
 		postgres.WithPassword("limen_test"),

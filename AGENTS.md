@@ -123,7 +123,7 @@ the reference shape for any new DB-backed test.
 ### Integration tests with real Postgres
 
 - Use [`testcontainers-go`](https://github.com/testcontainers/testcontainers-go)
-  with the **`postgres:18.2-alpine`** image — the same version Phase 0 / 11
+  with the **`postgres:18-alpine`** image — the same version Phase 0 / 11
   run. Do not pin a different minor version per-test.
 - Each test starts a fresh container via the shared `startPostgres(t)` helper
   in `internal/storage/storage_test.go` (or an analogous helper in other
