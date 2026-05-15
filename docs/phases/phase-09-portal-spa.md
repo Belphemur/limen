@@ -282,3 +282,5 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
 - [ ] Unit tests for the role-enforcement interceptor (matrix of method × role)
 - [ ] Smoke test or manual run-through of the entire SPA flow
+- [ ] Integration test for `static_header` user-mode: submit key via `SubmitUpstreamAPIKey` → tool becomes visible in `ListTools` → `SetUpstreamLinkEnabled(false)` hides it → `SetUpstreamLinkEnabled(true)` makes it visible again, without re-submitting the key _(moved from [Phase 7](phase-07-outbound-upstream.md) — depends on this phase's portal Connect-RPC surface)_
+- [ ] Integration test (recovery half): an auto-disabled link (set up by the [Phase 8](phase-08-per-tenant-injection.md) sustained-5xx test) recovers via `SetUpstreamLinkEnabled(true)` clearing `AutoDisabledAt` + `ConsecutiveFailures`; the next successful upstream call keeps it healthy _(moved from [Phase 7](phase-07-outbound-upstream.md) — the Re-enable CTA is a portal RPC owned by this phase)_

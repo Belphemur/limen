@@ -134,20 +134,20 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 7 — Outbound upstream linking
 
-- [ ] `internal/upstream/strategy.go` defines `Strategy` interface (including `RequiresLink`) and `Registry`
-- [ ] `internal/upstream/mcpspec/{discovery,registrar,link,headers}.go` implement the OAuth-via-PRM strategy
-- [ ] `internal/upstream/statichdr/{config,link,headers}.go` implement the static-header strategy (tenant-wide secret and per-user API key modes)
-- [ ] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
-- [ ] `internal/upstream/handlers.go` exposes connect/callback/disconnect under `/t/{tenant}/upstream/{name}/*`
-- [ ] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment; skips strategies whose `Maintain` is a no-op
-- [ ] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
-- [ ] `UpstreamLink.Enabled` field added (default `true`); migration shipped
-- [ ] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
-- [ ] `UpstreamLink` health columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; auto-disable when ≥5 consecutive failures over ≥15 min, or `NeedsRelink=true` for ≥24 h; successful call/refresh resets the counter atomically
-- [ ] `mcp_spec` refresh is centralized: one `refreshLocked` function called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background); single-flight + `SELECT FOR UPDATE SKIP LOCKED` collapse concurrent refreshes; refresh-token rotation is persisted; `invalid_grant` flips `NeedsRelink=true`
-- [ ] State signed with HMAC, one-shot consumption via Valkey (`GETDEL` + TTL)
-- [ ] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
-- [ ] Unit + integration tests for state signing, discovery, registration, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch, link enable/disable visibility
+- [x] `internal/upstream/strategy.go` defines `Strategy` interface (including `RequiresLink`) and `Registry`
+- [x] `internal/upstream/mcpspec/mcpspec.go` implements the OAuth-via-PRM strategy (discovery + DCR + PKCE + headers + refresh merged into one file)
+- [x] `internal/upstream/statichdr/statichdr.go` implements the static-header strategy (tenant-wide secret and per-user API key modes)
+- [x] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
+- [x] `internal/transport/upstream.go` exposes the callback under `/t/{tenant}/upstream/{name}/callback`; connect/disconnect ship as portal Connect-RPC mutations in Phase 9
+- [x] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment; skips strategies whose `Maintain` is a no-op
+- [x] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
+- [x] `UpstreamLink.Enabled` field added (default `true`); migration shipped
+- [x] `UpstreamLink.NeedsRelink` field added (default `false`); migration shipped
+- [x] `UpstreamLink` health columns added: `ConsecutiveFailures`, `FirstFailureAt`, `LastFailureAt`, `LastFailureReason`, `AutoDisabledAt`; auto-disable when ≥5 consecutive failures over ≥15 min, or `NeedsRelink=true` for ≥24 h; successful call/refresh resets the counter atomically
+- [x] `mcp_spec` refresh is centralized: one `refreshLocked` function called by `Headers` (proactive), the round-tripper (reactive on 401, single retry — lands in Phase 8), and `Maintain` (background); single-flight + `SELECT FOR UPDATE SKIP LOCKED` collapse concurrent refreshes; refresh-token rotation is persisted; `invalid_grant` flips `NeedsRelink=true`
+- [x] State signed with HMAC, one-shot consumption via Valkey (`GETDEL` + TTL)
+- [x] DCR responses persisted in `UpstreamRegistration` (RFC 7592-capable)
+- [x] Unit tests for state signing, discovery, registration, refresh, `none.Provision` rejection, `static_header` template rendering + mode dispatch (end-to-end integration tests are owned by Phases 8 and 9 — they depend on the round-tripper and portal RPC surface)
 
 ### Phase 8 — Per-tenant, per-user upstream injection
 
@@ -162,6 +162,9 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] MCP routes mounted only under `/t/{tenant}/mcp` behind `RequireMCPAuth`
 - [ ] MCP server session state keyed by `(tenant_id, user_id, mcp_session_id)`
 - [ ] Unit + integration tests for multi-tenant isolation and link-required visibility
+- [ ] Integration test: full `mcp_spec` connect flow against an httptest stub _(moved from Phase 7)_
+- [ ] Integration test: reactive refresh on `401` — round-tripper retries exactly once and the tool call succeeds _(moved from Phase 7)_
+- [ ] Integration test (server-side half): sustained 5xx → `RecordFailure` trips `AutoDisabledAt` → tool listing hides the upstream; portal-side recovery covered by Phase 9 _(moved from Phase 7)_
 
 ### Phase 9 — Portal backend + Vue 3 SPA
 
@@ -178,6 +181,8 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] CSP header set on portal HTML responses
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
 - [ ] Unit tests for the role-enforcement interceptor
+- [ ] Integration test: `static_header` user-mode `SubmitUpstreamAPIKey` → visible → `SetUpstreamLinkEnabled(false)` hides → re-enable shows _(moved from Phase 7)_
+- [ ] Integration test (recovery half): `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures`; next successful call keeps it healthy _(moved from Phase 7)_
 
 ### Phase 10 — Wiring, verification, hardening
 
@@ -219,6 +224,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/staff/` package implements every RPC + impersonation flow
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
 - [ ] `staff_audit_log` partitioned table + `audit.append(...)` SECURITY DEFINER insert function
+- [ ] Phase 7's `upstream.*` audit events (notably `upstream_auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`, currently a zap log) retrofitted onto `audit.Append` _(persisted-audit half moved from Phase 7 — Phase 7 ships the emission as a structured zap log because the `audit_events` table doesn't exist yet)_
 - [ ] Impersonation cookie separate from staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session enforced server-side before impersonation start
 - [ ] Customer SPA renders a non-dismissible banner whenever an impersonation cookie is present

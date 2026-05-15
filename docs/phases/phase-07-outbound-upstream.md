@@ -312,15 +312,18 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [x] Auto-disable rule: ≥5 consecutive failures over ≥15 min **or** `NeedsRelink=true` for ≥24 h → set `AutoDisabledAt=now()`; thresholds config-driven _(implemented in [internal/upstream/health.go](../../internal/upstream/health.go); thresholds in `config.UpstreamRefreshConfig`)_
 - [x] Successful tool call or refresh atomically resets `ConsecutiveFailures` and clears `AutoDisabledAt` in the same DB tx that records the outcome _(refresh path; tool-call-side reset wires through Phase 8's round-tripper using the same `RecordSuccess` helper)_
 - [x] Background refresher skips rows where `AutoDisabledAt IS NOT NULL` (as it already does for `NeedsRelink=true`)
-- [ ] Audit event `upstream_auto_disabled` emitted with `(tenant_id, user_id, upstream_id, reason, streak_started_at)` _(persisted `audit_events` writer lands in [Phase 12](phase-12-staff-backoffice.md); v1 is a structured zap log per the spec)_
-- [x] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background) _(round-tripper reactive 401 path lands in Phase 8 against this same function)_
+- [x] Audit event `upstream_auto_disabled` emitted as a structured zap log with `(tenant_id, user_id, upstream_id, reason, streak_started_at)` _(persisted `audit_events` writer is owned by [Phase 12](phase-12-staff-backoffice.md), which retrofits this emission once the `audit.Append` helper exists)_
+- [x] `mcp_spec` refresh path is centralized in one `refreshLocked` function, called by `Headers` (proactive), the round-tripper (reactive on 401, single retry), and `Maintain` (background) _(round-tripper reactive 401 path lands in [Phase 8](phase-08-per-tenant-injection.md) against this same function)_
 - [x] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
 - [x] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
 - [x] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
 - [x] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true` _(portal CTA wiring is Phase 9; the model flag and refresher skip are in place)_
 - [x] Valkey-backed one-shot OAuth state (HMAC-signed envelope + encrypted PKCE verifier; `GETDEL`-style consumption; 10-minute TTL)
 - [x] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
-- [ ] Integration test for full mcp_spec connect flow against an httptest stub _(deferred to Phase 8 — requires the round-tripper to assert end-to-end Headers injection)_
-- [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; gateway transparently refreshes and the tool call succeeds _(Phase 8 — round-tripper)_
-- [ ] Integration test for `static_header` user-mode: submit key via portal RPC → tool becomes visible → toggle disable → tool hidden → toggle enable → tool visible again _(Phase 9 — portal RPC)_
-- [ ] Integration test: sustained upstream 5xx → link auto-disables for that user → tools hidden → portal Re-enable restores visibility → next successful call keeps it healthy _(Phase 8 + 9)_
+
+The four end-to-end integration tests that this phase originally listed have been moved to the phases that own the missing surface area:
+
+- Full `mcp_spec` connect flow against an httptest stub → [Phase 8](phase-08-per-tenant-injection.md) (round-tripper asserts Headers injection on the upstream call).
+- Reactive refresh on `401` — stub returns 401 once, then 200 → [Phase 8](phase-08-per-tenant-injection.md) (round-tripper owns the retry loop).
+- `static_header` user-mode submit-key flow + enable/disable visibility → [Phase 9](phase-09-portal-spa.md) (portal Connect-RPC + SPA).
+- Sustained-5xx auto-disable → Re-enable round-trip → [Phase 8](phase-08-per-tenant-injection.md) + [Phase 9](phase-09-portal-spa.md) (failure recorded by the round-tripper; recovery driven by `SetUpstreamLinkEnabled`).

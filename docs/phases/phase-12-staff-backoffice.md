@@ -219,7 +219,7 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
 - [ ] `audit_events` migration creates partitioned table + monthly partition helper; `audit.append(...)` SECURITY DEFINER function provisions append-only runtime writes
 - [ ] `audit_events` schema covers all three actor types (`user` / `staff` / `system`) and is reused by user-facing audit surfaces in Phase 9 / 9b, not just the staff backoffice
-- [ ] Phase 7's `upstream.*` audit events (previously zap-only) are routed through `audit.Append` once this phase lands; the retrofit is part of this phase's deliverables
+- [ ] Phase 7's `upstream.*` audit events — notably `upstream_auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`, currently a structured zap log — are routed through `audit.Append` once this phase lands; the retrofit is part of this phase's deliverables _(persisted-audit half moved from [Phase 7](phase-07-outbound-upstream.md) — Phase 7 ships the emission as a zap log because the `audit_events` table doesn't exist yet)_
 - [ ] Impersonation cookie is separate from the staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session before any impersonation start
 - [ ] Customer SPA shows a non-dismissible banner whenever an impersonation cookie is present
