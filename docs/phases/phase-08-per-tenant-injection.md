@@ -152,6 +152,35 @@ The Goja sandbox already exposes `codemode.tools()` and per-tool proxies. Phase 
 
 The sandbox boundary (no fs, no net, no global escape) is unchanged.
 
+#### Codemode observability (structured logging)
+
+Codemode is the highest-risk surface in the gateway: arbitrary tenant-supplied JavaScript composes upstream tool calls under a user's credentials. v1 ships **structured zap logging** for every code-mode lifecycle event so operators (and, post-[Phase 12](phase-12-staff-backoffice.md), the audit pipeline) can reconstruct exactly what ran. Persisted `audit_events` rows for the same lifecycle land in Phase 12 — see [Phase 12](phase-12-staff-backoffice.md) § _Codemode audit events_.
+
+A single `codemode_invocation_id` (`cmi_<ulid>`) is generated at handler entry, propagated on ctx, and stamped on every log line below — it is the join key between zap logs (Phase 8) and `audit_events` rows (Phase 12).
+
+Mandatory log lines, all at `Info` (errors at `Error`), all carrying `tenant_id`, `user_id`, `request_id`, `codemode_invocation_id`:
+
+| Event | Fields (in addition to the base set) |
+| ----- | ------------------------------------ |
+| `codemode.invocation.started` | `script_sha256`, `script_bytes`, `tool_count_visible` (size of `ToolsForUser(ctx)`) |
+| `codemode.tool.called` | `upstream`, `tool`, `args_sha256`, `args_bytes`, `call_seq` (monotonic within the invocation) |
+| `codemode.tool.completed` | `upstream`, `tool`, `call_seq`, `result_bytes`, `duration_ms`, `outcome` (`ok` \| `upstream_error` \| `denied_no_link` \| `denied_auto_disabled`) |
+| `codemode.tool.error` | `upstream`, `tool`, `call_seq`, `error_kind`, `error_message` (redacted — see below) |
+| `codemode.invocation.completed` | `tool_calls_total`, `duration_ms`, `outcome` (`ok` \| `script_error` \| `timeout` \| `out_of_memory`), `result_bytes` |
+
+Redaction rules — enforced by a small helper in `internal/gateway/codemode.go`, not left to call sites:
+
+- **Zap logs never carry raw content.** Raw script source, raw tool arguments, raw tool results, and upstream auth headers go in via SHA-256 digests + byte counts only.
+- The **raw script and the raw response** for the two MCP tools `codemode_search` and `codemode_execute` are persisted — **encrypted** — on the `audit_events` row defined in [docs/audit.md](../../docs/audit.md) (writer + table ship in [Phase 12](phase-12-staff-backoffice.md)). Until Phase 12 ships the writer, they exist only in memory on the request goroutine; they are **not** written to zap logs or any other sink.
+- Error messages are passed through `redactSecrets(err)` which strips anything matching `Authorization:` / `Bearer ` / `Set-Cookie:` and replaces values for known secret keys (`access_token`, `refresh_token`, `api_key`, `client_secret`).
+- `args_sha256` / `result_bytes` give enough fingerprint to diff two invocations without storing PII in the log stream — the encrypted audit row is the source of truth when forensic detail is needed.
+
+Resource ceilings — enforced by the sandbox, **logged** at the boundary:
+
+- Script wall-clock timeout (config: `codemode.script_timeout`, default 10 s) — hitting it emits `codemode.invocation.completed` with `outcome=timeout`.
+- Per-invocation tool-call cap (config: `codemode.max_tool_calls`, default 50) — exceeding emits `codemode.tool.error` with `error_kind=quota_exceeded` and then a `script_error` invocation outcome.
+- Goja interrupt on ctx cancellation (client disconnect, server shutdown) — logged as `outcome=cancelled`.
+
 ### Transport (`internal/transport/http.go`)
 
 Routes after Phase 8:
@@ -239,6 +268,9 @@ type Bundle struct {
 - [ ] Tool names continue to be prefixed by upstream name to avoid collisions
 - [ ] Missing-link condition surfaces as a structured MCP error (not 500)
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the sandbox; per-tool proxies call into `Gateway.CallTool(ctx, ...)`
+- [ ] Codemode emits the structured `codemode.invocation.started` / `codemode.tool.called` / `codemode.tool.completed` / `codemode.tool.error` / `codemode.invocation.completed` zap log lines documented above, every line carrying `codemode_invocation_id` (`cmi_<ulid>`)
+- [ ] `redactSecrets` helper applied at every codemode log call site; raw scripts, raw tool args, raw tool results, and auth headers never appear in logs
+- [ ] Config keys `codemode.script_timeout` and `codemode.max_tool_calls` shipped with the defaults above; both enforced by the sandbox and logged when exceeded
 - [ ] `internal/transport/http.go` mounts MCP routes only under `/t/{tenant}/mcp` behind `RequireMCPAuth`
 - [ ] Top-level `/mcp` route removed
 - [ ] MCP server session state keyed by `(tenant_id, user_id, mcp_session_id)`

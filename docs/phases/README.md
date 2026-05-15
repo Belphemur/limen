@@ -18,24 +18,24 @@ Limen becomes a multi-tenant B2B MCP gateway:
 
 ## Phase index & dependencies
 
-| #   | Phase                                                                                  | Depends on         | Status |
-| --- | -------------------------------------------------------------------------------------- | ------------------ | ------ |
-| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)                | —                  | ✅     |
-| 1   | [Database foundation](phase-01-database-foundation.md)                                 | —                  | ✅     |
-| 2   | [Crypto + config](phase-02-crypto-config.md)                                           | —                  | ✅     |
-| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                                | 1                  | ✅     |
-| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)       | 0, 1, 2, 3         | ☐      |
-| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)    | 4                  | ☐      |
-| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                            | 5                  | ✅     |
-| 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                | 4                  | ✅     |
-| 7b  | [DCR per-client Zitadel projects (JIT in tenant org)](phase-07b-dcr-per-client-project.md) | 5, 6           | ☐      |
-| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)            | 6, 7               | ☐      |
-| 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                     | 4, 7               | ☐      |
-| 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)      | 4, 7, 9            | ☐      |
-| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                        | 0–9                | ☐      |
-| 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)            | 0–10               | ☐      |
-| 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md) | 0, 3, 4, 9, 10, 11 | ☐      |
-| 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                           | 4, 9, 10, 11, 12   | ☐      |
+| #   | Phase                                                                                      | Depends on         | Status |
+| --- | ------------------------------------------------------------------------------------------ | ------------------ | ------ |
+| 0   | [Development environment (Docker Compose)](phase-00-dev-environment.md)                    | —                  | ✅     |
+| 1   | [Database foundation](phase-01-database-foundation.md)                                     | —                  | ✅     |
+| 2   | [Crypto + config](phase-02-crypto-config.md)                                               | —                  | ✅     |
+| 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                                    | 1                  | ✅     |
+| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)           | 0, 1, 2, 3         | ☐      |
+| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)        | 4                  | ☐      |
+| 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                                | 5                  | ✅     |
+| 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                    | 4                  | ✅     |
+| 7b  | [DCR per-client Zitadel projects (JIT in tenant org)](phase-07b-dcr-per-client-project.md) | 5, 6               | ☐      |
+| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)                | 6, 7               | ☐      |
+| 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                         | 4, 7               | ☐      |
+| 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)          | 4, 7, 9            | ☐      |
+| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                            | 0–9                | ☐      |
+| 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                | 0–10               | ☐      |
+| 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)     | 0, 3, 4, 9, 10, 11 | ☐      |
+| 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                               | 4, 9, 10, 11, 12   | ☐      |
 
 Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
@@ -160,6 +160,8 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Tool names prefixed by upstream to avoid collisions
 - [ ] Missing-link surfaces as a structured MCP error
 - [ ] `internal/gateway/codemode.go` exposes only user-scoped tools to the Goja sandbox
+- [ ] Codemode emits structured zap log lines (`codemode.invocation.started` / `tool.called` / `tool.completed` / `tool.error` / `invocation.completed`) tagged with a per-invocation `codemode_invocation_id`; `redactSecrets` applied at every call site so raw scripts, args, results, and auth headers never appear
+- [ ] Config keys `codemode.script_timeout` (default 10 s) and `codemode.max_tool_calls` (default 50) shipped; both enforced by the sandbox and logged when exceeded
 - [ ] MCP routes mounted only under `/t/{tenant}/mcp` behind `RequireMCPAuth`
 - [ ] MCP server session state keyed by `(tenant_id, user_id, mcp_session_id)`
 - [ ] Unit + integration tests for multi-tenant isolation and link-required visibility
