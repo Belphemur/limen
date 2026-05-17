@@ -24,10 +24,14 @@ That single command brings the whole environment up. It:
    files — see the `COMPOSE :=` block in [Makefile](../Makefile).
 2. Waits for Zitadel to be ready (`scripts/wait-for-zitadel.sh`).
 3. Runs the idempotent Zitadel bootstrap (`make dev-bootstrap`), which
-   creates the **Limen Gateway** project, the Portal (OIDC) and MCP RS
-   (API) apps, the project roles, a sample tenant org (`acme`), and the
-   staff org. Output lands in
-   `scripts/zitadel-bootstrap/.bootstrap-out.env`.
+   creates a dedicated **`limen`** organization (so the Zitadel instance
+   default org stays clean), the **Limen Gateway** project inside it, the
+   Portal (OIDC) and MCP RS (API) apps, the project roles, a sample
+   tenant org (`acme`), and the staff org. Tenant and staff orgs are
+   wired up via project grants. Output lands in
+   `scripts/zitadel-bootstrap/.bootstrap-out.env` (including
+   `LIMEN_GATEWAY_ORG_ID`). Override the org name with
+   `LIMEN_GATEWAY_ORG_NAME` if you need a different label.
 4. Generates `.env.dev` (pinned `LIMEN_TOKEN_ENCRYPTION_KEY`) if missing.
 5. Runs `make dev-run`, which sources the bootstrap output + `.env.dev`,
    reads `admin-sa.pat` live from the docker volume, inlines all dev

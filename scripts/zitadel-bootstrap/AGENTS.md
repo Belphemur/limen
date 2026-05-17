@@ -15,10 +15,11 @@ Against a fresh Zitadel, the bootstrap ensures the following exist:
 
 | Resource                         | Detail                                                          |
 | -------------------------------- | --------------------------------------------------------------- |
-| `Limen Gateway` project          | In the instance default org; shared across tenant orgs.         |
+| `limen` organization             | Dedicated org for gateway resources; keeps the Zitadel default org clean. Name overridable via `LIMEN_GATEWAY_ORG_NAME`. |
+| `Limen Gateway` project          | In the `limen` org; granted to tenant orgs and the staff org.   |
 | `Limen Portal` app (OIDC / PKCE) | Web app, redirect = `LIMEN_PORTAL_REDIRECT`, role assertion on. |
 | `Limen MCP RS` app (API)         | Audience for RFC 8707 `resource=` requests from MCP clients.    |
-| Project roles                    | `member`, `admin`, `owner`.                                     |
+| Project roles                    | `member`, `admin`, `owner`, `super_admin`.                      |
 | Sample tenant org                | `LIMEN_SAMPLE_TENANT_SLUG` (default `acme`).                    |
 
 On success it prints, and writes to `LIMEN_BOOTSTRAP_OUT`, the values that
@@ -28,6 +29,7 @@ need to land in `.env`:
 LIMEN_OIDC_PORTAL_CLIENT_ID=...
 LIMEN_OIDC_MCP_RS_CLIENT_ID=...
 LIMEN_OIDC_PROJECT_ID=...
+LIMEN_GATEWAY_ORG_ID=...
 LIMEN_SAMPLE_TENANT_ORG_ID=...
 ```
 

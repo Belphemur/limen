@@ -2,12 +2,14 @@ package main
 
 // Package main implements the Zitadel bootstrap for Limen dev environments.
 //
-// It is idempotent: re-running it is safe. It creates the Limen Gateway
-// project on the Zitadel default org, the Portal (OIDC/PKCE) and MCP RS
-// (API) apps, the project roles (member/admin/owner/super_admin), a sample
-// tenant org, and the staff org with a super_admin user. All work is done
-// through the official zitadel-go/v3 SDK using v2 services exclusively —
-// no v1 management endpoints, no hand-rolled HTTP.
+// It is idempotent: re-running it is safe. It creates a dedicated 'limen'
+// organization that owns the Limen Gateway project, the Portal (OIDC/PKCE)
+// and MCP RS (API) apps, the project roles (member/admin/owner/super_admin),
+// a sample tenant org, and the staff org with a super_admin user. The
+// Zitadel instance default organization is intentionally left untouched so
+// it stays clean. All work is done through the official zitadel-go/v3 SDK
+// using v2 services exclusively — no v1 management endpoints, no
+// hand-rolled HTTP.
 //
 // Connection topology (dev):
 //   - gRPC dial address: zitadel-api:8080 (internal docker DNS)
@@ -17,7 +19,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -61,25 +62,6 @@ func alreadyExists(err error) bool {
 
 type bootstrap struct {
 	api *zsdk.Client
-}
-
-// defaultOrgID returns the ID of the Zitadel instance's default
-// organization. The Limen Gateway project lives there.
-func (b *bootstrap) defaultOrgID(ctx context.Context) (string, error) {
-	resp, err := b.api.OrganizationServiceV2().ListOrganizations(ctx, &orgV2.ListOrganizationsRequest{
-		Queries: []*orgV2.SearchQuery{
-			{Query: &orgV2.SearchQuery_DefaultQuery{DefaultQuery: &orgV2.DefaultOrganizationQuery{}}},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("list default org: %w", err)
-	}
-	for _, o := range resp.GetResult() {
-		if id := o.GetId(); id != "" {
-			return id, nil
-		}
-	}
-	return "", errors.New("no default organization found")
 }
 
 func (b *bootstrap) ensureProject(ctx context.Context, orgID, name string) (string, error) {
@@ -414,13 +396,16 @@ func main() {
 	}
 	b := &bootstrap{api: api}
 
-	defaultOrg, err := b.defaultOrgID(ctx)
+	// The Limen Gateway lives in its own organization (default 'limen') so
+	// the Zitadel instance default org stays free of Limen-specific objects.
+	gatewayOrgName := getenvDefault("LIMEN_GATEWAY_ORG_NAME", "limen")
+	gatewayOrgID, err := b.ensureOrg(ctx, gatewayOrgName)
 	if err != nil {
-		log.Fatalf("resolve default org: %v", err)
+		log.Fatalf("ensure gateway org %q: %v", gatewayOrgName, err)
 	}
-	log.Printf("default org: %s", defaultOrg)
+	log.Printf("gateway org %q: %s", gatewayOrgName, gatewayOrgID)
 
-	projectID, err := b.ensureProject(ctx, defaultOrg, "Limen Gateway")
+	projectID, err := b.ensureProject(ctx, gatewayOrgID, "Limen Gateway")
 	if err != nil {
 		log.Fatalf("ensure project: %v", err)
 	}
@@ -494,6 +479,8 @@ func main() {
 		"LIMEN_OIDC_PORTAL_CLIENT_ID": portalClientID,
 		"LIMEN_OIDC_MCP_RS_CLIENT_ID": mcpClientID,
 		"LIMEN_OIDC_PROJECT_ID":       projectID,
+		"LIMEN_GATEWAY_ORG_ID":        gatewayOrgID,
+		"LIMEN_GATEWAY_ORG_NAME":      gatewayOrgName,
 		"LIMEN_SAMPLE_TENANT_ORG_ID":  orgID,
 		"LIMEN_SAMPLE_TENANT_NAME":    sampleName,
 		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
