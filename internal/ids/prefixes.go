@@ -8,5 +8,6 @@ const (
 	PrefixUpstreamStrategyConfig Prefix = "usc"
 	PrefixUpstreamRegistration   Prefix = "ureg"
 	PrefixUpstreamLink           Prefix = "ulnk"
+	PrefixUpstreamTool           Prefix = "utl"
 	PrefixZitadelApp             Prefix = "zapp"
 )

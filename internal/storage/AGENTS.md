@@ -11,7 +11,8 @@ read/write goes through. Postgres 18.2 is the only supported driver.
 | File              | Purpose                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------- |
 | `storage.go`      | `Store` lifecycle: `Open(cfg)`, `Close`, `Ping`, dual-pool wiring.                                   |
-| `models.go`       | Every persistent model. All models embed `Base`. Tenant-scoped models additionally embed `TenantID`. |
+| `models.go`       | `Base` (embedded by every model) + `AllModels()` (the AutoMigrate manifest). No model definitions live here. |
+| `model_*.go`      | One file per persistent model (`model_tenant.go`, `model_user.go`, `model_upstream.go`, `model_upstream_tool.go`, `model_zitadel_app.go`). Tenant-scoped models embed `TenantID`. |
 | `migrate.go`      | `Store.Migrate(ctx)` — runs `AutoMigrate` then goose-managed SQL migrations under the admin pool.    |
 | `tenant.go`       | `WithTenant`, `TenantFromCtx`, `WithSuperuser`, `Session`, `RawDB`.                                  |
 | `migrations/postgres/*.sql` | Embedded goose migrations (annotated `-- +goose Up` / `Down`): `00001_rls.sql` and `00002_audit_triggers.sql`. Add new ones following [`MIGRATIONS.md`](MIGRATIONS.md). |
@@ -61,7 +62,7 @@ defer commit() // idempotent
 ## Adding a new model
 
 1. Add a `Prefix*` constant to [`internal/ids/prefixes.go`](../ids/prefixes.go).
-2. Define the model in `models.go`, embedding `Base`. Add `TenantID` and
+2. Define the model in a new `model_<name>.go` file, embedding `Base`. Add `TenantID` and
    `Tenant *Tenant` if tenant-scoped.
 3. Implement `BeforeCreate` calling `ids.New(<prefix>)`.
 4. Append the model to `AllModels()` so `AutoMigrate` picks it up.
