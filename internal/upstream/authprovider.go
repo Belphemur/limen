@@ -29,6 +29,15 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 )
 
+// AuthResult is what AuthProvider.Headers returns. LinkID is the
+// UpstreamLink primary key for per-user strategies; 0 for tenant-mode
+// strategies (which have no link and therefore no per-link health
+// bookkeeping).
+type AuthResult struct {
+	Headers map[string]string
+	LinkID  int64
+}
+
 // AuthProvider supplies HTTP headers for outgoing calls to a single
 // (tenant, upstream) pair. The gateway round-tripper calls Headers once
 // per request; on a 401 it calls HeadersForceRefresh exactly once.
@@ -37,10 +46,10 @@ type AuthProvider interface {
 	// ErrLinkNotFound when the strategy requires a per-user link and the
 	// caller hasn't connected yet, and ErrNeedsRelink when the link is
 	// past saving.
-	Headers(ctx context.Context) (map[string]string, error)
+	Headers(ctx context.Context) (AuthResult, error)
 	// HeadersForceRefresh drops any cached credential and re-runs the
 	// strategy refresh path. Used by the round-tripper after a 401.
-	HeadersForceRefresh(ctx context.Context) (map[string]string, error)
+	HeadersForceRefresh(ctx context.Context) (AuthResult, error)
 }
 
 // UserResolver pulls the active user out of ctx. The indirection avoids
@@ -93,22 +102,37 @@ func NewDBAuthProvider(
 
 // Headers builds a LinkContext for the resolved user (if any) and
 // delegates to Strategy.Headers.
-func (p *DBAuthProvider) Headers(ctx context.Context) (map[string]string, error) {
+func (p *DBAuthProvider) Headers(ctx context.Context) (AuthResult, error) {
 	lctx, err := p.linkContext(ctx)
 	if err != nil {
-		return nil, err
+		return AuthResult{}, err
 	}
-	return p.strategy.Headers(ctx, lctx)
+	hdrs, err := p.strategy.Headers(ctx, lctx)
+	if err != nil {
+		return AuthResult{}, err
+	}
+	return AuthResult{Headers: hdrs, LinkID: linkIDOf(lctx.Link)}, nil
 }
 
 // HeadersForceRefresh is the same path as Headers but with the
 // strategy's force-refresh flag set.
-func (p *DBAuthProvider) HeadersForceRefresh(ctx context.Context) (map[string]string, error) {
+func (p *DBAuthProvider) HeadersForceRefresh(ctx context.Context) (AuthResult, error) {
 	lctx, err := p.linkContext(ctx)
 	if err != nil {
-		return nil, err
+		return AuthResult{}, err
 	}
-	return p.strategy.HeadersForceRefresh(ctx, lctx)
+	hdrs, err := p.strategy.HeadersForceRefresh(ctx, lctx)
+	if err != nil {
+		return AuthResult{}, err
+	}
+	return AuthResult{Headers: hdrs, LinkID: linkIDOf(lctx.Link)}, nil
+}
+
+func linkIDOf(link *storage.UpstreamLink) int64 {
+	if link == nil {
+		return 0
+	}
+	return link.ID
 }
 
 // linkContext resolves the active user (when the strategy requires one),

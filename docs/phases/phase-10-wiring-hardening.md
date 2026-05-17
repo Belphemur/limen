@@ -163,7 +163,6 @@ limen                                                # normal server start
   **Per-upstream MCP tool calls (Phase 8 integration point).** The auth-injecting `http.RoundTripper` defined in [internal/gateway/upstream.go](../../internal/gateway/upstream.go) (see [Phase 8](phase-08-per-tenant-injection.md)) wraps a `base` `http.RoundTripper` that **must** be the one inside the `*http.Client` returned by `resilience.Client("upstream.<name>.calls", cfg)`. Layering matters: the auth wrapper is the **outer** transport (it sees the response status to decide on the single 401-refresh retry), while resilience is the **inner** transport (it owns timeout / backoff / breaker for every physical attempt the auth wrapper makes). Both inner attempts of the auth wrapper's 401 retry therefore inherit the same resilience policy independently — there is no "shared retry budget" between the bearer-refresh retry and the resilience retry, by design.
 
   Concretely:
-
   - One `resilience.Client("upstream.<name>.calls", cfg)` per upstream is constructed when the `UpstreamManager` builds its per-(tenant, upstream) `Bundle`. The breaker name carries the upstream's logical name (not the URL) so a per-tenant override of `mcp_server_url` does not silently create a new breaker.
   - A `*resilience.BreakerOpenError` returned from `RoundTrip` is mapped to a structured MCP `upstream_unavailable` error (not a 500), counts as a failure for the Phase 7 / 8 auto-disable bookkeeping (`LastFailureReason = breaker_open`), and **never** triggers the bearer-refresh retry — a 401 requires an HTTP response, and the breaker short-circuits before one exists.
   - A 401 from the upstream goes through the bearer-refresh retry exactly once. If the second attempt also returns 401, the round-tripper returns the structured re-link error and records `LastFailureReason = tool_call_401`; resilience does not retry 401s.
@@ -191,7 +190,7 @@ All under `tests/integration/` using `testcontainers-go` for Postgres. A `make t
 | 7   | Refresher: a near-expiring `UpstreamLink` is refreshed in-place                                                                        |
 | 8   | Portal role enforcement: matrix of (role × RPC) returns expected `permission_denied`/`ok`                                              |
 | 9   | Cross-tenant portal cookie: cookie for tenant A on tenant B path → unauthenticated                                                     |
-| 10  | OIDC login flow: tenant `PublicID` in state → callback validated → portal cookie set with correct Path                                       |
+| 10  | OIDC login flow: tenant `PublicID` in state → callback validated → portal cookie set with correct Path                                 |
 | 11  | DCR proxy: registering creates a Zitadel app in the tenant's org and a `ZitadelApp` mirror row; deleting via RFC 7592 removes both     |
 | 12  | Full Atlassian Rovo manual smoke (documented runbook, not automated)                                                                   |
 
