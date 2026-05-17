@@ -125,6 +125,49 @@
     .row-actions { display: flex; gap: 0.5rem; }
     .row-actions button { padding: 0.3rem 0.7rem; font-size: 0.9rem; }
     .empty { color: #888; font-style: italic; }
+
+    /* Tool catalog spoiler (Phase 8 surface) */
+    tr.tools-row > td {
+      padding: 0.25rem 0.75rem 0.75rem;
+      border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+    }
+    details.tools > summary {
+      cursor: pointer;
+      color: #666;
+      font-size: 0.85rem;
+      list-style: none;
+      user-select: none;
+    }
+    details.tools > summary::-webkit-details-marker { display: none; }
+    details.tools > summary::before {
+      content: "▸";
+      display: inline-block;
+      width: 1em;
+      transition: transform 0.1s ease;
+    }
+    details.tools[open] > summary::before { transform: rotate(90deg); }
+    .tool-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+    }
+    .tool-tag {
+      display: inline-block;
+      padding: 0.1rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: rgba(127, 127, 127, 0.15);
+      border: 1px solid rgba(127, 127, 127, 0.25);
+      color: inherit;
+    }
+    .tools-empty {
+      color: #888;
+      font-style: italic;
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
   </style>
 </head>
 
@@ -303,6 +346,40 @@
 
           tr.append(nameTd, stratTd, urlTd, statusTd, actTd);
           $body.appendChild(tr);
+
+          // Phase 8 — tool catalog spoiler. One row per upstream, spanning
+          // every column. Empty catalogs still render the toggle so it's
+          // obvious the indexer just hasn't populated this upstream yet.
+          const toolsTr = document.createElement("tr");
+          toolsTr.className = "tools-row";
+          const toolsTd = document.createElement("td");
+          toolsTd.colSpan = 5;
+          const det = document.createElement("details");
+          det.className = "tools";
+          const sum = document.createElement("summary");
+          const tools = Array.isArray(it.tools) ? it.tools : [];
+          sum.textContent = `Tools (${tools.length})`;
+          det.appendChild(sum);
+          if (tools.length) {
+            const tags = document.createElement("div");
+            tags.className = "tool-tags";
+            for (const name of tools) {
+              const tag = document.createElement("span");
+              tag.className = "tool-tag";
+              tag.textContent = name;
+              tags.appendChild(tag);
+            }
+            det.appendChild(tags);
+          } else {
+            const note = document.createElement("div");
+            note.className = "tools-empty";
+            note.textContent =
+              "No tools indexed yet — connect this upstream as an owner/admin to populate the catalog.";
+            det.appendChild(note);
+          }
+          toolsTd.appendChild(det);
+          toolsTr.appendChild(toolsTd);
+          $body.appendChild(toolsTr);
         }
         $table.hidden = false;
       }

@@ -38,6 +38,10 @@ type upstreamListItem struct {
 	NeedsRelink  bool   `json:"needs_relink,omitempty"`
 	AutoDisabled bool   `json:"auto_disabled,omitempty"`
 	Enabled      bool   `json:"enabled"`
+	// Tools is the cached UpstreamTool catalog for this upstream (Phase 8).
+	// Always emitted (possibly empty) so the SPA can render a stable shape
+	// before the catalog indexer has run.
+	Tools []string `json:"tools"`
 }
 
 // linkStatus collapses (link presence + flags) into a single label the
@@ -86,6 +90,7 @@ func listUpstreamsHandler(deps PortalDeps, logger *zap.Logger) http.HandlerFunc 
 				McpServerURL: up.McpServerURL,
 				Status:       statusDisconnected,
 				Enabled:      true,
+				Tools:        loadCatalogToolNames(ctx, deps, logger, up),
 			}
 			link, lerr := deps.UpstreamService.LoadLink(ctx, tenant.ID, user.ID, up.ID)
 			switch {
@@ -198,4 +203,32 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// loadCatalogToolNames returns the cached UpstreamTool names for an
+// upstream, sorted, or an empty slice on lookup error / empty catalog.
+// Best-effort: a DB hiccup logs and returns nil so the upstream row still
+// renders without tools rather than 500ing the whole list.
+func loadCatalogToolNames(ctx context.Context, deps PortalDeps, logger *zap.Logger, up *storage.Upstream) []string {
+	tx, commit, err := deps.Store.Session(ctx)
+	if err != nil {
+		logger.Warn("portal: open session for tool catalog failed",
+			zap.String("upstream", up.Name), zap.Error(err))
+		return nil
+	}
+	var names []string
+	if err := tx.Model(&storage.UpstreamTool{}).
+		Where("upstream_id = ?", up.ID).
+		Order("name ASC").
+		Pluck("name", &names).Error; err != nil {
+		_ = commit()
+		logger.Warn("portal: load tool catalog failed",
+			zap.String("upstream", up.Name), zap.Error(err))
+		return nil
+	}
+	if err := commit(); err != nil {
+		logger.Warn("portal: commit tool catalog session failed",
+			zap.String("upstream", up.Name), zap.Error(err))
+	}
+	return names
 }
