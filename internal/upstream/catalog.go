@@ -39,8 +39,12 @@ import (
 const indexTimeout = 30 * time.Second
 
 // IndexUpstream lists tools from up and reconciles upstream_tools rows
-// for it. Strategies that report RequiresLink() == true must supply a
-// non-nil link whose credentials will be used for the tools/list call.
+// for it. Per-strategy `Headers()` is the gate: strategies that need a
+// link (mcp_spec; static_header user-mode) return ErrNeedsRelink /
+// ErrLinkNotFound when one is missing, and IndexUpstream surfaces that
+// error so the caller can decide whether it's fatal (CLI bootstrap) or
+// expected (tenant-mode pre-link sweep — Service.ProvisionTenantMode
+// swallows it as "wait for a user link").
 //
 // The ctx must already carry the tenant pin (request scope) or be
 // WithSuperuser (CLI / refresher). Storage RLS still enforces tenant
@@ -60,9 +64,6 @@ func IndexUpstream(
 	strat, err := registry.Resolve(StrategyType(up.StrategyType))
 	if err != nil {
 		return fmt.Errorf("index upstream %q: %w", up.Name, err)
-	}
-	if strat.RequiresLink() && link == nil {
-		return fmt.Errorf("index upstream %q: strategy %q requires a link", up.Name, up.StrategyType)
 	}
 
 	tools, err := listUpstreamTools(ctx, strat, tenant, up, link)

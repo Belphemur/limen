@@ -15,6 +15,7 @@ import (
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
 	"github.com/belphemur/limen/internal/upstream/mcpspec"
+	"github.com/belphemur/limen/internal/upstream/none"
 )
 
 type createUpstreamFlags struct {
@@ -42,12 +43,15 @@ func newCreateUpstreamCommand(rflags *rootFlags, v *viper.Viper) *cobra.Command 
 		Long: `Insert an Upstream row for a tenant so the portal PoC can drive
 the Phase 7 connect flow against it.
 
-v1 only supports the mcp_spec strategy (OAuth via the MCP-spec PRM
-discovery flow). The "none" and "static_header" strategies will get
-their own flags once Phase 9 ships a real admin UI.
+v1 supports the mcp_spec strategy (OAuth via the MCP-spec PRM
+discovery flow) and the none strategy (no auth, public upstream).
+The static_header strategy requires per-tenant secret material and is
+plumbed through the admin SPA (Phase 9), not this CLI.
 
 The command is idempotent on the (tenant, name) tuple — re-running with
-the same name updates the URL in place.`,
+the same name updates the URL in place. For the 'none' strategy the
+tool catalog is indexed synchronously after the row is written, so the
+upstream is usable end-to-end as soon as the command exits.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newCLILogger()
@@ -66,8 +70,12 @@ the same name updates the URL in place.`,
 			if strings.TrimSpace(f.mcpURL) == "" {
 				return errors.New("--url is required")
 			}
-			if f.strategy != string(upstream.StrategyMCPSpec) {
-				return fmt.Errorf("--strategy %q not supported by this PoC command (only %q)", f.strategy, upstream.StrategyMCPSpec)
+			switch f.strategy {
+			case string(upstream.StrategyMCPSpec), string(upstream.StrategyNone):
+			case string(upstream.StrategyStaticHeader):
+				return fmt.Errorf("--strategy %q is not plumbed through this CLI; use the admin SPA (Phase 9) which knows how to capture the tenant header secret", f.strategy)
+			default:
+				return fmt.Errorf("--strategy %q is unknown (supported: %q, %q)", f.strategy, upstream.StrategyMCPSpec, upstream.StrategyNone)
 			}
 
 			ctx := cmd.Context()
@@ -97,8 +105,22 @@ the same name updates the URL in place.`,
 				Scopes:                f.scopes,
 			}
 			if !staticCfg.IsZero() {
+				if f.strategy != string(upstream.StrategyMCPSpec) {
+					return fmt.Errorf("static OAuth client flags (--client-id / --issuer / ...) only apply to --strategy %q", upstream.StrategyMCPSpec)
+				}
 				if err := upsertMCPSpecConfig(ctx, store, tenant.ID, up.ID, staticCfg); err != nil {
 					return err
+				}
+			}
+
+			if f.strategy == string(upstream.StrategyNone) {
+				registry := upstream.NewRegistry()
+				registry.Register(none.New(nil))
+				svc := upstream.NewService(store, registry)
+				if provErr := svc.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
+					logger.Warn("sync provision/index failed; refresher will retry",
+						zap.String("upstream", up.Name),
+						zap.Error(provErr))
 				}
 			}
 

@@ -152,6 +152,41 @@ func (s *Service) IndexCatalog(ctx context.Context, tenant *storage.Tenant, up *
 	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link)
 }
 
+// ProvisionTenantMode runs the strategy's Provision step and then
+// attempts a synchronous catalog index without a user link. It's safe
+// to call for any strategy:
+//
+//   - For `none` and `static_header` in tenant mode the index succeeds
+//     because the strategy's Headers() returns either no headers or the
+//     tenant-wide secret.
+//   - For `mcp_spec` and `static_header` in user mode Headers() returns
+//     ErrNeedsRelink / ErrLinkNotFound; the indexer call is swallowed so
+//     the caller (CLI / admin SPA CreateUpstream) doesn't fail \u2014 the
+//     catalog will be filled in by the first user that links.
+//
+// Other errors (Provision rejection, transport failures, malformed
+// strategy config) are surfaced.
+func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream) error {
+	if tenant == nil || up == nil {
+		return errors.New("upstream: tenant/upstream required")
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+	lctx := LinkContext{Tenant: tenant, Upstream: up}
+	if err := strat.Provision(ctx, lctx); err != nil {
+		return fmt.Errorf("upstream: provision: %w", err)
+	}
+	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, nil); err != nil {
+		if errors.Is(err, ErrNeedsRelink) || errors.Is(err, ErrLinkNotFound) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func (s *Service) loadUpstream(ctx context.Context, tenantID int64, name string) (*storage.Upstream, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
