@@ -160,6 +160,15 @@ limen                                                # normal server start
 
   Values are config-driven; the table is the shipped default. All policies respect the request `context.Context` — cancellation aborts retries immediately.
 
+  **Per-upstream MCP tool calls (Phase 8 integration point).** The auth-injecting `http.RoundTripper` defined in [internal/gateway/upstream.go](../../internal/gateway/upstream.go) (see [Phase 8](phase-08-per-tenant-injection.md)) wraps a `base` `http.RoundTripper` that **must** be the one inside the `*http.Client` returned by `resilience.Client("upstream.<name>.calls", cfg)`. Layering matters: the auth wrapper is the **outer** transport (it sees the response status to decide on the single 401-refresh retry), while resilience is the **inner** transport (it owns timeout / backoff / breaker for every physical attempt the auth wrapper makes). Both inner attempts of the auth wrapper's 401 retry therefore inherit the same resilience policy independently — there is no "shared retry budget" between the bearer-refresh retry and the resilience retry, by design.
+
+  Concretely:
+
+  - One `resilience.Client("upstream.<name>.calls", cfg)` per upstream is constructed when the `UpstreamManager` builds its per-(tenant, upstream) `Bundle`. The breaker name carries the upstream's logical name (not the URL) so a per-tenant override of `mcp_server_url` does not silently create a new breaker.
+  - A `*resilience.BreakerOpenError` returned from `RoundTrip` is mapped to a structured MCP `upstream_unavailable` error (not a 500), counts as a failure for the Phase 7 / 8 auto-disable bookkeeping (`LastFailureReason = breaker_open`), and **never** triggers the bearer-refresh retry — a 401 requires an HTTP response, and the breaker short-circuits before one exists.
+  - A 401 from the upstream goes through the bearer-refresh retry exactly once. If the second attempt also returns 401, the round-tripper returns the structured re-link error and records `LastFailureReason = tool_call_401`; resilience does not retry 401s.
+  - The same `resilience.Client` is reused by the catalog indexer in [internal/upstream/catalog.go](../../internal/upstream/catalog.go) so periodic `tools/list` sweeps inherit the same breaker as live tool calls. A wedged upstream therefore stops generating both real traffic and indexer noise the instant the breaker opens.
+
 - **Graceful shutdown**: catch `SIGTERM`/`SIGINT`, stop accepting new connections, wait `shutdown_timeout`, then force-close.
 - **Goroutine accounting**: the refresher, janitor (session cleanup, expired auth-code/refresh-token cleanup) all run via a `*errgroup.Group` with a top-level ctx; shutdown cancels them.
 - **Structured logging**: every handler logs `tenant_id`, `user_id`, `request_id` (via `chi/middleware.RequestID` + a custom field injector). Errors logged at `Error`; informational events at `Info`; tracing detail at `Debug`.
@@ -230,6 +239,7 @@ Out of scope for the docs Phase 10 ships, but the checklist below tracks "create
 - [ ] HTTP server has read/write/idle timeouts from config
 - [ ] `internal/resilience/` package exposes `Client(name, cfg) *http.Client` wrapping timeout + backoff (`cenkalti/backoff/v4`) + circuit breaker (`sony/gobreaker/v2`)
 - [ ] Every outbound HTTP client in the codebase (upstream MCP, upstream OAuth refresh, upstream DCR, Zitadel Session/User/JWKS) is constructed through `resilience.Client` with a named breaker
+- [ ] The Phase 8 upstream MCP transport — both the per-request tool-call client and the [`internal/upstream/catalog.go`](../../internal/upstream/catalog.go) indexer client — is wired so the auth-injecting `http.RoundTripper` wraps the `resilience.Client("upstream.<name>.calls", cfg)` transport as its `base`, sharing a single named breaker per upstream
 - [ ] Retry policy: transport errors + `502/503/504/429` only; honors `Retry-After`; respects ctx cancellation; non-idempotent POSTs are not retried by default
 - [ ] `BreakerOpenError` is a typed sentinel; callers map it to MCP "upstream unavailable" and Connect-RPC `unavailable` codes
 - [ ] Per-dependency resilience config in `config.yaml`; shipped defaults match the table in Phase 10
