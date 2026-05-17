@@ -15,11 +15,11 @@ Also: the tool list exposed to a user is filtered by visibility (Phase 7's rule)
 
 This phase consumes — it does not re-implement — three pieces of machinery that [Phase 7](phase-07-outbound-upstream.md) already shipped:
 
-| Seam | Phase 7 surface | Phase 8 use |
-| ---- | --------------- | ----------- |
-| Force-refresh of an `mcp_spec` link | `strategy.HeadersForceRefresh(ctx, upstream, link)` — funnels through Phase 7's `refreshLocked` (single-flight + `SELECT FOR UPDATE SKIP LOCKED` + rotation + `invalid_grant`→`NeedsRelink`) | The round-tripper's reactive 401 handler calls this exactly once per request via `AuthProvider.HeadersForceRefresh`. |
-| Health-counter mutation | `upstream.RecordSuccess(ctx, link)` / `upstream.RecordFailure(ctx, link, reason)` — atomic SQL `UPDATE` that resets or bumps `ConsecutiveFailures` / `FirstFailureAt` / `LastFailureAt` / `LastFailureReason` and flips `AutoDisabledAt` when the threshold trips | The round-tripper calls these from the post-response branch in the same goroutine; failure to update is logged, never bubbled to the caller. |
-| "Re-link required" signal | `errors.Is(err, upstream.ErrNeedsRelink)` returned by `refreshLocked` | The round-tripper maps a refresh that returns `ErrNeedsRelink` — and a second consecutive 401 after a fresh token — to the structured MCP error documented below. |
+| Seam                                | Phase 7 surface                                                                                                                                                                                                                                                   | Phase 8 use                                                                                                                                                       |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Force-refresh of an `mcp_spec` link | `strategy.HeadersForceRefresh(ctx, upstream, link)` — funnels through Phase 7's `refreshLocked` (single-flight + `SELECT FOR UPDATE SKIP LOCKED` + rotation + `invalid_grant`→`NeedsRelink`)                                                                      | The round-tripper's reactive 401 handler calls this exactly once per request via `AuthProvider.HeadersForceRefresh`.                                              |
+| Health-counter mutation             | `upstream.RecordSuccess(ctx, link)` / `upstream.RecordFailure(ctx, link, reason)` — atomic SQL `UPDATE` that resets or bumps `ConsecutiveFailures` / `FirstFailureAt` / `LastFailureAt` / `LastFailureReason` and flips `AutoDisabledAt` when the threshold trips | The round-tripper calls these from the post-response branch in the same goroutine; failure to update is logged, never bubbled to the caller.                      |
+| "Re-link required" signal           | `errors.Is(err, upstream.ErrNeedsRelink)` returned by `refreshLocked`                                                                                                                                                                                             | The round-tripper maps a refresh that returns `ErrNeedsRelink` — and a second consecutive 401 after a fresh token — to the structured MCP error documented below. |
 
 Nothing in this phase reaches into the strategy implementations directly; everything goes through the `AuthProvider` (whose `DBAuthProvider` is just a thin facade over `upstream.Registry`) and the three helpers above.
 
@@ -99,7 +99,7 @@ type DBAuthProvider struct {
     Registry *upstream.Registry
 }
 
-func (p *DBAuthProvider) Headers(ctx, up) (map[string]string, error) {
+func (p *DBAuthProvider) Headers(ctx context.Context, up *storage.Upstream) (map[string]string, error) {
     strat, err := p.Registry.Get(up.StrategyType)
     if err != nil {
         return nil, err
@@ -107,15 +107,18 @@ func (p *DBAuthProvider) Headers(ctx, up) (map[string]string, error) {
     if !strat.RequiresLink() {
         return strat.Headers(ctx, up, nil)
     }
-    user, ok := authctx.UserFromContext(ctx)
+    user, ok := auth.MCPUserFromContext(ctx)
     if !ok {
         return nil, errors.New("no user in ctx")
     }
     var link storage.UpstreamLink
-    db, commit, err := p.Store.Session(ctx)
+    tx, commit, err := p.Store.Session(ctx)
+    if err != nil {
+        return nil, err
+    }
     defer commit(&err)
-    if err := db.Where("user_id = ? AND upstream_id = ? AND enabled = true", user.ID, up.ID).First(&link).Error; err != nil {
-        return nil, fmt.Errorf("user %q has no enabled link for upstream %q", user.ID, up.Name)
+    if err := tx.Where("user_id = ? AND upstream_id = ? AND enabled = TRUE AND auto_disabled_at IS NULL", user.ID, up.ID).First(&link).Error; err != nil {
+        return nil, fmt.Errorf("user %d has no enabled link for upstream %q: %w", user.ID, up.Name, err)
     }
     return strat.Headers(ctx, up, &link)
 }
@@ -138,7 +141,7 @@ func (g *Gateway) ToolsForUser(ctx context.Context) ([]mcp.Tool, error)
 func (g *Gateway) CallTool(ctx context.Context, upstreamName, toolName string, args map[string]any) (*mcp.CallToolResult, error)
 ```
 
-Both consume `(tenant, user)` from ctx — set by `RequireMCPAuth` (Phase 6).
+Both consume `(tenant, user)` from ctx — set by `RequireMCPAuth` (Phase 6). Helpers: `auth.MCPUserFromContext(ctx)` returns the `*storage.User` pinned by the middleware; `tenancy.TenantFromContext(ctx)` returns the `*storage.Tenant`.
 
 Tool name collisions across upstreams keep the existing convention: prefix tools with the upstream name (`<upstreamName>.<toolName>`).
 
@@ -154,19 +157,19 @@ The sandbox boundary (no fs, no net, no global escape) is unchanged.
 
 #### Codemode observability (structured logging)
 
-Codemode is the highest-risk surface in the gateway: arbitrary tenant-supplied JavaScript composes upstream tool calls under a user's credentials. v1 ships **structured zap logging** for every code-mode lifecycle event so operators (and, post-[Phase 12](phase-12-staff-backoffice.md), the audit pipeline) can reconstruct exactly what ran. Persisted `audit_events` rows for the same lifecycle land in Phase 12 — see [Phase 12](phase-12-staff-backoffice.md) § _Codemode audit events_.
+Codemode is the highest-risk surface in the gateway: arbitrary tenant-supplied JavaScript composes upstream tool calls under a user's credentials. v1 ships **structured zap logging** for every code-mode lifecycle event so operators (and, post-[Phase 12](phase-12-staff-backoffice.md), the audit pipeline) can reconstruct exactly what ran. Persisted `audit_events` rows for the same lifecycle land in Phase 12 — the row shape, AAD construction, and encryption rules live in [docs/audit.md](../../docs/audit.md).
 
 A single `codemode_invocation_id` (`cmi_<ulid>`) is generated at handler entry, propagated on ctx, and stamped on every log line below — it is the join key between zap logs (Phase 8) and `audit_events` rows (Phase 12).
 
 Mandatory log lines, all at `Info` (errors at `Error`), all carrying `tenant_id`, `user_id`, `request_id`, `codemode_invocation_id`:
 
-| Event | Fields (in addition to the base set) |
-| ----- | ------------------------------------ |
-| `codemode.invocation.started` | `script_sha256`, `script_bytes`, `tool_count_visible` (size of `ToolsForUser(ctx)`) |
-| `codemode.tool.called` | `upstream`, `tool`, `args_sha256`, `args_bytes`, `call_seq` (monotonic within the invocation) |
-| `codemode.tool.completed` | `upstream`, `tool`, `call_seq`, `result_bytes`, `duration_ms`, `outcome` (`ok` \| `upstream_error` \| `denied_no_link` \| `denied_auto_disabled`) |
-| `codemode.tool.error` | `upstream`, `tool`, `call_seq`, `error_kind`, `error_message` (redacted — see below) |
-| `codemode.invocation.completed` | `tool_calls_total`, `duration_ms`, `outcome` (`ok` \| `script_error` \| `timeout` \| `out_of_memory`), `result_bytes` |
+| Event                           | Fields (in addition to the base set)                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codemode.invocation.started`   | `script_sha256`, `script_bytes`, `tool_count_visible` (size of `ToolsForUser(ctx)`)                                                               |
+| `codemode.tool.called`          | `upstream`, `tool`, `args_sha256`, `args_bytes`, `call_seq` (monotonic within the invocation)                                                     |
+| `codemode.tool.completed`       | `upstream`, `tool`, `call_seq`, `result_bytes`, `duration_ms`, `outcome` (`ok` \| `upstream_error` \| `denied_no_link` \| `denied_auto_disabled`) |
+| `codemode.tool.error`           | `upstream`, `tool`, `call_seq`, `error_kind`, `error_message` (redacted — see below)                                                              |
+| `codemode.invocation.completed` | `tool_calls_total`, `duration_ms`, `outcome` (`ok` \| `script_error` \| `timeout` \| `out_of_memory`), `result_bytes`                             |
 
 Redaction rules — enforced by a small helper in `internal/gateway/codemode.go`, not left to call sites:
 
@@ -207,8 +210,8 @@ A small index built at startup (and on `Upstream`/`UpstreamRegistration` changes
 
 ```go
 type UpstreamManager struct {
-    // map[tenantID]map[upstreamName]*upstream.Bundle
-    bundles map[uuid.UUID]map[string]*Bundle
+    // map[tenantID]map[upstreamName]*Bundle — tenantID is storage.Tenant.ID (BIGINT).
+    bundles map[int64]map[string]*Bundle
 }
 
 type Bundle struct {
