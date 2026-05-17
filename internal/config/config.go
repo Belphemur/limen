@@ -104,6 +104,15 @@ type RateLimitConfig struct {
 type CodeModeConfig struct {
 	ExecutionTimeout time.Duration `yaml:"execution_timeout"`
 	MaxMemoryMB      int           `yaml:"max_memory_mb"`
+	// ScriptTimeout caps wall-clock for a single codemode invocation
+	// (Phase 8). Defaults to 10s when zero. Falls back to ExecutionTimeout
+	// if that is set and ScriptTimeout is not, so existing configs keep
+	// working.
+	ScriptTimeout time.Duration `yaml:"script_timeout,omitempty"`
+	// MaxToolCalls is the per-invocation cap on upstream tool calls.
+	// Defaults to 50 when zero. Exceeding it raises a quota_exceeded
+	// error inside the sandbox.
+	MaxToolCalls int `yaml:"max_tool_calls,omitempty"`
 }
 
 // ValkeyConfig wires the Valkey (Redis-protocol) client used by Phase 7
@@ -235,6 +244,16 @@ func (c *Config) applyDefaults() {
 	}
 	if c.CodeMode.ExecutionTimeout == 0 {
 		c.CodeMode.ExecutionTimeout = 30 * time.Second
+	}
+	if c.CodeMode.ScriptTimeout == 0 {
+		if c.CodeMode.ExecutionTimeout > 0 && c.CodeMode.ExecutionTimeout < 30*time.Second {
+			c.CodeMode.ScriptTimeout = c.CodeMode.ExecutionTimeout
+		} else {
+			c.CodeMode.ScriptTimeout = 10 * time.Second
+		}
+	}
+	if c.CodeMode.MaxToolCalls == 0 {
+		c.CodeMode.MaxToolCalls = 50
 	}
 	if c.CodeMode.MaxMemoryMB == 0 {
 		c.CodeMode.MaxMemoryMB = 64

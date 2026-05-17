@@ -54,8 +54,11 @@ func runServe(flags *rootFlags) error {
 	}
 	defer upstreamCleanup()
 
-	// MCP suite: downstream gateway + MCP transport.
-	gw, mcpServer := setupMCPGateway(d)
+	// MCP suite: downstream gateway Manager + MCP transport.
+	_, mcpServer, err := setupMCPGateway(d)
+	if err != nil {
+		return err
+	}
 
 	// Compose router.
 	r := chi.NewRouter()
@@ -71,10 +74,7 @@ func runServe(flags *rootFlags) error {
 	mountUpstreamLinking(r, d)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	logger.Info("starting gateway",
-		zap.String("addr", addr),
-		zap.Int("upstreams", len(gw.UpstreamNames())),
-		zap.Strings("upstream_names", gw.UpstreamNames()))
+	logger.Info("starting gateway", zap.String("addr", addr))
 
 	srv := &http.Server{Addr: addr, Handler: r}
 	errCh := make(chan error, 1)

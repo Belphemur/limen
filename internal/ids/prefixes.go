@@ -9,5 +9,6 @@ const (
 	PrefixUpstreamRegistration   Prefix = "ureg"
 	PrefixUpstreamLink           Prefix = "ulnk"
 	PrefixUpstreamTool           Prefix = "utl"
+	PrefixCodemodeInvocation     Prefix = "cmi"
 	PrefixZitadelApp             Prefix = "zapp"
 )

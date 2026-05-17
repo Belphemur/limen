@@ -24,4 +24,8 @@ type serverDeps struct {
 	store           *storage.Store
 	oidc            *auth.OIDC
 	upstreamService *upstream.Service
+	// upstreamRegistry is the strategy registry built in setupUpstreamLinking.
+	// The gateway Manager needs it to look up strategies on the request path
+	// (independent of upstreamService, which wraps it but also owns provisioning).
+	upstreamRegistry *upstream.Registry
 }

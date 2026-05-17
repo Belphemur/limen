@@ -216,19 +216,19 @@ func (s *Strategy) probePRMHint(ctx context.Context, mcpURL string) string {
 // WWW-Authenticate header value (RFC 9728 §5.1).
 func extractResourceMetadata(header string) string {
 	const key = "resource_metadata="
-	idx := strings.Index(header, key)
-	if idx < 0 {
+	_, after, ok := strings.Cut(header, key)
+	if !ok {
 		return ""
 	}
-	v := header[idx+len(key):]
+	v := after
 	v = strings.TrimLeft(v, " \t")
 	if strings.HasPrefix(v, `"`) {
 		v = v[1:]
-		end := strings.IndexByte(v, '"')
-		if end < 0 {
+		before, _, ok := strings.Cut(v, "\"")
+		if !ok {
 			return ""
 		}
-		return v[:end]
+		return before
 	}
 	if end := strings.IndexAny(v, ", "); end >= 0 {
 		return v[:end]

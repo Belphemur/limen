@@ -62,6 +62,7 @@ func setupUpstreamLinking(d *serverDeps) (cleanup func(), err error) {
 	registry.Register(mcpStrat)
 
 	d.upstreamService = upstream.NewService(d.store, registry)
+	d.upstreamRegistry = registry
 
 	refresher := upstream.NewRefresher(d.store, registry, upstream.RefresherOptions{
 		Interval:      d.cfg.UpstreamRefresh.Interval,

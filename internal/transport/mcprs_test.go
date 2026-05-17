@@ -21,6 +21,7 @@ import (
 	"github.com/belphemur/limen/internal/mcprs"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/transport"
+	"github.com/belphemur/limen/internal/upstream"
 )
 
 // mcprsHarness wires a full MCP RS pipeline (tenant resolver → metadata →
@@ -61,9 +62,21 @@ func newMCPRSHarness(t *testing.T) *mcprsHarness {
 		t.Fatalf("auth.NewMCPAuth: %v", err)
 	}
 
-	gw := gateway.New(logger)
-	cm := gateway.NewCodeModeHandler(gw, logger, 5*time.Second)
-	mcpServer := transport.NewMCPServer(gw, cm, logger)
+	// MCP routes are mounted but the test never exercises the
+	// codemode tools — a minimal Manager (empty registry, real store)
+	// is enough to satisfy the constructor.
+	registry := upstream.NewRegistry()
+	mgr, err := gateway.NewManager(gateway.ManagerOptions{
+		Store:    store,
+		Service:  upstream.NewService(store, registry),
+		Registry: registry,
+		Logger:   logger,
+	})
+	if err != nil {
+		t.Fatalf("gateway.NewManager: %v", err)
+	}
+	cm := gateway.NewCodeModeHandler(mgr, gateway.CodeModeConfig{ScriptTimeout: 5 * time.Second}, logger)
+	mcpServer := transport.NewMCPServer(mgr, cm, logger)
 
 	if err := transport.MountMCPRS(r, transport.MCPRSDeps{
 		Store:     store,
