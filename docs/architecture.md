@@ -93,9 +93,8 @@ Defines typed configuration structs and YAML loading:
 
 | Type | Fields |
 |------|--------|
-| `Config` | `Server`, `Upstreams`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy` |
+| `Config` | `Server`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy` |
 | `ServerConfig` | `Host` (string), `Port` (int), `BaseURL` (string) |
-| `UpstreamConfig` | `Name` (string), `URL` (string), `Headers` (map[string]string), `Timeout` (time.Duration) |
 | `CodeModeConfig` | `ExecutionTimeout` (time.Duration), `MaxMemoryMB` (int) |
 | `ZitadelConfig` | `Domain`, `AuthMode`, `PAT`, `JWTKeyPath`, `ProjectID`, `MCPResourceAudience`, `HTTPTimeout` |
 

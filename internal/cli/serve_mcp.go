@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/gateway"
@@ -18,28 +17,11 @@ import (
 	"github.com/belphemur/limen/internal/transport"
 )
 
-// setupMCPGateway connects every configured downstream MCP upstream and
-// returns the assembled gateway + MCP transport. Connection failures
-// are logged and skipped — the portal is still useful even if a single
-// upstream is unreachable at boot.
+// setupMCPGateway returns the assembled gateway + MCP transport. Per-tenant
+// upstreams are loaded from the database at request time (Phase 8); there
+// are no boot-time global upstreams to connect here.
 func setupMCPGateway(d *serverDeps) (*gateway.Gateway, *transport.MCPServer) {
 	gw := gateway.New(d.logger)
-	for _, uc := range d.cfg.Upstreams {
-		client := gateway.NewMCPUpstream(uc.Name, uc.URL, uc.Headers, uc.Timeout, d.logger)
-		if err := client.Connect(d.ctx); err != nil {
-			d.logger.Error("failed to connect upstream",
-				zap.String("name", uc.Name),
-				zap.Error(err))
-			continue
-		}
-		if err := gw.AddUpstream(d.ctx, client); err != nil {
-			d.logger.Error("failed to add upstream",
-				zap.String("name", uc.Name),
-				zap.Error(err))
-			_ = client.Close()
-			continue
-		}
-	}
 	cmHandler := gateway.NewCodeModeHandler(gw, d.logger, d.cfg.CodeMode.ExecutionTimeout)
 	mcpServer := transport.NewMCPServer(gw, cmHandler, d.logger)
 	return gw, mcpServer

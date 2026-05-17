@@ -39,12 +39,9 @@ oauth_proxy:
     rps: 10
     burst: 20
 
-# Pre-Phase-7 global downstream MCP upstreams. These are connected at
-# boot and exposed via /mcp on every tenant — useful for built-in /
-# server-shared tools that don't need per-user credentials. Per-tenant
-# user-linked MCP servers (Phase 7) live in the database instead — see
-# `limen create-upstream` and the portal Upstreams section.
-upstreams: []
+# Per-tenant, per-user MCP upstreams are loaded from the database (see
+# `limen create-upstream` and the portal's Upstreams section). There is no
+# YAML-driven upstream list — every upstream is owned by a tenant.
 
 codemode:
   execution_timeout: "30s"

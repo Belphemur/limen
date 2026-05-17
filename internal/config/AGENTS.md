@@ -12,7 +12,7 @@ nothing else parses raw config.
 | Symbol                                                                                 | Purpose                                                        |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `Config`                                                                               | Top-level aggregate. Add a new section by adding a field here. |
-| `ServerConfig` / `DatabaseConfig` / `AuthConfig` / `CodeModeConfig` / `UpstreamConfig` | Section-level structs.                                         |
+| `ServerConfig` / `DatabaseConfig` / `AuthConfig` / `CodeModeConfig` | Section-level structs.                                         |
 | `Load(path string) (*Config, error)`                                                   | Parse YAML, apply defaults.                                    |
 
 ## Conventions

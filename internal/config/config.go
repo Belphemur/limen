@@ -29,7 +29,6 @@ type Config struct {
 	Database        DatabaseConfig        `yaml:"database"`
 	Security        SecurityConfig        `yaml:"security"`
 	OAuthProxy      OAuthProxyConfig      `yaml:"oauth_proxy"`
-	Upstreams       []UpstreamConfig      `yaml:"upstreams"`
 	UpstreamRefresh UpstreamRefreshConfig `yaml:"upstream_refresh"`
 	CodeMode        CodeModeConfig        `yaml:"codemode"`
 	OIDC            OIDCConfig            `yaml:"oidc"`
@@ -100,13 +99,6 @@ type OAuthProxyConfig struct {
 type RateLimitConfig struct {
 	RPS   int `yaml:"rps"`
 	Burst int `yaml:"burst"`
-}
-
-type UpstreamConfig struct {
-	Name    string            `yaml:"name"`
-	URL     string            `yaml:"url"`
-	Headers map[string]string `yaml:"headers,omitempty"`
-	Timeout time.Duration     `yaml:"timeout"`
 }
 
 type CodeModeConfig struct {
