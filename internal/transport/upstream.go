@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -80,11 +81,59 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 			http.Error(w, "callback failed", http.StatusBadRequest)
 			return
 		}
+
+		// Phase 8 \u2014 the first tenant owner/admin to complete the link
+		// bootstraps the shared upstream tool catalog. Member links never
+		// refresh the catalog; the role check is the canonical gate.
+		// Best-effort: indexing failure logs but does not fail the
+		// redirect back to the SPA \u2014 the periodic sweep will retry.
+		if hasCatalogIndexerRole(claims) {
+			up, lerr := deps.Service.LoadUpstream(ctx, tenant.ID, upstreamName)
+			if lerr != nil {
+				logger.Warn("upstream callback: load upstream for catalog index failed",
+					zap.String("tenant", tenant.PublicID),
+					zap.String("upstream", upstreamName),
+					zap.Error(lerr))
+			} else {
+				link, lerr := deps.Service.LoadLink(ctx, tenant.ID, user.ID, up.ID)
+				if lerr != nil && !errors.Is(lerr, upstream.ErrLinkNotFound) {
+					logger.Warn("upstream callback: load link for catalog index failed",
+						zap.String("tenant", tenant.PublicID),
+						zap.String("upstream", upstreamName),
+						zap.Error(lerr))
+				} else if ierr := deps.Service.IndexCatalog(ctx, tenant, up, link); ierr != nil {
+					logger.Warn("upstream callback: catalog index failed",
+						zap.String("tenant", tenant.PublicID),
+						zap.String("upstream", upstreamName),
+						zap.Error(ierr))
+				} else {
+					logger.Info("upstream callback: catalog indexed",
+						zap.String("tenant", tenant.PublicID),
+						zap.String("upstream", upstreamName))
+				}
+			}
+		}
+
 		if returnTo == "" {
 			returnTo = "/t/" + tenant.PublicID + "/portal"
 		}
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 	}
+}
+
+// hasCatalogIndexerRole reports whether the caller's verified ID-token
+// claims include a role that authorizes them to bootstrap or refresh the
+// shared upstream tool catalog. Members are deliberately excluded \u2014 the
+// resulting catalog is shared with every user in the tenant, so the
+// bootstrap is an admin responsibility.
+func hasCatalogIndexerRole(claims *oidc.IDTokenClaims) bool {
+	for _, role := range auth.ExtractRoles(claims) {
+		switch role {
+		case "owner", "admin":
+			return true
+		}
+	}
+	return false
 }
 
 // loadUserBySubject reads the local User row by (tenant_id, zitadel_subject).

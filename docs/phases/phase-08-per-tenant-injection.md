@@ -296,10 +296,10 @@ type Bundle struct {
 
 ## Checklist
 
-- [ ] `storage.UpstreamTool` model + `migrations/postgres/00006_phase8_upstream_tools.sql` (RLS + `set_updated_at` trigger) shipped
-- [ ] `internal/upstream/catalog.go` defines `IndexUpstream(ctx, store, registry, tenant, upstream, link)` — upserts the catalog in one tx, prunes stale tool names
+- [x] `storage.UpstreamTool` model + `migrations/postgres/00006_phase8_upstream_tools.sql` (RLS + `set_updated_at` trigger) shipped — model lives in `internal/storage/model_upstream_tool.go` (added during the `models.go` per-model split, commit `c572d3f`); the row carries `TenantID` / `UpstreamID` / `Name` (partial-unique on `WHERE deleted_at IS NULL`), `Description`, `InputSchemaJSON` (jsonb), and `LastIndexedAt`. Migration `00006` layers tenant-isolation RLS + the `set_updated_at` trigger to match every other tenant-scoped table.
+- [x] `internal/upstream/catalog.go` defines `IndexUpstream(ctx, store, registry, tenant, upstream, link)` — connects an mcp-go streamable client with the strategy's headers, calls `tools/list`, and reconciles `upstream_tools` in one tx (creates / updates / hard-deletes stale names). `Service.IndexCatalog` is the in-process wrapper callers use.
 - [ ] Tenant-mode strategies (`none`, `static_header` tenant-mode) are indexed synchronously at `Provision` time (CLI + admin SPA `CreateUpstream` paths)
-- [ ] Per-user strategies (`mcp_spec`, `static_header` user-mode) are indexed when the first **owner or admin** completes the link; member links do not refresh the shared catalog
+- [x] Per-user strategies (`mcp_spec`, `static_header` user-mode) are indexed when the first **owner or admin** completes the link; member links do not refresh the shared catalog — enforced in `internal/transport/upstream.go`'s `/callback` handler via `hasCatalogIndexerRole(claims)` (`owner`/`admin` only). Indexer failure logs and continues; the redirect back to the SPA is never blocked on a catalog hiccup.
 - [ ] `internal/upstream/refresher.go` periodically re-indexes every upstream (config `upstream.catalog_refresh_interval`, default 6 h); per-user upstreams skip when no admin/owner link is available
 - [ ] `Gateway.ToolsForUser` reads from `upstream_tools` — never calls `tools/list` synchronously on the request path
 - [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider`

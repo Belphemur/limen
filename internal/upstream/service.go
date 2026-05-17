@@ -143,6 +143,15 @@ func (s *Service) LoadLink(ctx context.Context, tenantID, userID, upstreamID int
 	return s.loadLink(ctx, tenantID, userID, upstreamID)
 }
 
+// IndexCatalog reconciles upstream_tools for up using whatever
+// credentials the strategy makes available. The caller is responsible
+// for enforcing the "first admin/owner to link bootstraps the catalog"
+// rule from Phase 8 — Service has no view of OIDC roles. Pass link=nil
+// for tenant-mode strategies (`none`, `static_header` tenant-wide).
+func (s *Service) IndexCatalog(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, link *storage.UpstreamLink) error {
+	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link)
+}
+
 func (s *Service) loadUpstream(ctx context.Context, tenantID int64, name string) (*storage.Upstream, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
