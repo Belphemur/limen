@@ -98,27 +98,50 @@ func (h *CodeModeHandler) run(ctx context.Context, code string, withProxies bool
 	codemodeObj := vm.NewObject()
 
 	defs := toToolDefs(tools)
-	_ = codemodeObj.Set("tools", func() []ToolDefinition { return defs })
 
 	if withProxies {
-		toolByName := make(map[string]ToolEntry, len(tools))
+		byUpstream := make(map[string]map[string]ToolEntry, len(tools))
 		for _, t := range tools {
-			toolByName[t.Name] = t
+			if _, ok := byUpstream[t.Upstream]; !ok {
+				byUpstream[t.Upstream] = make(map[string]ToolEntry)
+			}
+			byUpstream[t.Upstream][t.Name] = t
 		}
-		for _, t := range tools {
-			tool := t
-			_ = codemodeObj.Set(tool.Name, h.makeProxy(ctx, vm, tool, &callSeq, invocationID))
+		for upstreamName, byName := range byUpstream {
+			if isReservedCodemodeKey(upstreamName) {
+				h.logger.Warn("codemode.invocation.upstream_name_collides_with_reserved_key",
+					append(base, zap.String("upstream", upstreamName))...)
+				continue
+			}
+			upObj := vm.NewObject()
+			for _, t := range byName {
+				tool := t
+				_ = upObj.Set(tool.Name, h.makeProxy(ctx, vm, tool, &callSeq, invocationID))
+			}
+			_ = codemodeObj.Set(upstreamName, upObj)
 		}
 		_ = codemodeObj.Set("call", func(call goja.FunctionCall) goja.Value {
-			name := call.Argument(0).String()
-			tool, ok := toolByName[name]
-			if !ok {
-				panic(vm.NewGoError(fmt.Errorf("tool %q not found", name)))
+			if len(call.Arguments) < 2 {
+				panic(vm.NewGoError(errors.New("codemode.call(upstream, name, args): upstream and name are required")))
 			}
-			args := exportArgs(call, 1)
+			upstreamName := call.Argument(0).String()
+			name := call.Argument(1).String()
+			byName, ok := byUpstream[upstreamName]
+			if !ok {
+				panic(vm.NewGoError(fmt.Errorf("upstream %q not found or no tools visible", upstreamName)))
+			}
+			tool, ok := byName[name]
+			if !ok {
+				panic(vm.NewGoError(fmt.Errorf("tool %q not found on upstream %q", name, upstreamName)))
+			}
+			args := exportArgs(call, 2)
 			return h.dispatchTool(ctx, vm, tool, args, &callSeq, invocationID)
 		})
 	}
+
+	// Reserved keys are set last so an upstream named "tools" or "call"
+	// can never shadow the sandbox API.
+	_ = codemodeObj.Set("tools", func() []ToolDefinition { return defs })
 
 	_ = vm.Set("codemode", codemodeObj)
 
@@ -263,6 +286,18 @@ func toToolDefs(in []ToolEntry) []ToolDefinition {
 		out[i] = ToolDefinition(t)
 	}
 	return out
+}
+
+// isReservedCodemodeKey reports whether the given name would collide
+// with a top-level key on the `codemode` sandbox object. Upstream
+// namespaces matching one of these are skipped (with a Warn log) so
+// the sandbox API surface stays stable regardless of admin naming.
+func isReservedCodemodeKey(name string) bool {
+	switch name {
+	case "tools", "call":
+		return true
+	}
+	return false
 }
 
 func exportArgs(call goja.FunctionCall, idx int) map[string]any {

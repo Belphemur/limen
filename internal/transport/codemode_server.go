@@ -94,8 +94,9 @@ func (s *MCPServer) Core() *server.MCPServer { return s.core }
 // registerCodeModeTools advertises the fixed downstream tool surface:
 // codemode_search (read-only discovery of the per-user tool catalog)
 // and codemode_execute (sandboxed JS that calls upstream tools via
-// codemode.<name>). The verbose descriptions are the prompt the client
-// LLM sees when picking a tool, so they double as user-facing docs.
+// codemode.<upstream>.<name>). The verbose descriptions are the prompt
+// the client LLM sees when picking a tool, so they double as user-facing
+// docs.
 func (s *MCPServer) registerCodeModeTools() {
 	searchTool := mcp.NewTool("codemode_search",
 		mcp.WithDescription(`Discover which MCP tools are available to you and inspect their input schemas, without loading the full catalog into your context.
@@ -294,8 +295,9 @@ script — the two endpoints expose the same catalog.`),
 		mcp.WithDescription(`Run JavaScript that CALLS one or more MCP tools and returns a composed result.
 
 This is the workhorse. You write an async arrow function that invokes upstream
-tools via 'codemode.<toolName>(args)' (or 'codemode.call(name, args)'),
-composes / branches / loops / handles errors as needed, and returns a single
+tools via 'codemode.<upstream>.<toolName>(args)' (or 'codemode.call(upstream,
+name, args)'), composes / branches / loops / handles errors as needed, and
+returns a single
 JSON-serializable value. The runtime evaluates your function, awaits its
 promise, JSON-encodes the resolved value, and returns that JSON string to you
 as the tool's text result. There is no streaming, no incremental output, and
@@ -376,7 +378,7 @@ QUOTAS AND LIMITS — both abort the script
      IsError=true with a message containing "script timeout".
 
   2. TOOL-CALL QUOTA (typically 50 calls per invocation). Each call to
-     codemode.<toolName>(...) or codemode.call(...) counts as ONE. Exceeding
+     codemode.<upstream>.<toolName>(...) or codemode.call(...) counts as ONE. Exceeding
      the quota throws inside the script with a message containing
      "max_tool_calls exceeded". This is NOT catchable — the script terminates.
 
@@ -401,26 +403,41 @@ SANDBOX API — full surface
       "upstream":    string
     }
 
-  await codemode.<toolName>(args)
-    Direct call. '<toolName>' must be the EXACT 'name' from the catalog.
-    'args' is a plain object whose keys/values match the tool's inputSchema.
-    Counts as 1 tool call against the quota.
+  await codemode.<upstream>.<toolName>(args)
+    Direct, namespaced call. '<upstream>' must be the EXACT 'upstream'
+    value from the catalog. '<toolName>' must be the EXACT 'name' from
+    the catalog. 'args' is a plain object whose keys/values match the
+    tool's inputSchema. Counts as 1 tool call against the quota.
 
-    Tool names that are not valid JS identifiers (contain '-', '.', start
-    with a digit, etc.) CANNOT be reached this way — use codemode.call().
+    Namespacing is mandatory: two upstreams may legitimately expose the
+    same tool name (e.g. both a 'github' and a 'gitlab' upstream expose
+    'search_issues'), so there is NO flat 'codemode.<toolName>' shortcut.
+    The catalog 'upstream' field tells you which prefix to use.
+
+    Upstream OR tool names that are not valid JS identifiers (contain
+    '-', '.', start with a digit, etc.) CANNOT be reached as a property
+    chain — use codemode.call() instead, or bracket notation
+    (codemode["my-upstream"]["some-tool"](args)).
 
     Returns: the upstream tool's MCP "content" array, of the form
         [ { type: "text", text: "..." }, ... ]
     Most upstream tools return a single text block whose text is either a
     plain string OR JSON. If you need the parsed value, do:
-        const r = await codemode.some_tool({...});
+        const r = await codemode.github.search_issues({...});
         const text = r?.[0]?.text ?? "";
         const data = JSON.parse(text);   // wrap in try/catch if uncertain
 
-  await codemode.call(name, args)
-    String-keyed call. Use this when the tool name is computed at runtime
-    or contains characters not valid as JS identifiers. Otherwise behaves
-    identically to the direct-property form. Counts as 1 tool call.
+  await codemode.call(upstream, name, args)
+    String-keyed call. Use this when the upstream or tool name is
+    computed at runtime or contains characters not valid as JS
+    identifiers. Behaves identically to the property-chain form.
+    Counts as 1 tool call. Both 'upstream' and 'name' are REQUIRED —
+    there is no single-argument form.
+
+  RESERVED KEYS: 'codemode.tools' and 'codemode.call' are the sandbox
+  API and ALWAYS resolve to the built-ins above. An upstream registered
+  under the literal name "tools" or "call" is NOT reachable as a
+  property; reach it via codemode.call("tools", "<toolName>", args).
 
 =============================================================================
 ERROR SHAPE FROM TOOL CALLS
@@ -452,24 +469,25 @@ COMMON RECIPES — copy and adapt
 (1) Single tool call, raw passthrough:
 
     async () => {
-      return await codemode.jira_get_ticket({ id: "PROJ-123" });
+      return await codemode.jira.get_ticket({ id: "PROJ-123" });
     }
 
 (2) Single call, parse the JSON text result:
 
     async () => {
-      const r = await codemode.jira_get_ticket({ id: "PROJ-123" });
+      const r = await codemode.jira.get_ticket({ id: "PROJ-123" });
       const text = r?.[0]?.text ?? "";
       try { return JSON.parse(text); }
       catch { return { raw: text }; }
     }
 
-(3) Compose two tools across different upstreams:
+(3) Compose two tools across different upstreams (the upstream prefix
+    disambiguates even when both upstreams expose the same tool name):
 
     async () => {
-      const ticket = await codemode.jira_get_ticket({ id: "PROJ-123" });
-      const pr     = await codemode.github_get_pr({ number: 456 });
-      await codemode.jira_update_ticket({
+      const ticket = await codemode.jira.get_ticket({ id: "PROJ-123" });
+      const pr     = await codemode.github.get_pr({ number: 456 });
+      await codemode.jira.update_ticket({
         id: "PROJ-123",
         description: "Linked PR: " + (pr?.[0]?.text ?? "unknown"),
       });
@@ -482,7 +500,7 @@ COMMON RECIPES — copy and adapt
       const tools = await codemode.tools();
       const t = tools.find(x => x.name.includes("get_ticket"));
       if (!t) return { error: "no get_ticket tool available" };
-      return await codemode.call(t.name, { id: "PROJ-123" });
+      return await codemode.call(t.upstream, t.name, { id: "PROJ-123" });
     }
 
 (5) Fan out, BOUNDED — remember the tool-call quota:
@@ -491,7 +509,7 @@ COMMON RECIPES — copy and adapt
       const ids = ["PROJ-1", "PROJ-2", "PROJ-3"];   // keep this list small
       const out = [];
       for (const id of ids) {
-        out.push({ id, ticket: await codemode.jira_get_ticket({ id }) });
+        out.push({ id, ticket: await codemode.jira.get_ticket({ id }) });
       }
       return out;
     }
@@ -503,7 +521,7 @@ COMMON RECIPES — copy and adapt
       const out = [];
       for (const id of ids) {
         try {
-          out.push({ id, ok: true, ticket: await codemode.jira_get_ticket({ id }) });
+          out.push({ id, ok: true, ticket: await codemode.jira.get_ticket({ id }) });
         } catch (e) {
           out.push({ id, ok: false, error: String(e?.message || e) });
         }
@@ -515,23 +533,25 @@ COMMON RECIPES — copy and adapt
 
     async () => {
       const [ticket, pr] = await Promise.all([
-        codemode.jira_get_ticket({ id: "PROJ-123" }),
-        codemode.github_get_pr({ number: 456 }),
+        codemode.jira.get_ticket({ id: "PROJ-123" }),
+        codemode.github.get_pr({ number: 456 }),
       ]);
       return { ticket, pr };
     }
 
-(8) Dynamic tool name (e.g. one containing a hyphen):
+(8) Dynamic / non-identifier names (upstream OR tool contains '-', '.', etc.):
 
     async () => {
-      return await codemode.call("github-list-repos", { org: "myorg" });
+      // Either of these works; pick whichever reads better:
+      return await codemode.call("github-enterprise", "list-repos", { org: "myorg" });
+      // return await codemode["github-enterprise"]["list-repos"]({ org: "myorg" });
     }
 
 (9) Detect a needs-relink failure and report it cleanly:
 
     async () => {
       try {
-        return await codemode.jira_get_ticket({ id: "PROJ-123" });
+        return await codemode.jira.get_ticket({ id: "PROJ-123" });
       } catch (e) {
         const msg = String(e?.message || e).toLowerCase();
         if (msg.includes("needs_relink") || msg.includes("no_link")) {
@@ -552,7 +572,7 @@ available, then invoke the tools you need. Either way, return ONE
 JSON-serializable value at the end.`),
 		mcp.WithString("code",
 			mcp.Required(),
-			mcp.Description(`A single JavaScript expression that evaluates to a zero-argument async arrow function. Exact required shape: async () => { ... }. The function will be invoked once, its returned promise awaited, and its resolved value JSON-encoded and returned to you. The function may invoke upstream tools via 'await codemode.<toolName>(args)' (where <toolName> is the exact 'name' from codemode.tools() and is a valid JS identifier) or via 'await codemode.call(name, args)' for any tool name. It may also inspect the per-user catalog via 'await codemode.tools()'. Must return a JSON-serializable value (object, array, string, number, boolean, or null). Subject to a server-configured script timeout (~10s wall-clock) AND a per-invocation tool-call quota (~50 calls); exceeding either aborts the script with an error result. Sandbox has no filesystem, network (other than codemode.*), eval, require, timers, or console — only standard ES2015+ JavaScript plus the codemode global.`),
+			mcp.Description(`A single JavaScript expression that evaluates to a zero-argument async arrow function. Exact required shape: async () => { ... }. The function will be invoked once, its returned promise awaited, and its resolved value JSON-encoded and returned to you. The function may invoke upstream tools via 'await codemode.<upstream>.<toolName>(args)' (where <upstream> and <toolName> are the exact 'upstream' and 'name' from codemode.tools() and both are valid JS identifiers) or via 'await codemode.call(upstream, name, args)' for any upstream/tool name. Tools are upstream-namespaced because the same tool name may legitimately exist on multiple upstreams (e.g. both a github and a gitlab upstream may expose 'search_issues') — there is NO flat 'codemode.<toolName>' shortcut. It may also inspect the per-user catalog via 'await codemode.tools()'. Must return a JSON-serializable value (object, array, string, number, boolean, or null). Subject to a server-configured script timeout (~10s wall-clock) AND a per-invocation tool-call quota (~50 calls); exceeding either aborts the script with an error result. Sandbox has no filesystem, network (other than codemode.*), eval, require, timers, or console — only standard ES2015+ JavaScript plus the codemode global.`),
 		),
 	)
 
