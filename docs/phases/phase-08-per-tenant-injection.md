@@ -302,7 +302,7 @@ type Bundle struct {
 - [x] Per-user strategies (`mcp_spec`, `static_header` user-mode) are indexed when the first **owner or admin** completes the link; member links do not refresh the shared catalog — enforced in `internal/transport/upstream.go`'s `/callback` handler via `hasCatalogIndexerRole(claims)` (`owner`/`admin` only). Indexer failure logs and continues; the redirect back to the SPA is never blocked on a catalog hiccup.
 - [x] Periodic catalog sweep in `internal/upstream/refresher.go` runs at `upstream_refresh.catalog_interval` (default 6h). For per-user strategies the sweep picks any healthy link (enabled, not auto-disabled, not needs-relink) as the credential source; upstreams with no healthy link are skipped without error.
 - [ ] `Gateway.ToolsForUser` reads from `upstream_tools` — never calls `tools/list` synchronously on the request path
-- [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
+- [x] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider` — pinned to a single (tenant, upstream) pair; resolves the active user via an injected `UserResolver` to avoid the `upstream → auth` import cycle; returns `ErrLinkNotFound` / `ErrNeedsRelink` / `ErrNoUser` for the round-tripper to translate into structured MCP errors.
 - [ ] `internal/gateway/upstream.go` uses an `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
 - [ ] Round-trip clones the request before mutating headers
 - [ ] Round-tripper retries exactly once on upstream `401`, calling `HeadersForceRefresh` to drive Phase 7's refresh path; a second consecutive `401` surfaces as a structured "re-link required" MCP error
