@@ -36,13 +36,26 @@ type CodeModeConfig struct {
 // transport, per-link health bookkeeping, and Phase 10 resilience all
 // apply by construction.
 type CodeModeHandler struct {
-	manager *Manager
+	manager toolDispatcher
 	logger  *zap.Logger
 	cfg     CodeModeConfig
 }
 
+// toolDispatcher is the minimal surface CodeModeHandler needs from a
+// Manager. Carved out so unit tests can supply a fake without standing
+// up a real Postgres-backed Manager. *Manager satisfies this by
+// construction.
+type toolDispatcher interface {
+	ToolsForUser(ctx context.Context) ([]ToolEntry, error)
+	CallTool(ctx context.Context, upstream, name string, args map[string]any) (any, error)
+}
+
 // NewCodeModeHandler wires a CodeModeHandler over a Manager.
 func NewCodeModeHandler(mgr *Manager, cfg CodeModeConfig, logger *zap.Logger) *CodeModeHandler {
+	return newCodeModeHandler(mgr, cfg, logger)
+}
+
+func newCodeModeHandler(mgr toolDispatcher, cfg CodeModeConfig, logger *zap.Logger) *CodeModeHandler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
