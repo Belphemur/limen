@@ -30,6 +30,9 @@ type RefresherOptions struct {
 	RefreshWindow time.Duration
 	// HealthThresholds drives MaybeAutoDisableForRelink + RecordFailure.
 	HealthThresholds HealthThresholds
+	// CatalogInterval is the period for the upstream_tools refresh sweep.
+	// Zero disables the sweep. Defaults to 6h when unset and > 0.
+	CatalogInterval time.Duration
 	// Logger for sweep stats. Optional.
 	Logger *zap.Logger
 }
@@ -61,15 +64,28 @@ func NewRefresher(store *storage.Store, registry *Registry, opts RefresherOption
 func (r *Refresher) Run(ctx context.Context) {
 	t := time.NewTicker(r.opts.Interval)
 	defer t.Stop()
+
+	var catalogC <-chan time.Time
+	if r.opts.CatalogInterval > 0 {
+		ct := time.NewTicker(r.opts.CatalogInterval)
+		defer ct.Stop()
+		catalogC = ct.C
+	}
+
 	// Run an initial sweep so dev/staging see refresh activity without
 	// waiting a full Interval.
 	r.sweep(ctx)
+	if r.opts.CatalogInterval > 0 {
+		r.sweepCatalog(ctx)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			r.sweep(ctx)
+		case <-catalogC:
+			r.sweepCatalog(ctx)
 		}
 	}
 }
@@ -184,6 +200,110 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 		return err
 	}
 	return nil
+}
+
+// sweepCatalog re-runs IndexUpstream for every non-deleted upstream.
+// For tenant-mode strategies (RequiresLink == false) we call without a
+// link. For per-user strategies we pick any healthy link to use as the
+// credential source \u2014 the resulting catalog is shared with every user
+// of the tenant, so the bootstrap-time role gate (see transport/upstream.go)
+// is the only place role enforcement matters. If no healthy link exists,
+// the upstream is skipped and its catalog ages until one appears.
+func (r *Refresher) sweepCatalog(ctx context.Context) {
+	tx, commit, err := r.store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		r.logger.Warn("upstream refresher: catalog sweep open session failed", zap.Error(err))
+		return
+	}
+	var ups []storage.Upstream
+	if err := tx.Order("id ASC").Find(&ups).Error; err != nil {
+		_ = commit()
+		r.logger.Warn("upstream refresher: catalog sweep load upstreams failed", zap.Error(err))
+		return
+	}
+	_ = commit()
+
+	r.logger.Debug("upstream refresher: catalog sweep", zap.Int("upstreams", len(ups)))
+	var indexed, skipped, failed int
+	for i := range ups {
+		up := &ups[i]
+		if err := r.indexOneUpstream(ctx, up); err != nil {
+			if errors.Is(err, errNoHealthyLink) {
+				skipped++
+				continue
+			}
+			failed++
+			r.logger.Warn("upstream refresher: catalog index failed",
+				zap.Int64("upstream_id", up.ID),
+				zap.String("upstream", up.Name),
+				zap.Error(err))
+			continue
+		}
+		indexed++
+	}
+	r.logger.Info("upstream refresher: catalog sweep done",
+		zap.Int("indexed", indexed),
+		zap.Int("skipped", skipped),
+		zap.Int("failed", failed))
+}
+
+var errNoHealthyLink = errors.New("upstream refresher: no healthy link for catalog index")
+
+// indexOneUpstream resolves the strategy, finds a credential source if
+// needed, and calls IndexUpstream. Loads the tenant separately so the
+// IndexUpstream pre-conditions are satisfied.
+func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) error {
+	strat, err := r.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+
+	tx, commit, err := r.store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return err
+	}
+	var tenant storage.Tenant
+	if err := tx.Where("id = ?", up.TenantID).First(&tenant).Error; err != nil {
+		_ = commit()
+		return fmt.Errorf("load tenant: %w", err)
+	}
+
+	var link *storage.UpstreamLink
+	if strat.RequiresLink() {
+		var l storage.UpstreamLink
+		err := tx.Preload("User").
+			Where(`upstream_id = ?
+				AND enabled = true
+				AND auto_disabled_at IS NULL
+				AND needs_relink = false`, up.ID).
+			Order("updated_at DESC").
+			First(&l).Error
+		if err != nil {
+			_ = commit()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errNoHealthyLink
+			}
+			return fmt.Errorf("load healthy link: %w", err)
+		}
+		link = &l
+	}
+	_ = commit()
+
+	if link != nil {
+		tenantStr := strconv.FormatInt(tenant.ID, 10)
+		userStr := strconv.FormatInt(link.UserID, 10)
+		if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {
+			return fmt.Errorf("decrypt access_token: %w", err)
+		}
+		if err := link.RefreshToken.Decrypt(tenantStr, userStr, "upstream.refresh_token"); err != nil {
+			return fmt.Errorf("decrypt refresh_token: %w", err)
+		}
+		if err := link.ExtraJSON.Decrypt(tenantStr, userStr, "upstream.extra"); err != nil {
+			return fmt.Errorf("decrypt extra: %w", err)
+		}
+	}
+
+	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link)
 }
 
 // ensure gorm import is used in builds that don't reference it directly.

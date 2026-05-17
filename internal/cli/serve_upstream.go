@@ -71,12 +71,14 @@ func setupUpstreamLinking(d *serverDeps) (cleanup func(), err error) {
 			FailWindow:        d.cfg.UpstreamRefresh.FailWindow,
 			NeedsRelinkWindow: d.cfg.UpstreamRefresh.NeedsRelinkWindow,
 		},
-		Logger: d.logger,
+		CatalogInterval: d.cfg.UpstreamRefresh.CatalogInterval,
+		Logger:          d.logger,
 	})
 	go refresher.Run(d.ctx)
 	d.logger.Info("upstream refresher started",
 		zap.Duration("interval", d.cfg.UpstreamRefresh.Interval),
-		zap.Duration("refresh_window", d.cfg.UpstreamRefresh.RefreshWindow))
+		zap.Duration("refresh_window", d.cfg.UpstreamRefresh.RefreshWindow),
+		zap.Duration("catalog_interval", d.cfg.UpstreamRefresh.CatalogInterval))
 	return cleanup, nil
 }
 

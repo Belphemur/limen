@@ -143,6 +143,10 @@ type UpstreamRefreshConfig struct {
 	// NeedsRelinkWindow is how long NeedsRelink=true must hold before
 	// auto-disable trips on the "long-broken" branch. Default 24h.
 	NeedsRelinkWindow time.Duration `yaml:"needs_relink_window,omitempty"`
+	// CatalogInterval is how often the refresher re-indexes the
+	// upstream_tools cache for every upstream. Set to a value less than
+	// or equal to zero to disable the sweep. Default 6h.
+	CatalogInterval time.Duration `yaml:"catalog_interval,omitempty"`
 }
 
 // OIDCConfig wires the portal relying-party (Phase 4) to a Zitadel issuer.
@@ -273,6 +277,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.UpstreamRefresh.NeedsRelinkWindow == 0 {
 		c.UpstreamRefresh.NeedsRelinkWindow = 24 * time.Hour
+	}
+	if c.UpstreamRefresh.CatalogInterval == 0 {
+		c.UpstreamRefresh.CatalogInterval = 6 * time.Hour
 	}
 	if c.OIDC.Issuer == "" && c.Zitadel.Domain != "" {
 		c.OIDC.Issuer = c.Zitadel.Domain
