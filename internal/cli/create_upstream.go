@@ -118,7 +118,8 @@ the same name updates the URL in place.`,
 			if staticCfg.HasStaticClient() {
 				fmt.Printf("  Static OAuth client: %s\n", staticCfg.ClientID)
 			}
-			fmt.Printf("  Connect at : %s/t/%s/portal/\n", strings.TrimRight(cfg.Server.BaseURL, "/"), tenant.PublicID)
+			connectURL := fmt.Sprintf("%s/t/%s/portal/", strings.TrimRight(cfg.Server.BaseURL, "/"), tenant.PublicID)
+			printNextSteps(f.strategy, connectURL)
 			return nil
 		},
 	}
@@ -232,5 +233,43 @@ func upsertUpstream(ctx context.Context, store *storage.Store, tenantID int64, n
 			return nil, err
 		}
 		return &existing, nil
+	}
+}
+
+// printNextSteps writes the strategy-specific bootstrap instructions the
+// operator must follow before the upstream is usable. v1 only registers the
+// upstream row; Phase 8's catalog indexer is what actually makes tools
+// visible to end users, and for per-user strategies (mcp_spec,
+// static_header user-mode) the indexer can only run after a tenant
+// owner/admin has completed the portal connect flow with their own
+// credentials. We surface that hard requirement here rather than letting
+// dev operators discover it by seeing an empty tool list.
+func printNextSteps(strategy, connectURL string) {
+	fmt.Println()
+	fmt.Println("Next steps")
+	switch strategy {
+	case string(upstream.StrategyMCPSpec):
+		fmt.Println("  This upstream uses OAuth (mcp_spec). The tool catalog is empty")
+		fmt.Println("  until an owner or admin completes the connect flow under their")
+		fmt.Println("  own account — Limen indexes tools using the linking user's")
+		fmt.Println("  credentials and the resulting catalog is shared with the rest")
+		fmt.Println("  of the tenant.")
+		fmt.Println()
+		fmt.Printf("  1. Open the portal as an owner/admin: %s\n", connectURL)
+		fmt.Println("  2. Click 'Connect' on the new upstream and finish the OAuth")
+		fmt.Println("     flow with the upstream provider.")
+		fmt.Println("  3. Verify the catalog populated: tool_count should flip from 0")
+		fmt.Println("     to N on the upstream row.")
+	default:
+		// none / static_header tenant-mode index synchronously at Provision
+		// time — nothing for the operator to do beyond pointing users at
+		// the portal. Other strategies are not currently reachable from this
+		// CLI; if one is added without updating this switch the operator
+		// still gets the generic pointer.
+		fmt.Println("  This strategy does not need a per-user link to bootstrap its")
+		fmt.Println("  tool catalog — Limen indexes the upstream directly using the")
+		fmt.Println("  configured credentials.")
+		fmt.Println()
+		fmt.Printf("  Users can call the upstream's tools immediately via the portal:\n  %s\n", connectURL)
 	}
 }

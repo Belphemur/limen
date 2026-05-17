@@ -152,6 +152,11 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 8 — Per-tenant, per-user upstream injection
 
+- [ ] `storage.UpstreamTool` model + `migrations/postgres/00006_phase8_upstream_tools.sql` (RLS + `set_updated_at` trigger) shipped
+- [ ] `internal/upstream/catalog.go` defines `IndexUpstream(ctx, store, registry, tenant, upstream, link)` and upserts/prunes `upstream_tools` in one tx
+- [ ] Tenant-mode strategies (`none`, `static_header` tenant-mode) index synchronously at `Provision`; per-user strategies index when the first `owner`/`admin` completes the link
+- [ ] `internal/upstream/refresher.go` periodically re-indexes every upstream (config `upstream.catalog_refresh_interval`, default 6 h)
+- [ ] `Gateway.ToolsForUser` reads from `upstream_tools` only — no synchronous `tools/list` on the request path
 - [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (`Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
 - [ ] `internal/gateway/upstream.go` uses `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`; retries once on upstream `401` via `HeadersForceRefresh`
 - [ ] `UpstreamManager` indexed by tenant ID at startup

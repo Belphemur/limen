@@ -7,11 +7,11 @@
 
 Split the customer-facing web surface into **two SPAs** sharing one `web/` codebase and one build pipeline but mounted on distinct URL paths and lazy-loaded as separate route bundles:
 
-| Phase  | Path                | Audience                       | Bundle            |
-| ------ | ------------------- | ------------------------------ | ----------------- |
+| Phase  | Path                  | Audience                       | Bundle            |
+| ------ | --------------------- | ------------------------------ | ----------------- |
 | **9**  | `/t/{tenant}/portal/` | Every authenticated user       | `web/src/portal/` |
 | **9b** | `/t/{tenant}/admin/`  | Tenant `owner` + `admin` roles | `web/src/admin/`  |
-| 12     | `/t/_staff/portal/` | SaaS operator (`super_admin`)  | `web/src/staff/`  |
+| 12     | `/t/_staff/portal/`   | SaaS operator (`super_admin`)  | `web/src/staff/`  |
 
 Phase 9 handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9b handles the **tenant administrator**'s view of the **Limen-domain** admin surface: upstream catalog CRUD, tenant settings, and the public self-serve signup flow that bootstraps a brand-new tenant.
 
@@ -55,6 +55,11 @@ service AdminService {
   rpc UpdateUpstream(UpdateUpstreamRequest) returns (UpdateUpstreamResponse);
   rpc DeleteUpstream(DeleteUpstreamRequest) returns (DeleteUpstreamResponse);
 
+  // Force a re-index of an upstream's tool catalog. For per-user strategies
+  // (mcp_spec, static_header user-mode) the caller must already hold an
+  // enabled link to the upstream — see "Tool catalog bootstrap" below.
+  rpc ReindexUpstreamCatalog(ReindexUpstreamCatalogRequest) returns (ReindexUpstreamCatalogResponse);
+
   // Owner-only. Limen-side tenant lifecycle. Org-level settings (branding,
   // login policy, IdP federation) live in Zitadel Console.
   rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
@@ -72,6 +77,25 @@ service AdminService {
 The admin SPA links to those Console pages instead of routing through Limen. Limen carries no mirror tables, no schema for IdP configs, and no SDK wrappers around Zitadel's IdP / invite APIs.
 
 Requests do **not** carry `tenant_id` for any authenticated method — the tenant `PublicID` comes from `/t/{tenant}/admin/api/...`, exactly as in Phase 9. `StartSignup` and `CompleteSignup` are tenant-agnostic at the URL level and carry their state via a signed token (see below).
+
+### Tool catalog bootstrap (admin-driven for OAuth upstreams)
+
+Every upstream surfaces tools to users via the per-upstream `UpstreamTool` catalog populated by [Phase 8](phase-08-per-tenant-injection.md)'s `IndexUpstream`. _Who_ triggers the first index depends on the strategy:
+
+| Strategy                                | Bootstrap path                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`                                  | `CreateUpstream` runs `IndexUpstream` synchronously and returns the populated catalog in the response. No user action.                                                                                                                                                                                               |
+| `static_header` (tenant-wide mode)      | Same as `none`: the tenant-wide secret is in `UpstreamStrategyConfig`, so the indexer runs immediately.                                                                                                                                                                                                              |
+| `mcp_spec`, `static_header` (user mode) | `CreateUpstream` provisions the upstream in a `pending_catalog` state; the admin SPA then walks the caller through the standard portal connect flow as the **mandatory next step**. Until at least one `owner` or `admin` completes that flow, the upstream is hidden from other tenant users and `tool_count` is 0. |
+
+UI shape in `Upstreams.vue`:
+
+1. "New upstream" form collects strategy + URL (+ optional static OAuth client for mcp_spec ASes without DCR). On submit, `CreateUpstream` runs and returns `{upstream, requires_admin_link: bool, connect_url: string}`.
+2. If `requires_admin_link` is true the SPA opens a modal: "Connect your account to finish setup. Tools will not be available to your team until you complete this step." with a primary button that POSTs `PortalService.StartConnect` for the just-created upstream (same RPC the per-user portal uses) and redirects the browser to the upstream's authorization URL.
+3. After the round-trip lands on `/auth/callback`, Phase 7's `Service.FinishCallback` calls `IndexUpstream` because the linking user holds `owner`/`admin` (Phase 8 enforces the role gate). The SPA's Upstreams list polls `ListUpstreams` and flips the row from `pending_catalog` → `ready` once `tool_count > 0`.
+4. `ReindexUpstreamCatalog` is the manual escape hatch (e.g. the upstream added a tool out-of-band before the next refresher sweep). For per-user strategies it runs under the caller's link; if the caller has no enabled link the RPC returns `failed_precondition` with a message telling them to connect first. For tenant-mode strategies it runs unconditionally.
+
+The SPA never tries to bootstrap a catalog under a `member`'s credentials — the bootstrap is an admin responsibility precisely because the resulting catalog is shared across every user of the tenant.
 
 ### Self-serve signup (`StartSignup` / `CompleteSignup`)
 
@@ -103,15 +127,15 @@ There is no member-management code in Limen. The Zitadel org owns the membership
 
 These sit at the top of the admin SPA's sidebar but they are **not** Limen RPCs. The admin shell renders a card-style page that links into the tenant's Zitadel org Console for each operation:
 
-| Card                         | Deep-link target (template)                                      | Console area                          |
-| ---------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
-| Invite a user                | `<issuer>/ui/console/users?org=<orgId>`                          | Users → New                           |
-| Change member role           | `<issuer>/ui/console/users/<userId>/authorizations?org=<orgId>`  | Users → Authorizations                 |
-| Remove a user                | `<issuer>/ui/console/users?org=<orgId>`                          | Users                                 |
-| Configure SSO / external IdP | `<issuer>/ui/console/org/idp?org=<orgId>`                        | Identity Providers                     |
-| Org branding                 | `<issuer>/ui/console/org/branding?org=<orgId>`                   | Branding                              |
-| Login / lockout policy       | `<issuer>/ui/console/org/policies/login?org=<orgId>`             | Settings → Login policy               |
-| Personal profile / passkeys  | `<issuer>/ui/console/users/me`                                   | User self-service                      |
+| Card                         | Deep-link target (template)                                     | Console area            |
+| ---------------------------- | --------------------------------------------------------------- | ----------------------- |
+| Invite a user                | `<issuer>/ui/console/users?org=<orgId>`                         | Users → New             |
+| Change member role           | `<issuer>/ui/console/users/<userId>/authorizations?org=<orgId>` | Users → Authorizations  |
+| Remove a user                | `<issuer>/ui/console/users?org=<orgId>`                         | Users                   |
+| Configure SSO / external IdP | `<issuer>/ui/console/org/idp?org=<orgId>`                       | Identity Providers      |
+| Org branding                 | `<issuer>/ui/console/org/branding?org=<orgId>`                  | Branding                |
+| Login / lockout policy       | `<issuer>/ui/console/org/policies/login?org=<orgId>`            | Settings → Login policy |
+| Personal profile / passkeys  | `<issuer>/ui/console/users/me`                                  | User self-service       |
 
 The SPA fetches `<issuer>` once via `GET /auth/discovery` (a tiny Limen endpoint that returns the static issuer URL from config) and substitutes the tenant's `zitadel_org_id` (carried in the portal cookie's claims as `urn:zitadel:iam:user:resourceowner:id`). The card view is one Vue component, `ZitadelDirectory.vue`, parameterized by the table above — there is no per-card backend work.
 
@@ -133,11 +157,11 @@ Note the absence of `members.go` and `idp.go` — those concerns live in Zitadel
 
 Mounted with three layered interceptors:
 
-| Interceptor                | Skipped for                     | Enforces                                                 |
-| -------------------------- | ------------------------------- | -------------------------------------------------------- |
-| `tenancyInterceptor`       | `StartSignup`, `CompleteSignup` | Resolve `{tenant}` → `*Tenant`                             |
-| `portalSessionInterceptor` | `StartSignup`, `CompleteSignup` | Decrypt + validate the portal cookie (Phase 4)           |
-| `roleInterceptor`          | `StartSignup`, `CompleteSignup` | `owner` for Settings/DeleteTenant; `admin` else          |
+| Interceptor                | Skipped for                     | Enforces                                        |
+| -------------------------- | ------------------------------- | ----------------------------------------------- |
+| `tenancyInterceptor`       | `StartSignup`, `CompleteSignup` | Resolve `{tenant}` → `*Tenant`                  |
+| `portalSessionInterceptor` | `StartSignup`, `CompleteSignup` | Decrypt + validate the portal cookie (Phase 4)  |
+| `roleInterceptor`          | `StartSignup`, `CompleteSignup` | `owner` for Settings/DeleteTenant; `admin` else |
 
 The skip-list is annotation-driven (a small per-method table). Unknown methods default to "all interceptors fire" — fail-closed.
 
@@ -240,6 +264,9 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] `proto/limen/admin/v1/admin.proto` defines `AdminService` with **only** signup + upstream catalog CRUD + tenant-settings RPCs — no member, role, or IdP RPCs
 - [ ] `buf generate` produces Go bindings under `internal/admin/adminv1/` and TS under `web/src/gen/admin/v1/`
 - [ ] `internal/admin/` package implements the above RPCs and the three layered interceptors with a signup skip-list
+- [ ] `CreateUpstream` runs `IndexUpstream` inline for tenant-mode strategies (`none`, `static_header` tenant-mode) and returns `{requires_admin_link: false, tools: [...]}`; for per-user strategies it returns `{requires_admin_link: true, connect_url}` and leaves the catalog empty until an admin/owner completes the connect flow
+- [ ] `ReindexUpstreamCatalog` rejects per-user-strategy calls from admins who hold no enabled link to the upstream with `failed_precondition`
+- [ ] `Upstreams.vue` blocks the "upstream ready" state on `tool_count > 0` and renders the admin-link modal as the mandatory next step after creating an OAuth/per-user upstream
 - [ ] `internal/admin/` contains **no** `members.go` and **no** `idp.go`; reviewers reject PRs that add them
 - [ ] No `tenant_idp_configurations` migration; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, `CreateInviteCode`, `AddUserGrant` for non-bootstrap callers, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors

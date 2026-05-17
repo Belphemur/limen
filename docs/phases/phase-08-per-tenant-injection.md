@@ -126,6 +126,39 @@ func (p *DBAuthProvider) Headers(ctx context.Context, up *storage.Upstream) (map
 
 Cache is intentionally absent at this layer — `strat.Headers` for `mcp_spec` handles short-lived refresh internally, and adding a cache layer over `(tenant, user, upstream)` introduces consistency headaches with revocation.
 
+### Tool catalog (`UpstreamTool`)
+
+A tool catalog is mandatory **for every upstream, regardless of strategy** — `ToolsForUser` and the codemode sandbox read from it on the request path; we never call `tools/list` synchronously from a user request. The catalog is **per-upstream** (one `UpstreamTool` row per `(upstream_id, name)`); every authorized user of the same upstream sees the same surface.
+
+How the catalog is populated differs only in _who_ drives the first `tools/list`:
+
+| Strategy                                | `RequiresLink()` | Bootstrap path                                                                                                                                                                                                          |
+| --------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`                                  | false            | Limen indexes directly at `Provision` time — no user credentials needed.                                                                                                                                                |
+| `static_header` (tenant-wide mode)      | false            | Same as `none`: the tenant-wide secret is available at `Provision`, so the indexer runs immediately.                                                                                                                    |
+| `static_header` (user mode), `mcp_spec` | true             | The first **tenant `owner` or `admin`** to complete the connect/link flow triggers the indexer using _their_ credentials. Subsequent user links do not re-index synchronously; they rely on the periodic refresh below. |
+
+The "first admin/owner to link" rule is enforced by the admin SPA (Phase 9b): creating an upstream whose strategy `RequiresLink()` puts it in a `pending_catalog` state and routes the admin into the standard portal connect flow as their next step. The upstream is not surfaced to other tenant users until at least one `UpstreamTool` row exists. v1 has no "impersonate a user to bootstrap" path — a real admin/owner credential must be used.
+
+Indexer entry point lives in `internal/upstream/catalog.go`:
+
+```go
+// IndexUpstream lists tools from the upstream using whatever credentials the
+// strategy makes available (tenant-wide for non-link strategies, the supplied
+// link's tokens for per-user strategies) and upserts the result into
+// upstream_tools in a single tx, deleting rows whose names no longer appear.
+func IndexUpstream(ctx context.Context, store *storage.Store, registry *Registry,
+    tenant *storage.Tenant, up *storage.Upstream, link *storage.UpstreamLink) error
+```
+
+Callers:
+
+- `Service.FinishCallback` (mcp_spec) and `Service.SubmitUserAPIKey` (static_header user-mode) call `IndexUpstream` after the link is persisted, **only when the linking user has the `owner` or `admin` role** — a `member` completing a link for their own use does not refresh the shared catalog.
+- The `create_upstream` CLI and the admin SPA's `CreateUpstream` RPC call `IndexUpstream` synchronously for tenant-mode strategies (`none`, `static_header` tenant-mode) immediately after `Provision` succeeds.
+- `internal/upstream/refresher.go` sweeps every upstream periodically (config `upstream.catalog_refresh_interval`, default 6 h). For per-user strategies the sweep picks any enabled, non-auto-disabled link belonging to an admin/owner; if none exists it logs and skips — stale catalogs are never silently re-bootstrapped under a `member` identity.
+
+Failure modes: an indexer error never blocks the linking flow — it logs at `Error` and leaves the catalog untouched. The admin SPA polls `ListUpstreams` for catalog freshness (`last_indexed_at`, `tool_count`) and surfaces a "Retry catalog index" button.
+
 ### Gateway changes (`internal/gateway/gateway.go`)
 
 Replace `AllTools()` with two methods:
@@ -229,7 +262,10 @@ type Bundle struct {
   - `internal/gateway/gateway.go`
   - `internal/gateway/codemode.go` (mostly: read tool list from ctx-aware source)
   - `internal/transport/http.go`
-- New file: `internal/upstream/authprovider.go`.
+- New files:
+  - `internal/upstream/authprovider.go`
+  - `internal/upstream/catalog.go` (the `IndexUpstream` indexer + helpers)
+- New storage model: `storage.UpstreamTool` (one row per `(upstream_id, tool name)`); RLS + `set_updated_at` trigger added by `migrations/postgres/00006_phase8_upstream_tools.sql`.
 
 ## Security & operational notes
 
@@ -260,6 +296,12 @@ type Bundle struct {
 
 ## Checklist
 
+- [ ] `storage.UpstreamTool` model + `migrations/postgres/00006_phase8_upstream_tools.sql` (RLS + `set_updated_at` trigger) shipped
+- [ ] `internal/upstream/catalog.go` defines `IndexUpstream(ctx, store, registry, tenant, upstream, link)` — upserts the catalog in one tx, prunes stale tool names
+- [ ] Tenant-mode strategies (`none`, `static_header` tenant-mode) are indexed synchronously at `Provision` time (CLI + admin SPA `CreateUpstream` paths)
+- [ ] Per-user strategies (`mcp_spec`, `static_header` user-mode) are indexed when the first **owner or admin** completes the link; member links do not refresh the shared catalog
+- [ ] `internal/upstream/refresher.go` periodically re-indexes every upstream (config `upstream.catalog_refresh_interval`, default 6 h); per-user upstreams skip when no admin/owner link is available
+- [ ] `Gateway.ToolsForUser` reads from `upstream_tools` — never calls `tools/list` synchronously on the request path
 - [ ] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider`
 - [ ] `internal/gateway/upstream.go` uses an `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers`
 - [ ] Round-trip clones the request before mutating headers
