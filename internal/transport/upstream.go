@@ -96,20 +96,27 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 					zap.Error(lerr))
 			} else {
 				link, lerr := deps.Service.LoadLink(ctx, tenant.ID, user.ID, up.ID)
-				if lerr != nil && !errors.Is(lerr, upstream.ErrLinkNotFound) {
+				switch {
+				case lerr != nil && !errors.Is(lerr, upstream.ErrLinkNotFound):
 					logger.Warn("upstream callback: load link for catalog index failed",
 						zap.String("tenant", tenant.PublicID),
 						zap.String("upstream", upstreamName),
 						zap.Error(lerr))
-				} else if ierr := deps.Service.IndexCatalog(ctx, tenant, up, link); ierr != nil {
-					logger.Warn("upstream callback: catalog index failed",
-						zap.String("tenant", tenant.PublicID),
-						zap.String("upstream", upstreamName),
-						zap.Error(ierr))
-				} else {
-					logger.Info("upstream callback: catalog indexed",
+				case link == nil:
+					logger.Debug("upstream callback: no link yet, skipping catalog index",
 						zap.String("tenant", tenant.PublicID),
 						zap.String("upstream", upstreamName))
+				default:
+					if ierr := deps.Service.IndexCatalog(ctx, tenant, up, link); ierr != nil {
+						logger.Warn("upstream callback: catalog index failed",
+							zap.String("tenant", tenant.PublicID),
+							zap.String("upstream", upstreamName),
+							zap.Error(ierr))
+					} else {
+						logger.Info("upstream callback: catalog indexed",
+							zap.String("tenant", tenant.PublicID),
+							zap.String("upstream", upstreamName))
+					}
 				}
 			}
 		}

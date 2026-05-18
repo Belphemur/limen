@@ -57,11 +57,32 @@ func headersFromLink(link *storage.UpstreamLink) map[string]string {
 // (force=true) or if it expires inside ProactiveWindow. Concurrent calls
 // for the same link coalesce via singleflight.
 func (s *Strategy) ensureFresh(ctx context.Context, lctx upstream.LinkContext, force bool) (*storage.UpstreamLink, error) {
-	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil || lctx.Link == nil {
-		return nil, errors.New("mcpspec: tenant/user/upstream/link missing")
+	missing := make([]string, 0, 4)
+	if lctx.Tenant == nil {
+		missing = append(missing, "tenant")
+	}
+	if lctx.User == nil {
+		missing = append(missing, "user")
+	}
+	if lctx.Upstream == nil {
+		missing = append(missing, "upstream")
+	}
+	if lctx.Link == nil {
+		missing = append(missing, "link")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("mcpspec: %s missing", strings.Join(missing, "/"))
 	}
 	if lctx.Link.NeedsRelink {
 		return nil, upstream.ErrNeedsRelink
+	}
+	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
+	userStr := strconv.FormatInt(lctx.User.ID, 10)
+	if err := lctx.Link.AccessToken.Decrypt(tenantStr, userStr, kindAccessToken); err != nil {
+		return nil, fmt.Errorf("mcpspec: decrypt access token: %w", err)
+	}
+	if err := lctx.Link.RefreshToken.Decrypt(tenantStr, userStr, kindRefreshToken); err != nil {
+		return nil, fmt.Errorf("mcpspec: decrypt refresh token: %w", err)
 	}
 	if !force && lctx.Link.ExpiresAt != nil && time.Until(*lctx.Link.ExpiresAt) > s.proWin {
 		return lctx.Link, nil

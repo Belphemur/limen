@@ -212,7 +212,8 @@ func (s *Service) loadLink(ctx context.Context, tenantID, userID, upstreamID int
 	defer func() { _ = commit() }()
 
 	var link storage.UpstreamLink
-	if err := tx.Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", tenantID, userID, upstreamID).
+	if err := tx.Preload("User").
+		Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", tenantID, userID, upstreamID).
 		First(&link).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrLinkNotFound
