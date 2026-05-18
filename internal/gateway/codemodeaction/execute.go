@@ -9,14 +9,15 @@ var Execute = Definition{
 	CodeArgDescription: executeCodeArgDescription,
 }
 
-const executeDescription = `Run JavaScript that CALLS one or more MCP tools and returns a composed result.
+const executeOpener = `Compose an ENTIRE multi-step workflow in ONE call.
 
-You write an async arrow function that invokes upstream tools via
-'codemode.<upstream>.<toolName>(args)' (or 'codemode.call(upstream, name, args)'),
-composes / branches / loops / handles errors, and returns a single
-JSON-serializable value. The runtime evaluates your function, awaits the
-promise, JSON-encodes the resolved value, and returns that JSON string as
-the tool's text result. There is no streaming, no incremental output.
+codemode_execute runs JavaScript that invokes upstream tools, composes,
+branches, loops, handles errors, and returns a single JSON-serializable
+value. Prefer one rich script that chains discovery → filtering →
+tool calls → result composition over multiple round-trips. The same
+codemode.tools() and codemode.schemas() bindings that codemode_search
+exposes are available here — most workflows can skip codemode_search
+entirely.
 
 Tools you invoke are dispatched with YOUR identity. The gateway injects
 per-user auth headers, records link health, and applies the upstream's
@@ -24,62 +25,79 @@ resilience policy (timeout, retry, circuit breaker). You never see or
 handle credentials.
 
 =============================================================================
-INPUT CONTRACT — the 'code' argument MUST be ALL of the following:
+WHEN TO USE EACH TOOL
 =============================================================================
 
-  1. A SINGLE JavaScript expression that evaluates to a zero-argument async
-     arrow function: async () => { ... }
-  2. NOT a function declaration, NOT a script of top-level statements,
-     NOT a class, NOT an IIFE wrapper.
-  3. The function takes NO parameters; hard-code any inputs in the body.
-  4. The function MUST eventually return a JSON-serializable value
-     (object, array, string, finite number, boolean, null). 'undefined'
-     becomes null.
+  You already know the tool name and arg shape
+      → call codemode_execute directly.
+  You know the upstream / domain but not the exact tool
+      → codemode_execute, with codemode.tools({upstream: "..."}) inline.
+  You don't know which upstreams are even linked
+      → codemode_search ONCE with a broad filter, then codemode_execute.
+  Never: codemode_execute, then codemode_execute, then codemode_execute …
+         for what is logically ONE workflow.
+
+=============================================================================
+ANTI-PATTERNS
+=============================================================================
+
+  BAD:  codemode.tools()                          // dumps the whole catalog
+  GOOD: codemode.tools({upstream: "jira"})        // filter when you know it
+
+  BAD:  Three codemode_execute calls chained externally by the agent.
+  GOOD: ONE codemode_execute whose script chains all the calls inside.
+
+  BAD:  await codemode.x.a(); await codemode.x.b(); await codemode.x.c();
+        for (each thing in long list) { await codemode.x.get(thing); }
+  GOOD: Bound the loop with codemode.quota().remaining; bail before
+        you hit the cap; design for ~50 calls per invocation.
+
+  BAD:  Parsing r?.content?.[0]?.text + JSON.parse by hand.
+  GOOD: codemode.json(await codemode.x.y(args))   // free helper
+
+`
+
+const executeInputErrorSuffix = `
   5. Throwing or rejecting yields IsError=true with text
      "execute failed: <message>".
 
-=============================================================================
-SANDBOX RUNTIME
-=============================================================================
+`
 
-Modern JavaScript (ES2015+). NO filesystem, NO network (fetch/XHR/WebSocket
-— reach the outside world ONLY via codemode.*), NO process/env, NO eval/
-Function-constructor, NO timers, NO console, NO DOM, NO Node-isms. The ONLY
-non-standard global is 'codemode'. No shared state across invocations.
+const executeRuntimeSuffix = `
 
-=============================================================================
-QUOTAS — both abort the script
+`
+
+const executeQuotasBlock = `=============================================================================
+QUOTAS — think of these as a BUDGET, not a wall
 =============================================================================
 
-  1. SCRIPT TIMEOUT (wall-clock, ~30s). On timeout the VM is interrupted
-     and the tool returns IsError=true with text containing
-     "script timeout".
+You get roughly:
+  • ~30s of wall-clock time (the SCRIPT TIMEOUT)
+  • ~50 tool calls per invocation (the TOOL-CALL QUOTA)
 
-  2. TOOL-CALL QUOTA (~50 calls per invocation). Every codemode.<upstream>.<tool>(...)
-     or codemode.call(...) counts as ONE. Exceeding raises an uncatchable
-     interrupt — try/catch will NOT swallow it, the script aborts with
-     "max_tool_calls exceeded".
+Design the script to fit comfortably:
+  • Bound your loops up front.
+  • Avoid huge Promise.all fan-outs (and remember: no parallelism yet
+    even with Promise.all — see CONCURRENCY note below).
+  • Prefer a small number of richer calls over many tiny ones.
+  • Call codemode.quota() inside a loop to bail before you run out:
+        if (codemode.quota().remaining <= 1) break;
 
-  Plan accordingly: bound your loops, avoid huge Promise.all fan-outs,
-  prefer a small number of richer calls over many tiny ones. Call
-  codemode.quota() if you need to know your remaining budget at runtime.
+Hard failures:
+  • Timeout: VM is interrupted, returns IsError=true with text
+    containing "script timeout".
+  • Tool-call quota exceeded: uncatchable interrupt — try/catch will
+    NOT swallow it; the script aborts with "max_tool_calls exceeded".
 
-=============================================================================
+`
+
+const executeAPIHeader = `=============================================================================
 SANDBOX API — full surface
 =============================================================================
 
-  codemode.tools(filter?)         // SEE codemode_search for shape + filter.
-  codemode.schemas(name|names[])  // Returns { found: ToolSchema[], missing: string[] }.
-  codemode.json(result)           // Extract + JSON.parse the first text block
-                                  // of an MCP tool result (the standard
-                                  // [{type:"text", text:"..."}] shape). On
-                                  // parse failure returns { raw: "<text>" }.
-                                  // Passes non-array values through unchanged.
-  codemode.quota()                // Returns { used, max, remaining, deadline_ms }.
-                                  // Free; use to self-bound long loops.
-    None of the four count against the tool-call quota. Use them at the
-    top of your script when you need to confirm a tool's argument shape
-    or to size a paginated walk.
+`
+
+const executeDispatchAPI = `
 
   await codemode.<upstream>.<toolName>(args)
     Direct, namespaced call. '<upstream>' is the EXACT 'upstream' from
@@ -96,12 +114,8 @@ SANDBOX API — full surface
     codemode.call() or bracket notation
     (codemode["my-upstream"]["some-tool"](args)).
 
-    Returns the upstream's MCP "content" array:
-        [ { type: "text", text: "..." }, ... ]
-    Most tools return a single text block whose text is either a plain
-    string or JSON; the codemode.json() helper above unpacks both
-    cases in one step:
-        const data = codemode.json(await codemode.github.search_issues({...}));
+    Returns the upstream's MCP CallToolResult; codemode.json(...) unwraps
+    the standard text-block shape in one step.
 
   await codemode.call(upstream, name, args)
     String-keyed equivalent for runtime-computed or non-identifier
@@ -118,7 +132,9 @@ SANDBOX API — full surface
   be reached as a property — use codemode.call("tools", "<toolName>",
   args).
 
-=============================================================================
+`
+
+const executeErrorShape = `=============================================================================
 ERROR SHAPE FROM TOOL CALLS
 =============================================================================
 
@@ -136,40 +152,36 @@ tag (case-insensitive substring match):
 Wrap individual calls in try/catch to recover; otherwise the rejection
 bubbles up and the whole script fails with IsError=true.
 
+`
+
+const executeRecipes = `=============================================================================
+RECIPES — copy and adapt (composed pipelines FIRST; trivial passthroughs
+last). Lead with one that DOES MORE than a single call — that is the
+whole point of codemode_execute.
 =============================================================================
-RECIPES — copy and adapt
-=============================================================================
 
-(1) Single tool call, raw passthrough:
-
-    async () => codemode.jira.get_ticket({ id: "PROJ-123" })
-
-(2) Single call, parse the JSON text result with the codemode.json helper:
-
-    async () => codemode.json(await codemode.jira.get_ticket({ id: "PROJ-123" }))
-
-(3) Discover + call in one round-trip (skip codemode_search entirely):
+(1) Discover + call in ONE round-trip (skip codemode_search entirely):
 
     async () => {
-      const [t] = codemode.tools({ match: "get_ticket" });
-      if (!t) return { error: "no get_ticket tool available" };
-      const { found } = codemode.schemas(t.name);   // confirm arg shape
-      return codemode.json(await codemode.call(t.upstream, t.name, { id: "PROJ-123" }));
+      const tools = codemode.tools({ upstream: "jira", match: "ticket" });
+      const { found } = codemode.schemas(tools.map(t => t.name));
+      const get = found.find(s => s.name.includes("get"));
+      return codemode.json(await codemode.call(get.upstream, get.name, { id: "PROJ-123" }));
     }
 
-(4) Compose two tools across different upstreams:
+(2) Compose two tools across different upstreams:
 
     async () => {
-      const ticket = await codemode.jira.get_ticket({ id: "PROJ-123" });
-      const pr     = await codemode.github.get_pr({ number: 456 });
+      const ticket = codemode.json(await codemode.jira.get_ticket({ id: "PROJ-123" }));
+      const pr     = codemode.json(await codemode.github.get_pr({ number: 456 }));
       await codemode.jira.update_ticket({
         id: "PROJ-123",
-        description: "Linked PR: " + (pr?.[0]?.text ?? "unknown"),
+        description: "Linked PR title: " + (pr.title ?? "unknown"),
       });
-      return { updated: "PROJ-123" };
+      return { ticket, pr, updated: "PROJ-123" };
     }
 
-(5) Bounded fan-out tolerating per-call failure:
+(3) Bounded fan-out tolerating per-call failure, self-bounded by quota:
 
     async () => {
       const ids = ["PROJ-1", "PROJ-2", "PROJ-3"];   // keep small — quota!
@@ -177,7 +189,7 @@ RECIPES — copy and adapt
       for (const id of ids) {
         if (codemode.quota().remaining <= 1) break;   // leave headroom
         try {
-          out.push({ id, ok: true, ticket: await codemode.jira.get_ticket({ id }) });
+          out.push({ id, ok: true, ticket: codemode.json(await codemode.jira.get_ticket({ id })) });
         } catch (e) {
           out.push({ id, ok: false, error: String(e?.message || e) });
         }
@@ -185,25 +197,24 @@ RECIPES — copy and adapt
       return out;
     }
 
-(6) Parallel-looking fan-out (currently serialized — see CONCURRENCY note):
+(4) Dedupe before creating — search upstream for an existing record first:
 
     async () => {
-      const [ticket, pr] = await Promise.all([
-        codemode.jira.get_ticket({ id: "PROJ-123" }),
-        codemode.github.get_pr({ number: 456 }),
-      ]);
-      return { ticket, pr };
+      const existing = codemode.json(await codemode.jira.search({ jql: 'summary ~ "lock timeout"' }));
+      if (existing?.issues?.length) {
+        return { skipped: true, existing: existing.issues[0].key };
+      }
+      const created = codemode.json(await codemode.jira.create_issue({
+        project: "LM", summary: "Lock timeout", type: "Bug",
+      }));
+      return { skipped: false, created: created.key };
     }
 
-(7) Dynamic / non-identifier names:
-
-    async () => codemode.call("github-enterprise", "list-repos", { org: "myorg" })
-
-(8) Surface needs-relink cleanly to the user:
+(5) Surface needs-relink cleanly to the user:
 
     async () => {
       try {
-        return await codemode.jira.get_ticket({ id: "PROJ-123" });
+        return codemode.json(await codemode.jira.get_ticket({ id: "PROJ-123" }));
       } catch (e) {
         const msg = String(e?.message || e).toLowerCase();
         if (msg.includes("needs_relink") || msg.includes("no_link")) {
@@ -213,13 +224,40 @@ RECIPES — copy and adapt
       }
     }
 
-=============================================================================
-WORKFLOW
-=============================================================================
+(6) Dynamic / non-identifier names:
 
-If you already know the tool name and arg shape, call codemode_execute
-directly. Otherwise either run codemode_search first or inline
-codemode.tools(filter) + codemode.schemas(names) at the top of your script.
-Either way, return ONE JSON-serializable value at the end.`
+    async () => codemode.call("github-enterprise", "list-repos", { org: "myorg" })
 
-const executeCodeArgDescription = `A single JavaScript expression that evaluates to a zero-argument async arrow function: async () => { ... }. Invoked once, its promise awaited, its resolved value JSON-encoded and returned to you. Invoke upstream tools via 'await codemode.<upstream>.<toolName>(args)' (when both are valid JS identifiers) or 'await codemode.call(upstream, name, args)' (for runtime-computed or non-identifier names). Discover with codemode.tools(filter?) and fetch input schemas with codemode.schemas(name|names[]) which returns { found, missing } — both are free (no quota). codemode.json(result) extracts and JSON.parses the first text block of an MCP content array, returning { raw: "..." } on parse failure. codemode.quota() returns { used, max, remaining, deadline_ms } so loops can self-bound. Tools are upstream-namespaced: there is NO flat 'codemode.<toolName>' shortcut because the same tool name may exist on multiple upstreams. Tool dispatches currently execute sequentially even inside Promise.all (no event loop yet). Must return a JSON-serializable value. Subject to a ~30s wall-clock timeout AND a ~50 tool-call quota; quota exhaustion raises an uncatchable interrupt. Sandbox has no filesystem, no network (except codemode.*), no eval, no require, no timers, no console — only standard ES2015+ JavaScript plus the codemode global.`
+(7) Parallel-looking fan-out (currently serialized — see CONCURRENCY note):
+
+    async () => {
+      const [ticket, pr] = await Promise.all([
+        codemode.jira.get_ticket({ id: "PROJ-123" }),
+        codemode.github.get_pr({ number: 456 }),
+      ]);
+      return { ticket: codemode.json(ticket), pr: codemode.json(pr) };
+    }
+
+(8) Trivial single-tool passthrough — last because if this is all you
+    needed, you probably should have called the upstream tool directly:
+
+    async () => codemode.json(await codemode.jira.get_ticket({ id: "PROJ-123" }))`
+
+const executeDescription = executeOpener +
+	commonInputContract + executeInputErrorSuffix +
+	commonSandboxRuntime + executeRuntimeSuffix +
+	executeQuotasBlock +
+	executeAPIHeader +
+	commonDiscoveryAPI + "\n\n" +
+	commonHelpers +
+	executeDispatchAPI +
+	executeErrorShape +
+	executeRecipes
+
+const executeCodeArgDescription = `Compose ONE pipeline; don't split a workflow across multiple calls. ` +
+	commonArgContractShort +
+	` Invoke upstream tools via 'await codemode.<upstream>.<toolName>(args)' (when both are valid JS identifiers) or 'await codemode.call(upstream, name, args)' (for runtime-computed or non-identifier names). ` +
+	`Filter codemode.tools(filter) by upstream or keyword — never dump the catalog. Batch codemode.schemas([...]). ` +
+	`codemode.json(result) unwraps the MCP CallToolResult text block (returns { raw } on parse failure). codemode.quota() returns { used, max, remaining, deadline_ms } — bound loops with it. ` +
+	`Tools are upstream-namespaced: there is NO flat 'codemode.<toolName>' shortcut. Tool dispatches currently execute sequentially even inside Promise.all (no event loop yet). ` +
+	`Subject to a ~30s wall-clock timeout AND a ~50 tool-call quota; quota exhaustion raises an uncatchable interrupt — treat both as a budget and bail early via codemode.quota().remaining.`
