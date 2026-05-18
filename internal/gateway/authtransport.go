@@ -60,6 +60,18 @@ func (t *AuthInjectingTransport) RoundTrip(req *http.Request) (*http.Response, e
 
 	ar, err := t.Auth.Headers(ctx)
 	if err != nil {
+		// mcp-go's StreamableHTTP.Close sends a best-effort session
+		// DELETE on context.Background(), which carries no tenant or
+		// user. Surfacing ErrNoUser there spams the stdlib log via
+		// mcp-go's default logger ("failed to send close request:
+		// upstream: no authenticated user on ctx") on every client
+		// teardown. Detect that shape and forward the request
+		// unauthenticated — the upstream identifies the session via
+		// the Mcp-Session-Id header, and any rejection becomes a
+		// normal HTTP response that mcp-go discards quietly.
+		if errors.Is(err, upstream.ErrNoUser) && isSessionCloseRequest(req) {
+			return t.do(req, nil)
+		}
 		return nil, err
 	}
 
@@ -124,6 +136,18 @@ func shouldRefresh(resp *http.Response, err error) bool {
 		return false
 	}
 	return resp != nil && resp.StatusCode == http.StatusUnauthorized
+}
+
+// isSessionCloseRequest detects mcp-go's StreamableHTTP teardown
+// DELETE: method DELETE, no body, an Mcp-Session-Id header. mcp-go is
+// the only producer of requests through this transport, and it only
+// emits DELETEs from its closeOnce path — so the shape is a reliable
+// signal that the request is a best-effort session close that does
+// not need (and cannot acquire) user auth.
+func isSessionCloseRequest(req *http.Request) bool {
+	return req.Method == http.MethodDelete &&
+		req.Body == nil &&
+		req.Header.Get("Mcp-Session-Id") != ""
 }
 
 // cloneRequest returns a deep-enough copy of req that mutating headers
