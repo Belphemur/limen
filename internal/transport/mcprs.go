@@ -61,6 +61,10 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 			ar.Use(deps.MCPAuth.RequireMCPAuth)
 			ar.Handle("/sse", deps.MCPServer.SSEHandler())
 			ar.Handle("/message", deps.MCPServer.MessageHandler())
+			// Streamable HTTP (MCP 2025-03-26) — clients POST JSON-RPC
+			// to the tenant base URL itself. mcp-go's handler dispatches
+			// on method (POST/GET/DELETE) so a single mount serves all.
+			ar.Handle("/", deps.MCPServer.StreamableHandler())
 		})
 	})
 	return nil

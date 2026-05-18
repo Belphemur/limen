@@ -41,10 +41,11 @@ import (
 // the client reaches them by writing JavaScript that calls codemode.*
 // inside the handler's sandbox.
 type MCPServer struct {
-	handler *gateway.CodeModeHandler
-	logger  *zap.Logger
-	core    *server.MCPServer
-	sse     *server.SSEServer
+	handler    *gateway.CodeModeHandler
+	logger     *zap.Logger
+	core       *server.MCPServer
+	sse        *server.SSEServer
+	streamable *server.StreamableHTTPServer
 }
 
 // NewMCPServer constructs the code-mode MCP server. All tool execution
@@ -71,6 +72,10 @@ func NewMCPServer(_ *gateway.Manager, handler *gateway.CodeModeHandler, logger *
 			return "/mcp"
 		}),
 	)
+	s.streamable = server.NewStreamableHTTPServer(
+		s.core,
+		server.WithStateLess(true),
+	)
 	return s
 }
 
@@ -84,6 +89,14 @@ func (s *MCPServer) SSEHandler() http.Handler { return s.sse.SSEHandler() }
 // requests for an existing SSE session. Mount at the tenant subroute
 // path "/message".
 func (s *MCPServer) MessageHandler() http.Handler { return s.sse.MessageHandler() }
+
+// StreamableHandler returns the Streamable HTTP transport handler (MCP
+// 2025-03-26 spec). It accepts POST for JSON-RPC requests and GET for
+// optional server-initiated streaming. Mount at the tenant subroute
+// root so clients can POST to /t/{tenant}/mcp directly — most modern
+// MCP clients (Cursor, Claude Desktop) probe streamable HTTP before
+// falling back to legacy SSE.
+func (s *MCPServer) StreamableHandler() http.Handler { return s.streamable }
 
 // Core exposes the underlying mcp-go server for callers that need to
 // register additional tools after construction. Intended for tests and
