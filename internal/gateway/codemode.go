@@ -107,6 +107,14 @@ func (h *CodeModeHandler) run(ctx context.Context, code string, withProxies bool
 
 	start := time.Now()
 	vm := goja.New()
+	// Expose Go struct fields and methods to JS using their `json` tags
+	// (and lowercased method names). Without this, `codemode.tools()`
+	// returns objects whose properties are `Name`/`Description`/...
+	// (Go field names), while the documented contract and the
+	// downstream JSON marshalling both use `name`/`description`/...
+	// The mismatch causes scripts like `tools.map(t => t.upstream)` to
+	// silently yield `null` arrays.
+	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 	var callSeq int64
 	codemodeObj := vm.NewObject()
 

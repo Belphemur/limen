@@ -353,3 +353,51 @@ func TestCodeMode_AsyncArrowFunction_IsInvoked(t *testing.T) {
 		t.Errorf("total: got %v want 2", m["total"])
 	}
 }
+
+// TestCodeMode_ToolFieldsAreCamelCaseInJS guards the contract that
+// codemode.tools() exposes properties matching the JSON tags
+// (`name`, `description`, `inputSchema`, `upstream`) — not the Go
+// struct field names. The default goja reflection surfaces Go field
+// names, which silently breaks scripts that follow the documented
+// shape (`t.upstream` returns undefined → JSON null).
+func TestCodeMode_ToolFieldsAreCamelCaseInJS(t *testing.T) {
+	tools := []ToolEntry{
+		{Name: "search", Description: "find", Upstream: "github", InputSchema: map[string]any{"type": "object"}},
+	}
+	d := &fakeDispatcher{tools: tools}
+	h := newTestHandler(t, d, CodeModeConfig{})
+
+	got, err := h.Search(context.Background(), `(() => {
+		const t = codemode.tools()[0];
+		return {
+			keys: Object.keys(t).sort(),
+			name: t.name,
+			description: t.description,
+			upstream: t.upstream,
+			hasInputSchema: typeof t.inputSchema === 'object' && t.inputSchema !== null,
+			pascalLeak: t.Name !== undefined || t.Upstream !== undefined,
+		};
+	})()`)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("want map, got %T: %#v", got, got)
+	}
+	if m["name"] != "search" {
+		t.Errorf("name: got %v want search", m["name"])
+	}
+	if m["upstream"] != "github" {
+		t.Errorf("upstream: got %v want github", m["upstream"])
+	}
+	if m["description"] != "find" {
+		t.Errorf("description: got %v want find", m["description"])
+	}
+	if m["hasInputSchema"] != true {
+		t.Errorf("hasInputSchema: got %v want true", m["hasInputSchema"])
+	}
+	if m["pascalLeak"] == true {
+		t.Errorf("Go field names leaked into JS surface (Name/Upstream visible)")
+	}
+}
