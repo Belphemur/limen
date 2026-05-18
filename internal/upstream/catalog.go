@@ -26,8 +26,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/belphemur/limen/internal/storage"
@@ -98,24 +96,13 @@ func listUpstreamTools(
 		return nil, fmt.Errorf("strategy headers: %w", err)
 	}
 
-	opts := []transport.StreamableHTTPCOption{transport.WithHTTPTimeout(indexTimeout)}
-	if len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
-	}
-	c, err := client.NewStreamableHttpClient(up.McpServerURL, opts...)
+	dialCtx, cancelDial := context.WithTimeout(ctx, indexTimeout)
+	defer cancelDial()
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, nil, indexTimeout, "limen-indexer", "0.1.0")
 	if err != nil {
-		return nil, fmt.Errorf("create mcp client: %w", err)
+		return nil, err
 	}
 	defer func() { _ = c.Close() }()
-
-	initCtx, cancelInit := context.WithTimeout(ctx, indexTimeout)
-	defer cancelInit()
-	initReq := mcp.InitializeRequest{}
-	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initReq.Params.ClientInfo = mcp.Implementation{Name: "limen-indexer", Version: "0.1.0"}
-	if _, err := c.Initialize(initCtx, initReq); err != nil {
-		return nil, fmt.Errorf("initialize: %w", err)
-	}
 
 	listCtx, cancelList := context.WithTimeout(ctx, indexTimeout)
 	defer cancelList()

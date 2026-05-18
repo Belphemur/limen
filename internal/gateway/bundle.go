@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 
@@ -40,22 +38,11 @@ func (b *Bundle) CallTool(ctx context.Context, toolName string, args map[string]
 	cctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
 
-	c, err := client.NewStreamableHttpClient(
-		b.Upstream.McpServerURL,
-		transport.WithHTTPBasicClient(b.HTTPClient),
-		transport.WithHTTPTimeout(b.Timeout),
-	)
+	c, err := upstream.DialAndInitialize(cctx, b.Upstream.McpServerURL, nil, b.HTTPClient, b.Timeout, "limen", "0.1.0")
 	if err != nil {
-		return nil, fmt.Errorf("gateway: build client for %q: %w", b.Upstream.Name, err)
+		return nil, fmt.Errorf("gateway: dial %q: %w", b.Upstream.Name, err)
 	}
 	defer func() { _ = c.Close() }()
-
-	initReq := mcp.InitializeRequest{}
-	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initReq.Params.ClientInfo = mcp.Implementation{Name: "limen", Version: "0.1.0"}
-	if _, err := c.Initialize(cctx, initReq); err != nil {
-		return nil, fmt.Errorf("gateway: initialize %q: %w", b.Upstream.Name, err)
-	}
 
 	req := mcp.CallToolRequest{}
 	req.Params.Name = toolName
