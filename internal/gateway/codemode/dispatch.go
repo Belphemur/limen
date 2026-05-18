@@ -230,34 +230,28 @@ func wrapExecutionError(err error) error {
 }
 
 // parseJSONResult implements the codemode.json(result) helper. It
-// accepts:
-//   - the standard MCP "content" array [{type:"text", text:"..."}, ...]
-//     and returns JSON.parse(text) of the first text block,
-//   - any other value passed through unchanged (caller's
-//     responsibility), or
-//   - { raw: "<text>" } when the text isn't valid JSON.
+// accepts any of:
+//   - the full MCP CallToolResult (the value tool proxies return),
+//   - a plain {content: [...]} map,
+//   - the bare content array [{type:"text", text:"..."}, ...],
 //
-// Designed to absorb the most repetitive boilerplate every codemode
-// script writes around tool results.
+// and returns JSON.parse(text) of the first text block. Non-JSON
+// text falls back to { raw: "<text>" }. Anything we don't recognize
+// is passed through unchanged so callers can chain safely.
+//
+// Designed to absorb the repetitive r?.content?.[0]?.text + JSON.parse
+// boilerplate every codemode script writes around tool results.
 func parseJSONResult(v goja.Value) any {
 	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
 		return nil
 	}
 	exported := v.Export()
-	arr, ok := exported.([]any)
-	if !ok {
+	arr := extractContentArray(exported)
+	if arr == nil {
 		return exported
 	}
 	for _, item := range arr {
-		block, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		typ, _ := block["type"].(string)
-		if typ != "" && typ != "text" {
-			continue
-		}
-		text, ok := block["text"].(string)
+		text, ok := contentBlockText(item)
 		if !ok {
 			continue
 		}
@@ -268,4 +262,56 @@ func parseJSONResult(v goja.Value) any {
 		return map[string]any{"raw": text}
 	}
 	return exported
+}
+
+// extractContentArray pulls the MCP "content" slice out of value
+// shapes the dispatcher might hand back. The tool proxy returns a
+// *mcp.CallToolResult; Goja exports that as a typed Go pointer, so a
+// direct []any type-assertion fails. We JSON-roundtrip in that case to
+// normalize on a map and dig out "content".
+func extractContentArray(v any) []any {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case []any:
+		return x
+	case map[string]any:
+		if c, ok := x["content"].([]any); ok {
+			return c
+		}
+		return nil
+	}
+	// Struct or pointer-to-struct (e.g. *mcp.CallToolResult): normalize
+	// through JSON. Cheap relative to a tool call and keeps this helper
+	// decoupled from the mcp-go types.
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	if c, ok := m["content"].([]any); ok {
+		return c
+	}
+	return nil
+}
+
+// contentBlockText returns the text of an MCP content block when its
+// type is "text" (or unspecified). Blocks of other types are skipped
+// so callers iterate to the next one.
+func contentBlockText(item any) (string, bool) {
+	block, ok := item.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	if typ, _ := block["type"].(string); typ != "" && typ != "text" {
+		return "", false
+	}
+	text, ok := block["text"].(string)
+	if !ok {
+		return "", false
+	}
+	return text, true
 }

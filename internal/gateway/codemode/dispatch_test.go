@@ -179,6 +179,32 @@ func TestCodemodeJSON(t *testing.T) {
 	}
 }
 
+func TestCodemodeJSON_FullResult(t *testing.T) {
+	// Real dispatchers hand back *mcp.CallToolResult, not the bare
+	// content array. Simulate that shape with a map so codemode.json
+	// has to dig out .content itself.
+	d := &fakeDispatcher{
+		tools: []Tool{{Name: "search", Upstream: "github"}},
+		responses: map[string]any{
+			"github/search": map[string]any{
+				"content": []any{map[string]any{"type": "text", "text": `{"hits":42}`}},
+				"isError": false,
+			},
+		},
+	}
+	h := newTestHandler(t, d, Config{})
+	got, err := h.Execute(context.Background(), `
+		(async () => codemode.json(await codemode.github.search({})))()
+	`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok || m["hits"] != float64(42) {
+		t.Fatalf("expected {hits:42}, got %#v", got)
+	}
+}
+
 func TestCodemodeJSON_FallbackRaw(t *testing.T) {
 	d := &fakeDispatcher{
 		tools: []Tool{{Name: "search", Upstream: "github"}},
