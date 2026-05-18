@@ -69,7 +69,12 @@ func IndexUpstream(
 		return fmt.Errorf("index upstream %q: %w", up.Name, err)
 	}
 
-	if err := reconcileCatalog(ctx, store, tenant.ID, up.ID, tools); err != nil {
+	// reconcileCatalog opens a storage session; bind the tenant so RLS
+	// applies on the app pool. The refresher invokes IndexUpstream with
+	// a superuser ctx for the load phase, but reconcile must scope to
+	// this upstream's tenant.
+	reconcileCtx := storage.WithTenant(ctx, tenant.ID)
+	if err := reconcileCatalog(reconcileCtx, store, tenant.ID, up.ID, tools); err != nil {
 		return fmt.Errorf("index upstream %q: %w", up.Name, err)
 	}
 	return nil
