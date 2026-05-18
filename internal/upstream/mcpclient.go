@@ -37,22 +37,45 @@ func DialAndInitialize(
 	if err != nil {
 		return nil, fmt.Errorf("build streamable client: %w", err)
 	}
-	if _, err := c.Initialize(ctx, initReq); err != nil {
-		_ = c.Close()
-		if !errors.Is(err, transport.ErrLegacySSEServer) {
-			return nil, fmt.Errorf("initialize: %w", err)
-		}
-		sse, sseErr := newSSEClient(mcpURL, headers, httpClient, timeout)
-		if sseErr != nil {
-			return nil, fmt.Errorf("build sse client after legacy fallback: %w", sseErr)
-		}
-		if _, sseInitErr := sse.Initialize(ctx, initReq); sseInitErr != nil {
-			_ = sse.Close()
-			return nil, fmt.Errorf("initialize (sse fallback): %w", sseInitErr)
-		}
-		return sse, nil
+	_, initErr := c.Initialize(ctx, initReq)
+	if initErr == nil {
+		return c, nil
 	}
-	return c, nil
+	_ = c.Close()
+
+	// 401 means the upstream needs credentials we don't have. SSE
+	// will hit the same wall — surface the auth error directly so the
+	// admin sees actionable diagnostics instead of a misleading
+	// "transport not supported" chain.
+	var authErr *transport.AuthorizationRequiredError
+	if errors.As(initErr, &authErr) {
+		return nil, fmt.Errorf("initialize: upstream requires authentication (HTTP 401)%s: %w", resourceMetadataHint(authErr), initErr)
+	}
+
+	// Only fall back to legacy SSE on the documented sentinel. Other
+	// errors (network, 5xx, 4xx-without-auth) should surface as-is.
+	if !errors.Is(initErr, transport.ErrLegacySSEServer) {
+		return nil, fmt.Errorf("initialize: %w", initErr)
+	}
+
+	sse, sseBuildErr := newSSEClient(mcpURL, headers, httpClient, timeout)
+	if sseBuildErr != nil {
+		// Preserve the original StreamableHTTP error in the chain so
+		// the operator can see both failure modes.
+		return nil, fmt.Errorf("initialize: streamable: %v; sse fallback build: %w", initErr, sseBuildErr)
+	}
+	if _, sseInitErr := sse.Initialize(ctx, initReq); sseInitErr != nil {
+		_ = sse.Close()
+		return nil, fmt.Errorf("initialize: streamable: %v; sse fallback: %w", initErr, sseInitErr)
+	}
+	return sse, nil
+}
+
+func resourceMetadataHint(err *transport.AuthorizationRequiredError) string {
+	if err == nil || err.ResourceMetadataURL == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (resource_metadata=%s)", err.ResourceMetadataURL)
 }
 
 func newStreamableClient(mcpURL string, headers map[string]string, httpClient *http.Client, timeout time.Duration) (*client.Client, error) {
