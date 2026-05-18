@@ -5,6 +5,13 @@ server:
   # used as the OIDC issuer / MCP RS base URL.
   base_url: "${LIMEN_BASE_URL:-https://limen.example.com}"
 
+# Logger configuration for `gateway serve`. Level accepts debug / info /
+# warn / error (the standard zapcore names). Development=true switches
+# from the JSON production encoder to the colored development encoder.
+logging:
+  level: "${LIMEN_LOG_LEVEL:-info}"
+  development: ${LIMEN_LOG_DEVELOPMENT:-false}
+
 database:
   # Postgres connection string for the request-path pool. Should authenticate
   # as limen_app (no BYPASSRLS) so the Phase 3 row-level-security policies

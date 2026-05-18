@@ -37,6 +37,8 @@ export LIMEN_ZITADEL_PAT="$$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:r
 export LIMEN_ZITADEL_PROJECT_ID="$$LIMEN_OIDC_PROJECT_ID"
 export LIMEN_ZITADEL_MCP_RESOURCE_AUDIENCE="$$LIMEN_OIDC_MCP_RS_CLIENT_ID"
 export LIMEN_VALKEY_ADDRESS=localhost:6380
+export LIMEN_LOG_LEVEL=debug
+export LIMEN_LOG_DEVELOPMENT=true
 set +a
 endef
 export DEV_ENV

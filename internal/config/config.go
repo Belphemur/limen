@@ -26,6 +26,7 @@ import (
 // Config is the top-level configuration shape.
 type Config struct {
 	Server          ServerConfig          `yaml:"server"`
+	Logging         LoggingConfig         `yaml:"logging"`
 	Database        DatabaseConfig        `yaml:"database"`
 	Security        SecurityConfig        `yaml:"security"`
 	OAuthProxy      OAuthProxyConfig      `yaml:"oauth_proxy"`
@@ -34,6 +35,18 @@ type Config struct {
 	OIDC            OIDCConfig            `yaml:"oidc"`
 	Zitadel         ZitadelConfig         `yaml:"zitadel"`
 	Valkey          ValkeyConfig          `yaml:"valkey"`
+}
+
+// LoggingConfig controls the zap logger built in cmd/gateway serve. Level
+// accepts the standard zapcore names (debug, info, warn, error, dpanic,
+// panic, fatal); empty falls back to "info". Development=true switches
+// from the JSON production encoder to the human-readable development
+// encoder (also enables DPanic). Both fields support env expansion via
+// the Load() pipeline, so LIMEN_LOG_LEVEL / LIMEN_LOG_DEVELOPMENT are the
+// natural toggles in compose / dev shells.
+type LoggingConfig struct {
+	Level       string `yaml:"level"`
+	Development bool   `yaml:"development"`
 }
 
 // ServerConfig governs the inbound HTTP listener and the public base URL
@@ -241,6 +254,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Server.Host == "" {
 		c.Server.Host = "0.0.0.0"
+	}
+	if c.Logging.Level == "" {
+		c.Logging.Level = "info"
 	}
 	if c.CodeMode.ExecutionTimeout == 0 {
 		c.CodeMode.ExecutionTimeout = 30 * time.Second

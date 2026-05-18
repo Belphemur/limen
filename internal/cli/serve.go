@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
@@ -25,13 +26,16 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 }
 
 func runServe(flags *rootFlags) error {
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
 	cfg, err := loadConfig(flags)
 	if err != nil {
 		return err
 	}
+
+	logger, err := buildServeLogger(cfg.Logging.Level, cfg.Logging.Development)
+	if err != nil {
+		return fmt.Errorf("build logger: %w", err)
+	}
+	defer func() { _ = logger.Sync() }()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -91,6 +95,29 @@ func runServe(flags *rootFlags) error {
 		_ = srv.Shutdown(shutdownCtx)
 		return nil
 	}
+}
+
+// buildServeLogger constructs the zap logger used by `gateway serve`.
+// level accepts the standard zapcore names (debug, info, warn, error,
+// dpanic, panic, fatal); empty falls back to "info". When development is
+// true the human-readable development encoder is used; otherwise the
+// JSON production encoder is used.
+func buildServeLogger(level string, development bool) (*zap.Logger, error) {
+	var cfg zap.Config
+	if development {
+		cfg = zap.NewDevelopmentConfig()
+	} else {
+		cfg = zap.NewProductionConfig()
+	}
+	if level == "" {
+		level = "info"
+	}
+	lvl, err := zapcore.ParseLevel(level)
+	if err != nil {
+		return nil, fmt.Errorf("parse log level %q: %w", level, err)
+	}
+	cfg.Level = zap.NewAtomicLevelAt(lvl)
+	return cfg.Build()
 }
 
 func landingPage(w http.ResponseWriter, _ *http.Request) {

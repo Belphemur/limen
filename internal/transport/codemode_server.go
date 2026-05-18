@@ -604,6 +604,10 @@ func (s *MCPServer) handleSearch(ctx context.Context, req mcp.CallToolRequest) (
 		return errorResult("code argument must be a string"), nil
 	}
 
+	s.logger.Debug("codemode_search: received script",
+		zap.Int("script_bytes", len(code)),
+		zap.String("script", code))
+
 	result, err := s.handler.Search(ctx, code)
 	if err != nil {
 		return errorResult(fmt.Sprintf("search failed: %v", err)), nil
@@ -620,6 +624,10 @@ func (s *MCPServer) handleExecute(ctx context.Context, req mcp.CallToolRequest) 
 	if !ok {
 		return errorResult("code argument must be a string"), nil
 	}
+
+	s.logger.Debug("codemode_execute: received script",
+		zap.Int("script_bytes", len(code)),
+		zap.String("script", code))
 
 	result, err := s.handler.Execute(ctx, code)
 	if err != nil {
