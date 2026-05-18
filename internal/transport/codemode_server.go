@@ -610,9 +610,12 @@ func (s *MCPServer) handleSearch(ctx context.Context, req mcp.CallToolRequest) (
 
 	result, err := s.handler.Search(ctx, code)
 	if err != nil {
+		s.logger.Debug("codemode_search: handler error", zap.Error(err))
 		return errorResult(fmt.Sprintf("search failed: %v", err)), nil
 	}
 
+	s.logger.Debug("codemode_search: handler result",
+		zap.String("result_json", marshalForDebug(result)))
 	return successResult(result), nil
 }
 
@@ -631,10 +634,23 @@ func (s *MCPServer) handleExecute(ctx context.Context, req mcp.CallToolRequest) 
 
 	result, err := s.handler.Execute(ctx, code)
 	if err != nil {
+		s.logger.Debug("codemode_execute: handler error", zap.Error(err))
 		return errorResult(fmt.Sprintf("execute failed: %v", err)), nil
 	}
 
+	s.logger.Debug("codemode_execute: handler result",
+		zap.String("result_json", marshalForDebug(result)))
 	return successResult(result), nil
+}
+
+// marshalForDebug JSON-encodes v for debug-only logging. Encoding errors
+// fall back to a Go fmt %#v dump so the log line is never empty.
+func marshalForDebug(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<marshal error: %v> %#v", err, v)
+	}
+	return string(b)
 }
 
 // errorResult wraps a human-readable message as an MCP tool error. The
