@@ -265,7 +265,7 @@ func (c *Config) applyDefaults() {
 		if c.CodeMode.ExecutionTimeout > 0 && c.CodeMode.ExecutionTimeout < 30*time.Second {
 			c.CodeMode.ScriptTimeout = c.CodeMode.ExecutionTimeout
 		} else {
-			c.CodeMode.ScriptTimeout = 10 * time.Second
+			c.CodeMode.ScriptTimeout = 30 * time.Second
 		}
 	}
 	if c.CodeMode.MaxToolCalls == 0 {

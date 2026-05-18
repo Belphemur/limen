@@ -65,7 +65,7 @@ func filterListings(in []ToolListing, filter map[string]any) ([]ToolListing, err
 
 	limit := coerceInt(filter["limit"])
 
-	out := in[:0:0]
+	out := make([]ToolListing, 0, len(in))
 	for _, t := range in {
 		if len(upstreams) > 0 && !containsString(upstreams, t.Upstream) {
 			continue

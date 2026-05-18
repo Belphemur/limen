@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 )
@@ -13,15 +14,48 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// approxResultBytesCap bounds how much CPU/RAM approxResultBytes is
+// willing to spend marshalling a result purely for a log field. Past
+// this size we stop counting and emit -1, signalling "very large" to
+// log consumers without double-marshalling multi-MB payloads.
+const approxResultBytesCap = 256 * 1024
+
+// approxResultBytes returns the JSON-encoded length of v, capped at
+// approxResultBytesCap. Returns -1 for values larger than the cap or
+// that fail to encode. The cap matters because the MCP transport
+// marshals the same value again at egress; we don't need to pay for
+// the full encoding twice on huge results just to populate a log
+// field.
 func approxResultBytes(v any) int {
 	if v == nil {
 		return 0
 	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return 0
+	w := &cappedCountWriter{limit: approxResultBytesCap}
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		if errors.Is(err, errCappedWriterFull) {
+			return -1
+		}
+		return -1
 	}
-	return len(b)
+	return w.n
+}
+
+var errCappedWriterFull = errors.New("codemode: result size exceeds approx cap")
+
+// cappedCountWriter counts bytes written until it exceeds limit, then
+// short-circuits with errCappedWriterFull so json.Encoder stops
+// serializing the rest of the value.
+type cappedCountWriter struct {
+	n     int
+	limit int
+}
+
+func (w *cappedCountWriter) Write(p []byte) (int, error) {
+	w.n += len(p)
+	if w.n > w.limit {
+		return 0, errCappedWriterFull
+	}
+	return len(p), nil
 }
 
 // classifyToolError maps a Dispatcher.CallTool error into (error_kind,

@@ -83,7 +83,7 @@ func New(d Dispatcher, cfg Config, logger *zap.Logger) *Handler {
 		logger = zap.NewNop()
 	}
 	if cfg.ScriptTimeout <= 0 {
-		cfg.ScriptTimeout = 10 * time.Second
+		cfg.ScriptTimeout = 30 * time.Second
 	}
 	return &Handler{dispatcher: d, logger: logger, cfg: cfg}
 }
@@ -117,6 +117,7 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 	)...)
 
 	start := time.Now()
+	deadline := start.Add(h.cfg.ScriptTimeout)
 	vm := goja.New()
 	// Expose Go struct fields and methods to JS using their `json` tags
 	// (and lowercased method names). Without this, `codemode.tools()`
@@ -171,9 +172,11 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		})
 	}
 
-	// Reserved keys are set last so an upstream named "tools" or "call"
-	// can never shadow the sandbox API.
-	_ = codemodeObj.Set("tools", func(call goja.FunctionCall) goja.Value {
+	// Reserved keys are set last so an upstream literally named after
+	// one of them can never shadow the sandbox API. The list lives in
+	// one place (reservedCodemodeKeys) so adding a new helper here and
+	// teaching isReservedCodemodeKey stay in lock-step.
+	_ = codemodeObj.Set(reservedKeyTools, func(call goja.FunctionCall) goja.Value {
 		var filter map[string]any
 		if len(call.Arguments) > 0 {
 			if exported, ok := call.Argument(0).Export().(map[string]any); ok {
@@ -186,7 +189,7 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		}
 		return vm.ToValue(out)
 	})
-	_ = codemodeObj.Set("schemas", func(call goja.FunctionCall) goja.Value {
+	_ = codemodeObj.Set(reservedKeySchemas, func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			panic(vm.NewGoError(errors.New("codemode.schemas(names): names argument is required (string or string[])")))
 		}
@@ -194,7 +197,40 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		if names == nil {
 			panic(vm.NewGoError(errors.New("codemode.schemas(names): names must be a string or array of strings")))
 		}
-		return vm.ToValue(schemasByName(tools, names))
+		res := schemasByName(tools, names)
+		// Return a plain map so JS sees `{found: [...], missing: [...]}`
+		// instead of a struct-pointer wrapper (Goja exposes struct slice
+		// fields as `*[]T`, which breaks `.found.length`).
+		return vm.ToValue(map[string]any{
+			"found":   res.Found,
+			"missing": res.Missing,
+		})
+	})
+	_ = codemodeObj.Set(reservedKeyJSON, func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return goja.Null()
+		}
+		return vm.ToValue(parseJSONResult(call.Argument(0)))
+	})
+	_ = codemodeObj.Set(reservedKeyQuota, func(_ goja.FunctionCall) goja.Value {
+		used := atomic.LoadInt64(&callSeq)
+		remaining := int64(-1)
+		if h.cfg.MaxToolCalls > 0 {
+			remaining = int64(h.cfg.MaxToolCalls) - used
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		deadlineMS := time.Until(deadline).Milliseconds()
+		if deadlineMS < 0 {
+			deadlineMS = 0
+		}
+		return vm.ToValue(map[string]any{
+			"used":        used,
+			"max":         int64(h.cfg.MaxToolCalls),
+			"remaining":   remaining,
+			"deadline_ms": deadlineMS,
+		})
 	})
 
 	_ = vm.Set("codemode", codemodeObj)

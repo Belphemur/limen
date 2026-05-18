@@ -12,6 +12,15 @@ type ToolSchema struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
+// SchemasResult is the shape returned by codemode.schemas(names): a
+// list of resolved schemas plus the names that did not match any
+// visible tool. Surfacing misses (instead of silently dropping them)
+// catches typos in scripts.
+type SchemasResult struct {
+	Found   []ToolSchema `json:"found"`
+	Missing []string     `json:"missing"`
+}
+
 // exportSchemaNames coerces the first argument of codemode.schemas
 // into a flat []string. Accepts a single string for one-shot lookups
 // and an array of strings for batched ones. Returns nil for anything
@@ -36,18 +45,23 @@ func exportSchemaNames(v goja.Value) []string {
 }
 
 // schemasByName looks up tool schemas by exact name. Unknown names are
-// silently omitted — LLMs mistype tool identifiers often enough that
-// returning a partial result is the friendliest behaviour.
-func schemasByName(in []Tool, names []string) []ToolSchema {
+// returned in the Missing slice so callers can detect typos without
+// scanning Found for absence.
+func schemasByName(in []Tool, names []string) SchemasResult {
 	byName := make(map[string]Tool, len(in))
 	for _, t := range in {
 		byName[t.Name] = t
 	}
-	out := make([]ToolSchema, 0, len(names))
+	out := SchemasResult{
+		Found:   make([]ToolSchema, 0, len(names)),
+		Missing: []string{},
+	}
 	for _, n := range names {
 		if t, ok := byName[n]; ok {
-			out = append(out, ToolSchema{Name: t.Name, Upstream: t.Upstream, InputSchema: t.InputSchema})
+			out.Found = append(out.Found, ToolSchema{Name: t.Name, Upstream: t.Upstream, InputSchema: t.InputSchema})
+			continue
 		}
+		out.Missing = append(out.Missing, n)
 	}
 	return out
 }

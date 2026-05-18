@@ -48,7 +48,7 @@ NO filesystem, NO network (fetch/XHR/WebSocket), NO process/env, NO eval/
 Function-constructor, NO timers, NO console, NO DOM, NO Node-isms (Buffer/
 require/__dirname). The ONLY non-standard global is 'codemode'.
 
-A wall-clock script timeout (typically ~10s) aborts the VM and returns
+A wall-clock script timeout (typically ~30s) aborts the VM and returns
 IsError=true with text containing "script timeout".
 
 =============================================================================
@@ -87,9 +87,10 @@ SANDBOX API — codemode_search exposes ONLY the discovery surface
     Returns [] if you have no linked upstreams — that is not an error.
 
   codemode.schemas(names)
-    Returns Array<ToolSchema> for the named tools. Accepts a single
-    string OR an array of strings; the array form is the whole point —
-    fetch every schema you need in ONE call to minimise round-trips.
+    Returns { found: ToolSchema[], missing: string[] } for the named
+    tools. 'names' accepts a single string OR an array of strings; the
+    array form is the whole point — fetch every schema you need in ONE
+    call to minimise round-trips.
 
     ToolSchema = {
       "name":        string,
@@ -100,8 +101,22 @@ SANDBOX API — codemode_search exposes ONLY the discovery surface
                               // May be {} for arg-less tools.
     }
 
-    Unknown names are silently OMITTED (no error). Check the returned
-    array's length / names if you need to detect typos.
+    Unknown names appear in 'missing' (not 'found') so a typo never
+    silently drops a tool — check 'missing' if you care.
+
+  codemode.json(result)
+    Helper: extracts and JSON.parses the first text block of an MCP
+    content array (the standard [{type:"text", text:"..."}] shape).
+    Returns { raw: "<text>" } when the text isn't valid JSON, and
+    passes non-array inputs through unchanged. Free (no quota). Use
+    it to shrink scripts and avoid repeating the r?.[0]?.text /
+    JSON.parse dance in every recipe.
+
+  codemode.quota()
+    Helper: returns { used, max, remaining, deadline_ms } so loops can
+    self-bound before they hit the tool-call cap or wall-clock
+    timeout. Available in both codemode_search and codemode_execute
+    even though Search cannot itself invoke tools.
 
   codemode_search does NOT expose codemode.call or codemode.<upstream>.*.
   Trying to invoke a tool throws TypeError. Use codemode_execute.
@@ -149,15 +164,18 @@ RECIPES — copy and adapt
 
 (6) Inspect a specific tool you already know the name of:
 
-    async () => codemode.schemas("jira_get_ticket")
+    async () => codemode.schemas("jira_get_ticket").found
 
-(7) Inspect several tools across upstreams in ONE call:
+(7) Inspect several tools across upstreams in ONE call, surfacing typos:
 
-    async () => codemode.schemas([
-      "jira_get_ticket",
-      "github_get_pr",
-      "slack_post_message",
-    ])
+    async () => {
+      const { found, missing } = codemode.schemas([
+        "jira_get_ticket",
+        "github_get_pr",
+        "slack_post_message",
+      ]);
+      return { found, missing };   // 'missing' catches typos at a glance
+    }
 
 (8) Survey which upstreams are linked and how many tools each exposes:
 
@@ -175,7 +193,7 @@ WORKFLOW
 
 Typical pattern: codemode_search ONCE to find names (filter narrowly!) and
 fetch the schemas you need, then codemode_execute with a script that calls
-those tools. You can also call codemode.tools() / codemode.schemas() inside
+those tools. You can also call codemode.tools() / codemode.schemas() inside— returns { found, missing } so typos surface explicitly. codemode.json(result) extracts + JSON.parses the first text block of an MCP content array (free, no quota). codemode.quota() returns { used, max, remaining, deadline_ms } for self-bounded loops
 codemode_execute when you want to discover and call in a single round-trip.`
 
 const searchCodeArgDescription = `A single JavaScript expression that evaluates to a zero-argument async arrow function: async () => { ... }. Invoked once, its promise awaited, its resolved value JSON-encoded and returned to you. Use codemode.tools(filter?) to scan the LEAN catalog (name/description/upstream — no schemas) and codemode.schemas(name|names[]) to fetch JSON schemas for the tools you actually need (batched in ONE call). Filter shape: { upstream?: string|string[], name?: string|string[], description?: string|string[], match?: string|string[], allOf?: string[], regex?: boolean, limit?: number } — fields AND-combine, arrays within a field OR-combine, match targets name+description, allOf requires every substring to appear in name+description, regex flips all string fields to RE2 (case-insensitive). Read-only — cannot invoke upstream tools (use codemode_execute). Must return a JSON-serializable value. No filesystem, no network, no eval, no require, no timers, no console.`

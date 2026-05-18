@@ -17,7 +17,7 @@ func TestSchemas(t *testing.T) {
 	h := newTestHandler(t, d, Config{})
 
 	t.Run("single string", func(t *testing.T) {
-		got, err := h.Search(context.Background(), `codemode.schemas('a')`)
+		got, err := h.Search(context.Background(), `codemode.schemas('a').found`)
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}
@@ -28,13 +28,24 @@ func TestSchemas(t *testing.T) {
 	})
 
 	t.Run("array with unknown", func(t *testing.T) {
-		got, err := h.Search(context.Background(), `codemode.schemas(['a','nope','b']).map(s=>s.name)`)
+		got, err := h.Search(context.Background(), `codemode.schemas(['a','nope','b']).found.map(s=>s.name)`)
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}
 		arr := got.([]any)
 		if len(arr) != 2 || arr[0] != "a" || arr[1] != "b" {
-			t.Errorf("unknown name should be omitted: %#v", arr)
+			t.Errorf("unknown name should be omitted from found: %#v", arr)
+		}
+	})
+
+	t.Run("missing names reported", func(t *testing.T) {
+		got, err := h.Search(context.Background(), `codemode.schemas(['a','nope','also_nope']).missing`)
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		arr, ok := got.([]string)
+		if !ok || len(arr) != 2 || arr[0] != "nope" || arr[1] != "also_nope" {
+			t.Fatalf("expected missing=[nope, also_nope], got %#v", got)
 		}
 	})
 

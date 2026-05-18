@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNamespacedDispatch(t *testing.T) {
@@ -130,6 +131,106 @@ func TestQuotaEnforced(t *testing.T) {
 	}
 }
 
+// TestQuotaIsUncatchable verifies the quota trip cannot be swallowed by
+// a JS try/catch — it's raised via vm.Interrupt, which delivers an
+// uncatchable InterruptedError. A pre-vm.Interrupt implementation that
+// used panic(vm.NewGoError(...)) would let the script ignore the quota.
+func TestQuotaIsUncatchable(t *testing.T) {
+	d := &fakeDispatcher{
+		tools:     []Tool{{Name: "search", Upstream: "github"}},
+		responses: map[string]any{"github/search": "ok"},
+	}
+	h := newTestHandler(t, d, Config{MaxToolCalls: 1})
+	_, err := h.Execute(context.Background(), `
+		(async () => {
+			try { codemode.github.search({}); } catch (e) {}
+			try { codemode.github.search({}); } catch (e) { return "swallowed"; }
+			return "never";
+		})()
+	`)
+	if err == nil {
+		t.Fatal("expected quota error to abort the script despite try/catch")
+	}
+	if !strings.Contains(err.Error(), "max_tool_calls exceeded") {
+		t.Errorf("expected quota sentinel in error, got %v", err)
+	}
+}
+
+func TestCodemodeJSON(t *testing.T) {
+	d := &fakeDispatcher{
+		tools: []Tool{{Name: "search", Upstream: "github"}},
+		responses: map[string]any{
+			"github/search": []any{map[string]any{"type": "text", "text": `{"hits":42}`}},
+		},
+	}
+	h := newTestHandler(t, d, Config{})
+	got, err := h.Execute(context.Background(), `
+		(async () => {
+			const r = await codemode.github.search({});
+			return codemode.json(r);
+		})()
+	`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok || m["hits"] != float64(42) {
+		t.Fatalf("expected {hits:42}, got %#v", got)
+	}
+}
+
+func TestCodemodeJSON_FallbackRaw(t *testing.T) {
+	d := &fakeDispatcher{
+		tools: []Tool{{Name: "search", Upstream: "github"}},
+		responses: map[string]any{
+			"github/search": []any{map[string]any{"type": "text", "text": "not json"}},
+		},
+	}
+	h := newTestHandler(t, d, Config{})
+	got, err := h.Execute(context.Background(), `
+		(async () => codemode.json(await codemode.github.search({})))()
+	`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok || m["raw"] != "not json" {
+		t.Fatalf("expected {raw:'not json'}, got %#v", got)
+	}
+}
+
+func TestCodemodeQuota(t *testing.T) {
+	d := &fakeDispatcher{
+		tools:     []Tool{{Name: "search", Upstream: "github"}},
+		responses: map[string]any{"github/search": "ok"},
+	}
+	h := newTestHandler(t, d, Config{MaxToolCalls: 10, ScriptTimeout: 5 * time.Second})
+	got, err := h.Execute(context.Background(), `
+		(async () => {
+			const before = codemode.quota();
+			await codemode.github.search({});
+			await codemode.github.search({});
+			const after = codemode.quota();
+			return { before, after };
+		})()
+	`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	m := got.(map[string]any)
+	before := m["before"].(map[string]any)
+	after := m["after"].(map[string]any)
+	if before["used"] != int64(0) || before["max"] != int64(10) || before["remaining"] != int64(10) {
+		t.Errorf("unexpected before: %#v", before)
+	}
+	if after["used"] != int64(2) || after["remaining"] != int64(8) {
+		t.Errorf("unexpected after: %#v", after)
+	}
+	if dm, _ := after["deadline_ms"].(int64); dm <= 0 {
+		t.Errorf("expected deadline_ms > 0, got %v", after["deadline_ms"])
+	}
+}
+
 func TestToolError_PropagatedToScript(t *testing.T) {
 	d := &fakeDispatcher{
 		tools: []Tool{{Name: "search", Upstream: "github"}},
@@ -146,7 +247,7 @@ func TestToolError_PropagatedToScript(t *testing.T) {
 }
 
 func TestIsReservedCodemodeKey(t *testing.T) {
-	for _, name := range []string{"tools", "call"} {
+	for _, name := range []string{"tools", "schemas", "call", "json", "quota"} {
 		if !isReservedCodemodeKey(name) {
 			t.Errorf("%q should be reserved", name)
 		}

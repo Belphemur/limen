@@ -12,9 +12,22 @@ import (
 	"go.uber.org/zap"
 )
 
-// errQuotaExceeded is the marker error a tool proxy panics with when the
-// per-invocation tool-call cap is reached.
+// errQuotaExceeded is the marker error a tool proxy raises (via
+// vm.Interrupt — uncatchable from JS) when the per-invocation tool-call
+// cap is reached.
 var errQuotaExceeded = errors.New("codemode: max_tool_calls exceeded")
+
+// Reserved top-level keys on the `codemode` sandbox object. Adding a
+// new helper means adding its name here AND wiring it in
+// (*Handler).run. isReservedCodemodeKey switches off this list so the
+// two never drift.
+const (
+	reservedKeyTools   = "tools"
+	reservedKeySchemas = "schemas"
+	reservedKeyCall    = "call"
+	reservedKeyJSON    = "json"
+	reservedKeyQuota   = "quota"
+)
 
 func (h *Handler) makeProxy(ctx context.Context, vm *goja.Runtime, tool Tool, callSeq *int64, invocationID string) func(call goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
@@ -36,7 +49,13 @@ func (h *Handler) dispatchTool(ctx context.Context, vm *goja.Runtime, tool Tool,
 			zap.String("error_kind", "quota_exceeded"),
 			zap.String("error_message", redactSecrets(errQuotaExceeded.Error())),
 		)...)
-		panic(vm.NewGoError(errQuotaExceeded))
+		// vm.Interrupt schedules an InterruptedError on the next
+		// bytecode step — uncatchable from JS try/catch, unlike
+		// panic(vm.NewGoError(...)). Returning Undefined here lets the
+		// native call frame unwind cleanly; the very next opcode
+		// triggers the interrupt and aborts the script.
+		vm.Interrupt(errQuotaExceeded)
+		return goja.Undefined()
 	}
 
 	argsJSON, _ := json.Marshal(args)
@@ -93,7 +112,7 @@ func (h *Handler) runCode(ctx context.Context, vm *goja.Runtime, code string) (a
 		}
 		val, err := vm.RunProgram(prg)
 		if err != nil {
-			errCh <- fmt.Errorf("execution error: %w", err)
+			errCh <- wrapExecutionError(err)
 			return
 		}
 		// The advertised contract is that `code` evaluates to a
@@ -109,7 +128,7 @@ func (h *Handler) runCode(ctx context.Context, vm *goja.Runtime, code string) (a
 		if fn, ok := goja.AssertFunction(val); ok {
 			ret, callErr := fn(goja.Undefined())
 			if callErr != nil {
-				errCh <- fmt.Errorf("execution error: %w", callErr)
+				errCh <- wrapExecutionError(callErr)
 				return
 			}
 			val = ret
@@ -153,12 +172,17 @@ func (h *Handler) runCode(ctx context.Context, vm *goja.Runtime, code string) (a
 // the sandbox API surface stays stable regardless of admin naming.
 func isReservedCodemodeKey(name string) bool {
 	switch name {
-	case "tools", "schemas", "call":
+	case reservedKeyTools, reservedKeySchemas, reservedKeyCall, reservedKeyJSON, reservedKeyQuota:
 		return true
 	}
 	return false
 }
 
+// exportArgs converts the idx-th JS argument into a map[string]any.
+// Goja's Export() already returns map[string]any for plain JS objects
+// — fast-path that case to avoid a JSON round-trip on every tool call.
+// Nested goja-specific types still get normalized via JSON for hot
+// edge cases.
 func exportArgs(call goja.FunctionCall, idx int) map[string]any {
 	if len(call.Arguments) <= idx {
 		return nil
@@ -166,6 +190,9 @@ func exportArgs(call goja.FunctionCall, idx int) map[string]any {
 	exported := call.Argument(idx).Export()
 	if exported == nil {
 		return nil
+	}
+	if m, ok := exported.(map[string]any); ok {
+		return m
 	}
 	b, err := json.Marshal(exported)
 	if err != nil {
@@ -185,4 +212,60 @@ func exportValue(v goja.Value) any {
 		return nil
 	}
 	return v.Export()
+}
+
+// wrapExecutionError normalizes goja's error types for the JS runner.
+// In particular, an *goja.InterruptedError carrying errQuotaExceeded
+// (raised via vm.Interrupt to bypass JS try/catch) is unwrapped so the
+// outer error message and tests can match on the underlying sentinel.
+func wrapExecutionError(err error) error {
+	var ie *goja.InterruptedError
+	if errors.As(err, &ie) {
+		if e, ok := ie.Value().(error); ok {
+			return fmt.Errorf("execution error: %w", e)
+		}
+		return fmt.Errorf("execution error: interrupted: %v", ie.Value())
+	}
+	return fmt.Errorf("execution error: %w", err)
+}
+
+// parseJSONResult implements the codemode.json(result) helper. It
+// accepts:
+//   - the standard MCP "content" array [{type:"text", text:"..."}, ...]
+//     and returns JSON.parse(text) of the first text block,
+//   - any other value passed through unchanged (caller's
+//     responsibility), or
+//   - { raw: "<text>" } when the text isn't valid JSON.
+//
+// Designed to absorb the most repetitive boilerplate every codemode
+// script writes around tool results.
+func parseJSONResult(v goja.Value) any {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil
+	}
+	exported := v.Export()
+	arr, ok := exported.([]any)
+	if !ok {
+		return exported
+	}
+	for _, item := range arr {
+		block, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := block["type"].(string)
+		if typ != "" && typ != "text" {
+			continue
+		}
+		text, ok := block["text"].(string)
+		if !ok {
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(text), &parsed); err == nil {
+			return parsed
+		}
+		return map[string]any{"raw": text}
+	}
+	return exported
 }
