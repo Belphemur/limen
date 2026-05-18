@@ -18,6 +18,7 @@ import (
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/gateway/codemode"
 	"github.com/belphemur/limen/internal/mcprs"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/transport"
@@ -75,7 +76,7 @@ func newMCPRSHarness(t *testing.T) *mcprsHarness {
 	if err != nil {
 		t.Fatalf("gateway.NewManager: %v", err)
 	}
-	cm := gateway.NewCodeModeHandler(mgr, gateway.CodeModeConfig{ScriptTimeout: 5 * time.Second}, logger)
+	cm := codemode.New(gateway.CodemodeDispatcher{Manager: mgr}, codemode.Config{ScriptTimeout: 5 * time.Second}, logger)
 	mcpServer := transport.NewMCPServer(mgr, cm, logger)
 
 	if err := transport.MountMCPRS(r, transport.MCPRSDeps{

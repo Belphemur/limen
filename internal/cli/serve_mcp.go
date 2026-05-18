@@ -13,6 +13,7 @@ import (
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/gateway/codemode"
 	"github.com/belphemur/limen/internal/mcprs"
 	"github.com/belphemur/limen/internal/transport"
 	"github.com/belphemur/limen/internal/upstream"
@@ -39,7 +40,7 @@ func setupMCPGateway(d *serverDeps) (*gateway.Manager, *transport.MCPServer, err
 	if err != nil {
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)
 	}
-	cmHandler := gateway.NewCodeModeHandler(mgr, gateway.CodeModeConfig{
+	cmHandler := codemode.New(gateway.CodemodeDispatcher{Manager: mgr}, codemode.Config{
 		ScriptTimeout: d.cfg.CodeMode.ScriptTimeout,
 		MaxToolCalls:  d.cfg.CodeMode.MaxToolCalls,
 	}, d.logger)

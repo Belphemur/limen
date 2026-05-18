@@ -4,7 +4,7 @@
 // clients. It is a thin shell: it does not aggregate or proxy upstream
 // tools directly. Instead it advertises exactly two tools —
 // codemode_search and codemode_execute — and delegates their execution
-// to gateway.CodeModeHandler, which runs tenant-supplied JavaScript in
+// to codemode.Handler, which runs tenant-supplied JavaScript in
 // an isolated sandbox with the per-user upstream tool catalog injected.
 //
 // All real fan-out (per-tenant upstream lookup, per-user auth header
@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/gateway"
+	"github.com/belphemur/limen/internal/gateway/codemode"
 	"github.com/belphemur/limen/internal/gateway/codemodeaction"
 	"github.com/belphemur/limen/internal/tenancy"
 )
@@ -42,7 +43,7 @@ import (
 // the client reaches them by writing JavaScript that calls codemode.*
 // inside the handler's sandbox.
 type MCPServer struct {
-	handler    *gateway.CodeModeHandler
+	handler    *codemode.Handler
 	logger     *zap.Logger
 	core       *server.MCPServer
 	sse        *server.SSEServer
@@ -50,10 +51,10 @@ type MCPServer struct {
 }
 
 // NewMCPServer constructs the code-mode MCP server. All tool execution
-// flows through handler; the Manager passed to NewCodeModeHandler is
+// flows through handler; the Manager passed to codemode.New is
 // what actually fans out to per-(tenant, upstream) Bundles — this
 // transport layer only sees the handler facade.
-func NewMCPServer(_ *gateway.Manager, handler *gateway.CodeModeHandler, logger *zap.Logger) *MCPServer {
+func NewMCPServer(_ *gateway.Manager, handler *codemode.Handler, logger *zap.Logger) *MCPServer {
 	s := &MCPServer{
 		handler: handler,
 		logger:  logger,
@@ -141,7 +142,7 @@ func buildTool(def codemodeaction.Definition) mcp.Tool {
 	)
 }
 
-// handleSearch runs the supplied JS through CodeModeHandler.Search,
+// handleSearch runs the supplied JS through codemode.Handler.Search,
 // which exposes only codemode.tools() — no upstream dispatch. Argument
 // validation and handler errors are surfaced as MCP error results
 // (IsError=true) rather than transport-level errors so the client LLM
@@ -167,7 +168,7 @@ func (s *MCPServer) handleSearch(ctx context.Context, req mcp.CallToolRequest) (
 	return successResult(result), nil
 }
 
-// handleExecute runs the supplied JS through CodeModeHandler.Execute,
+// handleExecute runs the supplied JS through codemode.Handler.Execute,
 // which exposes codemode.tools() plus per-tool proxies bound to the
 // caller's tenant + user context. Same error-shaping rule as Search.
 func (s *MCPServer) handleExecute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

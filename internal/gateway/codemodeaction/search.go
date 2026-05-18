@@ -66,10 +66,23 @@ SANDBOX API — codemode_search exposes ONLY the discovery surface
       "upstream":    string    // which upstream MCP server this tool belongs to
     }
 
-    Optional filter (object, both fields optional, AND-combined):
-      { upstream?: string,   // exact match
-        match?:    string }  // case-insensitive substring matched
-                             // against (name + " " + description)
+    Optional filter (object — every field optional, fields AND-combine;
+    string fields accept a single string OR an array; arrays OR within
+    a single field):
+
+      {
+        upstream?:    string | string[],   // exact upstream name(s), any-of
+        name?:        string | string[],   // case-insensitive substring(s) on name
+        description?: string | string[],   // case-insensitive substring(s) on description
+        match?:       string | string[],   // case-insensitive substring(s) on name + " " + description
+        allOf?:       string[],            // ALL substrings must appear in name + " " + description
+        regex?:       boolean,             // treat name/description/match/allOf entries as RE2 regex
+                                           //  (always case-insensitive). Invalid regex => JS error.
+        limit?:       number,              // cap result count (post-filter)
+      }
+
+    The array forms are the point: pull every related tool across
+    multiple keywords or upstreams in ONE call.
 
     Returns [] if you have no linked upstreams — that is not an error.
 
@@ -108,21 +121,37 @@ RECIPES — copy and adapt
       return codemode.schemas(tools.map(t => t.name));
     }
 
-(3) Find candidates by keyword, then inspect their schemas in one shot:
+(3) Pull every tool across SEVERAL upstreams + keywords in ONE call,
+    with schemas inline:
 
     async () => {
-      const tools = codemode.tools({ match: "ticket" });
+      const tools = codemode.tools({
+        upstream: ["jira", "atlassian", "confluence"],
+        match:    ["task", "issue", "ticket"],
+        limit:    25,
+      });
       return {
         candidates: tools,
         schemas: codemode.schemas(tools.map(t => t.name)),
       };
     }
 
-(4) Inspect a specific tool you already know the name of:
+(4) Regex matching (RE2, case-insensitive):
+
+    async () => codemode.tools({
+      regex: true,
+      name:  "^(get|list)_",
+    })
+
+(5) Require multiple keywords to ALL appear (AND across patterns):
+
+    async () => codemode.tools({ allOf: ["pull", "request"] })
+
+(6) Inspect a specific tool you already know the name of:
 
     async () => codemode.schemas("jira_get_ticket")
 
-(5) Inspect several tools across upstreams in ONE call:
+(7) Inspect several tools across upstreams in ONE call:
 
     async () => codemode.schemas([
       "jira_get_ticket",
@@ -130,7 +159,7 @@ RECIPES — copy and adapt
       "slack_post_message",
     ])
 
-(6) Survey which upstreams are linked and how many tools each exposes:
+(8) Survey which upstreams are linked and how many tools each exposes:
 
     async () => {
       const counts = {};
@@ -149,4 +178,4 @@ fetch the schemas you need, then codemode_execute with a script that calls
 those tools. You can also call codemode.tools() / codemode.schemas() inside
 codemode_execute when you want to discover and call in a single round-trip.`
 
-const searchCodeArgDescription = `A single JavaScript expression that evaluates to a zero-argument async arrow function: async () => { ... }. Invoked once, its promise awaited, its resolved value JSON-encoded and returned to you. Use codemode.tools(filter?) to scan the LEAN catalog (name/description/upstream — no schemas) and codemode.schemas(name|names[]) to fetch JSON schemas for the tools you actually need (batched in ONE call). Filter shape: { upstream?: string, match?: string } where match is a case-insensitive substring on name+description. Read-only — cannot invoke upstream tools (use codemode_execute). Must return a JSON-serializable value. No filesystem, no network, no eval, no require, no timers, no console.`
+const searchCodeArgDescription = `A single JavaScript expression that evaluates to a zero-argument async arrow function: async () => { ... }. Invoked once, its promise awaited, its resolved value JSON-encoded and returned to you. Use codemode.tools(filter?) to scan the LEAN catalog (name/description/upstream — no schemas) and codemode.schemas(name|names[]) to fetch JSON schemas for the tools you actually need (batched in ONE call). Filter shape: { upstream?: string|string[], name?: string|string[], description?: string|string[], match?: string|string[], allOf?: string[], regex?: boolean, limit?: number } — fields AND-combine, arrays within a field OR-combine, match targets name+description, allOf requires every substring to appear in name+description, regex flips all string fields to RE2 (case-insensitive). Read-only — cannot invoke upstream tools (use codemode_execute). Must return a JSON-serializable value. No filesystem, no network, no eval, no require, no timers, no console.`
