@@ -65,12 +65,23 @@ func newCodeModeHandler(mgr toolDispatcher, cfg CodeModeConfig, logger *zap.Logg
 	return &CodeModeHandler{manager: mgr, logger: logger, cfg: cfg}
 }
 
-// ToolDefinition is the shape exposed to the sandbox via codemode.tools().
-type ToolDefinition struct {
+// ToolListing is the lean shape returned by codemode.tools(). It
+// intentionally OMITS inputSchema so the catalog stays cheap to scan;
+// callers pull schemas on demand with codemode.schemas(names).
+type ToolListing struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Upstream    string `json:"upstream"`
+}
+
+// ToolSchema is the full schema for one tool, returned by
+// codemode.schemas(names). Includes Upstream so a single round-trip
+// gives the LLM everything it needs to invoke the tool from
+// codemode_execute.
+type ToolSchema struct {
 	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
 	Upstream    string         `json:"upstream"`
+	InputSchema map[string]any `json:"inputSchema"`
 }
 
 // errQuotaExceeded is the marker error a tool proxy panics with when the
@@ -118,7 +129,7 @@ func (h *CodeModeHandler) run(ctx context.Context, code string, withProxies bool
 	var callSeq int64
 	codemodeObj := vm.NewObject()
 
-	defs := toToolDefs(tools)
+	listings := toListings(tools)
 
 	if withProxies {
 		byUpstream := make(map[string]map[string]ToolEntry, len(tools))
@@ -162,7 +173,25 @@ func (h *CodeModeHandler) run(ctx context.Context, code string, withProxies bool
 
 	// Reserved keys are set last so an upstream named "tools" or "call"
 	// can never shadow the sandbox API.
-	_ = codemodeObj.Set("tools", func() []ToolDefinition { return defs })
+	_ = codemodeObj.Set("tools", func(call goja.FunctionCall) goja.Value {
+		var filter map[string]any
+		if len(call.Arguments) > 0 {
+			if exported, ok := call.Argument(0).Export().(map[string]any); ok {
+				filter = exported
+			}
+		}
+		return vm.ToValue(filterListings(listings, filter))
+	})
+	_ = codemodeObj.Set("schemas", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			panic(vm.NewGoError(errors.New("codemode.schemas(names): names argument is required (string or string[])")))
+		}
+		names := exportSchemaNames(call.Argument(0))
+		if names == nil {
+			panic(vm.NewGoError(errors.New("codemode.schemas(names): names must be a string or array of strings")))
+		}
+		return vm.ToValue(schemasByName(tools, names))
+	})
 
 	_ = vm.Set("codemode", codemodeObj)
 
@@ -332,10 +361,77 @@ func (h *CodeModeHandler) baseLogFields(ctx context.Context, invocationID string
 	return fields
 }
 
-func toToolDefs(in []ToolEntry) []ToolDefinition {
-	out := make([]ToolDefinition, len(in))
+func toListings(in []ToolEntry) []ToolListing {
+	out := make([]ToolListing, len(in))
 	for i, t := range in {
-		out[i] = ToolDefinition(t)
+		out[i] = ToolListing{Name: t.Name, Description: t.Description, Upstream: t.Upstream}
+	}
+	return out
+}
+
+// exportSchemaNames coerces the first argument of codemode.schemas
+// into a flat []string. Accepts a single string for one-shot lookups
+// and an array of strings for batched ones. Returns nil for anything
+// else so the caller can reject the call with a clear error.
+func exportSchemaNames(v goja.Value) []string {
+	switch x := v.Export().(type) {
+	case string:
+		return []string{x}
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			s, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, s)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// filterListings applies an optional {upstream, match} filter object
+// to the lean catalog. Both filters are optional and combine with AND.
+// `match` is a case-insensitive substring matched against `name` and
+// `description`.
+func filterListings(in []ToolListing, filter map[string]any) []ToolListing {
+	upstreamFilter, _ := filter["upstream"].(string)
+	matchFilter, _ := filter["match"].(string)
+	if upstreamFilter == "" && matchFilter == "" {
+		return in
+	}
+	matchLower := strings.ToLower(matchFilter)
+	out := in[:0:0]
+	for _, t := range in {
+		if upstreamFilter != "" && t.Upstream != upstreamFilter {
+			continue
+		}
+		if matchLower != "" {
+			hay := strings.ToLower(t.Name + " " + t.Description)
+			if !strings.Contains(hay, matchLower) {
+				continue
+			}
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// schemasByName looks up tool schemas by exact name. Unknown names are
+// silently omitted — LLMs mistype tool identifiers often enough that
+// returning a partial result is the friendliest behaviour.
+func schemasByName(in []ToolEntry, names []string) []ToolSchema {
+	byName := make(map[string]ToolEntry, len(in))
+	for _, t := range in {
+		byName[t.Name] = t
+	}
+	out := make([]ToolSchema, 0, len(names))
+	for _, n := range names {
+		if t, ok := byName[n]; ok {
+			out = append(out, ToolSchema{Name: t.Name, Upstream: t.Upstream, InputSchema: t.InputSchema})
+		}
 	}
 	return out
 }
@@ -346,7 +442,7 @@ func toToolDefs(in []ToolEntry) []ToolDefinition {
 // the sandbox API surface stays stable regardless of admin naming.
 func isReservedCodemodeKey(name string) bool {
 	switch name {
-	case "tools", "call":
+	case "tools", "schemas", "call":
 		return true
 	}
 	return false

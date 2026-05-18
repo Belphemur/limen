@@ -309,19 +309,136 @@ func TestCodeMode_ToolsCatalogShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	defs, ok := got.([]ToolDefinition)
+	defs, ok := got.([]ToolListing)
 	if !ok || len(defs) != 1 {
 		t.Fatalf("unexpected: %#v", got)
 	}
-	want := ToolDefinition{
+	want := ToolListing{
 		Name:        "search",
 		Description: "find stuff",
 		Upstream:    "github",
-		InputSchema: map[string]any{"type": "object"},
 	}
 	if !reflect.DeepEqual(defs[0], want) {
 		t.Errorf("entry mismatch:\n got: %#v\nwant: %#v", defs[0], want)
 	}
+}
+
+// TestCodeMode_ToolsCatalogOmitsInputSchema is the load-bearing
+// contract test for the lean catalog: codemode.tools() must NOT
+// surface inputSchema. Schemas are accessed via codemode.schemas().
+func TestCodeMode_ToolsCatalogOmitsInputSchema(t *testing.T) {
+	tools := []ToolEntry{
+		{Name: "search", Description: "find", Upstream: "github", InputSchema: map[string]any{"type": "object"}},
+	}
+	d := &fakeDispatcher{tools: tools}
+	h := newTestHandler(t, d, CodeModeConfig{})
+	got, err := h.Search(context.Background(), `(() => {
+		const t = codemode.tools()[0];
+		return { keys: Object.keys(t).sort(), hasInputSchema: 'inputSchema' in t };
+	})()`)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	m := got.(map[string]any)
+	if m["hasInputSchema"] == true {
+		t.Errorf("codemode.tools() leaked inputSchema; keys=%v", m["keys"])
+	}
+}
+
+// TestCodeMode_ToolsFilter exercises the {upstream, match} filter.
+func TestCodeMode_ToolsFilter(t *testing.T) {
+	tools := []ToolEntry{
+		{Name: "searchJira", Description: "search issues", Upstream: "atlassian"},
+		{Name: "createJira", Description: "create issue", Upstream: "atlassian"},
+		{Name: "searchRepos", Description: "search github", Upstream: "github"},
+	}
+	d := &fakeDispatcher{tools: tools}
+	h := newTestHandler(t, d, CodeModeConfig{})
+
+	cases := []struct {
+		name string
+		js   string
+		want []string
+	}{
+		{"upstream only", `codemode.tools({upstream:'atlassian'}).map(t=>t.name).sort()`, []string{"createJira", "searchJira"}},
+		{"match only", `codemode.tools({match:'search'}).map(t=>t.name).sort()`, []string{"searchJira", "searchRepos"}},
+		{"both", `codemode.tools({upstream:'atlassian', match:'search'}).map(t=>t.name)`, []string{"searchJira"}},
+		{"no filter", `codemode.tools().length`, nil}, // length check below
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := h.Search(context.Background(), tc.js)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if tc.want == nil {
+				// no-filter case: just assert length 3
+				if got != int64(3) && got != float64(3) {
+					t.Errorf("length: got %v want 3", got)
+				}
+				return
+			}
+			arr, ok := got.([]any)
+			if !ok {
+				t.Fatalf("got %T want []any: %#v", got, got)
+			}
+			gotNames := make([]string, len(arr))
+			for i, v := range arr {
+				gotNames[i] = v.(string)
+			}
+			if !reflect.DeepEqual(gotNames, tc.want) {
+				t.Errorf("got %v want %v", gotNames, tc.want)
+			}
+		})
+	}
+}
+
+// TestCodeMode_Schemas exercises codemode.schemas(names) for both
+// string and []string inputs, and asserts unknown names are silently
+// omitted (so a typo in one name does not poison the whole batch).
+func TestCodeMode_Schemas(t *testing.T) {
+	tools := []ToolEntry{
+		{Name: "a", Upstream: "u1", InputSchema: map[string]any{"type": "object", "required": []any{"x"}}},
+		{Name: "b", Upstream: "u2", InputSchema: map[string]any{"type": "object"}},
+	}
+	d := &fakeDispatcher{tools: tools}
+	h := newTestHandler(t, d, CodeModeConfig{})
+
+	t.Run("single string", func(t *testing.T) {
+		got, err := h.Search(context.Background(), `codemode.schemas('a')`)
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		arr, ok := got.([]ToolSchema)
+		if !ok || len(arr) != 1 || arr[0].Name != "a" || arr[0].Upstream != "u1" {
+			t.Fatalf("got %#v", got)
+		}
+	})
+
+	t.Run("array with unknown", func(t *testing.T) {
+		got, err := h.Search(context.Background(), `codemode.schemas(['a','nope','b']).map(s=>s.name)`)
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		arr := got.([]any)
+		if len(arr) != 2 || arr[0] != "a" || arr[1] != "b" {
+			t.Errorf("got %v want [a b]", arr)
+		}
+	})
+
+	t.Run("wrong type rejects", func(t *testing.T) {
+		_, err := h.Search(context.Background(), `codemode.schemas(123)`)
+		if err == nil {
+			t.Fatal("expected error for numeric arg")
+		}
+	})
+
+	t.Run("missing arg rejects", func(t *testing.T) {
+		_, err := h.Search(context.Background(), `codemode.schemas()`)
+		if err == nil {
+			t.Fatal("expected error for missing arg")
+		}
+	})
 }
 
 // TestCodeMode_AsyncArrowFunction_IsInvoked verifies the contract
@@ -356,10 +473,10 @@ func TestCodeMode_AsyncArrowFunction_IsInvoked(t *testing.T) {
 
 // TestCodeMode_ToolFieldsAreCamelCaseInJS guards the contract that
 // codemode.tools() exposes properties matching the JSON tags
-// (`name`, `description`, `inputSchema`, `upstream`) — not the Go
-// struct field names. The default goja reflection surfaces Go field
-// names, which silently breaks scripts that follow the documented
-// shape (`t.upstream` returns undefined → JSON null).
+// (`name`, `description`, `upstream`) — not the Go struct field
+// names. The default goja reflection surfaces Go field names, which
+// silently breaks scripts that follow the documented shape
+// (`t.upstream` returns undefined → JSON null).
 func TestCodeMode_ToolFieldsAreCamelCaseInJS(t *testing.T) {
 	tools := []ToolEntry{
 		{Name: "search", Description: "find", Upstream: "github", InputSchema: map[string]any{"type": "object"}},
@@ -374,7 +491,6 @@ func TestCodeMode_ToolFieldsAreCamelCaseInJS(t *testing.T) {
 			name: t.name,
 			description: t.description,
 			upstream: t.upstream,
-			hasInputSchema: typeof t.inputSchema === 'object' && t.inputSchema !== null,
 			pascalLeak: t.Name !== undefined || t.Upstream !== undefined,
 		};
 	})()`)
@@ -393,9 +509,6 @@ func TestCodeMode_ToolFieldsAreCamelCaseInJS(t *testing.T) {
 	}
 	if m["description"] != "find" {
 		t.Errorf("description: got %v want find", m["description"])
-	}
-	if m["hasInputSchema"] != true {
-		t.Errorf("hasInputSchema: got %v want true", m["hasInputSchema"])
 	}
 	if m["pascalLeak"] == true {
 		t.Errorf("Go field names leaked into JS surface (Name/Upstream visible)")
