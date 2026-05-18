@@ -38,7 +38,15 @@ Object, Map, Set, ...).
 NO filesystem, NO network (fetch/XHR/WebSocket — reach the outside world
 ONLY via codemode.*), NO process/env, NO eval/Function-constructor, NO
 timers, NO console, NO DOM, NO Node-isms (Buffer/require/__dirname). The
-ONLY non-standard global is 'codemode'. No shared state across invocations.`
+ONLY non-standard global is 'codemode'.
+
+NO SHARED STATE between invocations. Each codemode_search /
+codemode_execute call gets a fresh VM with no memory of previous calls —
+no variables, no caches, no module-level objects survive. Inline every
+ID, name, token, or intermediate result the script needs as a literal
+inside the script itself. Do NOT plan workflows that depend on "the
+account_id I fetched last time" — fetch it again, or fold both steps
+into the same script.`
 
 // commonDiscoveryAPI documents codemode.tools(filter?) and
 // codemode.schemas(names) — the read-only catalog surface available in

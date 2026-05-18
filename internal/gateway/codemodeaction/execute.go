@@ -25,6 +25,27 @@ resilience policy (timeout, retry, circuit breaker). You never see or
 handle credentials.
 
 =============================================================================
+EVIDENCE DISCIPLINE — verify, don't speculate
+=============================================================================
+
+When the workflow is "check whether X is implemented / configured /
+correct", return CONCRETE evidence, not impressions:
+
+  • Cite the exact field, value, resource ID, or count that supports
+    each claim. "lifecyclemanager-prod gateway exists with guardrails:
+    {...}" — not "implementation appears to exist".
+  • If a tool you have access to cannot actually prove the claim,
+    say "cannot verify from available tools" — do NOT fall back to
+    weasel words ("indirectly validated", "looks consistent",
+    "suggesting implementation"). Those are tells that the script
+    didn't actually check what it claims to check.
+  • Surface your own search shape: which filter/JQL/keywords you used,
+    how many results you got, how many you inspected. The caller
+    needs to audit the bucket you drew conclusions from.
+  • Prefer { claim, evidence, confidence: "verified"|"partial"|"none" }
+    over a prose summary when the workflow is an audit.
+
+=============================================================================
 WHEN TO USE EACH TOOL
 =============================================================================
 
@@ -35,7 +56,8 @@ WHEN TO USE EACH TOOL
   You don't know which upstreams are even linked
       → codemode_search ONCE with a broad filter, then codemode_execute.
   Never: codemode_execute, then codemode_execute, then codemode_execute …
-         for what is logically ONE workflow.
+         for what is logically ONE workflow. There is no shared state
+         between invocations — fold every step into one script.
 
 =============================================================================
 ANTI-PATTERNS
@@ -54,6 +76,15 @@ ANTI-PATTERNS
 
   BAD:  Parsing r?.content?.[0]?.text + JSON.parse by hand.
   GOOD: codemode.json(await codemode.x.y(args))   // free helper
+
+  BAD:  Plan a second codemode_execute that uses "the account_id from
+        last time" — there IS no last time; the VM is fresh every call.
+  GOOD: Fetch the account_id and use it in the SAME script.
+
+  BAD:  "Implementation appears to exist", "indirectly validated",
+        "looks consistent" — speculation dressed up as evidence.
+  GOOD: Return { claim, evidence: "<exact field/value/ID>",
+        confidence: "verified"|"partial"|"none" }.
 
 `
 
@@ -238,7 +269,27 @@ whole point of codemode_execute.
       return { ticket: codemode.json(ticket), pr: codemode.json(pr) };
     }
 
-(8) Trivial single-tool passthrough — last because if this is all you
+(8) Cross-system audit with explicit evidence (verify, don't speculate):
+
+    async () => {
+      const jql = 'text ~ "cloudflare" AND status = Done';
+      const issues = codemode.json(await codemode.jira.search({ jql, limit: 50 }));
+      const zones  = codemode.json(await codemode.cloudflare.list_zones({}));
+      const zoneNames = new Set((zones?.result || []).map(z => z.name));
+      const checks = (issues?.issues || []).slice(0, 20).map(it => {
+        // Pull a concrete hostname/zone hint from the issue, then prove
+        // (or disprove) it against Cloudflare state.
+        const hint = (it.fields?.summary || "").match(/[a-z0-9-]+\.[a-z]{2,}/i)?.[0];
+        if (!hint) return { key: it.key, claim: "cloudflare implementation", confidence: "none", evidence: "no hostname in summary" };
+        const matched = [...zoneNames].find(z => hint.endsWith(z));
+        return matched
+          ? { key: it.key, claim: hint, evidence: "zone " + matched, confidence: "verified" }
+          : { key: it.key, claim: hint, evidence: "no matching CF zone", confidence: "none" };
+      });
+      return { filter: { jql, limit: 50 }, total: issues?.total ?? 0, sampled: checks.length, checks };
+    }
+
+(9) Trivial single-tool passthrough — last because if this is all you
     needed, you probably should have called the upstream tool directly:
 
     async () => codemode.json(await codemode.jira.get_ticket({ id: "PROJ-123" }))`
