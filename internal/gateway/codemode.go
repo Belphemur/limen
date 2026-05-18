@@ -262,6 +262,37 @@ func (h *CodeModeHandler) runCode(ctx context.Context, vm *goja.Runtime, code st
 			errCh <- fmt.Errorf("execution error: %w", err)
 			return
 		}
+		// The advertised contract is that `code` evaluates to a
+		// zero-argument async arrow function which the runtime invokes
+		// and whose returned promise it awaits. Existing tests also use
+		// bare expressions (e.g. `codemode.tools()`) that evaluate
+		// directly to a value, so we support both: if the script's
+		// value is callable we invoke it, otherwise we take the value
+		// as-is. If the resulting value is a Promise we resolve it
+		// synchronously (goja drains microtasks before the call
+		// returns, so an async function with no truly async ops settles
+		// immediately).
+		if fn, ok := goja.AssertFunction(val); ok {
+			ret, callErr := fn(goja.Undefined())
+			if callErr != nil {
+				errCh <- fmt.Errorf("execution error: %w", callErr)
+				return
+			}
+			val = ret
+		}
+		if p, ok := val.Export().(*goja.Promise); ok {
+			switch p.State() {
+			case goja.PromiseStateFulfilled:
+				resultCh <- exportValue(p.Result())
+				return
+			case goja.PromiseStateRejected:
+				errCh <- fmt.Errorf("execution error: %s", redactSecrets(p.Result().String()))
+				return
+			default:
+				errCh <- fmt.Errorf("execution error: returned promise did not settle synchronously (no event loop in sandbox)")
+				return
+			}
+		}
 		resultCh <- val.Export()
 	}()
 
@@ -344,6 +375,17 @@ func approxResultBytes(v any) int {
 		return 0
 	}
 	return len(b)
+}
+
+// exportValue returns v.Export(), or nil if v is undefined/nil. Goja's
+// Export() on goja.Undefined() returns nil, but on explicit undefined
+// values it can return a typed nil that confuses downstream JSON
+// encoding; coalescing to a plain nil here keeps the boundary clean.
+func exportValue(v goja.Value) any {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil
+	}
+	return v.Export()
 }
 
 // classifyToolError maps a Manager.CallTool error into (error_kind,

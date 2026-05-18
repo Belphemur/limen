@@ -323,3 +323,33 @@ func TestCodeMode_ToolsCatalogShape(t *testing.T) {
 		t.Errorf("entry mismatch:\n got: %#v\nwant: %#v", defs[0], want)
 	}
 }
+
+// TestCodeMode_AsyncArrowFunction_IsInvoked verifies the contract
+// advertised by the codemode_search / codemode_execute tool
+// descriptions: an `async () => { ... }` expression is the entry
+// point, gets invoked once, and its returned promise is awaited. A
+// regression test for the bug where the runtime returned the function
+// itself (result_bytes=0) instead of its resolved value.
+func TestCodeMode_AsyncArrowFunction_IsInvoked(t *testing.T) {
+	tools := []ToolEntry{
+		{Name: "search", Upstream: "github", InputSchema: map[string]any{"type": "object"}},
+		{Name: "search", Upstream: "gitlab", InputSchema: map[string]any{"type": "object"}},
+	}
+	d := &fakeDispatcher{tools: tools}
+	h := newTestHandler(t, d, CodeModeConfig{})
+
+	got, err := h.Search(context.Background(), `async () => {
+		const t = await codemode.tools();
+		return { total: t.length, upstreams: [...new Set(t.map(x => x.upstream))].sort() };
+	}`)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("want map result, got %T: %#v", got, got)
+	}
+	if m["total"] != int64(2) && m["total"] != float64(2) {
+		t.Errorf("total: got %v want 2", m["total"])
+	}
+}
