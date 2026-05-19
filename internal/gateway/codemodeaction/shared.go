@@ -6,123 +6,69 @@ package codemodeaction
 // Tool-specific framing (opener, recipes, dispatch surface) lives in
 // each tool's own file.
 
-// commonInputContract is the calling convention shared by both tools.
-// The error-message prefix differs (search vs. execute) so callers
-// concatenate their own first sentence; everything below the divider
-// is identical.
-const commonInputContract = `=============================================================================
-INPUT CONTRACT — the 'code' argument MUST be ALL of the following:
-=============================================================================
+// commonInputContract opens the <input> section. The matching </input>
+// is emitted by the tool-specific *InputErrorSuffix so each tool can
+// stamp its own error-message prefix (search vs. execute) before the
+// closing tag.
+const commonInputContract = `<input>
+code = a single expression evaluating to: async () => { ... }
+Not a function declaration, not a class, not top-level statements, not an IIFE.
+Must return a JSON-serializable value (object | array | string | finite number | boolean | null).
+'undefined' → null. Functions, symbols, BigInt, Map, Set, Date, circular refs are NOT serializable — convert them yourself.
+`
 
-  1. A SINGLE JavaScript expression that evaluates to a zero-argument async
-     arrow function: async () => { ... }
-  2. NOT a function declaration, NOT a script of top-level statements,
-     NOT a class, NOT an IIFE wrapper.
-  3. The function takes NO parameters; hard-code any inputs in the body.
-  4. The function MUST eventually return a JSON-serializable value
-     (object, array, string, finite number, boolean, null). 'undefined'
-     becomes null. Functions/symbols/BigInt/Map/Set/Date/circular refs
-     are NOT serializable — convert them yourself.`
+// commonSandboxRuntime emits the <runtime> section plus the
+// no-shared-state <critical> rider. Worded as one block so any future
+// hardening lands in one place.
+const commonSandboxRuntime = `<runtime>
+Modern JS (ES2015+: let/const, arrow fns, async/await, destructuring, spread, Promises, JSON, Math, Array, String, Number, RegExp, Object, Map, Set).
+NO: filesystem, network (fetch/XHR/WebSocket), process/env, eval/Function ctor, timers, console, DOM, Buffer, require, __dirname.
+Only non-standard global is 'codemode'.
+</runtime>
 
-// commonSandboxRuntime is the JS runtime / denial list shared by both
-// tools. Worded as a single block so any future hardening lands in
-// one place.
-const commonSandboxRuntime = `=============================================================================
-SANDBOX RUNTIME
-=============================================================================
-
-Modern JavaScript (ES2015+: let/const, arrow functions, async/await,
-destructuring, spread, Promises, JSON, Math, Array, String, Number, RegExp,
-Object, Map, Set, ...).
-
-NO filesystem, NO network (fetch/XHR/WebSocket — reach the outside world
-ONLY via codemode.*), NO process/env, NO eval/Function-constructor, NO
-timers, NO console, NO DOM, NO Node-isms (Buffer/require/__dirname). The
-ONLY non-standard global is 'codemode'.
-
-NO SHARED STATE between invocations. Each codemode_search /
-codemode_execute call gets a fresh VM with no memory of previous calls —
-no variables, no caches, no module-level objects survive. Inline every
-ID, name, token, or intermediate result the script needs as a literal
-inside the script itself. Do NOT plan workflows that depend on "the
-account_id I fetched last time" — fetch it again, or fold both steps
-into the same script.`
+<critical>
+NO SHARED STATE between invocations. Each call gets a fresh VM — no variables, no caches, no module-level objects survive. Inline every ID, name, token, or intermediate result as a literal inside the script. Never plan workflows that depend on "the X I fetched last time" — fetch it again, or fold both steps into the same script.
+</critical>`
 
 // commonDiscoveryAPI documents codemode.tools(filter?) and
-// codemode.schemas(names) — the read-only catalog surface available in
-// BOTH codemode_search and codemode_execute. Both bindings are free
-// (do not count against the tool-call quota).
-const commonDiscoveryAPI = `  codemode.tools(filter?)
-    Returns Array<ToolListing> of tools visible to YOU (your tenant,
-    your linked upstreams, link health enforced). LEAN shape — no
-    schema, cheap to scan even with hundreds of tools.
+// codemode.schemas(names) inside the surrounding <api> block. TS
+// signatures + a compact substring-semantics legend replace the
+// previous prose paragraphs. Both bindings are free (no quota).
+const commonDiscoveryAPI = `codemode.tools(filter?) → ToolListing[]
+  Catalog visible to YOU (tenant + linked upstreams, link health enforced). Lean shape, no schema.
+  type ToolListing = { name: string; description: string; upstream: string }
+  type ToolFilter = {
+    upstream?:    string | string[]
+    name?:        string | string[]
+    description?: string | string[]
+    match?:       string | string[]
+    allOf?:       string[]
+    regex?:       boolean
+    limit?:       number
+  }
+  // upstream: exact match. name|description|match|allOf: case-insensitive substring on the named field
+  //   (match → name + " " + description). regex=true: treat string fields as RE2 (still ci).
+  // Fields AND-combine. Array values within a field OR-combine.
+  // Returns [] if you have no linked upstreams.
 
-    ToolListing = {
-      "name":        string,   // pass to codemode.schemas / codemode.call
-      "description": string,   // free-form, may be empty
-      "upstream":    string    // which upstream MCP server this tool belongs to
-    }
+codemode.schemas(names: string | string[]) → { found: ToolSchema[]; missing: string[] }
+  type ToolSchema = { name: string; upstream: string; inputSchema: object /* JSON Schema 2020-12 */ }
+  Use the array form to batch. 'missing' surfaces typos.`
 
-    Optional filter (object — every field optional, fields AND-combine;
-    string fields accept a single string OR an array; arrays OR within
-    a single field):
+// commonHelpers documents the two free helpers (json + quota) inside
+// the surrounding <api> block. "Free (no quota)" is stated once in
+// the <quotas> block; not repeated here.
+const commonHelpers = `codemode.json(result) → unwraps the first text block of an MCP CallToolResult and JSON.parses it.
+  Accepts: full CallToolResult | { content: [...] } map | bare content array.
+  Returns { raw: "<text>" } when not valid JSON.
 
-      {
-        upstream?:    string | string[],   // exact upstream name(s), any-of
-        name?:        string | string[],   // case-insensitive substring(s) on name
-        description?: string | string[],   // case-insensitive substring(s) on description
-        match?:       string | string[],   // case-insensitive substring(s) on name + " " + description
-        allOf?:       string[],            // ALL substrings must appear in name + " " + description
-        regex?:       boolean,             // treat name/description/match/allOf entries as RE2 regex
-                                           //  (always case-insensitive). Invalid regex => JS error.
-        limit?:       number,              // cap result count (post-filter)
-      }
-
-    The array forms are the point: pull every related tool across
-    multiple keywords or upstreams in ONE call.
-
-    Returns [] if you have no linked upstreams — that is not an error.
-
-  codemode.schemas(names)
-    Returns { found: ToolSchema[], missing: string[] } for the named
-    tools. 'names' accepts a single string OR an array of strings; the
-    array form is the whole point — fetch every schema you need in ONE
-    call to minimise round-trips.
-
-    ToolSchema = {
-      "name":        string,
-      "upstream":    string,
-      "inputSchema": object   // JSON Schema (Draft 2020-12). Typically
-                              // { type: "object", properties: {...},
-                              //   required: [...], additionalProperties: bool }
-                              // May be {} for arg-less tools.
-    }
-
-    Unknown names appear in 'missing' (not 'found') so a typo never
-    silently drops a tool — check 'missing' if you care.`
-
-// commonHelpers documents the two free helpers (json + quota) that
-// exist in both Search and Execute. Neither counts against the
-// tool-call quota.
-const commonHelpers = `  codemode.json(result)
-    Helper: extracts and JSON.parses the first text block of an MCP
-    tool result. Accepts the full CallToolResult (the value tool
-    proxies return), a {content:[...]} map, or the bare content array
-    — all three shapes are handled. Returns { raw: "<text>" } when the
-    text isn't valid JSON, and passes non-recognized inputs through
-    unchanged. Free (no quota). Use it to shrink scripts and avoid
-    repeating the r?.content?.[0]?.text / JSON.parse dance.
-
-  codemode.quota()
-    Helper: returns { used, max, remaining, deadline_ms } so loops can
-    self-bound before they hit the tool-call cap or wall-clock
-    timeout. Free (no quota).`
+codemode.quota() → { used: number; max: number; remaining: number; deadline_ms: number }. Bound loops with .remaining.`
 
 // commonArgContractShort is the calling-convention reminder embedded
-// in BOTH *CodeArgDescription fields. Kept short on purpose — the
-// long-form contract lives in the tool Description.
-const commonArgContractShort = `A single JavaScript expression that evaluates to a zero-argument async arrow function: async () => { ... }. Invoked once, its promise awaited, its resolved value JSON-encoded and returned to you. Must return a JSON-serializable value. No filesystem, no network (only codemode.*), no eval, no require, no timers, no console.`
+// in BOTH *CodeArgDescription fields. Long-form contract lives in the
+// tool Description.
+const commonArgContractShort = `Single JS expression: async () => { ... }. Awaited once, resolved value JSON-encoded and returned. Must be JSON-serializable. No filesystem, no network (only codemode.*), no eval, no require, no timers, no console.`
 
 // commonFilterShapeShort is the one-line filter recap embedded in both
-// *CodeArgDescription fields.
-const commonFilterShapeShort = `Filter shape: { upstream?: string|string[], name?: string|string[], description?: string|string[], match?: string|string[], allOf?: string[], regex?: boolean, limit?: number } — fields AND-combine, arrays within a field OR-combine, match targets name+description, allOf requires every substring to appear in name+description, regex flips all string fields to RE2 (case-insensitive).`
+// *CodeArgDescription fields. TS-signature form.
+const commonFilterShapeShort = `type ToolFilter = { upstream?: string|string[]; name?: string|string[]; description?: string|string[]; match?: string|string[]; allOf?: string[]; regex?: boolean; limit?: number }. Fields AND-combine; arrays within a field OR-combine; match targets name+description; allOf requires every entry to appear; regex flips string fields to RE2 (always ci).`
