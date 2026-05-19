@@ -324,38 +324,50 @@ rest).
 
 ## Checklist
 
-- [ ] **Slice 1** — `internal/cli/runtime.go` with `BootRuntime` +
+- [x] **Slice 1** — `internal/boot/runtime.go` with `BootRuntime` +
       `BootProfile` bitmask; existing `limen serve` unchanged.
-- [ ] **Slice 2** — `cmd/gateway/` renamed to `cmd/limen/`; `Makefile`,
-      `compose.dev.yaml`, `README.md`, `AGENTS.md`, build scripts,
-      and any release tooling updated.
-- [ ] **Slice 3** — `cmd/gateway/main.go` (new) boots only the MCP
-      suite. Per-binary boot test: 200 on `/healthz` + `/t/{tenant}/mcp/*`
-      (after auth), 404 on `/auth/*`, `/oauth/*`, `/t/{tenant}/api/*`,
-      `/staff/*`. Additional assertion: the binary's import graph does
-      not reach `internal/oauthproxy` or the Zitadel management-API
-      surface of `internal/zitadel` (a `go list -deps ./cmd/gateway`
-      check in CI enforces this — moving DCR into `gateway` would
-      defeat the credential-isolation rationale for the split).
-- [ ] **Slice 4** — `cmd/portal/main.go` boots portal + admin
-      Connect-RPC + OIDC RP + OAuth proxy (DCR + AS metadata) +
-      upstream callback. Boot test asserts the symmetric 404s, plus
-      a positive check that `POST /t/{tenant}/oauth/register` returns
-      a non-404 (RFC 7591 path is reachable).
-- [ ] **Slice 5** — `cmd/staff/main.go` scaffold; boots, serves
-      `/healthz`, returns 404 elsewhere. No staff routes yet.
-- [ ] **Slice 6** — `cmd/limenctl/main.go` owns `migrate`,
-      `create-tenant`, `create-upstream`; service binaries no longer
-      expose those subcommands.
+      (Lives under `internal/boot/` rather than `internal/cli/` so
+      `cmd/gateway` can depend on it without transitively importing
+      the cobra/viper tree or the admin subcommands.)
+- [x] **Slice 2** — `cmd/gateway/` renamed to `cmd/limen/`; `Makefile`,
+      `compose.dev.yaml`, build scripts updated. `README.md` /
+      `AGENTS.md` updates deferred to the Phase 11 docs sweep.
+- [x] **Slice 3** — `cmd/gateway/main.go` (new) boots only the MCP
+      suite. Import-graph isolation enforced by
+      `cmd/gateway/import_graph_test.go` (asserts `internal/oauthproxy`
+      and `internal/zitadel` are absent from `go list -deps`). Route-
+      level 404 boot tests deferred (would need a real Postgres per
+      `BootRuntime` — out of scope for the no-DB testing posture
+      chosen for this slice; the import-graph check is the load-
+      bearing assertion).
+- [x] **Slice 4** — `cmd/portal/main.go` boots portal + OIDC RP +
+      OAuth proxy (DCR + AS metadata) + upstream callback. Admin
+      Connect-RPC arrives with Phase 9c. Import-graph test asserts
+      portal _does_ pull `internal/oauthproxy` + `internal/zitadel` +
+      `internal/auth`. Live `POST /oauth/register` smoke test
+      deferred to the Phase 9b/c work that exercises the route end-
+      to-end.
+- [x] **Slice 5** — `cmd/staff/main.go` scaffold; boots, serves
+      `/healthz` + `/readyz`, returns 404 elsewhere. Builds the
+      Zitadel admin client (held for Phase 12). Import-graph test
+      asserts staff excludes `internal/oauthproxy` and the codemode
+      hot path.
+- [x] **Slice 6** — `cmd/limenctl/main.go` owns `migrate`,
+      `create-tenant`, `create-upstream` via `cli.NewAdminRootCommand`.
+      `cmd/limen` keeps the full tree (including `serve`) for the
+      all-in-one shape.
 - [ ] **Slice 7** — per-binary Dockerfiles under
       `build/docker/<binary>.Dockerfile`; CI matrix builds all five
-      binaries on every PR and pushes images on tag.
+      binaries on every PR and pushes images on tag. **Deferred to
+      Phase 11 per scope decision.**
 - [ ] Schema-version mismatch on boot exits non-zero with a clear
       "run `limenctl migrate`" message; covered by an integration
       test that starts a service binary against a one-version-old DB.
-- [ ] `internal/cli` package documented (`AGENTS.md`) — per-suite
-      `setup*` helpers are the supported API; service `main.go`
-      files are 1–2 calls each.
+      **Not implemented in this slice — follow-up item.**
+- [ ] `internal/boot` + `internal/cli` packages documented (`AGENTS.md`)
+      — per-suite mount helpers under `internal/boot/*` are the
+      supported API; service `main.go` files are 1–2 calls each.
+      **Pending — `internal/boot/AGENTS.md` not yet written.**
 - [ ] Phase 11 follow-up captured: per-binary Compose services with
       appropriate replicas, timeouts, and ingress class; `staff`
       bound to a private network.
