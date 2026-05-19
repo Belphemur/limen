@@ -158,6 +158,11 @@ func BootRuntime(configPath string, want BootProfile) (*Runtime, func(), error) 
 		}
 		rt.Store = store
 		rt.AddCleanup(func() { _ = store.Close() })
+
+		if err := store.CheckSchemaVersion(ctx); err != nil {
+			cleanup()
+			return nil, func() {}, err
+		}
 	}
 
 	if want.Has(NeedUpstream) {
