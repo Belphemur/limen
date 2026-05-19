@@ -97,6 +97,33 @@ UI shape in `Upstreams.vue`:
 
 The SPA never tries to bootstrap a catalog under a `member`'s credentials — the bootstrap is an admin responsibility precisely because the resulting catalog is shared across every user of the tenant.
 
+### Per-upstream ambient context editor ([Phase 8c](phase-08c-ambient-context-and-alias-discovery.md))
+
+The admin Upstreams page edits the **upstream-level** `defaults_json` JSONB blob introduced in Phase 8c (the per-link `context_json` is edited in the user's portal in Phase 9). Both surfaces share the validation rules below, so the UX is documented here once and referenced from the portal phase.
+
+The blob is exposed to codemode scripts as `codemode.tools().upstreams[i].context` (see [Phase 8c](phase-08c-ambient-context-and-alias-discovery.md) for the full envelope shape) — there is no server-side injection into tool calls — so the editor's job is to make the blob easy to write correctly and impossible to write nonsensically.
+
+Component shape on the upstream detail page in `Upstreams.vue`:
+
+| Element                  | Behavior                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| JSON editor              | Monaco editor (already a Vite-friendly bundle) configured with `language: "json"`, `formatOnPaste`, `formatOnType`, and tab size 2. Diagnostics are surfaced inline by Monaco's built-in JSON worker.                                                                                                                                                                    |
+| Live validation          | A computed property re-parses on every keystroke (debounced 200 ms). Surfaces three states under the editor: `Valid · 142 B`, `Invalid JSON: <message>`, or `Too large: 4321 B > 4096 B`. The "Save" button is disabled in the latter two.                                                                                                                              |
+| Schema hints             | A small static map per known strategy / upstream URL pattern offers suggested key names as ghost-text completions: `cloudId` for Atlassian (`api.atlassian.com`), `organization_slug` for Sentry (`*.sentry.io`), `account_id` for Cloudflare (`api.cloudflare.com`). Suggestions only — never enforced. The map lives in `web/src/admin/upstreamContextHints.ts`.       |
+| Reset button             | "Reset to empty" writes `{}` and prompts a confirm dialog if the current blob is non-empty. Convenient for fixing autopopulated values that are wrong; explicit because users will reach for it accidentally.                                                                                                                                                            |
+| Save                     | Calls `AdminService.UpdateUpstream` with the new `defaults_json` field. On `invalid_argument` from the server, the editor highlights the offending field path (returned in the Connect error's `details`) and surfaces the server message above the editor. Server-side re-validation is mandatory — the client check is a UX accelerator, not a security boundary.    |
+| Read-only "merged" panel | Below the editor, a collapsed `<details>` shows what the matching group on `codemode.tools()` will surface for a representative user: `merge(linkContext, defaultsJson)`. Lets the admin spot-check that their defaults won't be silently overridden. Per-link context is fetched on demand for a chosen user (admin-only RPC `AdminService.PreviewUpstreamContext(user_id)`).                              |
+
+Validation rules enforced **both** client-side (for UX) and server-side (for safety), as specified in Phase 8c:
+
+- Top-level value must be a JSON **object** — `[]`, scalars, and `null` are rejected.
+- Serialized size ≤ 4 KB.
+- Top-level keys match `^[A-Za-z_$][\w$]*$` so the model can spread them as `{...up.context}` without bracket-notation tricks.
+
+The same component is reused in the customer portal ([Phase 9](phase-09-portal-spa.md)) for the per-link `context_json` editor; only the RPC backing it changes (`PortalService.UpdateUpstreamLinkContext`). The portal phase imports `web/src/components/ContextJsonEditor.vue` and re-exports the same hint map.
+
+`AdminService.UpdateUpstream` calls the shared `gateway.validateContextBlob` helper from [Phase 8c](phase-08c-ambient-context-and-alias-discovery.md) on every write. Validation errors are mapped to Connect `invalid_argument` with a structured `field_path` detail (`{"path":"defaults_json","reason":"root_not_object"}`) so the SPA can highlight precisely.
+
 ### Self-serve signup (`StartSignup` / `CompleteSignup`)
 
 CLI-driven tenant creation in Phase 4 stays for ops / dev / self-hosted installs. The SaaS path is here:
@@ -267,6 +294,9 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] `CreateUpstream` runs `IndexUpstream` inline for tenant-mode strategies (`none`, `static_header` tenant-mode) and returns `{requires_admin_link: false, tools: [...]}`; for per-user strategies it returns `{requires_admin_link: true, connect_url}` and leaves the catalog empty until an admin/owner completes the connect flow
 - [ ] `ReindexUpstreamCatalog` rejects per-user-strategy calls from admins who hold no enabled link to the upstream with `failed_precondition`
 - [ ] `Upstreams.vue` blocks the "upstream ready" state on `tool_count > 0` and renders the admin-link modal as the mandatory next step after creating an OAuth/per-user upstream
+- [ ] `Upstreams.vue` includes the `ContextJsonEditor.vue` for `defaults_json`: Monaco-backed, live size + parse validation, schema hints per strategy, "Reset to empty" with confirm, and a read-only merged-preview panel using `AdminService.PreviewUpstreamContext`
+- [ ] `AdminService.UpdateUpstream` calls `gateway.validateContextBlob` on `defaults_json` and maps failures to Connect `invalid_argument` with a structured `field_path` detail
+- [ ] `web/src/components/ContextJsonEditor.vue` and `web/src/admin/upstreamContextHints.ts` are reusable from the customer portal (Phase 9) for the per-link `context_json` editor
 - [ ] `internal/admin/` contains **no** `members.go` and **no** `idp.go`; reviewers reject PRs that add them
 - [ ] No `tenant_idp_configurations` migration; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, `CreateInviteCode`, `AddUserGrant` for non-bootstrap callers, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
