@@ -44,7 +44,7 @@ func Run(configPath string) error {
 	r.Get("/", boot.LandingPage)
 	boot.MountHealth(r)
 
-	portalmount.Mount(r, rt, oidc)
+	portalmount.Mount(r, rt, oidc, zclient)
 	if err := oauthproxymount.Mount(r, rt, zclient); err != nil {
 		return err
 	}

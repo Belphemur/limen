@@ -22,18 +22,28 @@ import (
 type Service struct {
 	store    *storage.Store
 	upstream *upstream.Service
+	apps     AppManager
 	resolver SessionResolver
 	logger   *zap.Logger
 }
 
+// AppManager is the narrow ISP slice the portal needs from
+// internal/zitadel.Client. Kept here so internal/portal doesn't take a
+// hard dep on the Zitadel package — tests can pass a fake without
+// pulling in the management SDK.
+type AppManager interface {
+	DeleteOIDCApp(ctx context.Context, orgID, projectID, appID string) error
+}
+
 // NewService builds the portal Connect-RPC service. resolver MUST verify
 // the portal cookie against the Zitadel ID token issuer; production
-// wires this to auth.OIDC via OIDCSessionResolver.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, resolver SessionResolver, logger *zap.Logger) *Service {
+// wires this to auth.OIDC via OIDCSessionResolver. apps may be nil in
+// tests that don't exercise the MCP client RPCs.
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, apps AppManager, resolver SessionResolver, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{store: store, upstream: upstreamSvc, resolver: resolver, logger: logger}
+	return &Service{store: store, upstream: upstreamSvc, apps: apps, resolver: resolver, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
@@ -84,11 +94,5 @@ func (s *Service) GetSession(ctx context.Context, req *connect.Request[portalv1.
 }
 
 // The remaining RPCs are stubbed in slice 2 and filled in by slices 3-4.
-
-func (s *Service) ListMCPClients(_ context.Context, _ *connect.Request[portalv1.ListMCPClientsRequest]) (*connect.Response[portalv1.ListMCPClientsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
-
-func (s *Service) RevokeMCPClient(_ context.Context, _ *connect.Request[portalv1.RevokeMCPClientRequest]) (*connect.Response[portalv1.RevokeMCPClientResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
+// (Upstream RPCs land in slice 3 / upstreams.go; MCP-client RPCs land
+// in slice 4 / mcpclients.go.)

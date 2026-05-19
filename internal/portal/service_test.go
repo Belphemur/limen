@@ -32,6 +32,14 @@ func (f *fakeResolver) resolve(_ context.Context, _ http.Header, _ string) (*Use
 	return f.sess, f.setCookie, f.err
 }
 
+// fakeAppManager satisfies portal.AppManager for tests that need to
+// reach RevokeMCPClient but don't want to call a real Zitadel.
+type fakeAppManager struct{ err error }
+
+func (f fakeAppManager) DeleteOIDCApp(_ context.Context, _, _, _ string) error {
+	return f.err
+}
+
 // mountFixture builds a Connect server with the portal interceptor stack
 // wired against a fake resolver and a single hard-coded tenant pinned
 // to ctx via tenancy.RequireTenant's equivalent (we use a chi-less
@@ -40,6 +48,7 @@ func mountFixture(t *testing.T, resolver SessionResolver, tenantPublicID string)
 	t.Helper()
 	svc := &Service{
 		store:    nil, // not exercised — none of these tests touch the DB.
+		apps:     fakeAppManager{},
 		resolver: resolver,
 		logger:   zap.NewNop(),
 	}
@@ -129,16 +138,15 @@ func TestAuthenticatedRPC_MemberPassesInterceptors(t *testing.T) {
 	srv := mountFixture(t, r.resolve, "tnt_test")
 	defer srv.Close()
 
-	// ListMCPClients still stubs Unimplemented in slice 3 — that's the
-	// proof the interceptor stack let the call through (the upstream
-	// RPCs now reach the upstream service and would panic on the nil
-	// dep, so we use a still-unimplemented RPC as the canary).
-	_, err := newClient(t, srv).ListMCPClients(context.Background(), connect.NewRequest(&portalv1.ListMCPClientsRequest{}))
+	// RevokeMCPClient with an empty public_id short-circuits in the
+	// handler before touching store/apps — InvalidArgument is the
+	// signal the interceptor stack let the call through.
+	_, err := newClient(t, srv).RevokeMCPClient(context.Background(), connect.NewRequest(&portalv1.RevokeMCPClientRequest{}))
 	if err == nil {
-		t.Fatal("expected Unimplemented error from stub, got nil")
+		t.Fatal("expected InvalidArgument error from handler, got nil")
 	}
-	if got := connect.CodeOf(err); got != connect.CodeUnimplemented {
-		t.Fatalf("want CodeUnimplemented (proves interceptors passed), got %v", got)
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("want CodeInvalidArgument (proves interceptors passed), got %v", got)
 	}
 }
 
