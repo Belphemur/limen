@@ -146,3 +146,49 @@ func TestAsyncArrowFunction_IsInvoked(t *testing.T) {
 		t.Errorf("total: got %v want 2", m["total"])
 	}
 }
+
+// TestAliasProxy_CallsResolveSameAsCanonical verifies the §2 contract:
+// a tool dispatched via an alias proxy (codemode.<alias>.<tool>) lands
+// on the same Dispatcher.CallTool invocation as the canonical proxy
+// (codemode.<canonical>.<tool>), with the canonical upstream name on
+// both call records. Quota accounting is unchanged because both paths
+// go through the same dispatch wrapper.
+func TestAliasProxy_CallsResolveSameAsCanonical(t *testing.T) {
+	tools := []Tool{{Name: "jira_search", Upstream: "atlassian"}}
+	d := &fakeDispatcher{
+		tools: tools,
+		upstreams: []UpstreamMeta{{
+			Name:    "atlassian",
+			Aliases: []string{"jira"},
+			Context: map[string]any{},
+		}},
+		responses: map[string]any{"atlassian/jira_search": "ok"},
+	}
+	h := newTestHandler(t, d, Config{})
+
+	if _, err := h.Execute(context.Background(), `(async () => {
+		const a = await codemode.atlassian.jira_search({via: "canonical"});
+		const b = await codemode.jira.jira_search({via: "alias"});
+		return [a, b];
+	})()`); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	d.mu.Lock()
+	calls := append([]dispatchCall(nil), d.calls...)
+	d.mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("got %d calls, want 2: %#v", len(calls), calls)
+	}
+	for i, c := range calls {
+		if c.Upstream != "atlassian" {
+			t.Errorf("call[%d].Upstream = %q, want atlassian (alias must resolve to canonical)", i, c.Upstream)
+		}
+		if c.Tool != "jira_search" {
+			t.Errorf("call[%d].Tool = %q, want jira_search", i, c.Tool)
+		}
+	}
+	if calls[0].Args["via"] != "canonical" || calls[1].Args["via"] != "alias" {
+		t.Errorf("args not preserved through alias proxy: %#v", calls)
+	}
+}

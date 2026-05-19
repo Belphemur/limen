@@ -31,7 +31,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 7b  | [DCR per-client Zitadel projects (JIT in tenant org)](phase-07b-dcr-per-client-project.md)         | 5, 6               | ☐            |
 | 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)                        | 6, 7               | ☐            |
 | 8b  | [Codemode async tool calls (event loop + Promise proxies)](phase-08b-codemode-async-tool-calls.md) | 8                  | ✅           |
-| 8c  | [Ambient context + alias autodiscovery + empty-filter hints](phase-08c-ambient-context-and-alias-discovery.md) | 8                  | ☐            |
+| 8c  | [Ambient context + alias autodiscovery + empty-filter hints](phase-08c-ambient-context-and-alias-discovery.md) | 8                  | 🟡 partial   |
 | 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                                 | 4, 7               | ☐            |
 | 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)                  | 4, 7, 9            | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                    | 0–9                | ☐            |

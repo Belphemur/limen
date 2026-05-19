@@ -19,7 +19,7 @@ Code Mode uses a two-phase approach:
 
 ### Phase 1: Discovery
 
-The LLM agent calls `codemode_search` with a JavaScript filter function. Inside the Goja sandbox, the script calls `codemode.tools()` to get all available tools, then filters them down to a relevant subset:
+The LLM agent calls `codemode_search` with a JavaScript filter function. Inside the Goja sandbox, the script calls `codemode.tools(filter)` to retrieve the per-user catalog grouped by upstream, then narrows it down:
 
 ```js
 async () => {
@@ -56,11 +56,14 @@ Code Mode runs JavaScript inside [Goja](https://github.com/dop251/goja), a pure 
 
 Only the `codemode` object is injected into the sandbox:
 
-| Method                          | Description                                                         |
-| ------------------------------- | ------------------------------------------------------------------- |
-| `codemode.tools()`              | Returns `[{name, description, inputSchema}]` for all upstream tools |
-| `codemode.call(toolName, args)` | Calls a tool by name string with the given arguments                |
-| `codemode.toolName(args)`       | Direct proxy -- each tool is a method on `codemode`                 |
+| Method                                       | Description                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `codemode.tools(filter?)`                    | Returns `{ upstreams: UpstreamGroup[], hint? }` — catalog grouped by upstream, with aliases and context. |
+| `codemode.schemas(names)`                    | Batch-fetch `inputSchema` for the named tools; returns `{ found, missing }`.                             |
+| `codemode.call(upstream, name, args)`        | Calls a tool by `(upstream, name)`. Both args required; use for runtime / non-identifier names.          |
+| `codemode.<upstream>.<tool>(args)`           | Per-upstream proxy. Sub-brand **aliases** (derived from tool-name prefixes) also work as proxy names.    |
+| `codemode.json(result)`                      | Unwraps the first text block of an MCP CallToolResult and JSON-parses it.                                |
+| `codemode.quota()`                           | Returns `{ used, max, remaining, deadline_ms }` for the current invocation.                              |
 
 ### What Is NOT Available
 
@@ -80,42 +83,91 @@ The sandbox starts fresh on every invocation. Nothing persists between calls.
 
 ## JS API Reference
 
-### `codemode.tools()`
+### `codemode.tools(filter?)`
 
-Returns an array of all available tools across all upstreams:
+Returns an envelope grouping the tools visible to the calling user by upstream. **Schemas are not included** — fetch them on demand with `codemode.schemas`.
 
-```js
-const tools = await codemode.tools();
-// [
-//   { name: "github_search_issues", description: "...", inputSchema: { ... } },
-//   { name: "jira_get_ticket", description: "...", inputSchema: { ... } },
-//   ...
-// ]
+```ts
+type UpstreamGroup = {
+  name:    string;                    // canonical upstream name
+  aliases: string[];                  // derived sub-brand names (e.g. ["jira","confluence"] for "atlassian")
+  context: Record<string, unknown>;   // merged per-user ambient context — informational only
+  tools:   { name: string; description: string }[];
+};
+
+type EmptyHint = { tried: string[]; available: string[]; suggested: string[] };
+
+type ToolsResult = { upstreams: UpstreamGroup[]; hint?: EmptyHint };
 ```
 
-### `codemode.call(toolName, args)`
+Filter shape:
 
-Invokes a tool by its name string. Useful for dynamic tool selection:
+```ts
+type ToolFilter = {
+  upstream?:    string | string[];   // matches canonical name OR any alias
+  name?:        string | string[];
+  description?: string | string[];
+  match?:       string | string[];   // → name + " " + description
+  allOf?:       string[];
+  regex?:       boolean;             // strings become RE2 (ci)
+  limit?:       number;              // caps TOTAL tools across all groups
+};
+```
+
+Fields AND-combine; array values within a field OR-combine. Groups whose tools filter to zero are dropped from `upstreams`. When the filter was non-empty and `upstreams` ends up empty, the envelope carries a `hint` with the closest-matching upstream / alias names — actionable typo recovery in one round-trip.
+
+#### Aliases (sub-brand proxies)
+
+For any upstream whose tool names share a `_` / `-` prefix, the prefix is promoted to an alias automatically. An upstream registered as `atlassian` with tools `jira_search`, `jira_create_issue`, `confluence_get_page` becomes reachable as `codemode.jira.*`, `codemode.confluence.*`, **and** `codemode.atlassian.*`. The catalog reports the canonical name on every group and the derived names in `aliases`.
+
+Aliases never override the canonical name and never collide with reserved sandbox keys (`tools`, `schemas`, `call`, `json`, `quota`). Tenant-wide collisions (two upstreams both claiming `jira`) drop the alias from all claimants; canonical names always survive.
+
+#### Per-upstream context (visibility, not injection)
+
+Each group's `context` is a shallow merge of the upstream's admin-set defaults with the calling user's link-specific overrides (link wins per key). It carries stable metadata such as a Jira `cloudId`, a Sentry `organizationSlug`, or a default project — values the gateway already knows so the model does not have to rediscover them.
+
+**The gateway does NOT inject this blob into tool calls.** The script is the source of truth for what gets sent; logs match the call exactly. Spread the values explicitly when you want them:
 
 ```js
-const result = await codemode.call("github_search_issues", {
+const { upstreams } = codemode.tools({ upstream: "atlassian" });
+const up = upstreams[0];
+await codemode.atlassian.jira_search({ ...up.context, jql: "project = OP" });
+```
+
+Sometimes a strategy will autopopulate context after a successful call (e.g. the Atlassian strategy pins `cloudId` from the `/oauth/token/accessible-resources` response); the next `codemode.tools()` read sees the new value automatically.
+
+### `codemode.schemas(names)`
+
+Batch-fetch `inputSchema` for the tools you actually intend to call. Single string or array; prefer the array form.
+
+```js
+const { found, missing } = codemode.schemas(["jira_search", "github_get_pr"]);
+// found:  [{ name, upstream, inputSchema }]
+// missing: ["typo_tool"]
+```
+
+### `codemode.call(upstream, name, args)`
+
+String-keyed escape hatch — both arguments are required. Use it when an upstream or tool name is not a valid JS identifier (`-`, `.`, leading digit) or when you choose the target at runtime:
+
+```js
+const result = await codemode.call("github", "search_issues", {
   q: "is:open",
   repo: "owner/repo",
 });
 ```
 
-### `codemode.toolName(args)` -- Per-Tool Proxy
+### `codemode.<upstream>.<tool>(args)` — Per-Upstream Proxy
 
-Every discovered tool is available as a direct method on the `codemode` object:
+Every upstream is registered on `codemode` under its canonical name AND every derived alias. Bracket notation works for non-identifier upstream / tool names:
 
 ```js
-const result = await codemode.github_search_issues({
-  q: "is:open",
-  repo: "owner/repo",
-});
+await codemode.github.search_issues({ q: "is:open", repo: "owner/repo" });
+await codemode.jira.jira_search({ jql: "project = OP" });          // alias of atlassian
+await codemode["my-upstream"]["weird.tool"]({ ... });               // bracket notation
 ```
 
-This is equivalent to `codemode.call("github_search_issues", args)` but with cleaner syntax.
+There is no flat `codemode.<tool>` namespace — two upstreams can expose the same tool name (e.g. `github` and `gitlab` both expose `search_issues`), so dispatch is always `(upstream, tool)`.
 
 ## Async semantics & concurrency
 
@@ -155,32 +207,33 @@ The two count quotas interact predictably: `max_tool_calls` is the
 
 ```js
 async () => {
-  const tools = await codemode.tools();
-  return tools.filter((t) => t.name.startsWith("github_"));
+  const { upstreams } = codemode.tools({ name: "search" });
+  return upstreams.flatMap((g) => g.tools.map((t) => ({ ...t, upstream: g.name })));
 };
 ```
 
-### Filter Tools by Upstream
+### Filter Tools by Upstream (canonical or alias)
 
-Tool names typically include an upstream prefix. Filter by that prefix:
+The `upstream` filter resolves aliases automatically, so either name works:
 
 ```js
 async () => {
-  const tools = await codemode.tools();
-  return tools.filter((t) => t.name.startsWith("jira_"));
+  const { upstreams, hint } = codemode.tools({ upstream: "jira" });
+  if (hint) return { empty: true, hint };           // typo recovery in one round-trip
+  return upstreams;
 };
 ```
 
-### Filter Tools by Parameter
+### Inspect Input Schemas
 
-Inspect input schemas to find tools that accept specific parameters:
+Fetch schemas on demand for tools you're about to invoke:
 
 ```js
 async () => {
-  const tools = await codemode.tools();
-  return tools.filter(
-    (t) => t.inputSchema.properties && "repository" in t.inputSchema.properties,
-  );
+  const { upstreams } = codemode.tools({ upstream: "github" });
+  const names = upstreams.flatMap((g) => g.tools.map((t) => t.name));
+  const { found, missing } = codemode.schemas(names);
+  return { found, missing };
 };
 ```
 
@@ -191,16 +244,16 @@ Compose multiple tool calls in a single execution:
 ```js
 async () => {
   // Step 1: Find open issues
-  const issues = await codemode.github_search_issues({
+  const issues = codemode.json(await codemode.github.search_issues({
     q: "is:open label:bug",
-  });
+  }));
 
   // Step 2: For each issue, fetch the linked Jira ticket
   const results = await Promise.all(
     issues.map(async (issue) => {
       const jiraId = extractJiraId(issue.body);
       if (jiraId) {
-        return await codemode.jira_get_ticket({ id: jiraId });
+        return codemode.json(await codemode.jira.get_ticket({ id: jiraId }));
       }
       return null;
     }),
@@ -217,7 +270,7 @@ Use standard JavaScript `try/catch` to handle tool failures gracefully:
 ```js
 async () => {
   try {
-    const ticket = await codemode.jira_get_ticket({ id: "PROJ-999" });
+    const ticket = await codemode.jira.get_ticket({ id: "PROJ-999" });
     return { status: "ok", ticket };
   } catch (err) {
     return { status: "error", message: err.message };
@@ -232,8 +285,8 @@ Aggregate data from different systems in a single execution:
 ```js
 async () => {
   const [githubPRs, jiraTickets] = await Promise.all([
-    codemode.github_list_pull_requests({ state: "open" }),
-    codemode.jira_search({ jql: "status = 'In Progress'" }),
+    codemode.github.list_pull_requests({ state: "open" }),
+    codemode.jira.search({ jql: "status = 'In Progress'" }),
   ]);
 
   return {

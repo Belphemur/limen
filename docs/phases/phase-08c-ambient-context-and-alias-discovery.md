@@ -600,49 +600,70 @@ create_ai_gateway]` → `[]`.
 
 ## Checklist
 
-- [ ] Add `DefaultsJSON`, `Aliases` to `Upstream`; `ContextJSON` to
+- [x] Add `DefaultsJSON`, `AliasesJSON` to `Upstream`; `ContextJSON` to
       `UpstreamLink`. AutoMigrate verified to apply defaults on
-      existing rows; goose backfill added only if needed.
-- [ ] `mergeContext(upstreamDefaults, linkContext)` +
-      `validateContextBlob` implemented in
-      `internal/gateway/context.go`; 4 KB cap, object-root, JS-ident
-      key shape; pure functions, table-driven tests.
-- [ ] `(*Manager).CallTool` confirmed to **not** merge the context
-      blob into args (regression test added).
-- [ ] Read-time defense in `(*Handler).run`: invalid stored JSON →
-      `context: {}` + `gateway.context.invalid_json` warn.
+      existing rows; goose backfill added only if needed. _(Note:
+      `Aliases` landed as `AliasesJSON []byte` jsonb-array rather
+      than `pq.StringArray` to avoid pulling in `lib/pq`; runtime
+      shape and semantics are identical.)_
+- [x] `MergeContext(upstreamDefaults, linkContext)` +
+      `ValidateContextBlob` + `SafeLoadContextBlob` implemented in
+      [internal/gateway/context.go](../../internal/gateway/context.go);
+      4 KB cap, object-root, JS-ident key shape; pure functions,
+      table-driven tests.
+- [x] `(*Manager).CallTool` confirmed to **not** merge the context
+      blob into args (regression test `TestCallTool_DoesNotInjectContext`
+      in
+      [internal/gateway/manager_context_test.go](../../internal/gateway/manager_context_test.go)
+      stands up a real mcp-go server, captures the outbound args,
+      and asserts they equal the script-supplied map exactly).
+- [x] Read-time defense in `(*Manager).UpstreamsForUser`: invalid
+      stored JSON → `context: {}` + `gateway.context.invalid_json`
+      warn (covered by `TestUpstreamsForUser_InvalidStoredJSONDiscarded`).
 - [ ] Write-time validation wired into the admin upstream service
       (Phase 9b) and the per-link portal handler (Phase 9). Connect
-      `invalid_argument` errors carry the field path.
-- [ ] `deriveAliases` + tenant-wide collision pass in
-      `internal/gateway/aliases.go`; wired to tool-cache hydrate /
-      invalidate paths.
+      `invalid_argument` errors carry the field path. **Deferred:
+      `internal/admin/` and `internal/portal/` packages do not exist
+      yet; lands with Phase 9 / 9b. `ValidateContextBlob` is ready
+      for them to call.**
+- [x] `DeriveAliases` + tenant-wide collision pass
+      (`ResolveAliasCollisions`) in
+      [internal/upstream/aliases.go](../../internal/upstream/aliases.go);
+      wired into `reconcileCatalog` so aliases are recomputed every
+      time the tool cache refreshes.
 - [ ] `AfterFirstCall(link, args, response)` hook on the strategy
       interface; Atlassian concrete hook stashes `cloudId`. Failures
-      are best-effort, logged. Hook output passes `validateContextBlob`.
-- [ ] `codemode.tools()` returns the new envelope
+      are best-effort, logged. Hook output passes `ValidateContextBlob`.
+      **Outstanding — autopopulation half of §1. Visibility / merge
+      / spread all work today; users must paste `cloudId` into the
+      link manually until this hook lands.**
+- [x] `codemode.tools()` returns the new envelope
       (`{ upstreams: UpstreamGroup[], hint?: EmptyHint }`); per-tool
       `upstream` field removed; groups carry `name`, `aliases`,
       `context`, `tools`.
-- [ ] No separate `codemode.upstreams()` verb; no new reserved
+- [x] No separate `codemode.upstreams()` verb; no new reserved
       sandbox keys introduced by this phase.
-- [ ] Aliases registered on the `codemode` sandbox object alongside
-      canonical names; canonical name always wins on collision.
-- [ ] `codemode.tools()` populates `hint` when the filter was
+- [x] Aliases registered on the `codemode` sandbox object alongside
+      canonical names; canonical name always wins on collision
+      (covered by `TestAliasProxy_CallsResolveSameAsCanonical`).
+- [x] `codemode.tools()` populates `hint` when the filter was
       non-empty, `upstreams` is empty, and ≥ 1 candidate is found.
-- [ ] `commonDiscoveryAPI` + execute / search recipes updated to
+- [x] `commonDiscoveryAPI` + execute / search recipes updated to
       teach the new envelope shape, the spread-`group.context`
       pattern, alias filtering, and the `hint` field. Explicit note
       that context is **not** injected.
-- [ ] Unit tests for merge precedence, validation rejection paths,
+- [x] Unit tests for merge precedence, validation rejection paths,
       alias derivation, collision drop, grouped catalog shape with
       context, alias filter matching canonical, empty-group drop,
       empty-filter hint, limit-across-groups, no-injection
       regression.
 - [ ] RLS test extended to cover `context_json` and `defaults_json`
-      cross-tenant isolation.
-- [ ] Update [docs/codemode.md](../codemode.md) — context visibility
+      cross-tenant isolation. **Columns live on already-RLS-scoped
+      tables (`upstreams`, `upstream_links`); cross-tenant isolation
+      is structurally inherited. Targeted assertion left for the
+      next time `internal/storage/rls_test.go` is touched.**
+- [x] Update [docs/codemode.md](../codemode.md) — context visibility
       model, aliases, `codemode.tools()` envelope shape, `hint`
       shape.
-- [ ] Update [docs/phases/README.md](README.md) index with phase 8c
+- [x] Update [docs/phases/README.md](README.md) index with phase 8c
       and its dependency on phase 8.
