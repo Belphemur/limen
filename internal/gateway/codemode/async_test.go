@@ -30,6 +30,19 @@ func (s *sleepyDispatcher) ToolsForUser(_ context.Context) ([]Tool, error) {
 	return s.tools, nil
 }
 
+func (s *sleepyDispatcher) UpstreamsForUser(_ context.Context) ([]UpstreamMeta, error) {
+	seen := map[string]struct{}{}
+	out := make([]UpstreamMeta, 0)
+	for _, t := range s.tools {
+		if _, ok := seen[t.Upstream]; ok {
+			continue
+		}
+		seen[t.Upstream] = struct{}{}
+		out = append(out, UpstreamMeta{Name: t.Upstream})
+	}
+	return out, nil
+}
+
 func (s *sleepyDispatcher) CallTool(ctx context.Context, upstream, name string, args map[string]any) (any, error) {
 	atomic.AddInt64(&s.calls, 1)
 	s.mu.Lock()

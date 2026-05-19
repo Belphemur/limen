@@ -74,9 +74,11 @@ const executeAPIHeader = `<api>
 
 const executeDispatchAPI = `
 await codemode.<upstream>.<toolName>(args) → upstream MCP CallToolResult (use codemode.json to unwrap).
-  '<upstream>' = exact 'upstream' from the catalog. '<toolName>' = exact 'name'. 'args' = plain object matching inputSchema.
+  '<upstream>' = canonical 'name' from the catalog OR any of its aliases (sub-brand proxies are
+  registered alongside the canonical name). '<toolName>' = exact 'name'. 'args' = plain object matching inputSchema.
   Two upstreams may expose the same name (e.g. 'github' and 'gitlab' both expose 'search_issues') — there is NO flat codemode.<toolName>.
   For names not valid as JS identifiers ('-', '.', leading digit): use codemode.call() or bracket notation, e.g. codemode["my-upstream"]["some-tool"](args).
+  Per-upstream 'context' (catalog group.context) is INFORMATIONAL — pass relevant keys explicitly: codemode.jira.search({...group.context, jql}).
 
 await codemode.call(upstream, name, args) → string-keyed escape hatch. Both args REQUIRED.
 
@@ -102,10 +104,14 @@ const executeRecipes = `<examples>
 
 (1) Discover + call in ONE round-trip (skip codemode_search):
   async () => {
-    const tools = codemode.tools({ upstream: "jira", match: "ticket" });
-    const { found } = codemode.schemas(tools.map(t => t.name));
+    const r = codemode.tools({ upstream: "jira", match: "ticket" });
+    if (r.hint) return { empty: true, hint: r.hint };          // recover from typo / no linked upstream
+    const names = r.upstreams.flatMap(g => g.tools.map(t => t.name));
+    const { found } = codemode.schemas(names);
     const get = found.find(s => s.name.includes("get"));
-    return codemode.json(await codemode.call(get.upstream, get.name, { id: "PROJ-123" }));
+    // Spread the upstream's context explicitly — the gateway does NOT inject it.
+    const group = r.upstreams.find(g => g.name === get.upstream);
+    return codemode.json(await codemode.call(get.upstream, get.name, { ...group.context, id: "PROJ-123" }));
   }
 
 (2) Parallel fan-out with Promise.allSettled (independent calls — in-flight cap bounds concurrency, you don't have to):

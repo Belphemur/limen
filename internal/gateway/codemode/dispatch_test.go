@@ -109,13 +109,18 @@ func TestReservedUpstreamNamesAreSkippedFromPropertyChain(t *testing.T) {
 		t.Errorf("got %v, want direct", got)
 	}
 
-	// codemode.tools() still returns the catalog (function, not object).
-	got, err = h.Execute(context.Background(), `codemode.tools().length`)
+	// codemode.tools() still returns the catalog (now as an envelope).
+	got, err = h.Execute(context.Background(), `(() => {
+		const r = codemode.tools();
+		let total = 0;
+		for (const g of r.upstreams) total += g.tools.length;
+		return total;
+	})()`)
 	if err != nil {
 		t.Fatalf("tools(): %v", err)
 	}
 	if got != int64(3) {
-		t.Errorf("tools().length = %v, want 3", got)
+		t.Errorf("tools() total = %v, want 3", got)
 	}
 }
 

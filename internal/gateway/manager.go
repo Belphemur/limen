@@ -199,6 +199,129 @@ func (m *Manager) ToolsForUser(ctx context.Context) ([]ToolEntry, error) {
 	return out, nil
 }
 
+// UpstreamView is one upstream's metadata as the codemode handler needs
+// it: canonical name, derived aliases (post-collision-pass), and the
+// already-merged ambient context object. Built by UpstreamsForUser.
+type UpstreamView struct {
+	Name    string
+	Aliases []string
+	Context map[string]any
+}
+
+// UpstreamsForUser returns metadata for every upstream visible to the
+// user on ctx (same visibility rule as ToolsForUser). Aliases are
+// loaded from upstream.aliases_json (recomputed by IndexUpstream) and
+// then filtered by a tenant-wide collision pass: any alias claimed by
+// more than one upstream is dropped from all claimants. Context is the
+// shallow merge of UpstreamLink.ContextJSON over Upstream.DefaultsJSON
+// — invalid stored JSON degrades to an empty {} with a single warn
+// log so the catalog still loads.
+func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) {
+	tenant, ok := tenancy.TenantFromContext(ctx)
+	if !ok {
+		return nil, errors.New("gateway: no tenant on ctx")
+	}
+	user, _ := auth.MCPUserFromContext(ctx)
+
+	tx, commit, err := m.opts.Store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return nil, fmt.Errorf("gateway: upstreams: open session: %w", err)
+	}
+	defer func() { _ = commit() }()
+
+	var ups []storage.Upstream
+	if err := tx.Where("tenant_id = ? AND deleted_at IS NULL", tenant.ID).
+		Order("name ASC").
+		Find(&ups).Error; err != nil {
+		return nil, fmt.Errorf("gateway: upstreams: list: %w", err)
+	}
+
+	linkByUpstream := map[int64]*storage.UpstreamLink{}
+	if user != nil {
+		var links []storage.UpstreamLink
+		if err := tx.Where(`user_id = ? AND deleted_at IS NULL
+				AND enabled = true
+				AND auto_disabled_at IS NULL
+				AND needs_relink = false`, user.ID).
+			Find(&links).Error; err != nil {
+			return nil, fmt.Errorf("gateway: upstreams: list links: %w", err)
+		}
+		for i := range links {
+			linkByUpstream[links[i].UpstreamID] = &links[i]
+		}
+	}
+
+	// Visibility + per-upstream alias slice for the tenant-wide
+	// collision pass. We must collect aliases from EVERY visible
+	// upstream first; otherwise the collision pass would miss claims.
+	visible := make([]*storage.Upstream, 0, len(ups))
+	aliasesByName := make(map[string][]string, len(ups))
+	for i := range ups {
+		up := &ups[i]
+		strat, err := m.opts.Registry.Resolve(upstream.StrategyType(up.StrategyType))
+		if err != nil {
+			m.opts.Logger.Warn("upstreams: skipping unknown strategy",
+				zap.String("upstream", up.Name),
+				zap.String("strategy", up.StrategyType),
+				zap.Error(err))
+			continue
+		}
+		if strat.RequiresLink() {
+			if _, ok := linkByUpstream[up.ID]; !ok {
+				continue
+			}
+		}
+		visible = append(visible, up)
+		aliasesByName[up.Name] = decodeAliasesJSON(up.AliasesJSON)
+	}
+
+	resolved, collisions := upstream.ResolveAliasCollisions(aliasesByName)
+	if len(collisions) > 0 {
+		m.opts.Logger.Warn("gateway.alias.collision",
+			zap.Int64("tenant_id", tenant.ID),
+			zap.Strings("dropped", collisions))
+	}
+
+	out := make([]UpstreamView, 0, len(visible))
+	for _, up := range visible {
+		defaults, ok := SafeLoadContextBlob(up.DefaultsJSON)
+		if !ok {
+			m.opts.Logger.Warn("gateway.context.invalid_json",
+				zap.Int64("tenant_id", tenant.ID),
+				zap.String("upstream", up.Name),
+				zap.String("source", "upstream.defaults_json"))
+		}
+		var linkCtx map[string]any
+		if l := linkByUpstream[up.ID]; l != nil {
+			var lok bool
+			linkCtx, lok = SafeLoadContextBlob(l.ContextJSON)
+			if !lok {
+				m.opts.Logger.Warn("gateway.context.invalid_json",
+					zap.Int64("tenant_id", tenant.ID),
+					zap.String("upstream", up.Name),
+					zap.String("source", "upstream_link.context_json"))
+			}
+		}
+		out = append(out, UpstreamView{
+			Name:    up.Name,
+			Aliases: resolved[up.Name],
+			Context: MergeContext(defaults, linkCtx),
+		})
+	}
+	return out, nil
+}
+
+func decodeAliasesJSON(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
 // bundleFor returns the cached Bundle for (tenant, upstreamName) or
 // builds and caches a new one.
 func (m *Manager) bundleFor(ctx context.Context, tenant *storage.Tenant, upstreamName string) (*Bundle, error) {

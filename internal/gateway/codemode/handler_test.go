@@ -17,6 +17,7 @@ import (
 type fakeDispatcher struct {
 	tools     []Tool
 	toolsErr  error
+	upstreams []UpstreamMeta
 	responses map[string]any
 	errs      map[string]error
 	mu        sync.Mutex
@@ -34,6 +35,25 @@ func (f *fakeDispatcher) ToolsForUser(_ context.Context) ([]Tool, error) {
 		return nil, f.toolsErr
 	}
 	return f.tools, nil
+}
+
+func (f *fakeDispatcher) UpstreamsForUser(_ context.Context) ([]UpstreamMeta, error) {
+	if f.upstreams != nil {
+		return f.upstreams, nil
+	}
+	// Default: synthesize one meta per distinct upstream in tools,
+	// with empty aliases/context. This keeps tests that only set
+	// `tools` working without ceremony.
+	seen := map[string]struct{}{}
+	out := make([]UpstreamMeta, 0)
+	for _, t := range f.tools {
+		if _, ok := seen[t.Upstream]; ok {
+			continue
+		}
+		seen[t.Upstream] = struct{}{}
+		out = append(out, UpstreamMeta{Name: t.Upstream})
+	}
+	return out, nil
 }
 
 func (f *fakeDispatcher) CallTool(_ context.Context, upstream, name string, args map[string]any) (any, error) {
@@ -110,8 +130,10 @@ func TestAsyncArrowFunction_IsInvoked(t *testing.T) {
 	h := newTestHandler(t, d, Config{})
 
 	got, err := h.Search(context.Background(), `async () => {
-		const t = await codemode.tools();
-		return { total: t.length, upstreams: [...new Set(t.map(x => x.upstream))].sort() };
+		const r = await codemode.tools();
+		let total = 0;
+		for (const g of r.upstreams) total += g.tools.length;
+		return { total, upstreams: r.upstreams.map(g => g.name).sort() };
 	}`)
 	if err != nil {
 		t.Fatalf("Search: %v", err)

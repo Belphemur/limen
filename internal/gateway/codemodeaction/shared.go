@@ -34,22 +34,34 @@ NO SHARED STATE between invocations. Each call gets a fresh VM — no variables,
 // codemode.schemas(names) inside the surrounding <api> block. TS
 // signatures + a compact substring-semantics legend replace the
 // previous prose paragraphs. Both bindings are free (no quota).
-const commonDiscoveryAPI = `codemode.tools(filter?) → ToolListing[]
-  Catalog visible to YOU (tenant + linked upstreams, link health enforced). Lean shape, no schema.
-  type ToolListing = { name: string; description: string; upstream: string }
+const commonDiscoveryAPI = `codemode.tools(filter?) → { upstreams: UpstreamGroup[]; hint?: EmptyHint }
+  Catalog visible to YOU (tenant + linked upstreams, link health enforced). Lean shape, no schemas.
+  type UpstreamGroup = {
+    name:    string                              // canonical upstream name
+    aliases: string[]                            // sub-brand names (e.g. ["jira","confluence"] for "atlassian")
+    context: Record<string, unknown>             // upstream defaults shallow-merged with your link overrides
+    tools:   { name: string; description: string }[]
+  }
+  type EmptyHint = { tried: string[]; available: string[]; suggested: string[] }
   type ToolFilter = {
-    upstream?:    string | string[]
+    upstream?:    string | string[]              // matches canonical name OR any alias
     name?:        string | string[]
     description?: string | string[]
-    match?:       string | string[]
+    match?:       string | string[]              // → name + " " + description
     allOf?:       string[]
-    regex?:       boolean
-    limit?:       number
+    regex?:       boolean                        // strings become RE2 (ci)
+    limit?:       number                         // caps TOTAL tools across all groups
   }
-  // upstream: exact match. name|description|match|allOf: case-insensitive substring on the named field
-  //   (match → name + " " + description). regex=true: treat string fields as RE2 (still ci).
   // Fields AND-combine. Array values within a field OR-combine.
-  // Returns [] if you have no linked upstreams.
+  // 'upstream' resolves aliases: codemode.tools({upstream:"jira"}) returns the
+  // "atlassian" group when "jira" is one of its aliases.
+  // 'hint' is present only when a non-empty filter yielded zero tools; use
+  // hint.suggested to recover from a typo. Returns { upstreams: [] } if you
+  // have no linked upstreams.
+  // 'context' is INFORMATIONAL — the gateway does NOT inject it into outbound
+  // calls. Spread it explicitly when you need it: {...g.context, ...args}.
+  // Flatten idiom (mimics the old flat shape):
+  //   const flat = r.upstreams.flatMap(g => g.tools.map(t => ({...t, upstream: g.name})));
 
 codemode.schemas(names: string | string[]) → { found: ToolSchema[]; missing: string[] }
   type ToolSchema = { name: string; upstream: string; inputSchema: object /* JSON Schema 2020-12 */ }
@@ -71,4 +83,4 @@ const commonArgContractShort = `Single JS expression: async () => { ... }. Await
 
 // commonFilterShapeShort is the one-line filter recap embedded in both
 // *CodeArgDescription fields. TS-signature form.
-const commonFilterShapeShort = `type ToolFilter = { upstream?: string|string[]; name?: string|string[]; description?: string|string[]; match?: string|string[]; allOf?: string[]; regex?: boolean; limit?: number }. Fields AND-combine; arrays within a field OR-combine; match targets name+description; allOf requires every entry to appear; regex flips string fields to RE2 (always ci).`
+const commonFilterShapeShort = `codemode.tools(filter?) → { upstreams: { name, aliases, context, tools: {name, description}[] }[]; hint? }. Filter: { upstream?: string|string[]; name?: string|string[]; description?: string|string[]; match?: string|string[]; allOf?: string[]; regex?: boolean; limit?: number }. 'upstream' resolves aliases. Fields AND-combine; arrays within a field OR-combine; match targets name+description; allOf requires every entry to appear; regex flips strings to RE2 (always ci); limit caps total tools. 'hint' appears only on empty-filtered results — use hint.suggested. 'context' is informational; spread it into args explicitly — gateway does NOT auto-inject it. Flatten: r.upstreams.flatMap(g => g.tools.map(t => ({...t, upstream: g.name}))).`

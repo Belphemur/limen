@@ -56,24 +56,33 @@ const searchRecipes = `<examples>
 
 (1) Narrow to one upstream + pull schemas in ONE batch:
   async () => {
-    const tools = codemode.tools({ upstream: "github" });
-    return { tools, schemas: codemode.schemas(tools.map(t => t.name)) };
+    const r = codemode.tools({ upstream: "github" });
+    const names = r.upstreams.flatMap(g => g.tools.map(t => t.name));
+    return { upstreams: r.upstreams, schemas: codemode.schemas(names) };
   }
 
-(2) Many upstreams + many keywords + schemas, ONE call:
+(2) Sub-brand alias (e.g. "jira" → "atlassian") + many keywords + schemas, ONE call:
   async () => {
-    const tools = codemode.tools({
-      upstream: ["jira", "atlassian", "confluence"],
+    const r = codemode.tools({
+      upstream: ["jira", "atlassian", "confluence"],   // aliases resolve to canonical groups
       match:    ["task", "issue", "ticket"],
       limit:    25,
     });
-    return { candidates: tools, schemas: codemode.schemas(tools.map(t => t.name)) };
+    if (r.hint) return { empty: true, hint: r.hint };  // recover from a typo / unlinked upstream
+    const names = r.upstreams.flatMap(g => g.tools.map(t => t.name));
+    return { groups: r.upstreams, schemas: codemode.schemas(names) };
   }
 
 (3) Inspect known tools, surface typos:
   async () => {
     const { found, missing } = codemode.schemas(["jira_get_ticket", "github_get_pr", "slack_post_message"]);
     return { found, missing };
+  }
+
+(4) Surface per-upstream context the agent must pass back explicitly (gateway does NOT auto-inject):
+  async () => {
+    const r = codemode.tools({ upstream: "jira" });
+    return r.upstreams.map(g => ({ name: g.name, context: g.context, toolCount: g.tools.length }));
   }
 
 </examples>`

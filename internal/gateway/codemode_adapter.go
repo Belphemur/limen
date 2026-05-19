@@ -36,3 +36,20 @@ func (a CodemodeDispatcher) ToolsForUser(ctx context.Context) ([]codemode.Tool, 
 func (a CodemodeDispatcher) CallTool(ctx context.Context, upstream, name string, args map[string]any) (any, error) {
 	return a.Manager.CallTool(ctx, upstream, name, args)
 }
+
+// UpstreamsForUser projects []UpstreamView → []codemode.UpstreamMeta.
+func (a CodemodeDispatcher) UpstreamsForUser(ctx context.Context) ([]codemode.UpstreamMeta, error) {
+	views, err := a.Manager.UpstreamsForUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]codemode.UpstreamMeta, len(views))
+	for i, v := range views {
+		out[i] = codemode.UpstreamMeta{
+			Name:    v.Name,
+			Aliases: v.Aliases,
+			Context: v.Context,
+		}
+	}
+	return out, nil
+}

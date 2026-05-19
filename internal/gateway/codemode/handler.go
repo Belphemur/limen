@@ -55,6 +55,7 @@ type Tool struct {
 // stays leaf-level — it must not import gateway.
 type Dispatcher interface {
 	ToolsForUser(ctx context.Context) ([]Tool, error)
+	UpstreamsForUser(ctx context.Context) ([]UpstreamMeta, error)
 	CallTool(ctx context.Context, upstream, name string, args map[string]any) (any, error)
 }
 
@@ -152,6 +153,14 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		return nil, fmt.Errorf("codemode: load tools: %w", err)
 	}
 
+	metas, err := h.dispatcher.UpstreamsForUser(ctx)
+	if err != nil {
+		h.logger.Error("codemode.invocation.failed_to_load_upstreams",
+			append(base, zap.Error(err))...)
+		return nil, fmt.Errorf("codemode: load upstreams: %w", err)
+	}
+	groups := buildGroups(tools, metas)
+
 	h.logger.Info("codemode.invocation.started", append(base,
 		zap.String("script_sha256", sha256Hex([]byte(code))),
 		zap.Int("script_bytes", len(code)),
@@ -246,7 +255,6 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
 		codemodeObj := vm.NewObject()
-		listings := toListings(tools)
 
 		if withProxies {
 			byUpstream := make(map[string]map[string]Tool, len(tools))
@@ -256,18 +264,40 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 				}
 				byUpstream[t.Upstream][t.Name] = t
 			}
-			for upstreamName, byName := range byUpstream {
-				if isReservedCodemodeKey(upstreamName) {
-					h.logger.Warn("codemode.invocation.upstream_name_collides_with_reserved_key",
-						append(base, zap.String("upstream", upstreamName))...)
+			// Canonical-name proxies + per-group alias proxies. Both
+			// resolve to the same underlying Tool map, so callers can
+			// use either codemode.<canonical>.<tool>() or
+			// codemode.<alias>.<tool>(). Reserved sandbox keys are
+			// skipped at both layers.
+			for _, g := range groups {
+				byName := byUpstream[g.Name]
+				if byName == nil {
 					continue
 				}
-				upObj := vm.NewObject()
-				for _, t := range byName {
-					tool := t
-					_ = upObj.Set(tool.Name, h.makeProxy(state, vm, tool, base))
+				if !isReservedCodemodeKey(g.Name) {
+					upObj := vm.NewObject()
+					for _, t := range byName {
+						tool := t
+						_ = upObj.Set(tool.Name, h.makeProxy(state, vm, tool, base))
+					}
+					_ = codemodeObj.Set(g.Name, upObj)
+				} else {
+					h.logger.Warn("codemode.invocation.upstream_name_collides_with_reserved_key",
+						append(base, zap.String("upstream", g.Name))...)
 				}
-				_ = codemodeObj.Set(upstreamName, upObj)
+				for _, alias := range g.Aliases {
+					if isReservedCodemodeKey(alias) {
+						h.logger.Warn("codemode.invocation.alias_collides_with_reserved_key",
+							append(base, zap.String("upstream", g.Name), zap.String("alias", alias))...)
+						continue
+					}
+					aliasObj := vm.NewObject()
+					for _, t := range byName {
+						tool := t
+						_ = aliasObj.Set(tool.Name, h.makeProxy(state, vm, tool, base))
+					}
+					_ = codemodeObj.Set(alias, aliasObj)
+				}
 			}
 			_ = codemodeObj.Set("call", func(call goja.FunctionCall) goja.Value {
 				if len(call.Arguments) < 2 {
@@ -295,11 +325,19 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 					filter = exported
 				}
 			}
-			out, err := filterListings(listings, filter)
+			out, err := filterTools(groups, filter)
 			if err != nil {
 				panic(vm.NewGoError(err))
 			}
-			return vm.ToValue(out)
+			// Build the JS envelope as a map so `hint` is genuinely
+			// absent (vs. null) when filtering succeeded. The struct
+			// + omitempty path goes through goja reflection which
+			// still surfaces nil pointer fields as JS properties.
+			payload := map[string]any{"upstreams": out.Upstreams}
+			if out.Hint != nil {
+				payload["hint"] = out.Hint
+			}
+			return vm.ToValue(payload)
 		})
 		_ = codemodeObj.Set(reservedKeySchemas, func(call goja.FunctionCall) goja.Value {
 			if len(call.Arguments) == 0 {
