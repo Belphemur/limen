@@ -1,35 +1,113 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import type { UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
 import { useUpstreamsStore } from '../stores/upstreams'
+import UpstreamCard from '../components/UpstreamCard.vue'
+import ApiKeyModal from '../components/ApiKeyModal.vue'
+import type { CTAKind } from '../lib/upstream-cta'
 
 const upstreams = useUpstreamsStore()
+
+const busyRow = ref<string | null>(null)
+
+const modal = ref<{ open: boolean; upstream: UpstreamSummary | null }>({
+  open: false,
+  upstream: null,
+})
 
 onMounted(() => {
   void upstreams.refresh()
 })
+
+async function handleAction(up: UpstreamSummary, kind: CTAKind) {
+  busyRow.value = up.publicId
+  try {
+    switch (kind) {
+      case 'connect': {
+        const url = await upstreams.startConnect(up.name, window.location.pathname)
+        window.location.assign(url)
+        return
+      }
+      case 'submitKey':
+      case 'rotateKey':
+        modal.value = { open: true, upstream: up }
+        return
+      case 'enable':
+        await upstreams.setEnabled(up.name, true)
+        return
+      case 'disable':
+        await upstreams.setEnabled(up.name, false)
+        return
+      case 'disconnect':
+        if (
+          !window.confirm(
+            `Disconnect ${up.displayName || up.name}? This removes stored credentials.`,
+          )
+        ) {
+          return
+        }
+        await upstreams.disconnect(up.name)
+        return
+    }
+  } finally {
+    busyRow.value = null
+  }
+}
+
+async function submitApiKey(apiKey: string) {
+  const up = modal.value.upstream
+  if (!up) return
+  busyRow.value = up.publicId
+  try {
+    await upstreams.submitApiKey(up.name, apiKey)
+    modal.value = { open: false, upstream: null }
+  } finally {
+    busyRow.value = null
+  }
+}
+
+function cancelModal() {
+  modal.value = { open: false, upstream: null }
+}
 </script>
 
 <template>
   <section>
     <h1 class="text-2xl font-semibold">Upstreams</h1>
-    <p v-if="upstreams.loading" class="mt-4 text-sm text-slate-500">Loading…</p>
-    <p v-else-if="upstreams.error" class="mt-4 text-sm text-rose-600">{{ upstreams.error }}</p>
-    <p v-else-if="upstreams.items.length === 0" class="mt-4 text-sm text-slate-500">
+    <p class="mt-1 text-sm text-slate-500">
+      Connect your account to each MCP upstream the tenant exposes. Disabled links keep credentials
+      but hide tools; disconnecting drops them.
+    </p>
+
+    <p v-if="upstreams.loading" class="mt-4 text-sm text-slate-500" data-state="loading">
+      Loading…
+    </p>
+    <p v-else-if="upstreams.error" class="mt-4 text-sm text-rose-600" data-state="error">
+      {{ upstreams.error }}
+    </p>
+    <p
+      v-else-if="upstreams.items.length === 0"
+      class="mt-4 text-sm text-slate-500"
+      data-state="empty"
+    >
       No upstreams configured for this tenant.
     </p>
-    <ul v-else class="mt-4 space-y-2">
-      <li
+    <div v-else class="mt-4 grid gap-3">
+      <UpstreamCard
         v-for="up in upstreams.items"
         :key="up.publicId"
-        class="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800"
-      >
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="font-medium">{{ up.displayName || up.name }}</p>
-            <p class="text-xs text-slate-500">{{ up.strategyType }} · {{ up.linkState }}</p>
-          </div>
-        </div>
-      </li>
-    </ul>
+        :upstream="up"
+        :busy="busyRow === up.publicId"
+        @action="(kind) => handleAction(up, kind)"
+      />
+    </div>
+
+    <ApiKeyModal
+      :open="modal.open"
+      :upstream-label="modal.upstream?.displayName || modal.upstream?.name || ''"
+      :busy="busyRow !== null"
+      @submit="submitApiKey"
+      @cancel="cancelModal"
+    />
   </section>
 </template>
