@@ -31,18 +31,18 @@ Secret-at-rest primitives for storage models. v1 ships:
 
 ## Public surface
 
-| Symbol                       | Purpose                                                              |
-| ---------------------------- | -------------------------------------------------------------------- | --------- | ------- | --------------- |
-| `Key [32]byte`               | AES-128-SIV key (32-byte total per RFC 5297 §2.6).                   |
-| `ParseKey(string) (Key, _)`  | Decode a base64 or 64-char hex key; rejects wrong-sized input.       |
-| `AAD{TenantID,UserID,Kind}`  | Required AAD; `TenantID` and `Kind` mandatory, `UserID` optional.    |
-| `NewCipher(Key) (*Cipher,_)` | Build an AES-SIV AEAD.                                               |
-| `Cipher.Encrypt/Decrypt`     | Sealed format: `0x01                                                 | nonce(16) | tag(16) | ciphertext(N)`. |
+| Symbol                       | Purpose                                                             |
+| ---------------------------- | ------------------------------------------------------------------- | --------- | ------- | --------------- |
+| `Key [32]byte`               | AES-128-SIV key (32-byte total per RFC 5297 §2.6).                  |
+| `ParseKey(string) (Key, _)`  | Decode a base64 or 64-char hex key; rejects wrong-sized input.      |
+| `AAD{TenantID,UserID,Kind}`  | Required AAD; `TenantID` and `Kind` mandatory, `UserID` optional.   |
+| `NewCipher(Key) (*Cipher,_)` | Build an AES-SIV AEAD.                                              |
+| `Cipher.Encrypt/Decrypt`     | Sealed format: `0x01                                                | nonce(16) | tag(16) | ciphertext(N)`. |
 | `SetCipher(*Cipher) *Cipher` | Register the process-wide Cipher; returns the previous (for tests). |
-| `ActiveCipher() *Cipher`     | Inspect the registered Cipher.                                       |
-| `SecretField`                | GORM `bytea` field with per-instance AAD binding.                    |
-| `SecretField.SetAAD`         | Bind AAD on the **write** path before `Save`.                        |
-| `SecretField.Decrypt`        | Decrypt on the **read** path after the row has loaded.               |
+| `ActiveCipher() *Cipher`     | Inspect the registered Cipher.                                      |
+| `SecretField`                | GORM `bytea` field with per-instance AAD binding.                   |
+| `SecretField.SetAAD`         | Bind AAD on the **write** path before `Save`.                       |
+| `SecretField.Decrypt`        | Decrypt on the **read** path after the row has loaded.              |
 
 ## Conventions
 

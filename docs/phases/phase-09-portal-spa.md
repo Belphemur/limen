@@ -1,19 +1,52 @@
-# Phase 9 — Portal backend (Connect-RPC) + Vue 3 SPA
+# Phase 9b — Portal backend (Connect-RPC) + Vue 3 SPA
 
 **Depends on**: Phases 4 (portal session), 7 (upstream connect/disconnect)
 **Unblocks**: nothing (final user-facing feature before hardening)
 
 ## Goal
 
-Ship the operator/user-facing web portal: a Vue 3 + Vite SPA served from the binary, backed by a strongly-typed [Connect-RPC](https://connectrpc.com/) API mounted at `/t/{tenant}/api/portal.v1.PortalService/*`. The portal lets users log in (via Zitadel OIDC — see [Phase 4](phase-04-tenant-auth-session.md)), link/unlink upstreams, see their MCP clients (DCR'd through Limen's proxy into Zitadel), and lets admins/owners manage members, invitations, and upstream configurations.
+Ship the operator/user-facing web portal: a Vue 3 + TypeScript + Vite SPA, backed by a strongly-typed [Connect-RPC](https://connectrpc.com/) API mounted at `/t/{tenant}/api/portal.v1.PortalService/*`. The portal lets users log in (via Zitadel OIDC — see [Phase 4](phase-04-tenant-auth-session.md)), link/unlink upstreams, see their MCP clients (DCR'd through Limen's proxy into Zitadel), and lets admins/owners manage members, invitations, and upstream configurations.
 
-Password management, MFA, and email verification all live in Zitadel's hosted UI — the portal links out to it rather than reimplementing it.
+Identity, authentication, and authorization are **fully delegated to Zitadel**. The SPA never renders a password field. The portal backend never validates a password. Sessions are minted by Zitadel and brokered into a portal cookie by [Phase 4](phase-04-tenant-auth-session.md); roles come from the cached `urn:zitadel:iam:org:project:roles` claim; password / MFA / passkey enrollment / external IdP federation / member management / invitations all live in Zitadel Console, deep-linked from the SPA. Limen never duplicates an identity primitive Zitadel already ships.
 
-The SPA is **not** embedded in the Go binary. It is built to a static `web/dist/` directory and served by whatever static host the deployment picked — Caddy `file_server` for self-hosted Compose, or Cloudflare Pages for managed deployments. Limen ships only the JSON/Connect-RPC API plus the OIDC, OAuth-proxy, MCP, and upstream-connect routes; it has no HTML responsibility.
+The SPA is **not** embedded in the Go binary. It is built to a static `web/dist/` directory and deployed to **Cloudflare Pages** (managed deployments) or served by Caddy `file_server` (self-hosted Compose). Limen ships only the JSON/Connect-RPC API plus the OIDC, OAuth-proxy, MCP, and upstream-connect routes; it has no HTML responsibility.
 
-The SPA and the Limen API are served from the **same origin** in v1 (e.g. both under `https://limen.example.com`). That preserves the `Path=/t/<tenant>; SameSite=Lax` portal-cookie isolation set up in [Phase 4](phase-04-tenant-auth-session.md) without CORS preflight or `SameSite=None` complications. Splitting the SPA onto a different origin is possible but explicitly out of scope for v1 — it requires CORS-with-credentials plus `SameSite=None; Secure` cookies and is called out under [Risks](#risks).
+The SPA and the Limen API are served from the **same origin** in v1 (e.g. both under `https://limen.example.com`). That preserves the `Path=/t/<tenant>; SameSite=Lax` portal-cookie isolation set up in [Phase 4](phase-04-tenant-auth-session.md) without CORS preflight or `SameSite=None` complications. For Cloudflare Pages deployments, this is achieved by fronting Pages with the same Limen-owned hostname via a Cloudflare Worker or Pages Functions route that proxies `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, and `/t/*/upstream/*` to the Limen origin — the SPA itself is served from `/` on the same host. Splitting the SPA onto a different origin is possible but explicitly out of scope for v1 — it requires CORS-with-credentials plus `SameSite=None; Secure` cookies and is called out under [Risks](#risks).
 
 ## Design
+
+### Process split — portal API vs. MCP gateway
+
+The Limen binary already ships per-suite `serve` subcommands
+([`internal/cli/serve_mcp.go`](../../internal/cli/serve_mcp.go),
+[`serve_portal.go`](../../internal/cli/serve_portal.go),
+[`serve_oauth_proxy.go`](../../internal/cli/serve_oauth_proxy.go),
+[`serve_upstream.go`](../../internal/cli/serve_upstream.go),
+[`serve_deps.go`](../../internal/cli/serve_deps.go)). Phase 9b cements
+the production posture: **the portal Connect-RPC API ships in its own
+process** (`limen serve portal`), and gateway-shaped processes do NOT
+mount it.
+
+| Subcommand          | Mounts                                                                        | Scaling shape                              |
+| ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| `serve mcp`         | `/mcp/*` (MCP RS, hot streaming path)                                         | N replicas, autoscale on connection count  |
+| `serve portal`      | `/t/{tenant}/api/*` (Connect-RPC), `/auth/*` (OIDC RP), portal session cookie | 1–2 replicas, autoscale on RPC QPS         |
+| `serve oauth-proxy` | `/oauth/*` (DCR proxy + AS metadata)                                          | 1–2 replicas, low traffic                  |
+| `serve upstream`    | `/t/{tenant}/upstream/{name}/callback` (OAuth redirect URI)                   | co-located with `serve portal` in practice |
+| `serve deps`        | health / readiness for Postgres + Zitadel + Valkey                            | sidecar / one-shot                         |
+
+Same binary, same Go module, same migrations, same crypto bundle —
+the split is purely at the chi-router mount level so each process
+has a minimal route surface, minimal credential surface, and an
+independent scaling shape. The codebase is already factored this way
+(separate `setup*` functions per suite in [`internal/cli/serve.go`](../../internal/cli/serve.go));
+Phase 9b ensures `serve portal` and `serve mcp` are independently
+runnable as the default production posture, and Phase 11 wires the
+Compose / managed deployment to actually run them that way.
+
+`limen serve` (everything in one process) remains available for dev,
+local smoke tests, and self-hosters who want the lowest-friction
+deployment.
 
 ### Why Connect-RPC
 
@@ -35,7 +68,7 @@ package limen.portal.v1;
 // management, role grants, password / MFA / passkey enrollment, and
 // external IdP federation directly from the [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice)
 // — see Phase 4's "Self-service delegation" table. The Limen admin
-// surface ([Phase 9b](phase-09b-tenant-admin-spa.md)) covers only
+// surface ([Phase 9c](phase-09c-tenant-admin-spa.md)) covers only
 // Limen-domain operations: upstream catalog CRUD, tenant settings,
 // and self-serve tenant signup.
 service PortalService {
@@ -65,14 +98,14 @@ Request messages **do not carry `tenant_id`** — the interceptor reads it from 
 Workflow recap (covers both OAuth-protected and header-authenticated upstreams):
 
 1. The user logs into the portal via Zitadel (Phase 4) and lands on the Upstreams page.
-2. For each upstream advertised by the admin, the SPA shows the connection state for *this user*.
+2. For each upstream advertised by the admin, the SPA shows the connection state for _this user_.
 3. Clicking **Connect**:
    - `mcp_spec` → SPA calls `StartConnect`, which returns the Zitadel-side authorize URL; the browser is redirected, the user consents, Limen completes the OAuth dance, persists the `UpstreamLink`, and redirects back to the portal.
    - `static_header` user-mode → `StartConnect` returns a relative SPA path; the SPA opens a modal that takes the API key, then submits it via `SubmitUpstreamAPIKey`. Limen encrypts it with AAD `tenant|user|"upstream.extra"` and persists the `UpstreamLink`.
    - `none` / `static_header` tenant-mode → no action needed; the tools are already visible.
 4. Once linked, the user sees a green badge and the upstream's tools become visible to the MCP RS for that user (Phase 8).
-6. If Limen's auto-disable logic trips for that user (sustained refresh or tool-call failures — see Phase 7), the row flips to an `auto_disabled` state with a banner explaining the reason and last failure timestamp. The user clicks **Re-enable** to clear `AutoDisabledAt` and let the next request try again, or **Reconnect** when the row is also `needs_relink`.
-7. The user can return to the Upstreams page at any time to:
+5. If Limen's auto-disable logic trips for that user (sustained refresh or tool-call failures — see Phase 7), the row flips to an `auto_disabled` state with a banner explaining the reason and last failure timestamp. The user clicks **Re-enable** to clear `AutoDisabledAt` and let the next request try again, or **Reconnect** when the row is also `needs_relink`.
+6. The user can return to the Upstreams page at any time to:
    - **Disable** a link (`SetUpstreamLinkEnabled(false)`) — credentials are kept, tools immediately disappear from MCP `tools/list`.
    - **Enable** a previously disabled link — tools reappear without re-doing auth.
    - **Re-enable** an auto-disabled link via `SetUpstreamLinkEnabled(true)` (the RPC clears `AutoDisabledAt` + `ConsecutiveFailures` server-side when the caller is the owner of the link).
@@ -90,9 +123,9 @@ internal/portal/
 └── errors.go          // Connect error mapping
 ```
 
-**Boundary with Phase 7.** [Phase 7](phase-07-outbound-upstream.md) ships the upstream linking engine and exposes a plain Go API (`internal/upstream.Service`) with `StartConnect(ctx, upstreamName, returnTo) (redirectURL string, err error)`, `Disconnect(ctx, upstreamName) error`, and `PersistUserStaticHeaderSecret(ctx, upstreamName, secret) error`. Phase 9's `StartConnect`, `Disconnect`, and `SubmitUpstreamAPIKey` Connect-RPC handlers are thin wrappers around those methods; they perform no OAuth/strategy logic of their own. The only HTTP route Phase 7 owns is `GET /t/{tenant}/upstream/{name}/callback` — the protocol-mandated OAuth redirect URI, behind `tenancy.RequireTenant` + `OIDC.RequireSession`. Everything else is Connect-RPC.
+**Boundary with Phase 7.** [Phase 7](phase-07-outbound-upstream.md) ships the upstream linking engine and exposes a plain Go API (`internal/upstream.Service`) with `StartConnect(ctx, upstreamName, returnTo) (redirectURL string, err error)`, `Disconnect(ctx, upstreamName) error`, and `PersistUserStaticHeaderSecret(ctx, upstreamName, secret) error`. Phase 9b's `StartConnect`, `Disconnect`, and `SubmitUpstreamAPIKey` Connect-RPC handlers are thin wrappers around those methods; they perform no OAuth/strategy logic of their own. The only HTTP route Phase 7 owns is `GET /t/{tenant}/upstream/{name}/callback` — the protocol-mandated OAuth redirect URI, behind `tenancy.RequireTenant` + `OIDC.RequireSession`. Everything else is Connect-RPC.
 
-Admin / owner operations split two ways: anything Zitadel ships as self-service (members, invites, role grants, password / MFA, external IdP federation, branding) goes to Zitadel Console — see Phase 4's _Self-service delegation_ table. Limen-domain admin operations (upstream catalog CRUD, tenant settings, self-serve tenant signup) live in `internal/admin/` under [Phase 9b](phase-09b-tenant-admin-spa.md).
+Admin / owner operations split two ways: anything Zitadel ships as self-service (members, invites, role grants, password / MFA, external IdP federation, branding) goes to Zitadel Console — see Phase 4's _Self-service delegation_ table. Limen-domain admin operations (upstream catalog CRUD, tenant settings, self-serve tenant signup) live in `internal/admin/` under [Phase 9c](phase-09c-tenant-admin-spa.md).
 
 Mounting:
 
@@ -111,7 +144,7 @@ Each interceptor:
 
 | Interceptor                | Responsibility                                                                                                                                                                                                       |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenancyInterceptor`       | Extract `{tenant}` segment from URL (via chi context), resolve, place in ctx.                                                                                                                                           |
+| `tenancyInterceptor`       | Extract `{tenant}` segment from URL (via chi context), resolve, place in ctx.                                                                                                                                        |
 | `portalSessionInterceptor` | Decrypt cookie, validate via Zitadel `SessionService.GetSession` (60 s positive cache), place `*User` + roles (from the cached `urn:zitadel:iam:org:project:roles` claim) in ctx. 401 (`unauthenticated`) otherwise. |
 | `roleInterceptor`          | Map RPC method → required role (annotation table); enforce against the roles in ctx. 403 (`permission_denied`) otherwise.                                                                                            |
 
@@ -130,7 +163,7 @@ var requiredRole = map[string]Role{
 }
 ```
 
-All admin / owner RPCs live in [Phase 9b](phase-09b-tenant-admin-spa.md)'s `AdminService` and have their own required-role table there.
+All admin / owner RPCs live in [Phase 9c](phase-09c-tenant-admin-spa.md)'s `AdminService` and have their own required-role table there.
 
 ### Frontend (`web/`)
 
@@ -160,39 +193,54 @@ web/
         └── …
 ```
 
-Stack:
+Stack — pinned at "latest stable" for v1; the lockfile is the source of truth, this list is the contract:
 
-- **Vue 3** with Composition API + `<script setup>`.
-- **Vite** for dev/build.
-- **Pinia** for state (`session`, `upstreams`).
-- **Vue Router** for `/login`, `/`, `/upstreams`, `/mcp-clients`, `/settings`. Base path is `/t/<tenant>/portal`; resolved at boot from `window.location.pathname`. (Member management lives in the admin SPA at `/t/<tenant>/admin/` — see [Phase 9b](phase-09b-tenant-admin-spa.md) — which links out to Zitadel Console.)
-- **`@connectrpc/connect-web`** for typed RPC calls. Codegen output lives under `web/src/gen/`.
-- **Tailwind CSS** (or plain CSS — operator preference; keep dependencies minimal).
-- **No SSR**.
+- **Node.js LTS** (currently v22.x as of May 2026). CI matrix runs on the active LTS only; we do not chase Current.
+- **pnpm v11** as the only supported package manager. `package.json` declares `"packageManager": "pnpm@11.x.x"` and CI verifies via Corepack; `npm install` / `yarn install` are not supported.
+- **Vue 3** (latest 3.x), Composition API + `<script setup>` + `<script setup lang="ts">` exclusively.
+- **TypeScript** (latest 5.x), `strict: true`, no implicit `any`, no untyped fetch / RPC boundaries.
+- **Vite** (latest 5.x) for dev/build. `vue-tsc` runs as part of `pnpm build` so type errors fail the build.
+- **Pinia** (latest 2.x) for state (`session`, `upstreams`).
+- **Vue Router** (latest 4.x) for `/login`, `/`, `/upstreams`, `/mcp-clients`, `/settings`. Base path is `/t/<tenant>/portal`; resolved at boot from `window.location.pathname`. (Member management lives in the admin SPA at `/t/<tenant>/admin/` — see [Phase 9c](phase-09c-tenant-admin-spa.md) — which links out to Zitadel Console.)
+- **`@connectrpc/connect-web`** (latest) for typed RPC calls. Codegen output lives under `web/src/gen/`.
+- **Tailwind CSS** (latest 4.x) for styling — keeps dependency count low and gives us consistent design tokens.
+- **ESLint** + **Prettier** + **`@vue/eslint-config-typescript`** at latest stable; one config, no per-package overrides.
+- **Vitest** (latest) for unit tests; **Playwright** (latest) for the smoke test path.
+- **No SSR.** **No Nuxt.** **No state-management lib other than Pinia.** **No alternative router.**
 
-### Login flow
+Dependency policy: every direct dependency must be "latest stable" at the time of the lockfile bump. Renovate (or `pnpm up --latest` run quarterly + on security advisories) keeps it that way. Pre-1.0 dependencies are avoided where a 1.0+ alternative exists.
 
-Login is delegated entirely to Zitadel via OIDC (Phase 4). The SPA's role is minimal:
+### Login flow — Zitadel-only
 
-1. SPA boots, calls `GetSession`.
-2. If unauthenticated, the `/login` route renders a single "Sign in" button.
+Login and every authorization decision are delegated to Zitadel. The
+SPA owns navigation and presentation; it does not own identity.
+
+1. SPA boots, calls `GetSession` (the only RPC that does not require an authenticated session).
+2. If unauthenticated, the `/login` route renders a single "Sign in with Zitadel" button.
 3. Clicking it navigates the browser to `/auth/login?tenant=<tenant>&return_to=<current path>`.
-4. Limen's `/auth/login` handler signs state and redirects to Zitadel's authorize endpoint.
-5. Zitadel renders its hosted login UI (with MFA, password reset, etc.).
-6. Zitadel returns to `/auth/callback`, Limen sets the portal cookie, redirects to `/t/<tenant>/portal/<return_to>`.
+4. Limen's `/auth/login` handler ([Phase 4](phase-04-tenant-auth-session.md)) signs state and redirects to Zitadel's authorize endpoint.
+5. Zitadel renders its hosted login UI — password, MFA, passkeys, external IdP federation, password reset, account recovery, email / phone verification. All of it. Limen has zero UI responsibility here.
+6. Zitadel returns to `/auth/callback`. Limen exchanges the code, validates the ID token (issuer + audience + signature via JWKS), reads the `urn:zitadel:iam:org:project:roles` claim, sets the portal cookie (`Path=/t/<tenant>; HttpOnly; Secure; SameSite=Lax`), redirects to `/t/<tenant>/portal/<return_to>`.
 7. SPA reloads, `GetSession` succeeds, dashboard renders.
 
-No credentials ever traverse Limen. The SPA never sees a password input.
+Guarantees this flow buys us:
+
+- **No credentials ever traverse Limen.** Not on login, not on rotation, not on recovery.
+- **No Limen-side identity tables.** No `users.password_hash`, no `users.totp_secret`, no `password_reset_tokens`. The `User` row only mirrors `ZitadelSubject` + display fields.
+- **Authorization is claim-driven.** The portal-session interceptor populates `*User` + roles from the cached Zitadel claim; the `roleInterceptor` enforces against the per-RPC `requiredRole` table. Backend RPCs never re-derive role membership from a Limen-side table.
+- **Self-service primitives are deep-linked, not re-implemented.** Profile, password change, MFA, passkey enrollment, social logins, session listing, and member / role grant management all open Zitadel Console in a new tab. The SPA renders the deep-link card; it does not render the form.
+- **Session revocation is Zitadel-side.** Logout calls Zitadel's end-session endpoint (with `post_logout_redirect_uri` back to the SPA) and clears the portal cookie. Forced revocation from a Zitadel admin (terminate session) causes the next `GetSession` to fail validation and the SPA falls back to the login route.
 
 ### Build & deploy
 
-- `pnpm install && pnpm build` in `web/` outputs to `web/dist/`. That directory is the entire deliverable — a tree of hashed JS/CSS/asset files plus `index.html`.
-- **Self-hosted (Caddy `file_server`)**: the production reverse proxy mounts `web/dist/` and serves any path not matched by the Limen route rules from it, with `try_files {path} /index.html` so the SPA's client-side router handles deep links. Configured in [Phase 11](phase-11-production-deployment.md).
-- **Managed (Cloudflare Pages)**: push the same `web/dist/` to a Pages project (`wrangler pages deploy`); Caddy reverse-proxies non-API paths to the Pages origin via a `reverse_proxy` block scoped to the SPA URL prefixes. CI builds and deploys; the Go side is unchanged.
+- **Toolchain**: Node LTS + pnpm v11, both pinned via Corepack (`"packageManager": "pnpm@11.x.x"` in `package.json`). CI uses `corepack enable && corepack prepare pnpm@<version> --activate`. No global pnpm install required on dev machines.
+- `pnpm install --frozen-lockfile && pnpm build` in `web/` outputs to `web/dist/`. That directory is the entire deliverable — a tree of hashed JS/CSS/asset files plus `index.html`.
+- **Managed deployment (Cloudflare Pages, default)**: GitHub Actions pushes `web/dist/` to a Pages project via `wrangler pages deploy`. Pages serves the SPA from the canonical host (e.g. `limen.example.com`); a Cloudflare Worker / Pages Functions route in front of Pages reverse-proxies the Limen API path prefixes (`/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/upstream/*`) to the Limen origin so SPA and API stay same-origin from the browser's perspective. Pages handles TLS, HTTP/3, caching, and asset compression; the Go side is unchanged.
+- **Self-hosted (Caddy `file_server`)**: the production reverse proxy mounts `web/dist/` and serves any path not matched by the Limen route rules from it, with `try_files {path} /index.html` so the SPA's client-side router handles deep links. Configured in [Phase 11](phase-11-production-deployment.md). Self-hosters who don't want a CDN run this profile and skip Cloudflare entirely.
 - **No `//go:embed`, no `internal/portal/spa.go`, no SPA fallback handler.** The Go HTTP router only knows about `/t/{tenant}/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, and `/t/{tenant}/upstream/*`.
 - **Base path**: Vite is built with `base: "./"` so the bundle works regardless of where it's mounted. At runtime, the SPA reads `window.location.pathname` to discover the `/t/<tenant>/portal/` prefix and feeds it to Vue Router as `createWebHistory(<basePath>)`. Same trick lets a single build serve every tenant.
-- **CSP**: set by the static host, not Limen. Recommended policy: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'` — documented in the Caddyfile / Pages headers file. The Zitadel origin is added to `connect-src` for the redirect handshake.
-- **Caching**: `Cache-Control: no-store` on `index.html`; long-cache (`public, max-age=31536000, immutable`) on the hashed assets — standard Vite output.
+- **CSP**: set by the static host (Cloudflare Pages `_headers` file or Caddy directive), not Limen. Recommended policy: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'`. The Zitadel origin is added to `connect-src` for the redirect handshake (the Zitadel session-check XHR also rides this).
+- **Caching**: `Cache-Control: no-store` on `index.html`; long-cache (`public, max-age=31536000, immutable`) on the hashed assets — standard Vite output. Cloudflare Pages applies these via the bundled `_headers` file.
 
 ### Build orchestration
 
@@ -238,7 +286,8 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 - `buf generate` produces compilable Go + TS.
 - `go build ./...` clean.
-- `pnpm build` clean; the resulting `web/dist/` is what the static host serves.
+- `pnpm install --frozen-lockfile && pnpm build` clean on Node LTS + pnpm v11; `vue-tsc` reports no type errors; the resulting `web/dist/` is what the static host serves.
+- `limen serve portal` boots with only the portal / OIDC RP / upstream-callback routes mounted; `limen serve mcp` boots with only `/mcp/*` mounted. Verified by hitting the other process's routes and getting 404.
 - Connect handlers respond correctly to:
   - Missing session → `unauthenticated`.
   - Wrong role → `permission_denied`.
@@ -256,6 +305,11 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 ## Checklist
 
+- [ ] `limen serve portal` mounts portal Connect-RPC + `/auth/*` + upstream callback only; `limen serve mcp` mounts `/mcp/*` only; both share the same binary and `internal/` packages but advertise independent route surfaces. Cross-process 404 test verifies the split.
+- [ ] `limen serve` (everything-in-one) still works for dev / single-node self-hosters
+- [ ] Toolchain pinned: Node LTS (active LTS only) + pnpm v11 via Corepack; `"packageManager": "pnpm@11.x.x"` in `web/package.json`; CI rejects builds run with npm or yarn
+- [ ] All direct dependencies at latest stable at lockfile bump time; Renovate (or quarterly `pnpm up --latest`) keeps it that way
+- [ ] `pnpm build` runs `vue-tsc --noEmit` and fails on type errors; TypeScript `strict: true`; no implicit `any`
 - [ ] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled` / `auto_disabled` / `needs_relink`) and strategy sub-mode, so the SPA can pick the right CTA, plus the last-failure reason + timestamp for auto-disabled rows
 - [ ] `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures` server-side
 - [ ] `SubmitUpstreamAPIKey` persists the user-supplied secret via the `static_header` strategy, AAD `tenant|user|"upstream.extra"`; never logs the key; supports rotation (overwrite)
@@ -269,14 +323,19 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [ ] Tenancy interceptor populates ctx from URL tenant id
 - [ ] Portal-session interceptor populates `*User` + roles (from the Zitadel project-roles claim) from cookie
 - [ ] Role interceptor enforces the requiredRole table against ctx roles; unknown methods default-deny
-- [ ] No Limen RPC mutates Zitadel user grants — `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `TransferOwnership` are **not** in any Limen proto; the SPA renders a deep-link card pointing at Zitadel Console for these operations (see [Phase 9b](phase-09b-tenant-admin-spa.md))
+- [ ] No Limen RPC mutates Zitadel user grants — `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `TransferOwnership` are **not** in any Limen proto; the SPA renders a deep-link card pointing at Zitadel Console for these operations (see [Phase 9c](phase-09c-tenant-admin-spa.md))
 - [ ] No `tenant_id` in request messages anywhere in the proto
-- [ ] Vue 3 + Vite + Pinia + Vue Router + `@connectrpc/connect-web` SPA scaffolded under `web/`
+- [ ] Vue 3 (latest) + TypeScript (latest 5.x, strict) + Vite (latest 5.x) + Pinia + Vue Router 4 + `@connectrpc/connect-web` (latest) + Tailwind CSS 4 SPA scaffolded under `web/`
+- [ ] ESLint + Prettier + `@vue/eslint-config-typescript` at latest stable; single config; `pnpm lint` + `pnpm format:check` in CI
+- [ ] Vitest for unit tests; Playwright for the smoke path (login → connect upstream → tool visible → disconnect)
+- [ ] Login flow is Zitadel-only: SPA never renders a password field; portal backend never validates a password; profile / password / MFA / passkey / member-management / IdP federation surfaces are deep-linked to Zitadel Console
+- [ ] Authorization is claim-driven: `roleInterceptor` enforces `requiredRole` table against the cached `urn:zitadel:iam:org:project:roles` claim; no Limen-side role tables
 - [ ] Pages: Login, Dashboard, Upstreams, Members, MCP Clients, Settings, Consent
 - [ ] SPA base path resolved at boot from `/t/<tenant>/portal/`
 - [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
 - [ ] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
-- [ ] Static-host wiring documented in Phase 11 for both Caddy `file_server` (self-hosted) and Cloudflare Pages (managed); both keep the SPA same-origin with the API
+- [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/upstream/*` so SPA + API stay same-origin
+- [ ] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
 - [ ] CSP header set by the static host (Caddy directive or Pages `_headers`)
 - [ ] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
 - [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
