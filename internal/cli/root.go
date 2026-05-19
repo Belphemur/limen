@@ -64,10 +64,51 @@ func NewRootCommand() *cobra.Command {
 	return root
 }
 
+// NewAdminRootCommand builds the admin-only cobra root used by
+// cmd/limenctl. It exposes the day-2 operator surface (migrate,
+// create-tenant, create-upstream) and excludes `serve`.
+func NewAdminRootCommand() *cobra.Command {
+	flags := &rootFlags{}
+
+	root := &cobra.Command{
+		Use:           "limenctl",
+		Short:         "Limen — admin / day-2 operator CLI",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.PersistentFlags().StringVar(&flags.configPath, "config", "config.yaml", "path to config file (also: LIMEN_CONFIG)")
+
+	v := viper.New()
+	v.SetEnvPrefix("LIMEN")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
+	root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		if v.IsSet("config") {
+			flags.configPath = v.GetString("config")
+		}
+		return nil
+	}
+
+	root.AddCommand(newCreateTenantCommand(flags, v))
+	root.AddCommand(newCreateUpstreamCommand(flags, v))
+	root.AddCommand(newMigrateCommand(flags, v))
+	return root
+}
+
 // Execute runs the root command and exits with a non-zero status on
 // failure, printing the error to stderr. Used by cmd/limen/main.go.
 func Execute() {
 	if err := NewRootCommand().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+// ExecuteAdmin runs the admin-only command tree and exits non-zero on
+// failure. Used by cmd/limenctl/main.go.
+func ExecuteAdmin() {
+	if err := NewAdminRootCommand().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

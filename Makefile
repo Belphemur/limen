@@ -94,6 +94,10 @@ dev-down:
 
 build:
 	go build -o limen ./cmd/limen
+	go build -o limenctl ./cmd/limenctl
+	go build -o limen-gateway ./cmd/gateway
+	go build -o limen-portal ./cmd/portal
+	go build -o limen-staff ./cmd/staff
 
 test:
 	go test ./...
