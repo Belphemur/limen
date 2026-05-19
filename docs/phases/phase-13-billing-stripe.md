@@ -1,6 +1,6 @@
 # Phase 13 — Billing with Stripe (per-seat)
 
-**Depends on**: [Phase 4](phase-04-tenant-auth-session.md) (tenant + Zitadel grants), [Phase 9](phase-09-portal-spa.md) (portal RPC + SPA), [Phase 12](phase-12-staff-backoffice.md) (staff visibility), [Phase 11](phase-11-production-deployment.md) (prod secrets + Caddy).
+**Depends on**: [Phase 4](phase-04-tenant-auth-session.md) (tenant + Zitadel grants), [Phase 9b](phase-09b-portal-spa.md) (portal RPC + SPA), [Phase 12](phase-12-staff-backoffice.md) (staff visibility), [Phase 11](phase-11-production-deployment.md) (prod secrets + Caddy).
 **Unblocks**: turning the gateway from a free deployment into a SaaS.
 
 ## Goal

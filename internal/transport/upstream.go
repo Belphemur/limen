@@ -6,7 +6,7 @@
 // usual tenancy.RequireTenant + OIDC.RequireSession middlewares.
 //
 // Every other portal action (StartConnect, Disconnect, SubmitUpstreamAPIKey)
-// is a plain Go method on upstream.Service. Phase 9 wraps them via
+// is a plain Go method on upstream.Service. Phase 9b wraps them via
 // Connect-RPC; do not add HTTP routes for them here.
 package transport
 

@@ -125,8 +125,8 @@ strategy needs to stash a _secret_ default it goes in the existing
 Both columns must hold a **JSON object** (`{...}`) at the top level.
 Validation runs at two layers:
 
-1. **At write time** (portal Connect-RPC handlers — Phase 9b's
-   `AdminService.UpdateUpstream` for `defaults_json` and Phase 9's
+1. **At write time** (portal Connect-RPC handlers — Phase 9c's
+   `AdminService.UpdateUpstream` for `defaults_json` and Phase 9b's
    per-link editor for `context_json`):
    - Parse with `encoding/json` into a `map[string]any`. Reject
      non-object roots (`[]`, scalars, `null`) with a 400-equivalent
@@ -440,9 +440,9 @@ filter.
     used by both the portal write path and the read-time defense.
     Pure functions for easy testing.
 - [internal/admin/upstreams_admin.go](../../internal/admin/upstreams_admin.go)
-  (Phase 9b) — call `validateContextBlob` on `defaults_json` writes;
+  (Phase 9c) — call `validateContextBlob` on `defaults_json` writes;
   return Connect `invalid_argument` with field path on rejection.
-- [internal/portal/links.go](../../internal/portal/links.go) (Phase 9)
+- [internal/portal/links.go](../../internal/portal/links.go) (Phase 9b)
   — same validation on `context_json` writes from the per-user link
   editor.
 - [internal/gateway/bundle.go](../../internal/gateway/bundle.go) (or
@@ -621,10 +621,10 @@ create_ai_gateway]` → `[]`.
       stored JSON → `context: {}` + `gateway.context.invalid_json`
       warn (covered by `TestUpstreamsForUser_InvalidStoredJSONDiscarded`).
 - [ ] Write-time validation wired into the admin upstream service
-      (Phase 9b) and the per-link portal handler (Phase 9). Connect
+      (Phase 9c) and the per-link portal handler (Phase 9b). Connect
       `invalid_argument` errors carry the field path. **Deferred:
       `internal/admin/` and `internal/portal/` packages do not exist
-      yet; lands with Phase 9 / 9b. `ValidateContextBlob` is ready
+      yet; lands with Phase 9b / 9c. `ValidateContextBlob` is ready
       for them to call.**
 - [x] `DeriveAliases` + tenant-wide collision pass
       (`ResolveAliasCollisions`) in

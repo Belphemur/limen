@@ -46,7 +46,7 @@ the Phase 7 connect flow against it.
 v1 supports the mcp_spec strategy (OAuth via the MCP-spec PRM
 discovery flow) and the none strategy (no auth, public upstream).
 The static_header strategy requires per-tenant secret material and is
-plumbed through the admin SPA (Phase 9), not this CLI.
+plumbed through the admin SPA (Phase 9b), not this CLI.
 
 The command is idempotent on the (tenant, name) tuple — re-running with
 the same name updates the URL in place. For the 'none' strategy the
@@ -73,7 +73,7 @@ upstream is usable end-to-end as soon as the command exits.`,
 			switch f.strategy {
 			case string(upstream.StrategyMCPSpec), string(upstream.StrategyNone):
 			case string(upstream.StrategyStaticHeader):
-				return fmt.Errorf("--strategy %q is not plumbed through this CLI; use the admin SPA (Phase 9) which knows how to capture the tenant header secret", f.strategy)
+				return fmt.Errorf("--strategy %q is not plumbed through this CLI; use the admin SPA (Phase 9b) which knows how to capture the tenant header secret", f.strategy)
 			default:
 				return fmt.Errorf("--strategy %q is unknown (supported: %q, %q)", f.strategy, upstream.StrategyMCPSpec, upstream.StrategyNone)
 			}

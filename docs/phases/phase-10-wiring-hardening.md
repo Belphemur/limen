@@ -20,7 +20,7 @@ This phase ships no new feature surface. Anything missed earlier gets caught her
 4. run AutoMigrate (Phase 1) using adminDB
 5. run RLS migration (Phase 3) using adminDB
 6. initialize crypto.Cipher and call crypto.SetCipher (Phase 2)
-7. construct the shared `*zitadel.Client` (Phase 4) — reused by tenant CLI, DCR proxy (Phase 5), and portal admin RPCs (Phase 9)
+7. construct the shared `*zitadel.Client` (Phase 4) — reused by tenant CLI, DCR proxy (Phase 5), and portal admin RPCs (Phase 9b)
 8. construct OIDC RelyingParty (Phase 4) for portal login
 9. construct upstream.Registry, register strategies (mcp_spec, none) (Phase 7)
 10. start upstream.Refresher goroutine (Phase 7)
@@ -28,7 +28,7 @@ This phase ships no new feature surface. Anything missed earlier gets caught her
 12. construct UpstreamManager + Gateway (Phase 8)
 13. construct oauthproxy handlers (metadata + DCR proxy + redirector) (Phase 5)
 14. construct JWKSResolver + auth.Middleware against the Zitadel issuer (Phase 6)
-15. construct PortalService (Phase 9)
+15. construct PortalService (Phase 9b)
 16. assemble chi router with the full route tree (below)
 17. start HTTP server with read/write/idle timeouts and graceful shutdown
 ```

@@ -107,7 +107,7 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
   go run ./cmd/gateway
   ```
 - `make dev-reset` blows away the volumes and re-runs bootstrap.
-- Frontend dev (Phase 9) runs `pnpm dev` in `web/` against the live Go server with Vite proxying.
+- Frontend dev (Phase 9b) runs `pnpm dev` in `web/` against the live Go server with Vite proxying.
 
 ## Deliverables
 

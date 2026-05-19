@@ -187,7 +187,7 @@ func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ strin
 }
 
 // PersistUserSecret writes the user's API key into UpstreamLink.ExtraJSON
-// for user mode. Idempotent: re-running it rotates the secret. The Phase 9
+// for user mode. Idempotent: re-running it rotates the secret. The Phase 9b
 // portal's SubmitUpstreamAPIKey Connect-RPC wraps this.
 func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkContext, secret string) error {
 	cfg, err := s.loadConfig(ctx, lctx)

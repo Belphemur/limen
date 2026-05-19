@@ -21,7 +21,7 @@ Anything in this file should be read as **normative** for any code or migration 
 | **One table, all actors**                    | A single `audit_events` table for staff, tenant admin, end user, and system events lets us answer "who touched X in the last 24 h?" without joining three logs. Per-actor surfaces are SQL projections, not separate tables.                                                 |
 | **Append-only at the runtime layer**         | The runtime DB role (`limen_app`) can `INSERT` but cannot `UPDATE` or `DELETE`. Mutation is reserved to operator tooling running under `limen_admin`. Enforced by SQL grants + a `SECURITY DEFINER` writer function, not by application convention.                          |
 | **Encrypt the high-sensitivity bodies**      | Code-mode scripts and responses are tenant-supplied JavaScript and upstream replies. They are forensically valuable but a leak liability; they live encrypted on the same row, decrypted only by offline operator tooling holding the master key.                            |
-| **Structured `zap` first, persisted second** | Earlier phases (Phase 7 upstream lifecycle, Phase 8 codemode lifecycle, Phase 9 portal mutations) ship the emission as structured logs immediately. The persisted row is a retrofit when the writer lands. No backfill — the zap logs are the historical record for the gap. |
+| **Structured `zap` first, persisted second** | Earlier phases (Phase 7 upstream lifecycle, Phase 8 codemode lifecycle, Phase 9b portal mutations) ship the emission as structured logs immediately. The persisted row is a retrofit when the writer lands. No backfill — the zap logs are the historical record for the gap. |
 | **Partition by time**                        | `RANGE (occurred_at)`, monthly. Retention is operator-configurable (default ≥ 24 months). Old partitions detach and ship to cold storage; nothing in the application code references partitions directly.                                                                    |
 
 Non-goals (v1):
@@ -142,7 +142,7 @@ Encryption is **mandatory** when the event class is encryption-eligible:
 
 - The staff backoffice **never** decrypts in the SPA, even with `super_admin`. UI shows metadata only: tool name, digest, byte count, outcome, with a banner _"encrypted payload available via offline tooling."_
 - Decryption is an operator-only offline path documented in the [Phase 10 hardening](phases/phase-10-wiring-hardening.md) runbook: load the master key from operator secrets, fetch the row, decrypt locally, emit to operator stdout. The plaintext never traverses the gateway runtime.
-- Tenant users see their own activity through the [Phase 9 portal](phases/phase-09-portal-spa.md) "my activity" view as metadata only — never the encrypted body.
+- Tenant users see their own activity through the [Phase 9b portal](phases/phase-09b-portal-spa.md) "my activity" view as metadata only — never the encrypted body.
 
 ### Eligible event classes
 
@@ -175,8 +175,8 @@ Other event classes leave `payload_ciphertext` `NULL` and put the necessary dige
 | `codemode.tool.completed`       | Phase 8                                            | `user`              | no                 | `payload_json` carries `outcome`, `duration_ms`, `result_bytes`                    |
 | `codemode.tool.error`           | Phase 8                                            | `user`              | no                 | `payload_json` carries `error_kind`, redacted `error_message`                      |
 | `codemode.invocation.completed` | Phase 8                                            | `user`              | **yes** (response) | `payload_json` carries `outcome`, `duration_ms`, `tool_calls_total`                |
-| `mcp_client.revoked`            | [Phase 9](phases/phase-09-portal-spa.md)           | `user`              | no                 | Portal action                                                                      |
-| `tenant.settings.updated`       | [Phase 9b](phases/phase-09b-tenant-admin-spa.md)   | `user`              | no                 |                                                                                    |
+| `mcp_client.revoked`            | [Phase 9b](phases/phase-09b-portal-spa.md)           | `user`              | no                 | Portal action                                                                      |
+| `tenant.settings.updated`       | [Phase 9c](phases/phase-09c-tenant-admin-spa.md)   | `user`              | no                 |                                                                                    |
 | `staff.impersonate.start`       | [Phase 12](phases/phase-12-staff-backoffice.md)    | `staff`             | no                 | `reason` required; `target_user_id` set                                            |
 | `staff.impersonate.end`         | Phase 12                                           | `staff` or `system` | no                 | `system` when the 15-min TTL fires                                                 |
 | `staff.force.unlink`            | Phase 12                                           | `staff`             | no                 | `reason` required                                                                  |
@@ -294,8 +294,8 @@ The function is intentionally a thin insert with no policy logic — the policy 
 | Surface                                                                 | Filter                                                                                                                                                                         |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Staff backoffice** ([Phase 12](phases/phase-12-staff-backoffice.md))  | Unrestricted. Pagination by `(occurred_at DESC, id DESC)` cursor. Filters: `actor_type`, `action`, `target_tenant_id`, time range.                                             |
-| **Tenant admin SPA** ([Phase 9b](phases/phase-09b-tenant-admin-spa.md)) | `target_tenant_id = <viewer tenant>` AND `actor_type IN ('user','system')`. Admins see their tenant's history; staff actions performed on the tenant are intentionally hidden. |
-| **User portal** ([Phase 9](phases/phase-09-portal-spa.md))              | `actor_user_id = <viewer user>` OR `target_user_id = <viewer user>`. v1 SPA does not ship this view; the row shape is the input for a v1.x add-on.                             |
+| **Tenant admin SPA** ([Phase 9c](phases/phase-09c-tenant-admin-spa.md)) | `target_tenant_id = <viewer tenant>` AND `actor_type IN ('user','system')`. Admins see their tenant's history; staff actions performed on the tenant are intentionally hidden. |
+| **User portal** ([Phase 9b](phases/phase-09b-portal-spa.md))              | `actor_user_id = <viewer user>` OR `target_user_id = <viewer user>`. v1 SPA does not ship this view; the row shape is the input for a v1.x add-on.                             |
 
 None of these surfaces decrypts `payload_ciphertext`. The encrypted body is operator-offline only.
 

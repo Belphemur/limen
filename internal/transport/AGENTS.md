@@ -37,7 +37,7 @@ that could be unit-tested without an HTTP server probably belongs elsewhere.
 - **Phase 5**: `/t/{slug}/register` (RFC 7591 DCR proxy onto Zitadel),
   `/t/{slug}/.well-known/oauth-protected-resource` (PRM).
 - **Phase 6**: `/t/{slug}/mcp` (MCP RS — JWT-authenticated, SSE).
-- **Phase 9**: SPA static asset serving under `/t/{slug}/portal/...`.
+- **Phase 9b**: SPA static asset serving under `/t/{slug}/portal/...`.
 
 Each phase adds routes, not new transport patterns — stick to chi + middleware
 chains.

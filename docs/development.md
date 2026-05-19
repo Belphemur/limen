@@ -128,7 +128,7 @@ Negative checks:
 
 Once you have a tenant and a logged-in user, the portal page drives the
 full connect / refresh / disconnect flow. The portal HTML is a developer
-test surface — Phase 9 replaces it with a real SPA.
+test surface — Phase 9b replaces it with a real SPA.
 
 1. **Register an upstream.** v1 only supports the `mcp_spec` strategy
    (OAuth-via-PRM discovery — what Atlassian Rovo, GitHub MCP, etc.
@@ -168,12 +168,12 @@ PoC notes:
 - The four endpoints (`GET /portal/upstreams`, `POST .../connect`,
   `POST .../disconnect`) live in
   [internal/transport/portal_upstreams.go](../internal/transport/portal_upstreams.go),
-  behind the same `RequireSession` middleware as `/portal/me`. Phase 9
+  behind the same `RequireSession` middleware as `/portal/me`. Phase 9b
   replaces them with a typed Connect-RPC service — do not build external
   integrations against this shape.
 - The `none` and `static_header` strategies work end-to-end at the
   `upstream.Service` layer but have no admin surface yet. Add them via
-  SQL or extend `create-upstream` if you need them before Phase 9.
+  SQL or extend `create-upstream` if you need them before Phase 9b.
 - If you don't want Valkey at all, set `LIMEN_VALKEY_ADDRESS=` (empty) —
   linking is disabled and the gateway logs
   `valkey.address empty: upstream linking disabled` at boot.

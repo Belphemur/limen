@@ -9,7 +9,7 @@ Give the SaaS operator (the human/team running the Limen instance) a first-class
 - A **backoffice SPA** at `/t/_staff/portal/` exposes tenant lists, per-user upstream link health, system status (refresh-queue depth, circuit-breaker states from [Phase 10](phase-10-wiring-hardening.md)), and an audit-log view.
 - A "View as" / **impersonation** flow lets staff act as a specific customer user via Zitadel, with a hard time cap, MFA precondition, and an audit trail. The impersonated customer session is visually distinguishable in the customer SPA at all times.
 
-This phase intentionally sits **after** the customer-facing portal (Phase 9) and hardening (Phase 10), and **after** production deployment (Phase 11) only on paper — in practice the staff bootstrap step must run as part of the first deploy. Phase 11's `limen-migrate` is extended here to provision the staff tenant idempotently.
+This phase intentionally sits **after** the customer-facing portal (Phase 9b) and hardening (Phase 10), and **after** production deployment (Phase 11) only on paper — in practice the staff bootstrap step must run as part of the first deploy. Phase 11's `limen-migrate` is extended here to provision the staff tenant idempotently.
 
 ## Design
 
@@ -100,7 +100,7 @@ Interceptors: `RequireStaffSession` (tenant `PublicID` == `_staff` reserved lite
 
 ### Backoffice SPA
 
-Shares the [Phase 9](phase-09-portal-spa.md) Vue 3 codebase and the same static-host deployment (Caddy `file_server` or Cloudflare Pages, see [Phase 11](phase-11-production-deployment.md)). The shell looks at the tenant segment on boot:
+Shares the [Phase 9b](phase-09b-portal-spa.md) Vue 3 codebase and the same static-host deployment (Caddy `file_server` or Cloudflare Pages, see [Phase 11](phase-11-production-deployment.md)). The shell looks at the tenant segment on boot:
 
 - `_staff` → lazy-load `web/src/staff/*` route bundle; customer routes are not loaded.
 - anything else → existing customer routes; staff bundle is not loaded.
@@ -128,14 +128,14 @@ Phase 12-specific responsibilities:
 #### Read surfaces
 
 - **Staff backoffice** (this phase): unrestricted, paginated, filterable by `actor_type`, `action`, `target_tenant_id`, time range.
-- **Tenant admin SPA** ([Phase 9b](phase-09b-tenant-admin-spa.md)): rows where `target_tenant_id = <viewer tenant>` AND `actor_type IN ('user','system')` — admins see their tenant's history, never staff actions performed on the tenant.
-- **User portal** ([Phase 9](phase-09-portal-spa.md)): rows where `actor_user_id = <viewer user>` OR `target_user_id = <viewer user>` — "my activity". Out of scope for v1 SPA; the row format is the input.
+- **Tenant admin SPA** ([Phase 9c](phase-09c-tenant-admin-spa.md)): rows where `target_tenant_id = <viewer tenant>` AND `actor_type IN ('user','system')` — admins see their tenant's history, never staff actions performed on the tenant.
+- **User portal** ([Phase 9b](phase-09b-portal-spa.md)): rows where `actor_user_id = <viewer user>` OR `target_user_id = <viewer user>` — "my activity". Out of scope for v1 SPA; the row format is the input.
 
 #### Write surfaces (retrofits owned by this phase)
 
 - **Phase 7** emits `upstream.connected`, `upstream.disconnected`, `upstream.link.enabled`, `upstream.link.disabled`, `upstream.link.api_key_rotated`, `upstream.auto_disabled`, `upstream.refresh_failed`. Until Phase 12 ships the writer, these are **structured zap logs** at INFO level carrying the same field set — no backfill is done when the table arrives.
 - **[Phase 8](phase-08-per-tenant-injection.md)** emits the codemode lifecycle (`codemode.invocation.started`, `codemode.tool.called`, `codemode.tool.completed`, `codemode.tool.error`, `codemode.invocation.completed`). The two `invocation.*` rows additionally store the **raw script (started) and raw response (completed)** encrypted on the same row — see [docs/audit.md § Encrypted payloads](../audit.md#encrypted-payloads). The runtime zap log carries digests + byte counts only; the encrypted body is the audit row's responsibility. Same retrofit pattern as Phase 7: zap logs first, persisted rows once this phase lands, no backfill.
-- **Phase 9 / 9b** emits portal + admin mutations through the writer once available (`mcp_client.revoked`, `tenant.settings.updated`, etc.).
+- **Phase 9b / 9c** emits portal + admin mutations through the writer once available (`mcp_client.revoked`, `tenant.settings.updated`, etc.).
 - **Phase 12** (this phase) emits every staff action through the same writer.
 
 A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`), the SQL function binding, and the actor extraction from ctx so call sites stay trivial. The full API and the AAD-construction rules live in [docs/audit.md](../audit.md).
@@ -146,7 +146,7 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - New `internal/staff/` package: RPC handlers, impersonation flow, breaker control.
 - New `internal/storage/staff.go`: `WithStaffRead(ctx)` helper, staff-mode RLS migration.
 - New `internal/audit/` writer + `audit_events` migration (partitioned, **shared** across user / staff / system actors). Schema, encryption envelope, action vocabulary, and writer API are all specified in [docs/audit.md](../audit.md) — this phase implements that spec.
-- Retrofit prior phases (Phase 7 first, then Phase 9 / 9b) to route their existing structured-log audit events through `audit.Append` once the writer is available.
+- Retrofit prior phases (Phase 7 first, then Phase 9b / 9c) to route their existing structured-log audit events through `audit.Append` once the writer is available.
 - Extension to [Phase 0](phase-00-dev-environment.md) bootstrap: staff org + `super_admin` role + bootstrap user.
 - Extension to [Phase 11](phase-11-production-deployment.md) `limen-migrate`: ensure `_staff` tenant row exists.
 - SPA: new `web/src/staff/` route module; shared shell decides which bundle to load on boot.
@@ -186,7 +186,7 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - [ ] `internal/staff/` package implements every RPC and the impersonation flow
 - [ ] `RequireStaffSession` + `RequireSuperAdmin` + `AuditingInterceptor` mounted on the staff API
 - [ ] `audit_events` migration creates partitioned table + monthly partition helper; `audit.append(...)` SECURITY DEFINER function provisions append-only runtime writes (per [docs/audit.md](../audit.md))
-- [ ] `audit_events` schema covers all three actor types (`user` / `staff` / `system`) and is reused by user-facing audit surfaces in Phase 9 / 9b, not just the staff backoffice
+- [ ] `audit_events` schema covers all three actor types (`user` / `staff` / `system`) and is reused by user-facing audit surfaces in Phase 9b / 9c, not just the staff backoffice
 - [ ] Phase 7's `upstream.*` audit events — notably `upstream_auto_disabled` with `(tenant_id, user_id, upstream_id, reason, streak_started_at)`, currently a structured zap log — are routed through `audit.Append` once this phase lands; the retrofit is part of this phase's deliverables _(persisted-audit half moved from [Phase 7](phase-07-outbound-upstream.md) — Phase 7 ships the emission as a zap log because the `audit_events` table doesn't exist yet)_
 - [ ] [Phase 8](phase-08-per-tenant-injection.md)'s codemode lifecycle events (`codemode.invocation.started`, `codemode.tool.called`, `codemode.tool.completed`, `codemode.tool.error`, `codemode.invocation.completed`) are routed through `audit.Append` with the same redacted field set (digests + byte counts, `codemode_invocation_id` as the join key); when the writer is available, both the invocation row and one row per tool call are persisted under `actor_type='user'`, `target_kind='codemode_invocation'`
 - [ ] `audit_events` migration adds `payload_ciphertext` (`BYTEA`), `payload_ciphertext_aad` (`TEXT`), `payload_ciphertext_scheme` (`SMALLINT`); the `codemode_search` / `codemode_execute` invocation rows store the raw script (on `invocation.started`) and the raw response (on `invocation.completed`) AES-SIV-encrypted with AAD `<tenant>|<user>|audit.codemode.<search|execute>.<script|result>`; write failure on key-unavailable propagates as a 500, never a silent drop. Envelope details: [docs/audit.md § Encrypted payloads](../audit.md#encrypted-payloads).

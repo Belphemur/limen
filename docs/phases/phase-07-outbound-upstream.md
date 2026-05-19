@@ -1,7 +1,7 @@
 # Phase 7 — Outbound upstream linking (strategies)
 
 **Depends on**: Phase 4 (portal session + tenant resolution); benefits from Phases 1–3 already landed.
-**Unblocks**: Phase 8 (per-user upstream injection), Phase 9 (portal UI for upstream connect/disconnect)
+**Unblocks**: Phase 8 (per-user upstream injection), Phase 9b (portal UI for upstream connect/disconnect)
 
 ## Goal
 
@@ -134,7 +134,7 @@ Behaviors:
 
   `{value}` is the only substitution. `header_name` and `header_template` are admin-controlled at upstream creation; the user-facing form only takes the raw secret.
 
-- **`StartLink` (user mode)** does **not** redirect to a third-party authorize endpoint. It returns a relative URL into the portal SPA (e.g. `/portal/upstreams/<public_id>/api-key`) where the SPA renders the form. The actual submission goes through a dedicated Connect-RPC method on `PortalService` (`SubmitUpstreamAPIKey`, see Phase 9), **not** through the generic `/callback` route. The strategy still implements `FinishLink` for shape uniformity, but it is not wired to an HTTP callback.
+- **`StartLink` (user mode)** does **not** redirect to a third-party authorize endpoint. It returns a relative URL into the portal SPA (e.g. `/portal/upstreams/<public_id>/api-key`) where the SPA renders the form. The actual submission goes through a dedicated Connect-RPC method on `PortalService` (`SubmitUpstreamAPIKey`, see Phase 9b), **not** through the generic `/callback` route. The strategy still implements `FinishLink` for shape uniformity, but it is not wired to an HTTP callback.
 
 - **`Provision` (tenant mode)** validates that `tenant_secret` is non-empty and that `header_template` parses; performs no network call.
 
@@ -167,7 +167,7 @@ GET  /t/{tenant}/upstream/{name}/callback     → strategy.FinishLink → redire
 POST /t/{tenant}/upstream/{name}/disconnect   → revoke + delete UpstreamLink
 ```
 
-All three look up `(tenant, upstream)`, fetch the strategy via the registry, and call into it. The portal SPA (Phase 9) calls these via Connect-RPC mutations + browser redirects.
+All three look up `(tenant, upstream)`, fetch the strategy via the registry, and call into it. The portal SPA (Phase 9b) calls these via Connect-RPC mutations + browser redirects.
 
 ### Token-refresh control flow (`mcp_spec`)
 
@@ -303,7 +303,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 ## Security & operational notes
 
 - **DCR happens once per `(tenant, upstream)`** — guarded by a uniqueness check on `UpstreamRegistration`. Re-running `Provision` after a successful DCR is a no-op (or refreshes registration metadata via RFC 7592 if needed). The same uniqueness guard applies to static-client provisioning: once `UpstreamRegistration` exists, `Provision` is a no-op regardless of whether DCR or a static `Config` produced it.
-- **Static OAuth clients are operator-provisioned**. When an AS doesn't support DCR (GitHub being the canonical example), the operator registers a client through the upstream's own developer console, then passes `--client-id` / `--client-secret` (and any `--issuer` / `--authorization-endpoint` / `--token-endpoint` / `--scope` overrides needed) to `limen create-upstream`. The CLI encrypts the bundle into `UpstreamStrategyConfig.ConfigJSON` with AAD `tenant|""|"upstream.mcpspec.strategy_config"`. The portal's per-tenant admin UI grows the same affordance in Phase 9b.
+- **Static OAuth clients are operator-provisioned**. When an AS doesn't support DCR (GitHub being the canonical example), the operator registers a client through the upstream's own developer console, then passes `--client-id` / `--client-secret` (and any `--issuer` / `--authorization-endpoint` / `--token-endpoint` / `--scope` overrides needed) to `limen create-upstream`. The CLI encrypts the bundle into `UpstreamStrategyConfig.ConfigJSON` with AAD `tenant|""|"upstream.mcpspec.strategy_config"`. The portal's per-tenant admin UI grows the same affordance in Phase 9c.
 - **State must be one-shot** — set `Used=true` on consumption, reject reuse.
 - **Scopes are recorded** so the portal can show what's permitted; do not request `offline_access` if the upstream's PRM/AS metadata doesn't advertise refresh tokens.
 - **Token storage AAD** binds tokens to the linking user — a stolen token from one row can't be decrypted into another row's slot.
@@ -340,10 +340,10 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [x] `internal/upstream/mcpspec/refresh.go` injects `Authorization: Bearer ...` and refreshes inline when within 60 s of expiry
 - [x] `internal/upstream/statichdr/config.go` validates header name/template + mode; refuses unknown modes _(merged into [internal/upstream/statichdr/statichdr.go](../../internal/upstream/statichdr/statichdr.go))_
 - [x] `internal/upstream/statichdr/headers.go` reads the tenant secret (tenant mode) or the user link (user mode) and formats the header
-- [x] `static_header` user-mode `StartLink` returns a portal SPA URL (no third-party redirect); rotation overwrites the stored key atomically _(via `PersistUserSecret`; portal RPC wiring lands in Phase 9)_
+- [x] `static_header` user-mode `StartLink` returns a portal SPA URL (no third-party redirect); rotation overwrites the stored key atomically _(via `PersistUserSecret`; portal RPC wiring lands in Phase 9b)_
 - [x] `static_header` `RequiresLink()` returns `false` in tenant mode, `true` in user mode
 - [x] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
-- [x] `internal/upstream/handlers.go` exposes connect / callback / disconnect under `/t/{tenant}/upstream/{name}/*` behind `RequirePortalSession` _(callback HTTP route in [internal/transport/upstream.go](../../internal/transport/upstream.go); connect/disconnect ship as portal Connect-RPC mutations in Phase 9)_
+- [x] `internal/upstream/handlers.go` exposes connect / callback / disconnect under `/t/{tenant}/upstream/{name}/*` behind `RequirePortalSession` _(callback HTTP route in [internal/transport/upstream.go](../../internal/transport/upstream.go); connect/disconnect ship as portal Connect-RPC mutations in Phase 9b)_
 - [x] `internal/upstream/refresher.go` runs a single goroutine under `WithSuperuser(ctx)`, audited with a `// nolint:limen.superuser` comment, skips strategies whose `Maintain` is a no-op
 - [x] Refresher interval and refresh window come from config (sensible defaults)
 - [x] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (and `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
@@ -358,7 +358,7 @@ This is exactly what makes the portal experience feel right: a freshly created t
 - [x] Single-flight (`golang.org/x/sync/singleflight`) keyed by `link.PublicID` prevents concurrent refresh stampedes within a process
 - [x] `SELECT ... FOR UPDATE SKIP LOCKED` on the link row prevents stampedes across processes
 - [x] Refresh-token rotation: any of `access_token`, `refresh_token`, `expires_at`, `scopes` returned by the token endpoint is persisted; old refresh token is overwritten when a new one is issued
-- [x] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true` _(portal CTA wiring is Phase 9; the model flag and refresher skip are in place)_
+- [x] `invalid_grant` response sets `needs_relink=true`; portal surfaces a "Reconnect" CTA on those rows; background refresher skips rows where `needs_relink=true` _(portal CTA wiring is Phase 9b; the model flag and refresher skip are in place)_
 - [x] Valkey-backed one-shot OAuth state (HMAC-signed envelope + encrypted PKCE verifier; `GETDEL`-style consumption; 10-minute TTL)
 - [x] Unit tests for state signing, discovery, registration, token exchange, refresh, refresh-token rotation, single-flight collapse, `needs_relink` on `invalid_grant`, `none.Provision` rejection, `static_header` template rendering + mode dispatch
 
@@ -366,5 +366,5 @@ The four end-to-end integration tests that this phase originally listed have bee
 
 - Full `mcp_spec` connect flow against an httptest stub → [Phase 8](phase-08-per-tenant-injection.md) (round-tripper asserts Headers injection on the upstream call).
 - Reactive refresh on `401` — stub returns 401 once, then 200 → [Phase 8](phase-08-per-tenant-injection.md) (round-tripper owns the retry loop).
-- `static_header` user-mode submit-key flow + enable/disable visibility → [Phase 9](phase-09-portal-spa.md) (portal Connect-RPC + SPA).
-- Sustained-5xx auto-disable → Re-enable round-trip → [Phase 8](phase-08-per-tenant-injection.md) + [Phase 9](phase-09-portal-spa.md) (failure recorded by the round-tripper; recovery driven by `SetUpstreamLinkEnabled`).
+- `static_header` user-mode submit-key flow + enable/disable visibility → [Phase 9b](phase-09b-portal-spa.md) (portal Connect-RPC + SPA).
+- Sustained-5xx auto-disable → Re-enable round-trip → [Phase 8](phase-08-per-tenant-injection.md) + [Phase 9b](phase-09b-portal-spa.md) (failure recorded by the round-tripper; recovery driven by `SetUpstreamLinkEnabled`).

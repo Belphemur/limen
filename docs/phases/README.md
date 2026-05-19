@@ -33,15 +33,16 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 8b  | [Codemode async tool calls (event loop + Promise proxies)](phase-08b-codemode-async-tool-calls.md) | 8                  | ✅           |
 | 8c  | [Ambient context + alias autodiscovery + empty-filter hints](phase-08c-ambient-context-and-alias-discovery.md) | 8                  | ✅           |
 | 8d  | [Vendor context enrichment (Atlassian/GitHub/Linear/Sentry)](phase-08d-vendor-context-enrichment.md) | 8c                 | ☐            |
-| 9   | [Portal backend (Connect-RPC) + Vue 3 SPA](phase-09-portal-spa.md)                                 | 4, 7               | ☐            |
-| 9b  | [Tenant administrative portal + self-serve signup](phase-09b-tenant-admin-spa.md)                  | 4, 7, 9            | ☐            |
-| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                    | 0–9                | ☐            |
+| 9a  | [Binary split (gateway / portal / staff)](phase-09a-binary-split.md)                                | 7, 8               | ☐            |
+| 9b  | [Customer portal backend (Connect-RPC) + Vue 3 SPA](phase-09b-portal-spa.md)                        | 9a, 4, 7           | ☐            |
+| 9c  | [Tenant administrative portal + self-serve signup](phase-09c-tenant-admin-spa.md)                   | 9a, 4, 7, 9b       | ☐            |
+| 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                    | 0–9c               | ☐            |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                        | 0–10               | ☐            |
-| 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)             | 0, 3, 4, 9, 10, 11 | ☐            |
-| 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                                       | 4, 9, 10, 11, 12   | ☐            |
+| 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)             | 0, 3, 4, 9a, 9b, 10, 11 | ☐       |
+| 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                                       | 4, 9b, 10, 11, 12  | ☐            |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)   | 8, 10              | ☐ (deferred) |
 
-Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9 unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9b unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
@@ -114,7 +115,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] DCR proxy rejects unknown / unsupported metadata fields with `invalid_client_metadata` (default-deny)
 - [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (`golang.org/x/time/rate`)
 - [ ] PKCE S256 required on every DCR'd app; `redirect_uris` validated (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes; wildcards / IDN / fragments rejected)
-- [ ] `Tenant.DCRRedirectURIAllowlist` column added; when non-empty, every DCR `redirect_uri` must additionally match a tenant-admin-defined glob pattern (subtractive — floor still applies). Editor lives in the [Phase 9b](phase-09b-tenant-admin-spa.md) admin SPA Settings page
+- [ ] `Tenant.DCRRedirectURIAllowlist` column added; when non-empty, every DCR `redirect_uri` must additionally match a tenant-admin-defined glob pattern (subtractive — floor still applies). Editor lives in the [Phase 9c](phase-09c-tenant-admin-spa.md) admin SPA Settings page
 - [ ] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
 - [ ] `ZitadelApp` mirror row persisted; `registration_access_token_hash` column (SHA-256) added by migration and used for constant-time auth
 - [ ] RFC 7592 management endpoints implemented (`GET/PUT/DELETE /register/{client_id}`)
@@ -143,7 +144,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] `internal/upstream/mcpspec/mcpspec.go` implements the OAuth-via-PRM strategy (discovery + DCR + PKCE + headers + refresh merged into one file)
 - [x] `internal/upstream/statichdr/statichdr.go` implements the static-header strategy (tenant-wide secret and per-user API key modes)
 - [x] `internal/upstream/none/none.go` returns empty headers; `Provision` rejects upstreams that advertise PRM
-- [x] `internal/transport/upstream.go` exposes the callback under `/t/{tenant}/upstream/{name}/callback`; connect/disconnect ship as portal Connect-RPC mutations in Phase 9
+- [x] `internal/transport/upstream.go` exposes the callback under `/t/{tenant}/upstream/{name}/callback`; connect/disconnect ship as portal Connect-RPC mutations in Phase 9b
 - [x] `internal/upstream/refresher.go` runs under `WithSuperuser(ctx)` with audit comment; skips strategies whose `Maintain` is a no-op
 - [x] Tokens / API keys stored encrypted with AAD `tenant|user|"upstream.<kind>_token"` (or `tenant|""|"upstream.strategy_config"` for tenant-wide secrets)
 - [x] `UpstreamLink.Enabled` field added (default `true`); migration shipped
@@ -176,9 +177,9 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Unit + integration tests for multi-tenant isolation and link-required visibility
 - [ ] Integration test: full `mcp_spec` connect flow against an httptest stub _(moved from Phase 7)_
 - [ ] Integration test: reactive refresh on `401` — round-tripper retries exactly once and the tool call succeeds _(moved from Phase 7)_
-- [ ] Integration test (server-side half): sustained 5xx → `RecordFailure` trips `AutoDisabledAt` → tool listing hides the upstream; portal-side recovery covered by Phase 9 _(moved from Phase 7)_
+- [ ] Integration test (server-side half): sustained 5xx → `RecordFailure` trips `AutoDisabledAt` → tool listing hides the upstream; portal-side recovery covered by Phase 9b _(moved from Phase 7)_
 
-### Phase 9 — Portal backend + Vue 3 SPA
+### Phase 9b — Portal backend + Vue 3 SPA
 
 - [ ] `proto/limen/portal/v1/portal.proto` with full `PortalService` definition (no `ChangePassword`; Zitadel owns passwords); includes `SubmitUpstreamAPIKey` and `SetUpstreamLinkEnabled`
 - [ ] `buf.yaml` + `buf.gen.yaml`; Go + TS codegen

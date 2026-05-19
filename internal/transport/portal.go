@@ -34,7 +34,7 @@ type PortalDeps struct {
 	Logger                *zap.Logger
 	PostLogoutRedirectURI string
 	// UpstreamService, when non-nil, enables the portal PoC endpoints
-	// for connecting/disconnecting MCP upstreams. Phase 9 replaces these
+	// for connecting/disconnecting MCP upstreams. Phase 9b replaces these
 	// with a Connect-RPC service.
 	UpstreamService *upstream.Service
 }

@@ -1,7 +1,7 @@
 # Phase 8 — Per-tenant, per-user upstream injection
 
 **Depends on**: Phases 6, 7
-**Unblocks**: Phase 9 (portal listing of available/connected tools)
+**Unblocks**: Phase 9b (portal listing of available/connected tools)
 
 ## Goal
 
@@ -138,7 +138,7 @@ How the catalog is populated differs only in _who_ drives the first `tools/list`
 | `static_header` (tenant-wide mode)      | false            | Same as `none`: the tenant-wide secret is available at `Provision`, so the indexer runs immediately.                                                                                                                    |
 | `static_header` (user mode), `mcp_spec` | true             | The first **tenant `owner` or `admin`** to complete the connect/link flow triggers the indexer using _their_ credentials. Subsequent user links do not re-index synchronously; they rely on the periodic refresh below. |
 
-The "first admin/owner to link" rule is enforced by the admin SPA (Phase 9b): creating an upstream whose strategy `RequiresLink()` puts it in a `pending_catalog` state and routes the admin into the standard portal connect flow as their next step. The upstream is not surfaced to other tenant users until at least one `UpstreamTool` row exists. v1 has no "impersonate a user to bootstrap" path — a real admin/owner credential must be used.
+The "first admin/owner to link" rule is enforced by the admin SPA (Phase 9c): creating an upstream whose strategy `RequiresLink()` puts it in a `pending_catalog` state and routes the admin into the standard portal connect flow as their next step. The upstream is not surfaced to other tenant users until at least one `UpstreamTool` row exists. v1 has no "impersonate a user to bootstrap" path — a real admin/owner credential must be used.
 
 Indexer entry point lives in `internal/upstream/catalog.go`:
 
@@ -223,7 +223,7 @@ Routes after Phase 8:
 
 ```
 /t/{tenant}/                                      → RequireTenant
-  ├─ /portal/...                                  → portal session + SPA (Phase 9)
+  ├─ /portal/...                                  → portal session + SPA (Phase 9b)
   ├─ /oauth/...                                   → AS endpoints (Phase 5)
   ├─ /mcp/.well-known/oauth-protected-resource    → public (Phase 6)
   ├─ /mcp                                          → RequireMCPAuth → MCP handler
@@ -298,7 +298,7 @@ type Bundle struct {
 
 - [x] `storage.UpstreamTool` model + `migrations/postgres/00006_phase8_upstream_tools.sql` (RLS + `set_updated_at` trigger) shipped — model lives in `internal/storage/model_upstream_tool.go` (added during the `models.go` per-model split, commit `c572d3f`); the row carries `TenantID` / `UpstreamID` / `Name` (partial-unique on `WHERE deleted_at IS NULL`), `Description`, `InputSchemaJSON` (jsonb), and `LastIndexedAt`. Migration `00006` layers tenant-isolation RLS + the `set_updated_at` trigger to match every other tenant-scoped table.
 - [x] `internal/upstream/catalog.go` defines `IndexUpstream(ctx, store, registry, tenant, upstream, link)` — connects an mcp-go streamable client with the strategy's headers, calls `tools/list`, and reconciles `upstream_tools` in one tx (creates / updates / hard-deletes stale names). `Service.IndexCatalog` is the in-process wrapper callers use.
-- [x] Tenant-mode strategies (`none`, `static_header` tenant-mode) are indexed synchronously at `Provision` time. The coarse `strat.RequiresLink() && link == nil` gate in [internal/upstream/catalog.go](../../internal/upstream/catalog.go) is gone — each strategy's `Headers()` is now the authority on link requirements (mcp_spec and static_header user-mode return `ErrNeedsRelink` / `ErrLinkNotFound` when the link is missing). New `Service.ProvisionTenantMode(ctx, tenant, up)` in [internal/upstream/service.go](../../internal/upstream/service.go) runs `Provision` + best-effort `IndexUpstream(link=nil)`, swallowing `ErrNeedsRelink` / `ErrLinkNotFound` as "wait for a user link". Wired into the CLI in [internal/cli/create_upstream.go](../../internal/cli/create_upstream.go): `create-upstream --strategy none` now indexes the upstream as part of the command (was previously rejected). `static_header` stays admin-SPA-only (its tenant-mode flags belong to Phase 9). The admin SPA `CreateUpstream` RPC will call the same `ProvisionTenantMode` helper when it lands.
+- [x] Tenant-mode strategies (`none`, `static_header` tenant-mode) are indexed synchronously at `Provision` time. The coarse `strat.RequiresLink() && link == nil` gate in [internal/upstream/catalog.go](../../internal/upstream/catalog.go) is gone — each strategy's `Headers()` is now the authority on link requirements (mcp_spec and static_header user-mode return `ErrNeedsRelink` / `ErrLinkNotFound` when the link is missing). New `Service.ProvisionTenantMode(ctx, tenant, up)` in [internal/upstream/service.go](../../internal/upstream/service.go) runs `Provision` + best-effort `IndexUpstream(link=nil)`, swallowing `ErrNeedsRelink` / `ErrLinkNotFound` as "wait for a user link". Wired into the CLI in [internal/cli/create_upstream.go](../../internal/cli/create_upstream.go): `create-upstream --strategy none` now indexes the upstream as part of the command (was previously rejected). `static_header` stays admin-SPA-only (its tenant-mode flags belong to Phase 9b). The admin SPA `CreateUpstream` RPC will call the same `ProvisionTenantMode` helper when it lands.
 - [x] Per-user strategies (`mcp_spec`, `static_header` user-mode) are indexed when the first **owner or admin** completes the link; member links do not refresh the shared catalog — enforced in `internal/transport/upstream.go`'s `/callback` handler via `hasCatalogIndexerRole(claims)` (`owner`/`admin` only). Indexer failure logs and continues; the redirect back to the SPA is never blocked on a catalog hiccup.
 - [x] Periodic catalog sweep in `internal/upstream/refresher.go` runs at `upstream_refresh.catalog_interval` (default 6h). For per-user strategies the sweep picks any healthy link (enabled, not auto-disabled, not needs-relink) as the credential source; upstreams with no healthy link are skipped without error.
 - [x] `Gateway.ToolsForUser` reads from `upstream_tools` — never calls `tools/list` synchronously on the request path; implemented as `Manager.ToolsForUser` in [internal/gateway/manager.go](../../internal/gateway/manager.go).
@@ -326,4 +326,4 @@ type Bundle struct {
 - [ ] Integration tests for multi-tenant isolation and link-required visibility
 - [ ] Integration test: full `mcp_spec` connect flow against an httptest stub — admin creates an upstream, user hits `/connect`, mock authorize + token endpoints, `/callback` lands tokens, a subsequent tool call goes out with the injected `Authorization: Bearer ...` header _(moved from [Phase 7](phase-07-outbound-upstream.md) — needs this phase's round-tripper to assert end-to-end Headers injection on the upstream call)_
 - [ ] Integration test: reactive refresh on `401` — stub upstream returns 401 once, then 200; the round-tripper transparently calls `HeadersForceRefresh` and retries the tool call exactly once, which succeeds _(moved from [Phase 7](phase-07-outbound-upstream.md) — the retry loop lives in this phase's round-tripper)_
-- [ ] Integration test (server-side half): sustained upstream 5xx through the round-tripper → `RecordFailure` trips `AutoDisabledAt` at the configured threshold → tool listing for that user hides the upstream's tools → subsequent `CallTool` returns the structured "re-link or re-enable required" error _(moved from [Phase 7](phase-07-outbound-upstream.md) — failure accounting happens in this phase's transport; the portal-side Re-enable round-trip is covered by [Phase 9](phase-09-portal-spa.md))_
+- [ ] Integration test (server-side half): sustained upstream 5xx through the round-tripper → `RecordFailure` trips `AutoDisabledAt` at the configured threshold → tool listing for that user hides the upstream's tools → subsequent `CallTool` returns the structured "re-link or re-enable required" error _(moved from [Phase 7](phase-07-outbound-upstream.md) — failure accounting happens in this phase's transport; the portal-side Re-enable round-trip is covered by [Phase 9b](phase-09b-portal-spa.md))_

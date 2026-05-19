@@ -13,7 +13,7 @@
 // only have to implement this interface.
 //
 // Everything in this package is callable from server-side Go code; the
-// Connect-RPC handlers Phase 9 ships are thin wrappers over the methods
+// Connect-RPC handlers Phase 9b ships are thin wrappers over the methods
 // here. The only HTTP route this package owns is GET .../callback (see
 // callback.go) because the OAuth redirect URI is protocol-mandated.
 package upstream

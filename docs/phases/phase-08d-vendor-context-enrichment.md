@@ -207,7 +207,7 @@ the rejected `AfterFirstCall` path would have — but scoped via
 
 ### 2. Portal "refresh context" RPC
 
-Phase 9 adds a portal-side RPC `RefreshLinkContext(upstreamID)` that
+Phase 9b adds a portal-side RPC `RefreshLinkContext(upstreamID)` that
 runs the enricher synchronously, surfaces errors, and returns the new
 context blob. Lets users self-heal when something changed upstream
 (workspace added, name changed).
@@ -340,7 +340,7 @@ Land in this order; each is independently committable + reverible.
    - One commit per vendor with HTTP-fixture tests.
 
 6. **Slice 6 — portal "Refresh context"**
-   - Belongs to Phase 9 (portal). Adds the synchronous RPC + button.
+   - Belongs to Phase 9b (portal). Adds the synchronous RPC + button.
      Calling it from CLI is fine in the meantime.
 
 7. **Slice 7 — background maintenance**
@@ -374,7 +374,7 @@ own them know what to wire.
 ## Open questions
 
 1. **Multi-site Atlassian users.** Picking a default `cloudId` requires
-   user input. Until the portal lands the picker (Phase 9), the enricher
+   user input. Until the portal lands the picker (Phase 9b), the enricher
    will write the full `cloudIds` array and the model will see it but
    not a single `cloudId`. Acceptable interim — better than today's
    "paste it manually" — but worth flagging.
@@ -438,5 +438,5 @@ own them know what to wire.
       key table; cross-link from upstream docs.
 - [ ] Phase 11 follow-up captured: cron-side maintenance using
       `RefreshInterval()`.
-- [ ] Phase 9 follow-up captured: portal RPC + button for
+- [ ] Phase 9b follow-up captured: portal RPC + button for
       "Refresh context".

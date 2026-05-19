@@ -1,5 +1,5 @@
 // Package upstream — Service exposes the Phase 7 outbound-link operations
-// as plain Go methods. Phase 9's portal Connect-RPC layer wraps these;
+// as plain Go methods. Phase 9b's portal Connect-RPC layer wraps these;
 // Phase 7 itself only ships one HTTP route: the /callback redirect URI
 // that upstream Authorization Servers redirect to after the user
 // authorizes (mounted via transport).
@@ -121,7 +121,7 @@ func (s *Service) LoadUpstream(ctx context.Context, tenantID int64, name string)
 
 // ListUpstreams returns every (non-deleted) Upstream row for the tenant,
 // ordered by name. Used by the portal PoC to render a connect/disconnect
-// table; Phase 9's Connect-RPC will expose a richer shape.
+// table; Phase 9b's Connect-RPC will expose a richer shape.
 func (s *Service) ListUpstreams(ctx context.Context, tenantID int64) ([]storage.Upstream, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {

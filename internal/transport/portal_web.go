@@ -44,7 +44,7 @@ func portalMeHandler(w http.ResponseWriter, r *http.Request) {
 
 // portalStaticHandler serves the single self-contained portal page. All
 // CSS + JS is inlined into the HTML; there are no other static assets to
-// route. Phase 4 is a POC — Phase 9 will replace this with a real SPA.
+// route. Phase 4 is a POC — Phase 9b will replace this with a real SPA.
 func portalStaticHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

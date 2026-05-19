@@ -31,9 +31,9 @@ The table below pins down the boundary so reviewers can reject any RPC / UI / CL
 | **Tenant-level external IdP federation** (OIDC / SAML / social)        | Zitadel   | Console `Identity Providers` per org ([Existing Identity / SSO](https://zitadel.com/docs/concepts/features/selfservice#existing-identity--sso--social-login)) | None. Limen drives the standard OIDC flow; Zitadel renders the SSO buttons                                              |
 | **Org-level security policy** (login policy, lockout, MFA enforcement) | Zitadel   | Console `Settings > Login` / `Lockout` per org                                                                                                                | None                                                                                                                    |
 | **Service accounts, PATs, machine users**                              | Zitadel   | Console `Service Users`                                                                                                                                       | None                                                                                                                    |
-| **Creating a brand-new tenant** (= Zitadel org + Limen row)            | **Limen** | `limen create-tenant` CLI, or `AdminService.StartSignup` / `CompleteSignup` wizard ([Phase 9b](phase-09b-tenant-admin-spa.md))                                | Owns this end-to-end: creates the Zitadel org, the seed owner grant, and the Limen `Tenant` row in a single transaction |
-| **Per-user upstream MCP linking** (OAuth dance + API-key paste)        | **Limen** | Portal SPA `/t/{tenant}/portal/` ([Phase 9](phase-09-portal-spa.md))                                                                                            | Owns it; this is the Limen domain Zitadel knows nothing about                                                           |
-| **Tenant-scoped upstream catalog CRUD**                                | **Limen** | Admin SPA `/t/{tenant}/admin/` ([Phase 9b](phase-09b-tenant-admin-spa.md))                                                                                      | Owns it                                                                                                                 |
+| **Creating a brand-new tenant** (= Zitadel org + Limen row)            | **Limen** | `limen create-tenant` CLI, or `AdminService.StartSignup` / `CompleteSignup` wizard ([Phase 9c](phase-09c-tenant-admin-spa.md))                                | Owns this end-to-end: creates the Zitadel org, the seed owner grant, and the Limen `Tenant` row in a single transaction |
+| **Per-user upstream MCP linking** (OAuth dance + API-key paste)        | **Limen** | Portal SPA `/t/{tenant}/portal/` ([Phase 9b](phase-09b-portal-spa.md))                                                                                            | Owns it; this is the Limen domain Zitadel knows nothing about                                                           |
+| **Tenant-scoped upstream catalog CRUD**                                | **Limen** | Admin SPA `/t/{tenant}/admin/` ([Phase 9c](phase-09c-tenant-admin-spa.md))                                                                                      | Owns it                                                                                                                 |
 
 **Rule of thumb**: if Zitadel's Console can already do it for an `ORG_OWNER` of the tenant's org, Limen does not build a UI, an RPC, or a CLI command for it. The Limen admin portal renders a "Manage members & SSO in Zitadel Console" card with a deep-link instead. This is the same _delegated administration_ pattern Zitadel documents in [Administrators in delegation](https://zitadel.com/docs/concepts/features/selfservice#administrators-in-delegation): the SaaS operator owns the Limen project; each tenant's `ORG_OWNER` self-serves their own org from Console.
 
@@ -129,7 +129,7 @@ We picked an `HttpOnly; Secure; SameSite=Lax; Path=/t/<tenant>` cookie carrying 
 2. **BFF fit.** Limen is already a backend-for-frontend: it fans out to upstream MCPs with credentials those MCPs gave us, and never hands those credentials to the browser. The cookie-BFF pattern is the recommended browser-app shape in the OAuth WG's _OAuth 2.0 for Browser-Based Apps_ draft for exactly this case.
 3. **Cross-tenant isolation.** `Path=/t/<tenant>` means a browser carrying tenant A's session physically cannot send it on a request to tenant B, even on the same domain. A bearer in JS would have no equivalent — the SPA could accidentally attach it to any URL.
 
-The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: revocation propagates whenever the access/refresh token next needs to talk to Zitadel (refresh time), and the JWKS-based verification means a stolen cookie cannot outlive the token's `exp` without a working refresh token.
+The cookie is a same-origin credential; the SPA and Limen API share `limen.example.com` (Phase 9b, Phase 11) so `SameSite=Lax` is sufficient and we never need `SameSite=None` or CORS-with-credentials. Zitadel remains the single source of truth: revocation propagates whenever the access/refresh token next needs to talk to Zitadel (refresh time), and the JWKS-based verification means a stolen cookie cannot outlive the token's `exp` without a working refresh token.
 
 #### Mechanics
 
@@ -204,7 +204,7 @@ After `create-tenant`, no further Limen CLI commands are needed for user managem
   ├─ /auth/login                              → public (302 to Zitadel)
   ├─ /auth/logout                             → public (clears cookie, 302 to Zitadel end_session)
   ├─ /portal/                                 → SPA shell (public — auth happens via /auth/login redirect)
-  └─ /portal/api/portal.v1.PortalService/*   → RequireSession → role-aware Connect-RPC (Phase 9)
+  └─ /portal/api/portal.v1.PortalService/*   → RequireSession → role-aware Connect-RPC (Phase 9b)
 ```
 
 OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrouter; they have their own auth (Zitadel-issued bearer for MCP, PRM is public).
@@ -234,7 +234,7 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 - **PKCE for the Portal SPA app** even if it's confidential — defense in depth.
 - **`nonce` validation** on the ID token is mandatory; reject tokens without one.
 - **State cookie** is HMAC-signed and short-lived (10 min); reject reuse via a one-shot marker (or accept the small race and rely on TTL).
-- **CSRF**: portal API endpoints (Phase 9 Connect-RPC) use `Content-Type: application/connect+json`, which browsers preflight → CSRF-resistant.
+- **CSRF**: portal API endpoints (Phase 9b Connect-RPC) use `Content-Type: application/connect+json`, which browsers preflight → CSRF-resistant.
 - **Logout**: Limen's logout deletes the local session and redirects to Zitadel's end-session endpoint; otherwise a user's Zitadel session lingers and any new login returns immediately without a credential prompt.
 - **Password resets / MFA enforcement / email verification** are policies configured in Zitadel — Limen doesn't reimplement them.
 
@@ -242,9 +242,9 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 
 The Phase 4 surface intentionally stops at the minimum needed for the portal to log a user in. The following workflows are explicitly **out of scope for this phase**:
 
-1. **Self-serve SaaS signup** (creating a brand-new tenant from a public web form rather than the CLI) — delivered by [Phase 9b](phase-09b-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). Both the CLI and the signup wizard share the same `zitadel.CreateOrg` + `AddHumanUser` + `AddUserGrant(owner)` primitives.
+1. **Self-serve SaaS signup** (creating a brand-new tenant from a public web form rather than the CLI) — delivered by [Phase 9c](phase-09c-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). Both the CLI and the signup wizard share the same `zitadel.CreateOrg` + `AddHumanUser` + `AddUserGrant(owner)` primitives.
 
-User invitations, role changes, member removal, and tenant-level external IdP federation (OIDC / SAML / social) are **not deferred work** — they are explicitly out of Limen's scope and live in [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice). The Limen admin SPA ([Phase 9b](phase-09b-tenant-admin-spa.md)) renders a deep-link card pointing operators at Console for these operations.
+User invitations, role changes, member removal, and tenant-level external IdP federation (OIDC / SAML / social) are **not deferred work** — they are explicitly out of Limen's scope and live in [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice). The Limen admin SPA ([Phase 9c](phase-09c-tenant-admin-spa.md)) renders a deep-link card pointing operators at Console for these operations.
 
 ## Verification
 

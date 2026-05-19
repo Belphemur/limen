@@ -6,10 +6,10 @@
 // existing /t/{tenant}/portal subrouter, so they inherit RequireTenant
 // + OIDC RequireSession.
 //
-// This is intentionally a stop-gap. Phase 9 replaces it with a typed
+// This is intentionally a stop-gap. Phase 9b replaces it with a typed
 // Connect-RPC service. We are pre-1.0 — keep the shape light, the
 // status enum stable, and don't bother with backwards-compat shims when
-// Phase 9 lands.
+// Phase 9b lands.
 package transport
 
 import (
