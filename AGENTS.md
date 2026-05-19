@@ -55,6 +55,13 @@ Production deployments use the split binaries (`cmd/gateway`, `cmd/portal`,
 # Build every binary
 make build           # or: go build ./cmd/...
 
+# Regenerate Go + TypeScript bindings from proto/
+buf generate        # writes internal/portal/portalv1{,connect}/* and web/src/gen/*
+
+# Build the Vue SPA (web/)
+cd web && pnpm install --frozen-lockfile && pnpm build
+# Outputs to web/dist/ — the artefact Cloudflare Pages / Caddy file_server ships.
+
 # Run tests (requires Docker for the testcontainers-go Postgres suites)
 go test ./...
 
@@ -62,6 +69,27 @@ go test ./...
 go vet ./...
 go fmt ./...
 ```
+
+### Portal SPA (`web/`) toolchain
+
+The Vue 3 + Connect-RPC SPA lives in `web/` and is **not** embedded in any
+Go binary. Limen ships the Connect-RPC API at
+`/t/{tenant}/api/limen.portal.v1.PortalService/*`; the static host serves
+`web/dist/`. See [docs/phases/phase-09b-portal-spa.md](docs/phases/phase-09b-portal-spa.md).
+
+- Package manager: **pnpm v11** via Corepack (`"packageManager": "pnpm@11.x.x"`
+  in `web/package.json`). `npm install` / `yarn install` are not supported.
+- Codegen: `pnpm run gen` (a `pnpm build` prebuild hook) shells out to
+  `buf generate`. The generated TS lives under `web/src/gen/` and is
+  `.gitignore`d; the Go bindings under `internal/portal/portalv1/` are
+  checked in.
+- Connect-ES v2: the `bufbuild/es:v2.x` plugin emits both messages and
+  service descriptors into `*_pb.ts`. We do **not** use the deprecated
+  `connectrpc/es` plugin.
+- Unit tests: `pnpm test` (Vitest + jsdom).
+- E2E smoke: `pnpm e2e` (Playwright against `vite preview`, Connect-RPC
+  stubbed via `page.route`). First run requires `pnpm e2e:install` to
+  fetch the Chromium binary.
 
 ## Required pre-commit checks
 

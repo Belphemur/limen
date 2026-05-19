@@ -276,39 +276,39 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 
 ## Checklist
 
-- [ ] Toolchain pinned: Node LTS (active LTS only) + pnpm v11 via Corepack; `"packageManager": "pnpm@11.x.x"` in `web/package.json`; CI rejects builds run with npm or yarn
-- [ ] All direct dependencies at latest stable at lockfile bump time; Renovate (or quarterly `pnpm up --latest`) keeps it that way
-- [ ] `pnpm build` runs `vue-tsc --noEmit` and fails on type errors; TypeScript `strict: true`; no implicit `any`
-- [ ] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled` / `auto_disabled` / `needs_relink`) and strategy sub-mode, so the SPA can pick the right CTA, plus the last-failure reason + timestamp for auto-disabled rows
-- [ ] `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures` server-side
-- [ ] `SubmitUpstreamAPIKey` persists the user-supplied secret via the `static_header` strategy, AAD `tenant|user|"upstream.extra"`; never logs the key; supports rotation (overwrite)
-- [ ] `SetUpstreamLinkEnabled` flips `UpstreamLink.Enabled` without touching stored credentials
-- [ ] Upstreams page renders the right CTA per row (Connect / Enter API key / Enable / Disable / Disconnect) and lets the user rotate keys for `static_header` user-mode
-- [ ] `proto/limen/portal/v1/portal.proto` with the full `PortalService` definition
-- [ ] `buf.yaml` and `buf.gen.yaml` at the repo root
-- [ ] Generated Go bindings under `internal/portal/portalv1/` and `…/portalv1connect/`
-- [ ] Generated TS bindings under `web/src/gen/`
-- [ ] `internal/portal/` package implements all RPCs against `storage.Session(ctx)`
-- [ ] Tenancy interceptor populates ctx from URL tenant id
-- [ ] Portal-session interceptor populates `*User` + roles (from the Zitadel project-roles claim) from cookie
-- [ ] Role interceptor enforces the requiredRole table against ctx roles; unknown methods default-deny
-- [ ] No Limen RPC mutates Zitadel user grants — `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `TransferOwnership` are **not** in any Limen proto; the SPA renders a deep-link card pointing at Zitadel Console for these operations (see [Phase 9c](phase-09c-tenant-admin-spa.md))
-- [ ] No `tenant_id` in request messages anywhere in the proto
-- [ ] Vue 3 (latest) + TypeScript (latest 5.x, strict) + Vite (latest 5.x) + Pinia + Vue Router 4 + `@connectrpc/connect-web` (latest) + Tailwind CSS 4 SPA scaffolded under `web/`
-- [ ] ESLint + Prettier + `@vue/eslint-config-typescript` at latest stable; single config; `pnpm lint` + `pnpm format:check` in CI
-- [ ] Vitest for unit tests; Playwright for the smoke path (login → connect upstream → tool visible → disconnect)
-- [ ] Login flow is Zitadel-only: SPA never renders a password field; portal backend never validates a password; profile / password / MFA / passkey / member-management / IdP federation surfaces are deep-linked to Zitadel Console
-- [ ] Authorization is claim-driven: `roleInterceptor` enforces `requiredRole` table against the cached `urn:zitadel:iam:org:project:roles` claim; no Limen-side role tables
+- [x] Toolchain pinned: Node LTS (active LTS only) + pnpm v11 via Corepack; `"packageManager": "pnpm@11.x.x"` in `web/package.json`; CI rejects builds run with npm or yarn
+- [x] All direct dependencies at latest stable at lockfile bump time; Renovate (or quarterly `pnpm up --latest`) keeps it that way
+- [x] `pnpm build` runs `vue-tsc --noEmit` and fails on type errors; TypeScript `strict: true`; no implicit `any`
+- [x] `ListUpstreams` returns per-user link state (`none` / `connected` / `disabled` / `auto_disabled` / `needs_relink`) and strategy sub-mode, so the SPA can pick the right CTA, plus the last-failure reason + timestamp for auto-disabled rows
+- [x] `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures` server-side
+- [x] `SubmitUpstreamAPIKey` persists the user-supplied secret via the `static_header` strategy, AAD `tenant|user|"upstream.extra"`; never logs the key; supports rotation (overwrite)
+- [x] `SetUpstreamLinkEnabled` flips `UpstreamLink.Enabled` without touching stored credentials
+- [x] Upstreams page renders the right CTA per row (Connect / Enter API key / Enable / Disable / Disconnect) and lets the user rotate keys for `static_header` user-mode
+- [x] `proto/limen/portal/v1/portal.proto` with the full `PortalService` definition
+- [x] `buf.yaml` and `buf.gen.yaml` at the repo root
+- [x] Generated Go bindings under `internal/portal/portalv1/` and `…/portalv1connect/`
+- [x] Generated TS bindings under `web/src/gen/`
+- [x] `internal/portal/` package implements all RPCs against `storage.Session(ctx)`
+- [x] Tenancy interceptor populates ctx from URL tenant id
+- [x] Portal-session interceptor populates `*User` + roles (from the Zitadel project-roles claim) from cookie
+- [x] Role interceptor enforces the requiredRole table against ctx roles; unknown methods default-deny
+- [x] No Limen RPC mutates Zitadel user grants — `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `TransferOwnership` are **not** in any Limen proto; the SPA renders a deep-link card pointing at Zitadel Console for these operations (see [Phase 9c](phase-09c-tenant-admin-spa.md))
+- [x] No `tenant_id` in request messages anywhere in the proto
+- [x] Vue 3 (latest) + TypeScript (latest 5.x, strict) + Vite (latest 5.x) + Pinia + Vue Router 4 + `@connectrpc/connect-web` (latest) + Tailwind CSS 4 SPA scaffolded under `web/`
+- [x] ESLint + Prettier + `@vue/eslint-config-typescript` at latest stable; single config; `pnpm lint` + `pnpm format:check` in CI
+- [x] Vitest for unit tests; Playwright for the smoke path (login → connect upstream → tool visible → disconnect)
+- [x] Login flow is Zitadel-only: SPA never renders a password field; portal backend never validates a password; profile / password / MFA / passkey / member-management / IdP federation surfaces are deep-linked to Zitadel Console
+- [x] Authorization is claim-driven: `roleInterceptor` enforces `requiredRole` table against the cached `urn:zitadel:iam:org:project:roles` claim; no Limen-side role tables
 - [ ] Pages: Login, Dashboard, Upstreams, Members, MCP Clients, Settings, Consent
-- [ ] SPA base path resolved at boot from `/t/<tenant>/portal/`
+- [x] SPA base path resolved at boot from `/t/<tenant>/portal/`
 - [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
-- [ ] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
+- [x] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
 - [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/upstream/*` so SPA + API stay same-origin
 - [ ] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
 - [ ] CSP header set by the static host (Caddy directive or Pages `_headers`)
-- [ ] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
-- [ ] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
-- [ ] Unit tests for the role-enforcement interceptor (matrix of method × role)
-- [ ] Smoke test or manual run-through of the entire SPA flow
+- [x] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
+- [x] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
+- [x] Unit tests for the role-enforcement interceptor (matrix of method × role)
+- [x] Smoke test or manual run-through of the entire SPA flow
 - [ ] Integration test for `static_header` user-mode: submit key via `SubmitUpstreamAPIKey` → tool becomes visible in `ListTools` → `SetUpstreamLinkEnabled(false)` hides it → `SetUpstreamLinkEnabled(true)` makes it visible again, without re-submitting the key _(moved from [Phase 7](phase-07-outbound-upstream.md) — depends on this phase's portal Connect-RPC surface)_
 - [ ] Integration test (recovery half): an auto-disabled link (set up by the [Phase 8](phase-08-per-tenant-injection.md) sustained-5xx test) recovers via `SetUpstreamLinkEnabled(true)` clearing `AutoDisabledAt` + `ConsecutiveFailures`; the next successful upstream call keeps it healthy _(moved from [Phase 7](phase-07-outbound-upstream.md) — the Re-enable CTA is a portal RPC owned by this phase)_
