@@ -16,7 +16,7 @@ import (
 // Mount wires /t/{tenant}/portal + /t/{tenant}/auth/* + the Phase 9b
 // Connect-RPC PortalService under r.
 func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC) {
-	svc := portal.NewService(rt.Store, portal.OIDCSessionResolver(oidc), rt.Logger)
+	svc := portal.NewService(rt.Store, rt.UpstreamService, portal.OIDCSessionResolver(oidc), rt.Logger)
 	prefix, handler := svc.Handler()
 
 	transport.MountPortal(r, transport.PortalDeps{

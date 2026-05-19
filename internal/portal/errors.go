@@ -25,6 +25,10 @@ func errNotFound(reason string) error {
 	return connect.NewError(connect.CodeNotFound, fmt.Errorf("portal: %s", reason))
 }
 
+func errInvalidArgument(reason string) error {
+	return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("portal: %s", reason))
+}
+
 // Silence "unused" until other slices land. errInternal takes err so
 // callers can log it; ignore here.
 var _ = errInternal

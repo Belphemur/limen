@@ -129,9 +129,11 @@ func TestAuthenticatedRPC_MemberPassesInterceptors(t *testing.T) {
 	srv := mountFixture(t, r.resolve, "tnt_test")
 	defer srv.Close()
 
-	// Handler stub returns Unimplemented in slice 2 — that's the proof
-	// the interceptor stack let the call through.
-	_, err := newClient(t, srv).ListUpstreams(context.Background(), connect.NewRequest(&portalv1.ListUpstreamsRequest{}))
+	// ListMCPClients still stubs Unimplemented in slice 3 — that's the
+	// proof the interceptor stack let the call through (the upstream
+	// RPCs now reach the upstream service and would panic on the nil
+	// dep, so we use a still-unimplemented RPC as the canary).
+	_, err := newClient(t, srv).ListMCPClients(context.Background(), connect.NewRequest(&portalv1.ListMCPClientsRequest{}))
 	if err == nil {
 		t.Fatal("expected Unimplemented error from stub, got nil")
 	}

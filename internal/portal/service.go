@@ -12,6 +12,7 @@ import (
 	"github.com/belphemur/limen/internal/portal/portalv1/portalv1connect"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
+	"github.com/belphemur/limen/internal/upstream"
 )
 
 // Service is the PortalServiceHandler implementation. Construction is
@@ -20,6 +21,7 @@ import (
 // rather than getting picked up from globals.
 type Service struct {
 	store    *storage.Store
+	upstream *upstream.Service
 	resolver SessionResolver
 	logger   *zap.Logger
 }
@@ -27,11 +29,11 @@ type Service struct {
 // NewService builds the portal Connect-RPC service. resolver MUST verify
 // the portal cookie against the Zitadel ID token issuer; production
 // wires this to auth.OIDC via OIDCSessionResolver.
-func NewService(store *storage.Store, resolver SessionResolver, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, resolver SessionResolver, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{store: store, resolver: resolver, logger: logger}
+	return &Service{store: store, upstream: upstreamSvc, resolver: resolver, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
@@ -82,26 +84,6 @@ func (s *Service) GetSession(ctx context.Context, req *connect.Request[portalv1.
 }
 
 // The remaining RPCs are stubbed in slice 2 and filled in by slices 3-4.
-
-func (s *Service) ListUpstreams(_ context.Context, _ *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
-
-func (s *Service) StartConnect(_ context.Context, _ *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
-
-func (s *Service) SubmitUpstreamAPIKey(_ context.Context, _ *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
-
-func (s *Service) SetUpstreamLinkEnabled(_ context.Context, _ *connect.Request[portalv1.SetUpstreamLinkEnabledRequest]) (*connect.Response[portalv1.SetUpstreamLinkEnabledResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
-
-func (s *Service) Disconnect(_ context.Context, _ *connect.Request[portalv1.DisconnectRequest]) (*connect.Response[portalv1.DisconnectResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
-}
 
 func (s *Service) ListMCPClients(_ context.Context, _ *connect.Request[portalv1.ListMCPClientsRequest]) (*connect.Response[portalv1.ListMCPClientsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
