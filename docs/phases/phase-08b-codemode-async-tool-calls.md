@@ -328,5 +328,5 @@ slowness comes from the cap, the upstream, or the auth round-trip.
       `internal/gateway/codemode` and the `eventloop` sub-package.
 - [x] Update [docs/codemode.md](../../docs/codemode.md) — Promise
       semantics, concurrency cap, interaction with `MaxToolCalls`.
-- [ ] Update [docs/phases/README.md](README.md) index with phase 8b
+- [x] Update [docs/phases/README.md](README.md) index with phase 8b
       and its dependency on phase 8.

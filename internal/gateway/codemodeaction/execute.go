@@ -53,11 +53,17 @@ const executeRuntimeSuffix = `
 const executeQuotasBlock = `<quotas>
 Budget per call: ~30s wall-clock AND ~50 tool calls.
 All codemode.<upstream>.* and codemode.call() invocations cost 1 quota; codemode.tools / schemas / json / quota are FREE.
-- Bound loops up front; no real parallelism yet (Promise.all serializes).
-- Prefer few rich calls over many tiny ones.
+- Bound loops up front; prefer few rich calls over many tiny ones.
 - Self-bound: if (codemode.quota().remaining <= 1) break;
 
-Timeout → IsError=true with "script timeout".
+<parallelism>
+Tool proxies return real Promises on an event loop. Promise.all / Promise.allSettled actually parallelize, bounded by a per-invocation in-flight cap (default 8). Independent calls SHOULD fan out; sequential 'await ...; await ...;' wastes wall-clock when the calls don't depend on each other.
+- Use Promise.allSettled when one failure shouldn't kill the batch.
+- Excess parallel calls queue on the cap, they don't error; total count still counts against the 50-call quota.
+- For large fan-outs, slice into chunks of ~cap size so quota self-bounding stays meaningful.
+</parallelism>
+
+Timeout → IsError=true with "script timeout"; in-flight tool calls are cancelled and reject.
 Quota exceeded → uncatchable interrupt (try/catch will NOT swallow); script aborts with "max_tool_calls exceeded".
 </quotas>
 
@@ -102,26 +108,25 @@ const executeRecipes = `<examples>
     return codemode.json(await codemode.call(get.upstream, get.name, { id: "PROJ-123" }));
   }
 
-(2) Bounded fan-out, per-call try/catch, self-bound by quota:
+(2) Parallel fan-out with Promise.allSettled (independent calls — in-flight cap bounds concurrency, you don't have to):
   async () => {
-    const ids = ["PROJ-1", "PROJ-2", "PROJ-3"];
-    const out = [];
-    for (const id of ids) {
-      if (codemode.quota().remaining <= 1) break;
-      try {
-        out.push({ id, ok: true, ticket: codemode.json(await codemode.jira.get_ticket({ id })) });
-      } catch (e) {
-        out.push({ id, ok: false, error: String(e?.message || e) });
-      }
-    }
-    return out;
+    const ids = ["PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"];
+    if (codemode.quota().remaining < ids.length) ids.length = codemode.quota().remaining;
+    const settled = await Promise.allSettled(ids.map(id => codemode.jira.get_ticket({ id })));
+    return ids.map((id, i) => settled[i].status === "fulfilled"
+      ? { id, ok: true,  ticket: codemode.json(settled[i].value) }
+      : { id, ok: false, error: String(settled[i].reason?.message || settled[i].reason) });
   }
 
-(3) Cross-system audit — return evidence, not impressions:
+(3) Cross-system audit — independent fetches in parallel, return evidence not impressions:
   async () => {
     const jql = 'text ~ "cloudflare" AND status = Done';
-    const issues = codemode.json(await codemode.jira.search({ jql, limit: 50 }));
-    const zones  = codemode.json(await codemode.cloudflare.list_zones({}));
+    const [issuesRaw, zonesRaw] = await Promise.all([
+      codemode.jira.search({ jql, limit: 50 }),
+      codemode.cloudflare.list_zones({}),
+    ]);
+    const issues = codemode.json(issuesRaw);
+    const zones  = codemode.json(zonesRaw);
     const zoneNames = new Set((zones?.result || []).map(z => z.name));
     const checks = (issues?.issues || []).slice(0, 20).map(it => {
       const hint = (it.fields?.summary || "").match(/[a-z0-9-]+\.[a-z]{2,}/i)?.[0];
@@ -151,4 +156,4 @@ const executeCodeArgDescription = `Compose ONE pipeline; don't split a workflow 
 	commonArgContractShort +
 	` Invoke tools via 'await codemode.<upstream>.<toolName>(args)' or 'await codemode.call(upstream, name, args)' (runtime/non-identifier names). NO flat codemode.<toolName>. ` +
 	`Filter codemode.tools(filter) by upstream/keyword — never dump. Batch codemode.schemas([...]). codemode.json(result) unwraps the MCP CallToolResult text block. codemode.quota() → { used, max, remaining, deadline_ms }. ` +
-	`Budget: ~30s wall-clock AND ~50 tool calls; tools/schemas/json/quota are FREE, dispatch costs 1 each. Quota exhaustion is uncatchable — self-bound with codemode.quota().remaining. Promise.all serializes (no event loop yet).`
+	`Budget: ~30s wall-clock AND ~50 tool calls; tools/schemas/json/quota are FREE, dispatch costs 1 each. Quota exhaustion is uncatchable — self-bound with codemode.quota().remaining. Promise.all / allSettled parallelize independent calls (in-flight cap default 8); fan out instead of awaiting sequentially when calls are independent.`
