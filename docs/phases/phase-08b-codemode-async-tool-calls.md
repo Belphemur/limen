@@ -130,7 +130,7 @@ Key invariants:
   the worker goroutine directly. Resolution is funnelled back through
   `loop.RunOnLoop`.
 - `errQuotaExceeded` still panics synchronously — the cap protects the
-  fan-out budget, so it must reject the call *before* any goroutine
+  fan-out budget, so it must reject the call _before_ any goroutine
   spawns.
 - `redactSecrets` runs on the goja goroutine, after we know which
   error string will reach JS. (Today it runs inline; the contract is
@@ -159,11 +159,11 @@ A new config field, `code_mode.max_concurrent_tool_calls`, defaults to
 
 Three cancellation sources must reach in-flight tool dispatches:
 
-| Source | Mechanism today | Mechanism after phase |
-| --- | --- | --- |
-| `ctx.Done()` (client disconnect) | `vm.Interrupt` stops JS | Same, plus the dispatch ctx (child of the invocation ctx) is cancelled, propagating into `manager.CallTool` and into upstream HTTP via `Request.WithContext`. |
-| Script timeout | `vm.Interrupt` after timer | Same, plus a dedicated `dispatchCtx`, cancel-func pair is created per invocation; the timer cancels it. Workers observe `dispatchCtx.Err()` after `manager.CallTool` returns and reject the Promise rather than resolving with a half-formed value. |
-| Quota exceeded | `panic` from proxy | Unchanged — runs synchronously on the VM goroutine, so it short-circuits the call before a goroutine is spawned. |
+| Source                           | Mechanism today            | Mechanism after phase                                                                                                                                                                                                                               |
+| -------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.Done()` (client disconnect) | `vm.Interrupt` stops JS    | Same, plus the dispatch ctx (child of the invocation ctx) is cancelled, propagating into `manager.CallTool` and into upstream HTTP via `Request.WithContext`.                                                                                       |
+| Script timeout                   | `vm.Interrupt` after timer | Same, plus a dedicated `dispatchCtx`, cancel-func pair is created per invocation; the timer cancels it. Workers observe `dispatchCtx.Err()` after `manager.CallTool` returns and reject the Promise rather than resolving with a half-formed value. |
+| Quota exceeded                   | `panic` from proxy         | Unchanged — runs synchronously on the VM goroutine, so it short-circuits the call before a goroutine is spawned.                                                                                                                                    |
 
 `vm.Interrupt` does not stop in-flight Go work; it only prevents the
 next JS bytecode step. The new `dispatchCtx` is what actually unblocks
@@ -257,13 +257,13 @@ slowness comes from the cap, the upstream, or the auth round-trip.
 
 ## Risks
 
-| Risk | Mitigation |
-| --- | --- |
-| `goja_nodejs` accidentally widens the sandbox API surface (e.g. someone imports the top-level package later and gets `require` for free). | Add a `forbidigo` rule to the `.golangci.yml` config blocking imports of `goja_nodejs` *outside* of `internal/gateway/codemode.go`, and within that file restrict to `goja_nodejs/eventloop`. Sandbox-denial tests catch any regression at runtime. |
-| The event loop owns its own goroutine; lifetime bugs leak goroutines per invocation. | `defer loop.StopNoWait()` — `eventloop.EventLoop.Stop` blocks until pending tasks drain, which is wrong on cancellation. Use `StopNoWait` plus `dispatchCtx` cancellation so in-flight workers unwind on their own. |
-| Two upstreams sharing one `http.Transport` (Phase 8 design) get connection-pool contention under heavy fan-out. | The `MaxConcurrentToolCalls` cap is global per invocation; per-upstream pool sizing is governed by `Transport.MaxConnsPerHost`. No change here, but document the interaction in [docs/codemode.md](../../docs/codemode.md). |
-| `vm.Interrupt` races with a Promise resolution callback already queued on the event loop. | `loop.RunOnLoop` callbacks check `dispatchCtx.Err()` before touching `vm.ToValue` / resolve / reject; if cancelled, they no-op. |
-| Adopting an event loop changes timing of microtasks vs. the JS author's expectations (e.g. ordering of resolved Promises). | Document explicitly that microtask ordering follows the spec; add a deterministic ordering test using two pre-resolved Promises plus a tool call. |
+| Risk                                                                                                                                      | Mitigation                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `goja_nodejs` accidentally widens the sandbox API surface (e.g. someone imports the top-level package later and gets `require` for free). | Add a `forbidigo` rule to the `.golangci.yml` config blocking imports of `goja_nodejs` _outside_ of `internal/gateway/codemode.go`, and within that file restrict to `goja_nodejs/eventloop`. Sandbox-denial tests catch any regression at runtime. |
+| The event loop owns its own goroutine; lifetime bugs leak goroutines per invocation.                                                      | `defer loop.StopNoWait()` — `eventloop.EventLoop.Stop` blocks until pending tasks drain, which is wrong on cancellation. Use `StopNoWait` plus `dispatchCtx` cancellation so in-flight workers unwind on their own.                                 |
+| Two upstreams sharing one `http.Transport` (Phase 8 design) get connection-pool contention under heavy fan-out.                           | The `MaxConcurrentToolCalls` cap is global per invocation; per-upstream pool sizing is governed by `Transport.MaxConnsPerHost`. No change here, but document the interaction in [docs/codemode.md](../../docs/codemode.md).                         |
+| `vm.Interrupt` races with a Promise resolution callback already queued on the event loop.                                                 | `loop.RunOnLoop` callbacks check `dispatchCtx.Err()` before touching `vm.ToValue` / resolve / reject; if cancelled, they no-op.                                                                                                                     |
+| Adopting an event loop changes timing of microtasks vs. the JS author's expectations (e.g. ordering of resolved Promises).                | Document explicitly that microtask ordering follows the spec; add a deterministic ordering test using two pre-resolved Promises plus a tool call.                                                                                                   |
 
 ## Verification
 

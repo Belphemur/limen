@@ -20,7 +20,7 @@ func TestNamespacedDispatch(t *testing.T) {
 		},
 	}
 	h := newTestHandler(t, d, Config{})
-	result, err := h.Execute(context.Background(), `[codemode.github.search({q:"foo"}), codemode.gitlab.search({q:"bar"})]`)
+	result, err := h.Execute(context.Background(), `(async () => Promise.all([codemode.github.search({q:"foo"}), codemode.gitlab.search({q:"bar"})]))()`)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -31,11 +31,18 @@ func TestNamespacedDispatch(t *testing.T) {
 	if len(d.calls) != 2 {
 		t.Fatalf("expected 2 calls, got %d", len(d.calls))
 	}
-	if d.calls[0].Upstream != "github" || d.calls[0].Args["q"] != "foo" {
-		t.Errorf("call[0] = %+v", d.calls[0])
+	// Promise.all dispatches the proxies on the event loop in script
+	// order, but the underlying workers race in goroutines, so the
+	// recorded order on d.calls is non-deterministic. Assert as a set.
+	seen := map[string]string{}
+	for _, c := range d.calls {
+		seen[c.Upstream] = c.Args["q"].(string)
 	}
-	if d.calls[1].Upstream != "gitlab" || d.calls[1].Args["q"] != "bar" {
-		t.Errorf("call[1] = %+v", d.calls[1])
+	if seen["github"] != "foo" {
+		t.Errorf("github call args = %q, want %q", seen["github"], "foo")
+	}
+	if seen["gitlab"] != "bar" {
+		t.Errorf("gitlab call args = %q, want %q", seen["gitlab"], "bar")
 	}
 }
 
@@ -118,11 +125,11 @@ func TestQuotaEnforced(t *testing.T) {
 		responses: map[string]any{"github/search": "ok"},
 	}
 	h := newTestHandler(t, d, Config{MaxToolCalls: 2})
-	_, err := h.Execute(context.Background(), `
-		codemode.github.search({});
-		codemode.github.search({});
-		codemode.github.search({});
-	`)
+	_, err := h.Execute(context.Background(), `(async () => {
+		await codemode.github.search({});
+		await codemode.github.search({});
+		await codemode.github.search({});
+	})()`)
 	if err == nil || !strings.Contains(err.Error(), "max_tool_calls exceeded") {
 		t.Fatalf("expected quota error, got %v", err)
 	}

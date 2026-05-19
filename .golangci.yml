@@ -1,8 +1,39 @@
 version: "2"
 linters:
+  enable:
+    - depguard
   exclusions:
     # Log a warning if an exclusion rule is unused.
     warn-unused: true
     # Predefined exclusion rules.
     presets:
       - std-error-handling
+  settings:
+    depguard:
+      rules:
+        # Restrict goja_nodejs imports to the codemode package (which
+        # owns the JS sandbox) and only the /eventloop subpath. The
+        # rest of goja_nodejs (require, fs, process, console, url, …)
+        # would punch holes in the sandbox.
+        codemode-nodejs:
+          list-mode: lax
+          files:
+            - "!**/internal/gateway/codemode/**"
+          deny:
+            - pkg: "github.com/dop251/goja_nodejs"
+              desc: "goja_nodejs is only allowed inside internal/gateway/codemode (eventloop subpath)"
+        codemode-nodejs-subpath:
+          list-mode: lax
+          files:
+            - "**/internal/gateway/codemode/**"
+          deny:
+            - pkg: "github.com/dop251/goja_nodejs/require"
+              desc: "only goja_nodejs/eventloop is allowed in codemode"
+            - pkg: "github.com/dop251/goja_nodejs/console"
+              desc: "only goja_nodejs/eventloop is allowed in codemode"
+            - pkg: "github.com/dop251/goja_nodejs/process"
+              desc: "only goja_nodejs/eventloop is allowed in codemode"
+            - pkg: "github.com/dop251/goja_nodejs/url"
+              desc: "only goja_nodejs/eventloop is allowed in codemode"
+            - pkg: "github.com/dop251/goja_nodejs/buffer"
+              desc: "only goja_nodejs/eventloop is allowed in codemode"

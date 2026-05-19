@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
+	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/httprate v0.15.0
 	github.com/go-jose/go-jose/v4 v4.1.4

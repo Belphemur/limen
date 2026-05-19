@@ -113,6 +113,8 @@ Settings for the JavaScript sandbox (Code Mode) that executes LLM-generated code
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `execution_timeout` | `duration` | `30s` | Maximum time allowed for a single JS execution (both `search` and `execute`). Prevents infinite loops. Parsed as Go duration string. If the timeout fires, the Goja VM is interrupted and an error is returned. |
+| `max_tool_calls` | `int` | `50` | Maximum number of upstream tool invocations a single Code Mode script may issue. Exceeding this aborts the script with an uncatchable quota error. |
+| `max_concurrent_tool_calls` | `int` | `8` | Maximum number of upstream tool calls allowed to be in flight at once. `Promise.all` fan-out beyond this cap is queued on a semaphore; total invocations are still bounded by `max_tool_calls`. |
 | `max_memory_mb` | `int` | `64` | Intended cap on JS heap size. **Note:** This value is configured but not yet enforced in the runtime. Reserved for future implementation. |
 
 ### `zitadel`
@@ -175,6 +177,8 @@ When omitted, these defaults are applied:
 | `server.port` | `8080` |
 | `upstreams[].timeout` | `30s` (Go zero-duration, so must be specified to override) |
 | `codemode.execution_timeout` | `30s` |
+| `codemode.max_tool_calls` | `50` |
+| `codemode.max_concurrent_tool_calls` | `8` |
 | `codemode.max_memory_mb` | `64` |
 | `auth.enabled` | `false` |
 

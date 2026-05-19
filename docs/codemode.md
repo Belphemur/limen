@@ -70,6 +70,10 @@ The sandbox explicitly blocks:
 - **Network** -- no `fetch`, `XMLHttpRequest`, `http`, or sockets
 - **Process** -- no `child_process` or `exec`
 - **Module loading** -- no `require()`, `import`, or module resolution
+- **Timers** -- no `setTimeout`, `setInterval`, `setImmediate`,
+  `clearTimeout`, `clearInterval`, `clearImmediate`, or
+  `queueMicrotask`. Async control flow is expressed through
+  Promises/`await` only.
 - **Go runtime** -- no access to host memory or Go objects beyond the injected API
 
 The sandbox starts fresh on every invocation. Nothing persists between calls.
@@ -112,6 +116,38 @@ const result = await codemode.github_search_issues({
 ```
 
 This is equivalent to `codemode.call("github_search_issues", args)` but with cleaner syntax.
+
+## Async semantics & concurrency
+
+Tool calls inside the sandbox are **genuinely asynchronous**. Each
+proxy returns a real JavaScript `Promise` that settles when the
+upstream call completes, so the following patterns all behave the
+way they would in Node:
+
+- `await codemode.foo({...})` — single sequential call.
+- `Promise.all([codemode.a({...}), codemode.b({...})])` — fan-out;
+  both upstream calls run **in parallel** rather than serially.
+- `try { await ... } catch (e) { ... }` — upstream errors reject
+  the returned Promise as a normal `Error` (`tool "foo" failed:
+  …`) and can be caught with standard JS error handling.
+
+The runtime uses a Node-style event loop, so microtasks
+(`Promise.resolve().then(...)`) run in FIFO order between
+synchronous turns of the script.
+
+### Quotas
+
+Two independent limits protect the gateway:
+
+| Limit                      | Config key                          | Default | Meaning                                                                                                                                                                       |
+| -------------------------- | ----------------------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Total tool calls           | `codemode.max_tool_calls`           |      50 | Hard cap on the number of tool invocations a single script may issue. Tripping this aborts the script with an **uncatchable** error — JS `try/catch` cannot swallow it.       |
+| Concurrent tool calls      | `codemode.max_concurrent_tool_calls`|       8 | Maximum number of in-flight upstream calls at any one time. Excess `Promise.all` fan-out is queued; the script still sees Promises, but the upstream dispatch is rate-bounded. |
+| Wall-clock script timeout  | `codemode.script_timeout`           |     30s | If the script (including all awaited tool calls) does not finish in time, in-flight workers are cancelled and the script returns a timeout error.                             |
+
+The two count quotas interact predictably: `max_tool_calls` is the
+**budget** for the whole script, `max_concurrent_tool_calls` is the
+**width** of parallelism allowed at any instant.
 
 ## Code Examples
 

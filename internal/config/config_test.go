@@ -78,6 +78,9 @@ func TestLoad_MinimalValid(t *testing.T) {
 	if cfg.Security.PortalSessionCookieName != "limen_portal" {
 		t.Fatalf("default cookie name not applied")
 	}
+	if cfg.CodeMode.MaxConcurrentToolCalls != 8 {
+		t.Fatalf("default max_concurrent_tool_calls not applied: %d", cfg.CodeMode.MaxConcurrentToolCalls)
+	}
 }
 
 func TestLoad_EnvSubstitution(t *testing.T) {

@@ -1,7 +1,6 @@
 package codemode
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,16 +28,29 @@ const (
 	reservedKeyQuota   = "quota"
 )
 
-func (h *Handler) makeProxy(ctx context.Context, vm *goja.Runtime, tool Tool, callSeq *int64, invocationID string) func(call goja.FunctionCall) goja.Value {
+// makeProxy wires `codemode.<upstream>.<tool>(args)` to dispatchAsync.
+// The returned function runs on the VM goroutine; vm is captured so we
+// don't depend on a Runtime field of goja.FunctionCall (which doesn't
+// exist).
+func (h *Handler) makeProxy(s *invocationState, vm *goja.Runtime, tool Tool, base []zap.Field) func(call goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		args := exportArgs(call, 0)
-		return h.dispatchTool(ctx, vm, tool, args, callSeq, invocationID)
+		return h.dispatchAsync(s, vm, tool, args, base)
 	}
 }
 
-func (h *Handler) dispatchTool(ctx context.Context, vm *goja.Runtime, tool Tool, args map[string]any, callSeq *int64, invocationID string) goja.Value {
-	seq := atomic.AddInt64(callSeq, 1)
-	base := append(h.baseLogFields(ctx, invocationID),
+// dispatchAsync returns a goja Promise immediately and performs the
+// upstream tool call on a background goroutine. Resolution and
+// rejection are routed back onto the VM goroutine via the event loop;
+// the worker never touches the Runtime directly.
+//
+// The MaxToolCalls quota check runs synchronously on the VM goroutine
+// before the worker spawns, so a script that exceeds the budget hits
+// vm.Interrupt(errQuotaExceeded) — uncatchable from JS try/catch — and
+// the offending call's worker is never created.
+func (h *Handler) dispatchAsync(s *invocationState, vm *goja.Runtime, tool Tool, args map[string]any, baseFields []zap.Field) goja.Value {
+	seq := atomic.AddInt64(s.callSeq, 1)
+	base := append(append([]zap.Field(nil), baseFields...),
 		zap.String("upstream", tool.Upstream),
 		zap.String("tool", tool.Name),
 		zap.Int64("call_seq", seq),
@@ -49,12 +61,15 @@ func (h *Handler) dispatchTool(ctx context.Context, vm *goja.Runtime, tool Tool,
 			zap.String("error_kind", "quota_exceeded"),
 			zap.String("error_message", redactSecrets(errQuotaExceeded.Error())),
 		)...)
-		// vm.Interrupt schedules an InterruptedError on the next
-		// bytecode step — uncatchable from JS try/catch, unlike
-		// panic(vm.NewGoError(...)). Returning Undefined here lets the
-		// native call frame unwind cleanly; the very next opcode
-		// triggers the interrupt and aborts the script.
+		// vm.Interrupt makes the abort uncatchable from JS try/catch
+		// — goja raises an InterruptedError on the next bytecode step
+		// which propagates past `catch` and `.catch()`. That same
+		// uncatchability means it never reaches our attachSettlement
+		// reject handler either, so we also report the error directly
+		// through the synchronous side channel to unblock the outer
+		// run() select.
 		vm.Interrupt(errQuotaExceeded)
+		s.reportSyncErr(fmt.Errorf("execution error: %w", errQuotaExceeded))
 		return goja.Undefined()
 	}
 
@@ -64,105 +79,111 @@ func (h *Handler) dispatchTool(ctx context.Context, vm *goja.Runtime, tool Tool,
 		zap.Int("args_bytes", len(argsJSON)),
 	)...)
 
-	callStart := time.Now()
-	result, err := h.dispatcher.CallTool(ctx, tool.Upstream, tool.Name, args)
-	callDur := time.Since(callStart).Milliseconds()
-
-	if err != nil {
-		kind, outcome := classifyToolError(err)
-		h.logger.Error("codemode.tool.error", append(base,
-			zap.String("error_kind", kind),
-			zap.String("error_message", redactSecrets(err.Error())),
-		)...)
-		h.logger.Info("codemode.tool.completed", append(base,
-			zap.Int("result_bytes", 0),
-			zap.Int64("duration_ms", callDur),
-			zap.String("outcome", outcome),
-		)...)
-		panic(vm.NewGoError(fmt.Errorf("tool %q failed: %w", tool.Name, err)))
-	}
-
-	h.logger.Info("codemode.tool.completed", append(base,
-		zap.Int("result_bytes", approxResultBytes(result)),
-		zap.Int64("duration_ms", callDur),
-		zap.String("outcome", "ok"),
-	)...)
-	return vm.ToValue(result)
-}
-
-func (h *Handler) runCode(ctx context.Context, vm *goja.Runtime, code string) (any, error) {
-	resultCh := make(chan any, 1)
-	errCh := make(chan error, 1)
+	p, resolve, reject := vm.NewPromise()
+	promiseVal := vm.ToValue(p)
 
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				if ex, ok := r.(*goja.Exception); ok {
-					errCh <- fmt.Errorf("javascript error: %s", redactSecrets(ex.String()))
-				} else {
-					errCh <- fmt.Errorf("panic: %v", r)
-				}
-			}
-		}()
+		waitStart := time.Now()
+		if err := s.sem.Acquire(s.ctx, 1); err != nil {
+			waitMS := time.Since(waitStart).Milliseconds()
+			h.logger.Error("codemode.tool.error", append(base,
+				zap.String("error_kind", "ctx_cancelled"),
+				zap.String("error_message", redactSecrets(err.Error())),
+			)...)
+			h.logger.Info("codemode.tool.completed", append(base,
+				zap.Int("result_bytes", 0),
+				zap.Int64("wait_ms", waitMS),
+				zap.Int64("dispatch_ms", 0),
+				zap.Int64("duration_ms", waitMS),
+				zap.String("outcome", "ctx_cancelled"),
+			)...)
+			rejErr := err
+			s.loop.RunOnLoop(func(vm *goja.Runtime) {
+				_ = reject(vm.NewGoError(fmt.Errorf("tool %q cancelled: %w", tool.Name, rejErr)))
+			})
+			return
+		}
+		waitMS := time.Since(waitStart).Milliseconds()
 
-		prg, err := goja.Compile("codemode", code, false)
-		if err != nil {
-			errCh <- fmt.Errorf("compile error: %w", err)
-			return
+		cur := atomic.AddInt64(s.inFlight, 1)
+		for {
+			old := atomic.LoadInt64(s.peak)
+			if cur <= old || atomic.CompareAndSwapInt64(s.peak, old, cur) {
+				break
+			}
 		}
-		val, err := vm.RunProgram(prg)
-		if err != nil {
-			errCh <- wrapExecutionError(err)
-			return
-		}
-		// The advertised contract is that `code` evaluates to a
-		// zero-argument async arrow function which the runtime invokes
-		// and whose returned promise it awaits. Existing tests also use
-		// bare expressions (e.g. `codemode.tools()`) that evaluate
-		// directly to a value, so we support both: if the script's
-		// value is callable we invoke it, otherwise we take the value
-		// as-is. If the resulting value is a Promise we resolve it
-		// synchronously (goja drains microtasks before the call
-		// returns, so an async function with no truly async ops settles
-		// immediately).
-		if fn, ok := goja.AssertFunction(val); ok {
-			ret, callErr := fn(goja.Undefined())
+
+		dispatchStart := time.Now()
+		result, callErr := h.dispatcher.CallTool(s.ctx, tool.Upstream, tool.Name, args)
+		dispatchMS := time.Since(dispatchStart).Milliseconds()
+
+		atomic.AddInt64(s.inFlight, -1)
+		s.sem.Release(1)
+
+		s.loop.RunOnLoop(func(vm *goja.Runtime) {
 			if callErr != nil {
-				errCh <- wrapExecutionError(callErr)
+				kind, outcome := classifyToolError(callErr)
+				h.logger.Error("codemode.tool.error", append(base,
+					zap.String("error_kind", kind),
+					zap.String("error_message", redactSecrets(callErr.Error())),
+				)...)
+				h.logger.Info("codemode.tool.completed", append(base,
+					zap.Int("result_bytes", 0),
+					zap.Int64("wait_ms", waitMS),
+					zap.Int64("dispatch_ms", dispatchMS),
+					zap.Int64("duration_ms", waitMS+dispatchMS),
+					zap.String("outcome", outcome),
+				)...)
+				_ = reject(vm.NewGoError(fmt.Errorf("tool %q failed: %w", tool.Name, callErr)))
 				return
 			}
-			val = ret
-		}
-		if p, ok := val.Export().(*goja.Promise); ok {
-			switch p.State() {
-			case goja.PromiseStateFulfilled:
-				resultCh <- exportValue(p.Result())
-				return
-			case goja.PromiseStateRejected:
-				errCh <- fmt.Errorf("execution error: %s", redactSecrets(p.Result().String()))
-				return
-			default:
-				errCh <- fmt.Errorf("execution error: returned promise did not settle synchronously (no event loop in sandbox)")
-				return
-			}
-		}
-		resultCh <- val.Export()
+			h.logger.Info("codemode.tool.completed", append(base,
+				zap.Int("result_bytes", approxResultBytes(result)),
+				zap.Int64("wait_ms", waitMS),
+				zap.Int64("dispatch_ms", dispatchMS),
+				zap.Int64("duration_ms", waitMS+dispatchMS),
+				zap.String("outcome", "ok"),
+			)...)
+			_ = resolve(vm.ToValue(result))
+		})
 	}()
 
-	timer := time.NewTimer(h.cfg.ScriptTimeout)
-	defer timer.Stop()
+	return promiseVal
+}
 
-	select {
-	case result := <-resultCh:
-		return result, nil
-	case err := <-errCh:
-		return nil, err
-	case <-ctx.Done():
-		vm.Interrupt("ctx cancelled")
-		return nil, ctx.Err()
-	case <-timer.C:
-		vm.Interrupt("script timeout")
-		return nil, fmt.Errorf("codemode: script exceeded %v timeout", h.cfg.ScriptTimeout)
+// attachSettlement hooks resolve/reject onto the entry-point Promise so
+// the event loop drives it to settlement. resolve / reject are plain
+// JS functions backed by Go closures; they push onto resultCh / errCh
+// which the outer (*Handler).run select drains.
+func attachSettlement(vm *goja.Runtime, promiseVal goja.Value, resultCh chan<- any, errCh chan<- error) {
+	resolveFn := func(call goja.FunctionCall) goja.Value {
+		var v any
+		if len(call.Arguments) > 0 {
+			v = exportValue(call.Argument(0))
+		}
+		resultCh <- v
+		return goja.Undefined()
+	}
+	rejectFn := func(call goja.FunctionCall) goja.Value {
+		msg := ""
+		if len(call.Arguments) > 0 {
+			msg = call.Argument(0).String()
+		}
+		errCh <- fmt.Errorf("execution error: %s", redactSecrets(msg))
+		return goja.Undefined()
+	}
+	shimVal, err := vm.RunString(`(p, resolve, reject) => p.then(resolve, reject)`)
+	if err != nil {
+		errCh <- fmt.Errorf("attach settlement: %w", err)
+		return
+	}
+	shim, ok := goja.AssertFunction(shimVal)
+	if !ok {
+		errCh <- errors.New("attach settlement: shim is not a function")
+		return
+	}
+	if _, err := shim(goja.Undefined(), promiseVal, vm.ToValue(resolveFn), vm.ToValue(rejectFn)); err != nil {
+		errCh <- fmt.Errorf("attach settlement: %w", err)
 	}
 }
 

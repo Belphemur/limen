@@ -53,6 +53,10 @@ oauth_proxy:
 codemode:
   execution_timeout: "30s"
   max_memory_mb: 64
+  # Phase 8b: per-invocation cap on in-flight upstream tool calls.
+  # Tool proxies return Promises and dispatch off-VM; this bounds the
+  # fan-out budget consumed by Promise.all. Defaults to 8.
+  max_concurrent_tool_calls: 8
 
 # Phase 4 — portal OIDC relying party against Zitadel.
 oidc:

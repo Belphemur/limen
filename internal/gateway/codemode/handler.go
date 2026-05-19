@@ -29,7 +29,9 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja_nodejs/eventloop"
 	"go.uber.org/zap"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/ids"
@@ -64,7 +66,12 @@ type Config struct {
 	// MaxToolCalls caps the number of upstream tool calls per
 	// invocation. 0 means unlimited (not recommended).
 	MaxToolCalls int
+	// MaxConcurrentToolCalls caps in-flight upstream tool calls per
+	// invocation (Phase 8b). 0 falls back to defaultMaxConcurrent.
+	MaxConcurrentToolCalls int
 }
+
+const defaultMaxConcurrent = 8
 
 // Handler runs tenant-supplied JavaScript through Goja with the
 // per-user upstream tool catalog injected as `codemode.*`. All tool
@@ -85,6 +92,9 @@ func New(d Dispatcher, cfg Config, logger *zap.Logger) *Handler {
 	if cfg.ScriptTimeout <= 0 {
 		cfg.ScriptTimeout = 30 * time.Second
 	}
+	if cfg.MaxConcurrentToolCalls <= 0 {
+		cfg.MaxConcurrentToolCalls = defaultMaxConcurrent
+	}
 	return &Handler{dispatcher: d, logger: logger, cfg: cfg}
 }
 
@@ -97,6 +107,38 @@ func (h *Handler) Search(ctx context.Context, code string) (any, error) {
 // (codemode.<tool>(args), codemode.call(name, args)).
 func (h *Handler) Execute(ctx context.Context, code string) (any, error) {
 	return h.run(ctx, code, true)
+}
+
+// invocationState bundles the per-invocation state shared between the
+// VM-goroutine tool proxies and the worker goroutines they spawn. The
+// fields are all goroutine-safe (atomics, channels, semaphore, and a
+// cancellable context).
+type invocationState struct {
+	ctx          context.Context
+	loop         *eventloop.EventLoop
+	sem          *semaphore.Weighted
+	callSeq      *int64
+	peak         *int64
+	inFlight     *int64
+	invocationID string
+	// errCh is the side channel used by synchronous failure paths
+	// (notably the MaxToolCalls quota trip) to deliver an error to the
+	// outer (*Handler).run select. vm.Interrupt raises an uncatchable
+	// goja error that does not propagate through Promise.then chains —
+	// so attachSettlement would never see it. Pushing here unblocks
+	// the outer select immediately. Send is non-blocking; the channel
+	// is buffered 1.
+	errCh chan<- error
+}
+
+// reportSyncErr posts an error onto state.errCh without blocking. The
+// first sender wins; subsequent calls are dropped because the outer
+// run() already has its error.
+func (s *invocationState) reportSyncErr(err error) {
+	select {
+	case s.errCh <- err:
+	default:
+	}
 }
 
 func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, error) {
@@ -116,128 +158,240 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 		zap.Int("tool_count_visible", len(tools)),
 	)...)
 
-	start := time.Now()
-	deadline := start.Add(h.cfg.ScriptTimeout)
-	vm := goja.New()
-	// Expose Go struct fields and methods to JS using their `json` tags
-	// (and lowercased method names). Without this, `codemode.tools()`
-	// returns objects whose properties are `Name`/`Description`/...
-	// (Go field names), while the documented contract and the
-	// downstream JSON marshalling both use `name`/`description`/...
-	// The mismatch causes scripts like `tools.map(t => t.upstream)` to
-	// silently yield `null` arrays.
-	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
-	var callSeq int64
-	codemodeObj := vm.NewObject()
-
-	listings := toListings(tools)
-
-	if withProxies {
-		byUpstream := make(map[string]map[string]Tool, len(tools))
-		for _, t := range tools {
-			if _, ok := byUpstream[t.Upstream]; !ok {
-				byUpstream[t.Upstream] = make(map[string]Tool)
-			}
-			byUpstream[t.Upstream][t.Name] = t
-		}
-		for upstreamName, byName := range byUpstream {
-			if isReservedCodemodeKey(upstreamName) {
-				h.logger.Warn("codemode.invocation.upstream_name_collides_with_reserved_key",
-					append(base, zap.String("upstream", upstreamName))...)
-				continue
-			}
-			upObj := vm.NewObject()
-			for _, t := range byName {
-				tool := t
-				_ = upObj.Set(tool.Name, h.makeProxy(ctx, vm, tool, &callSeq, invocationID))
-			}
-			_ = codemodeObj.Set(upstreamName, upObj)
-		}
-		_ = codemodeObj.Set("call", func(call goja.FunctionCall) goja.Value {
-			if len(call.Arguments) < 2 {
-				panic(vm.NewGoError(errors.New("codemode.call(upstream, name, args): upstream and name are required")))
-			}
-			upstreamName := call.Argument(0).String()
-			name := call.Argument(1).String()
-			byName, ok := byUpstream[upstreamName]
-			if !ok {
-				panic(vm.NewGoError(fmt.Errorf("upstream %q not found or no tools visible", upstreamName)))
-			}
-			tool, ok := byName[name]
-			if !ok {
-				panic(vm.NewGoError(fmt.Errorf("tool %q not found on upstream %q", name, upstreamName)))
-			}
-			args := exportArgs(call, 2)
-			return h.dispatchTool(ctx, vm, tool, args, &callSeq, invocationID)
-		})
+	prg, compileErr := goja.Compile("codemode", code, false)
+	if compileErr != nil {
+		h.logger.Info("codemode.invocation.completed", append(base,
+			zap.Int64("tool_calls_total", 0),
+			zap.Int64("tool_calls_concurrent_peak", 0),
+			zap.Int64("duration_ms", 0),
+			zap.String("outcome", "script_error"),
+			zap.Int("result_bytes", 0),
+		)...)
+		return nil, fmt.Errorf("compile error: %w", compileErr)
 	}
 
-	// Reserved keys are set last so an upstream literally named after
-	// one of them can never shadow the sandbox API. The list lives in
-	// one place (reservedCodemodeKeys) so adding a new helper here and
-	// teaching isReservedCodemodeKey stay in lock-step.
-	_ = codemodeObj.Set(reservedKeyTools, func(call goja.FunctionCall) goja.Value {
-		var filter map[string]any
-		if len(call.Arguments) > 0 {
-			if exported, ok := call.Argument(0).Export().(map[string]any); ok {
-				filter = exported
+	start := time.Now()
+	deadline := start.Add(h.cfg.ScriptTimeout)
+
+	// EnableConsole(false) disables the `console` global the event
+	// loop would otherwise install. The loop still vm.Set()s
+	// setTimeout/setInterval/setImmediate/clear*; we delete those on
+	// the VM goroutine before any tenant code runs. Same for `require`
+	// which goja_nodejs/require always installs.
+	loop := eventloop.NewEventLoop(eventloop.EnableConsole(false))
+	loop.Start()
+	defer loop.StopNoWait()
+
+	dispatchCtx, cancelDispatch := context.WithCancel(ctx)
+	defer cancelDispatch()
+
+	cap := h.cfg.MaxConcurrentToolCalls
+	if cap <= 0 {
+		cap = defaultMaxConcurrent
+	}
+	sem := semaphore.NewWeighted(int64(cap))
+	var callSeq int64
+	var peak int64
+	var inFlight int64
+	resultCh := make(chan any, 1)
+	errCh := make(chan error, 1)
+	state := &invocationState{
+		ctx:          dispatchCtx,
+		loop:         loop,
+		sem:          sem,
+		callSeq:      &callSeq,
+		peak:         &peak,
+		inFlight:     &inFlight,
+		invocationID: invocationID,
+		errCh:        errCh,
+	}
+
+	vmCh := make(chan *goja.Runtime, 1)
+
+	loop.RunOnLoop(func(vm *goja.Runtime) {
+		// Publish the VM pointer for the outer goroutine so
+		// ctx-cancel / timeout paths can call vm.Interrupt without
+		// blocking the loop. Interrupt is documented goroutine-safe.
+		select {
+		case vmCh <- vm:
+		default:
+		}
+
+		defer func() {
+			if r := recover(); r != nil {
+				if ex, ok := r.(*goja.Exception); ok {
+					errCh <- fmt.Errorf("javascript error: %s", redactSecrets(ex.String()))
+				} else {
+					errCh <- fmt.Errorf("panic: %v", r)
+				}
 			}
+		}()
+
+		// Strip eventloop-injected globals so the sandbox surface
+		// stays exactly as wide as before phase 8b. queueMicrotask is
+		// not registered by the loop, but list it in case a future
+		// goja release adds it as a builtin.
+		g := vm.GlobalObject()
+		for _, k := range []string{
+			"setTimeout", "setInterval", "setImmediate",
+			"clearTimeout", "clearInterval", "clearImmediate",
+			"queueMicrotask", "require",
+		} {
+			_ = g.Delete(k)
 		}
-		out, err := filterListings(listings, filter)
-		if err != nil {
-			panic(vm.NewGoError(err))
-		}
-		return vm.ToValue(out)
-	})
-	_ = codemodeObj.Set(reservedKeySchemas, func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) == 0 {
-			panic(vm.NewGoError(errors.New("codemode.schemas(names): names argument is required (string or string[])")))
-		}
-		names := exportSchemaNames(call.Argument(0))
-		if names == nil {
-			panic(vm.NewGoError(errors.New("codemode.schemas(names): names must be a string or array of strings")))
-		}
-		res := schemasByName(tools, names)
-		// Return a plain map so JS sees `{found: [...], missing: [...]}`
-		// instead of a struct-pointer wrapper (Goja exposes struct slice
-		// fields as `*[]T`, which breaks `.found.length`).
-		return vm.ToValue(map[string]any{
-			"found":   res.Found,
-			"missing": res.Missing,
-		})
-	})
-	_ = codemodeObj.Set(reservedKeyJSON, func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) == 0 {
-			return goja.Null()
-		}
-		return vm.ToValue(parseJSONResult(call.Argument(0)))
-	})
-	_ = codemodeObj.Set(reservedKeyQuota, func(_ goja.FunctionCall) goja.Value {
-		used := atomic.LoadInt64(&callSeq)
-		remaining := int64(-1)
-		if h.cfg.MaxToolCalls > 0 {
-			remaining = int64(h.cfg.MaxToolCalls) - used
-			if remaining < 0 {
-				remaining = 0
+
+		// Expose Go struct fields and methods to JS using their `json`
+		// tags so codemode.tools() returns {name, description, ...}
+		// instead of Go-cased identifiers.
+		vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+
+		codemodeObj := vm.NewObject()
+		listings := toListings(tools)
+
+		if withProxies {
+			byUpstream := make(map[string]map[string]Tool, len(tools))
+			for _, t := range tools {
+				if _, ok := byUpstream[t.Upstream]; !ok {
+					byUpstream[t.Upstream] = make(map[string]Tool)
+				}
+				byUpstream[t.Upstream][t.Name] = t
 			}
+			for upstreamName, byName := range byUpstream {
+				if isReservedCodemodeKey(upstreamName) {
+					h.logger.Warn("codemode.invocation.upstream_name_collides_with_reserved_key",
+						append(base, zap.String("upstream", upstreamName))...)
+					continue
+				}
+				upObj := vm.NewObject()
+				for _, t := range byName {
+					tool := t
+					_ = upObj.Set(tool.Name, h.makeProxy(state, vm, tool, base))
+				}
+				_ = codemodeObj.Set(upstreamName, upObj)
+			}
+			_ = codemodeObj.Set("call", func(call goja.FunctionCall) goja.Value {
+				if len(call.Arguments) < 2 {
+					panic(vm.NewGoError(errors.New("codemode.call(upstream, name, args): upstream and name are required")))
+				}
+				upstreamName := call.Argument(0).String()
+				name := call.Argument(1).String()
+				byName, ok := byUpstream[upstreamName]
+				if !ok {
+					panic(vm.NewGoError(fmt.Errorf("upstream %q not found or no tools visible", upstreamName)))
+				}
+				tool, ok := byName[name]
+				if !ok {
+					panic(vm.NewGoError(fmt.Errorf("tool %q not found on upstream %q", name, upstreamName)))
+				}
+				args := exportArgs(call, 2)
+				return h.dispatchAsync(state, vm, tool, args, base)
+			})
 		}
-		deadlineMS := time.Until(deadline).Milliseconds()
-		if deadlineMS < 0 {
-			deadlineMS = 0
-		}
-		return vm.ToValue(map[string]any{
-			"used":        used,
-			"max":         int64(h.cfg.MaxToolCalls),
-			"remaining":   remaining,
-			"deadline_ms": deadlineMS,
+
+		_ = codemodeObj.Set(reservedKeyTools, func(call goja.FunctionCall) goja.Value {
+			var filter map[string]any
+			if len(call.Arguments) > 0 {
+				if exported, ok := call.Argument(0).Export().(map[string]any); ok {
+					filter = exported
+				}
+			}
+			out, err := filterListings(listings, filter)
+			if err != nil {
+				panic(vm.NewGoError(err))
+			}
+			return vm.ToValue(out)
 		})
+		_ = codemodeObj.Set(reservedKeySchemas, func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 {
+				panic(vm.NewGoError(errors.New("codemode.schemas(names): names argument is required (string or string[])")))
+			}
+			names := exportSchemaNames(call.Argument(0))
+			if names == nil {
+				panic(vm.NewGoError(errors.New("codemode.schemas(names): names must be a string or array of strings")))
+			}
+			res := schemasByName(tools, names)
+			return vm.ToValue(map[string]any{
+				"found":   res.Found,
+				"missing": res.Missing,
+			})
+		})
+		_ = codemodeObj.Set(reservedKeyJSON, func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 {
+				return goja.Null()
+			}
+			return vm.ToValue(parseJSONResult(call.Argument(0)))
+		})
+		_ = codemodeObj.Set(reservedKeyQuota, func(_ goja.FunctionCall) goja.Value {
+			used := atomic.LoadInt64(&callSeq)
+			remaining := int64(-1)
+			if h.cfg.MaxToolCalls > 0 {
+				remaining = int64(h.cfg.MaxToolCalls) - used
+				if remaining < 0 {
+					remaining = 0
+				}
+			}
+			deadlineMS := time.Until(deadline).Milliseconds()
+			if deadlineMS < 0 {
+				deadlineMS = 0
+			}
+			return vm.ToValue(map[string]any{
+				"used":        used,
+				"max":         int64(h.cfg.MaxToolCalls),
+				"remaining":   remaining,
+				"deadline_ms": deadlineMS,
+			})
+		})
+
+		_ = vm.Set("codemode", codemodeObj)
+
+		val, runErr := vm.RunProgram(prg)
+		if runErr != nil {
+			errCh <- wrapExecutionError(runErr)
+			return
+		}
+		// Async-arrow entry point: invoke once and adopt the returned
+		// value (typically a Promise). Bare expressions evaluate
+		// directly to a value.
+		if fn, ok := goja.AssertFunction(val); ok {
+			ret, callErr := fn(goja.Undefined())
+			if callErr != nil {
+				errCh <- wrapExecutionError(callErr)
+				return
+			}
+			val = ret
+		}
+		if _, ok := val.Export().(*goja.Promise); ok {
+			attachSettlement(vm, val, resultCh, errCh)
+			return
+		}
+		resultCh <- exportValue(val)
 	})
 
-	_ = vm.Set("codemode", codemodeObj)
+	timer := time.NewTimer(h.cfg.ScriptTimeout)
+	defer timer.Stop()
 
-	result, runErr := h.runCode(ctx, vm, code)
+	var result any
+	var runErr error
+	select {
+	case result = <-resultCh:
+	case runErr = <-errCh:
+	case <-ctx.Done():
+		cancelDispatch()
+		if vm := tryRecvVM(vmCh); vm != nil {
+			vm.Interrupt(ctx.Err())
+		}
+		runErr = ctx.Err()
+	case <-timer.C:
+		cancelDispatch()
+		if vm := tryRecvVM(vmCh); vm != nil {
+			vm.Interrupt("script timeout")
+		}
+		runErr = fmt.Errorf("codemode: script exceeded %v timeout", h.cfg.ScriptTimeout)
+	}
+
 	durMS := time.Since(start).Milliseconds()
 	totalCalls := atomic.LoadInt64(&callSeq)
+	peakObserved := atomic.LoadInt64(&peak)
 
 	outcome := "ok"
 	if runErr != nil {
@@ -251,12 +405,24 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 
 	h.logger.Info("codemode.invocation.completed", append(base,
 		zap.Int64("tool_calls_total", totalCalls),
+		zap.Int64("tool_calls_concurrent_peak", peakObserved),
 		zap.Int64("duration_ms", durMS),
 		zap.String("outcome", outcome),
 		zap.Int("result_bytes", approxResultBytes(result)),
 	)...)
 
 	return result, runErr
+}
+
+// tryRecvVM does a non-blocking receive on vmCh. Returns nil if the VM
+// hasn't been published yet (the loop callback hasn't started).
+func tryRecvVM(vmCh <-chan *goja.Runtime) *goja.Runtime {
+	select {
+	case vm := <-vmCh:
+		return vm
+	default:
+		return nil
+	}
 }
 
 func (h *Handler) baseLogFields(ctx context.Context, invocationID string) []zap.Field {

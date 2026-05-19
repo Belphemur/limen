@@ -41,8 +41,9 @@ func setupMCPGateway(d *serverDeps) (*gateway.Manager, *transport.MCPServer, err
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)
 	}
 	cmHandler := codemode.New(gateway.CodemodeDispatcher{Manager: mgr}, codemode.Config{
-		ScriptTimeout: d.cfg.CodeMode.ScriptTimeout,
-		MaxToolCalls:  d.cfg.CodeMode.MaxToolCalls,
+		ScriptTimeout:          d.cfg.CodeMode.ScriptTimeout,
+		MaxToolCalls:           d.cfg.CodeMode.MaxToolCalls,
+		MaxConcurrentToolCalls: d.cfg.CodeMode.MaxConcurrentToolCalls,
 	}, d.logger)
 	mcpServer := transport.NewMCPServer(mgr, cmHandler, d.logger)
 	return mgr, mcpServer, nil

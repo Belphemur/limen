@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ type fakeDispatcher struct {
 	toolsErr  error
 	responses map[string]any
 	errs      map[string]error
+	mu        sync.Mutex
 	calls     []dispatchCall
 }
 
@@ -35,7 +37,9 @@ func (f *fakeDispatcher) ToolsForUser(_ context.Context) ([]Tool, error) {
 }
 
 func (f *fakeDispatcher) CallTool(_ context.Context, upstream, name string, args map[string]any) (any, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, dispatchCall{Upstream: upstream, Tool: name, Args: args})
+	f.mu.Unlock()
 	key := upstream + "/" + name
 	if err, ok := f.errs[key]; ok {
 		return nil, err
@@ -46,7 +50,7 @@ func (f *fakeDispatcher) CallTool(_ context.Context, upstream, name string, args
 	return nil, fmt.Errorf("fakeDispatcher: unexpected call %q", key)
 }
 
-func newTestHandler(t *testing.T, d *fakeDispatcher, cfg Config) *Handler {
+func newTestHandler(t *testing.T, d Dispatcher, cfg Config) *Handler {
 	t.Helper()
 	if cfg.ScriptTimeout == 0 {
 		cfg.ScriptTimeout = 2 * time.Second
@@ -72,7 +76,10 @@ func TestSandboxDenials(t *testing.T) {
 	// sandbox-hardening follow-up lands.
 	denied := []string{
 		"fs", "process", "fetch", "require", "setTimeout",
-		"setInterval", "console", "window", "Buffer", "XMLHttpRequest",
+		"setInterval", "setImmediate",
+		"clearTimeout", "clearInterval", "clearImmediate",
+		"queueMicrotask",
+		"console", "window", "Buffer", "XMLHttpRequest",
 		"WebSocket", "__dirname", "__filename", "global",
 	}
 	for _, name := range denied {

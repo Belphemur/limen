@@ -126,6 +126,11 @@ type CodeModeConfig struct {
 	// Defaults to 50 when zero. Exceeding it raises a quota_exceeded
 	// error inside the sandbox.
 	MaxToolCalls int `yaml:"max_tool_calls,omitempty"`
+	// MaxConcurrentToolCalls caps in-flight upstream tool calls per
+	// invocation. Phase 8b: tool proxies return Promises and dispatch
+	// off the VM goroutine; this is the fan-out budget used by
+	// Promise.all. Defaults to 8 when zero.
+	MaxConcurrentToolCalls int `yaml:"max_concurrent_tool_calls,omitempty"`
 }
 
 // ValkeyConfig wires the Valkey (Redis-protocol) client used by Phase 7
@@ -270,6 +275,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.CodeMode.MaxToolCalls == 0 {
 		c.CodeMode.MaxToolCalls = 50
+	}
+	if c.CodeMode.MaxConcurrentToolCalls == 0 {
+		c.CodeMode.MaxConcurrentToolCalls = 8
 	}
 	if c.CodeMode.MaxMemoryMB == 0 {
 		c.CodeMode.MaxMemoryMB = 64
