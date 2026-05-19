@@ -1,4 +1,4 @@
-package cli
+package boot
 
 import "testing"
 
@@ -14,12 +14,10 @@ func TestBootProfile_Has(t *testing.T) {
 		{"single bit misses other", NeedStore, NeedCipher, false},
 		{"composite has subset", NeedStore | NeedCipher, NeedStore, true},
 		{"composite has self", NeedStore | NeedCipher, NeedStore | NeedCipher, true},
-		{"composite misses missing bit", NeedStore | NeedCipher, NeedZitadel, false},
-		{"all profiles has each", AllProfiles, NeedStore, true},
+		{"composite misses missing bit", NeedStore | NeedCipher, NeedUpstream, false},
+		{"all profiles has store", AllProfiles, NeedStore, true},
 		{"all profiles has cipher", AllProfiles, NeedCipher, true},
 		{"all profiles has signer", AllProfiles, NeedSigner, true},
-		{"all profiles has zitadel", AllProfiles, NeedZitadel, true},
-		{"all profiles has oidcrp", AllProfiles, NeedOIDCRP, true},
 		{"all profiles has upstream", AllProfiles, NeedUpstream, true},
 	}
 	for _, tt := range tests {
@@ -35,9 +33,7 @@ func TestBootProfile_Has(t *testing.T) {
 // BootProfile flag into AllProfiles. If you add a Need* constant, add
 // it to this list and to the AllProfiles definition.
 func TestAllProfiles_IsUnion(t *testing.T) {
-	all := []BootProfile{
-		NeedStore, NeedCipher, NeedSigner, NeedZitadel, NeedOIDCRP, NeedUpstream,
-	}
+	all := []BootProfile{NeedStore, NeedCipher, NeedSigner, NeedUpstream}
 	var union BootProfile
 	for _, f := range all {
 		union |= f

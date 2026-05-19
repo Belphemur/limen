@@ -1,11 +1,17 @@
-// Package transport's oauthproxy.go wires the Phase 5 OAuth proxy routes
+// Package oauthproxytransport mounts the Phase 5 OAuth proxy routes
 // (AS-metadata + DCR + thin redirector) under /t/{tenant}/oauth/*.
 //
 // All routes are mounted behind tenancy.RequireTenant. The /register*
 // subtree additionally runs through a per-tenant sliding-window rate
 // limiter to keep the unauthenticated DCR endpoint from being an abuse
 // vector.
-package transport
+//
+// This package is its own import surface (separate from internal/transport)
+// specifically so binaries that don't host the OAuth proxy — notably
+// cmd/gateway, the MCP RS hot path — can import internal/transport for
+// MCP/portal/upstream mounting without transitively pulling in
+// internal/oauthproxy + internal/zitadel. See Phase 9a binary split.
+package oauthproxytransport
 
 import (
 	"github.com/go-chi/chi/v5"
@@ -18,8 +24,8 @@ import (
 	"github.com/belphemur/limen/internal/zitadel"
 )
 
-// OAuthProxyDeps bundles everything MountOAuthProxy needs.
-type OAuthProxyDeps struct {
+// Deps bundles everything Mount needs.
+type Deps struct {
 	Store   *storage.Store
 	Zitadel *zitadel.Client
 	Logger  *zap.Logger
@@ -32,10 +38,10 @@ type OAuthProxyDeps struct {
 	OAuthCfg       config.OAuthProxyConfig
 }
 
-// MountOAuthProxy attaches the AS-metadata, redirector, DCR, and RFC 7592
-// management endpoints under /t/{tenant}/oauth/*. Returns the first config
-// error (caller wires it into the serve command's bootstrap).
-func MountOAuthProxy(r chi.Router, deps OAuthProxyDeps) error {
+// Mount attaches the AS-metadata, redirector, DCR, and RFC 7592
+// management endpoints under /t/{tenant}/oauth/*. Returns the first
+// config error (caller wires it into the serve command's bootstrap).
+func Mount(r chi.Router, deps Deps) error {
 	logger := deps.Logger
 	if logger == nil {
 		logger = zap.NewNop()

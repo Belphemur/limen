@@ -1,16 +1,17 @@
-// Package cli — shared runtime boot floor.
+// Package boot is the shared runtime boot floor used by every Limen
+// service / CLI binary.
 //
-// BootRuntime is the single entry point every service / CLI binary uses
-// to bring up the dependencies it needs. A BootProfile bitmask selects
-// which dependencies to construct; unset fields on Runtime are nil. The
-// returned cleanup func releases resources in reverse order.
+// BootRuntime constructs only the dependencies selected by a
+// BootProfile bitmask. The package's imports are intentionally narrow:
+// it does NOT import internal/zitadel or internal/oauthproxy, so the
+// MCP gateway binary (cmd/gateway) — which must not reach the Zitadel
+// management API or DCR surfaces — can depend on it freely.
 //
-// The boot floor is intentionally small: config + logger + ctx are
-// always built, and crypto/storage/signer/Zitadel/OIDC RP/upstream
-// linking are opt-in. Per-suite mount helpers (mountPortal,
-// mountMCPResource, mountOAuthProxy, mountUpstreamLinking) consume
-// Runtime fields directly.
-package cli
+// Constructors that DO need zitadel / OIDC RP / oauthproxy live in
+// sibling packages (e.g. internal/boot/zitadelboot, the per-binary
+// serve packages under internal/boot/*) and are wired in by the
+// binaries that need them.
+package boot
 
 import (
 	"context"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/config"
@@ -30,12 +32,13 @@ import (
 	"github.com/belphemur/limen/internal/upstream/oauthstate"
 	"github.com/belphemur/limen/internal/upstream/statichdr"
 	"github.com/belphemur/limen/internal/valkey"
-	"github.com/belphemur/limen/internal/zitadel"
 )
 
 // BootProfile is a bitmask describing which optional dependencies a
 // binary needs from BootRuntime. The base floor (config, logger,
-// signal-cancellable context) is always built.
+// signal-cancellable context) is always built. Zitadel + OIDC RP are
+// NOT covered by BootProfile — binaries that need them call
+// zitadelboot / oidcboot helpers explicitly.
 type BootProfile uint32
 
 const (
@@ -46,24 +49,18 @@ const (
 	// up.
 	NeedCipher
 	// NeedSigner builds the HMAC state signer used for portal cookies
-	// and OAuth state.
+	// and OAuth state. Requires NeedCipher (shared key material).
 	NeedSigner
-	// NeedZitadel builds the Zitadel management client. Required by
-	// the OAuth proxy (DCR) and the portal/staff admin surfaces;
-	// explicitly NOT built by the MCP gateway binary.
-	NeedZitadel
-	// NeedOIDCRP builds the portal-facing OIDC relying party. Implies
-	// NeedCipher and NeedSigner.
-	NeedOIDCRP
 	// NeedUpstream builds the upstream strategy registry, Valkey-backed
 	// OAuth state store, upstream.Service, and launches the background
-	// refresher goroutine.
+	// refresher goroutine. Requires NeedStore + NeedCipher.
 	NeedUpstream
 )
 
-// AllProfiles is the union profile used by the all-in-one binary
-// (cmd/limen). New BootProfile flags must be folded into this constant.
-const AllProfiles = NeedStore | NeedCipher | NeedSigner | NeedZitadel | NeedOIDCRP | NeedUpstream
+// AllProfiles is the union profile used by binaries that mount every
+// suite (cmd/limen all-in-one). New BootProfile flags must be folded
+// into this constant.
+const AllProfiles = NeedStore | NeedCipher | NeedSigner | NeedUpstream
 
 // Has reports whether p has every bit in f set.
 func (p BootProfile) Has(f BootProfile) bool { return p&f == f }
@@ -80,8 +77,6 @@ type Runtime struct {
 	Cipher           *crypto.Cipher
 	Store            *storage.Store
 	Signer           *auth.StateSigner
-	Zitadel          *zitadel.Client
-	OIDC             *auth.OIDC
 	UpstreamService  *upstream.Service
 	UpstreamRegistry *upstream.Registry
 
@@ -89,21 +84,29 @@ type Runtime struct {
 	cleanups []func()
 }
 
-func (r *Runtime) addCleanup(fn func()) {
+// AddCleanup registers a teardown function. Cleanups run in reverse
+// order of registration when the cleanup func returned by BootRuntime
+// is invoked.
+func (r *Runtime) AddCleanup(fn func()) {
 	r.cleanups = append(r.cleanups, fn)
 }
 
+// Logger-level config is loaded from cfg.Logging.
+
 // BootRuntime loads config, builds the logger and a signal-cancellable
 // context, then constructs each dependency selected by want. The
-// returned cleanup func tears everything down in reverse order; callers
-// must invoke it on shutdown. Errors during boot trigger partial
-// cleanup before returning.
-func BootRuntime(flags *rootFlags, want BootProfile) (*Runtime, func(), error) {
-	cfg, err := loadConfig(flags)
-	if err != nil {
-		return nil, func() {}, err
+// returned cleanup func tears everything down in reverse order;
+// callers must invoke it on shutdown. Errors during boot trigger
+// partial cleanup before returning.
+func BootRuntime(configPath string, want BootProfile) (*Runtime, func(), error) {
+	if configPath == "" {
+		return nil, func() {}, fmt.Errorf("config path is required")
 	}
-	logger, err := buildServeLogger(cfg.Logging.Level, cfg.Logging.Development)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("load config %q: %w", configPath, err)
+	}
+	logger, err := BuildLogger(cfg.Logging.Level, cfg.Logging.Development)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("build logger: %w", err)
 	}
@@ -111,19 +114,13 @@ func BootRuntime(flags *rootFlags, want BootProfile) (*Runtime, func(), error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	rt := &Runtime{Ctx: ctx, Cancel: cancel, Cfg: cfg, Logger: logger}
-	rt.addCleanup(cancel)
-	rt.addCleanup(func() { _ = logger.Sync() })
+	rt.AddCleanup(cancel)
+	rt.AddCleanup(func() { _ = logger.Sync() })
 
 	cleanup := func() {
-		// Reverse-order teardown.
 		for i := len(rt.cleanups) - 1; i >= 0; i-- {
 			rt.cleanups[i]()
 		}
-	}
-
-	// OIDC RP requires cipher + signer; promote the implied bits.
-	if want.Has(NeedOIDCRP) {
-		want |= NeedCipher | NeedSigner
 	}
 
 	if want.Has(NeedCipher) {
@@ -160,43 +157,7 @@ func BootRuntime(flags *rootFlags, want BootProfile) (*Runtime, func(), error) {
 			return nil, func() {}, fmt.Errorf("open storage: %w", err)
 		}
 		rt.Store = store
-		rt.addCleanup(func() { _ = store.Close() })
-	}
-
-	if want.Has(NeedZitadel) {
-		zclient, err := zitadel.NewClient(ctx, zitadel.Config{
-			Domain:      cfg.Zitadel.Domain,
-			AuthMode:    zitadel.AuthMode(cfg.Zitadel.AuthMode),
-			PAT:         cfg.Zitadel.PAT,
-			JWTKeyPath:  cfg.Zitadel.JWTKeyPath,
-			ProjectID:   cfg.Zitadel.ProjectID,
-			HTTPTimeout: cfg.Zitadel.HTTPTimeout,
-		})
-		if err != nil {
-			// Best-effort: log and continue. Matches prior behavior
-			// of mountOAuthProxy, which silently skipped DCR when
-			// the admin client couldn't be built. Callers that hard
-			// require Zitadel can check rt.Zitadel == nil.
-			logger.Warn("zitadel admin client unavailable", zap.Error(err))
-		} else {
-			rt.Zitadel = zclient
-		}
-	}
-
-	if want.Has(NeedOIDCRP) {
-		oidcHandler, err := auth.NewOIDC(ctx, auth.OIDCConfig{
-			Issuer:       cfg.OIDC.Issuer,
-			ClientID:     cfg.OIDC.ClientID,
-			ClientSecret: cfg.OIDC.ClientSecret,
-			RedirectURI:  cfg.OIDC.RedirectURI,
-			Scopes:       cfg.OIDC.Scopes,
-			Secure:       cfg.Security.PortalSessionCookieSecure,
-		}, rt.Cipher, rt.Signer, logger)
-		if err != nil {
-			cleanup()
-			return nil, func() {}, fmt.Errorf("build oidc handler: %w", err)
-		}
-		rt.OIDC = oidcHandler
+		rt.AddCleanup(func() { _ = store.Close() })
 	}
 
 	if want.Has(NeedUpstream) {
@@ -213,10 +174,31 @@ func BootRuntime(flags *rootFlags, want BootProfile) (*Runtime, func(), error) {
 	return rt, cleanup, nil
 }
 
+// BuildLogger constructs a zap logger using the standard zapcore level
+// names. Empty level falls back to "info". When development is true the
+// human-readable development encoder is used; otherwise JSON
+// production.
+func BuildLogger(level string, development bool) (*zap.Logger, error) {
+	var cfg zap.Config
+	if development {
+		cfg = zap.NewDevelopmentConfig()
+	} else {
+		cfg = zap.NewProductionConfig()
+	}
+	if level == "" {
+		level = "info"
+	}
+	lvl, err := zapcore.ParseLevel(level)
+	if err != nil {
+		return nil, fmt.Errorf("parse log level %q: %w", level, err)
+	}
+	cfg.Level = zap.NewAtomicLevelAt(lvl)
+	return cfg.Build()
+}
+
 // bootUpstream builds the strategy registry + service + refresher when
 // Valkey is configured. When valkey.address is empty, the upstream
-// suite is disabled with a warn log (matches prior setupUpstreamLinking
-// behavior).
+// suite is disabled with a warn log.
 func bootUpstream(rt *Runtime) error {
 	if rt.Cfg.Valkey.Address == "" {
 		rt.Logger.Warn("valkey.address empty: upstream linking disabled")
@@ -226,7 +208,7 @@ func bootUpstream(rt *Runtime) error {
 	if err != nil {
 		return fmt.Errorf("open valkey: %w", err)
 	}
-	rt.addCleanup(vk.Close)
+	rt.AddCleanup(vk.Close)
 
 	stateStore := oauthstate.New(vk, rt.Cipher, oauthstate.DefaultTTL)
 

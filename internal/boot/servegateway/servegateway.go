@@ -1,0 +1,39 @@
+// Package servegateway is the MCP RS hot-path binary entry point used
+// by cmd/gateway. It mounts ONLY /t/{tenant}/mcp/* + /healthz + /readyz.
+//
+// Phase 9a load-bearing constraint: this package and its transitive
+// import graph must NOT include internal/oauthproxy or
+// internal/zitadel. The MCP gateway is the most internet-exposed,
+// highest-traffic binary; it must not carry the credential surface of
+// the DCR proxy or the Zitadel management client.
+package servegateway
+
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/belphemur/limen/internal/boot"
+	"github.com/belphemur/limen/internal/boot/mcpmount"
+)
+
+// Run boots a runtime + MCP-only mux and serves until SIGINT/SIGTERM.
+func Run(configPath string) error {
+	rt, cleanup, err := boot.BootRuntime(configPath, boot.NeedStore|boot.NeedCipher|boot.NeedUpstream)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	r := chi.NewRouter()
+	r.Use(boot.PermissiveCORS)
+	boot.MountHealth(r)
+
+	_, mcpServer, err := mcpmount.Build(rt)
+	if err != nil {
+		return err
+	}
+	if err := mcpmount.Mount(r, rt, mcpServer); err != nil {
+		return err
+	}
+
+	return boot.RunHTTPServer(rt, r)
+}
