@@ -144,7 +144,7 @@ the reference shape for any new DB-backed test.
 - Use table-driven tests for functions with multiple input cases
   (`tests := []struct{...}{...}` + `for _, tt := range tests { t.Run(... }`).
 - Mock upstream MCP clients rather than hitting real servers.
-- For the Goja sandbox, write assertions about what is *not* reachable —
+- For the Goja sandbox, write assertions about what is _not_ reachable —
   `os`, `process`, `fetch`, `eval`, filesystem helpers — as well as what is.
 
 ### Assertions
@@ -158,8 +158,8 @@ the reference shape for any new DB-backed test.
 
 - **`SET LOCAL` with placeholders** does not work in Postgres — use
   `set_config(name, value, true)` instead. (Bit us in Phase 1.)
-- **ULID ordering invariant**: `ulid.Make` is monotonic *within a single
-  process*. Two processes minting IDs in the same millisecond can produce
+- **ULID ordering invariant**: `ulid.Make` is monotonic _within a single
+  process_. Two processes minting IDs in the same millisecond can produce
   IDs that interleave on the global timeline — fine for cursor pagination,
   but don't assert strict cross-process ordering in tests.
 - **Container start cost** dominates fast tests — keep the per-test logic

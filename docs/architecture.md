@@ -68,7 +68,7 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 1. **Client connects** to Limen's `/mcp` SSE endpoint via the transport layer.
 2. **Tool initialization**: `MCPServer` registers two tools (`codemode_search`, `codemode_execute`) with the `mcp-go` server. The client sees only these two tools.
 3. **Discovery phase**: The client calls `codemode_search` with JavaScript code. `CodeModeHandler.Search()` creates a Goja VM, injects all tool definitions as JSON, and exposes `codemode.tools()`. The JS runs and returns a filtered list of relevant tools.
-4. **Execution phase**: The client calls `codemode_execute` with JavaScript that invokes tools. `CodeModeHandler.Execute()` creates a fresh Goja VM where each tool is injected as a proxy function on the `codemode` object (e.g., `codemode.jira_get_ticket({id: "PROJ-123"})`). 
+4. **Execution phase**: The client calls `codemode_execute` with JavaScript that invokes tools. `CodeModeHandler.Execute()` creates a fresh Goja VM where each tool is injected as a proxy function on the `codemode` object (e.g., `codemode.jira_get_ticket({id: "PROJ-123"})`).
 5. **Tool proxy**: When JS calls a tool proxy, the handler resolves the tool's upstream, calls `Gateway.CallTool()`, which delegates to the appropriate `MCPUpstreamClient`.
 6. **Upstream call**: `MCPUpstreamClient.CallTool()` sends a JSON-RPC `tools/call` request to the upstream server via Streamable HTTP using `mcp-go/client`.
 7. **Response propagation**: The upstream response flows back through the gateway → handler → transport → SSE → client, serialized as JSON text content.
@@ -79,8 +79,9 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 
 The application bootstrap for the all-in-one binary. Production deployments
 split this into `cmd/gateway` (MCP RS), `cmd/portal` (portal + admin + OIDC RP
-+ OAuth proxy), and `cmd/staff` (backoffice) — see
-[docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
+
+- OAuth proxy), and `cmd/staff` (backoffice) — see
+  [docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
 
 Responsibilities:
 
@@ -96,12 +97,12 @@ Responsibilities:
 
 Defines typed configuration structs and YAML loading:
 
-| Type | Fields |
-|------|--------|
-| `Config` | `Server`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy` |
-| `ServerConfig` | `Host` (string), `Port` (int), `BaseURL` (string) |
-| `CodeModeConfig` | `ExecutionTimeout` (time.Duration), `MaxMemoryMB` (int) |
-| `ZitadelConfig` | `Domain`, `AuthMode`, `PAT`, `JWTKeyPath`, `ProjectID`, `MCPResourceAudience`, `HTTPTimeout` |
+| Type             | Fields                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `Config`         | `Server`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy`                |
+| `ServerConfig`   | `Host` (string), `Port` (int), `BaseURL` (string)                                            |
+| `CodeModeConfig` | `ExecutionTimeout` (time.Duration), `MaxMemoryMB` (int)                                      |
+| `ZitadelConfig`  | `Domain`, `AuthMode`, `PAT`, `JWTKeyPath`, `ProjectID`, `MCPResourceAudience`, `HTTPTimeout` |
 
 The `Load()` function reads a YAML file, applies defaults (port: 8080, host: 0.0.0.0, timeout: 30s, memory: 64 MB), and returns a validated `*Config`.
 
@@ -179,23 +180,23 @@ Phase 8 wires a per-request `http.RoundTripper` that calls `Strategy.Headers` to
 
 ## Key Types
 
-| Type | Package | Role |
-|------|---------|------|
-| `Gateway` | `gateway` | Central orchestrator; manages upstream clients and tool registry |
-| `CodeModeHandler` | `gateway` | Goja JS sandbox; handles `search` and `execute` operations |
-| `MCPUpstreamClient` | `gateway` | MCP protocol client for a single upstream server |
-| `ToolEntry` | `gateway` | Tool metadata with upstream provenance |
-| `ToolDefinition` | `gateway` | Tool metadata for JS serialization (no upstream field) |
-| `MCPServer` | `transport` | HTTP/SSE server exposing the MCP endpoint |
-| `UpstreamClient` | `gateway` | Interface that all upstream clients must implement |
-| `Config` | `config` | Top-level configuration loaded from YAML |
+| Type                | Package     | Role                                                             |
+| ------------------- | ----------- | ---------------------------------------------------------------- |
+| `Gateway`           | `gateway`   | Central orchestrator; manages upstream clients and tool registry |
+| `CodeModeHandler`   | `gateway`   | Goja JS sandbox; handles `search` and `execute` operations       |
+| `MCPUpstreamClient` | `gateway`   | MCP protocol client for a single upstream server                 |
+| `ToolEntry`         | `gateway`   | Tool metadata with upstream provenance                           |
+| `ToolDefinition`    | `gateway`   | Tool metadata for JS serialization (no upstream field)           |
+| `MCPServer`         | `transport` | HTTP/SSE server exposing the MCP endpoint                        |
+| `UpstreamClient`    | `gateway`   | Interface that all upstream clients must implement               |
+| `Config`            | `config`    | Top-level configuration loaded from YAML                         |
 
 ## Dependencies
 
-| Module | Purpose |
-|--------|---------|
-| `github.com/mark3labs/mcp-go` | MCP protocol implementation (server + client) |
-| `github.com/dop251/goja` | JavaScript engine (pure Go) for Code Mode sandbox |
-| `github.com/go-chi/chi/v5` | HTTP router for the SSE server |
-| `go.uber.org/zap` | Structured logging |
-| `gopkg.in/yaml.v3` | YAML config parsing |
+| Module                        | Purpose                                           |
+| ----------------------------- | ------------------------------------------------- |
+| `github.com/mark3labs/mcp-go` | MCP protocol implementation (server + client)     |
+| `github.com/dop251/goja`      | JavaScript engine (pure Go) for Code Mode sandbox |
+| `github.com/go-chi/chi/v5`    | HTTP router for the SSE server                    |
+| `go.uber.org/zap`             | Structured logging                                |
+| `gopkg.in/yaml.v3`            | YAML config parsing                               |
