@@ -6,7 +6,7 @@ Limen is a Model Context Protocol (MCP) gateway written in Go. It aggregates ups
 
 Limen also includes a **Code Mode** feature — a JavaScript sandbox powered by Goja that lets you compose tools and define custom logic server-side. The sandbox has no filesystem or network access; only explicitly injected tool functions are available.
 
-The project is a single binary with minimal dependencies. There is no Dockerfile yet, no test suite, and the JWT auth middleware is a stub that needs real validation logic.
+Limen ships as **five binaries** built from a single Go module (see Phase 9a). All five share `internal/boot` and `internal/*` packages; the split is at the entry-point + Docker-image boundary only.
 
 ## Architecture
 
@@ -18,6 +18,9 @@ cmd/staff/main.go            # Staff backoffice scaffold (Phase 9a, routes land 
 cmd/limenctl/main.go         # Admin CLI: migrate, create-tenant, create-upstream (Phase 9a)
 internal/
   auth/middleware.go          # JWT/JWKS auth middleware (stub — needs validation)
+  boot/runtime.go             # BootRuntime + BootProfile bitmask shared by every binary
+  boot/<suite>mount/          # Per-suite mount helpers (mcpmount, portalmount, oauthproxymount, ...)
+  boot/serve<binary>/         # Per-binary Run(configPath) entry points (servegateway, serveportal, ...)
   config/config.go            # YAML config loading with env var substitution
   gateway/gateway.go          # Core gateway: aggregates upstream MCP tools
   gateway/codemode.go         # Goja JS sandbox for server-side tool composition
@@ -32,20 +35,27 @@ internal/
 ## Setup
 
 ```bash
-# Build the all-in-one binary
+# Build all five binaries (limen, limenctl, limen-gateway, limen-portal, limen-staff)
+make build
+
+# Or build just the all-in-one
 go build -o limen ./cmd/limen
 
 # Run with config
-./limen -config config.yaml
+./limen serve --config config.yaml
 ```
+
+Production deployments use the split binaries (`cmd/gateway`, `cmd/portal`,
+`cmd/staff`) with `cmd/limenctl migrate` as a one-shot init container. See
+[docs/phases/phase-09a-binary-split.md](docs/phases/phase-09a-binary-split.md).
 
 ## Build & Test Commands
 
 ```bash
-# Build
-go build -o limen ./cmd/limen
+# Build every binary
+make build           # or: go build ./cmd/...
 
-# Run tests (none exist yet — feel free to add them)
+# Run tests (requires Docker for the testcontainers-go Postgres suites)
 go test ./...
 
 # Vet & format

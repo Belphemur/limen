@@ -81,12 +81,20 @@ That's a **94-99% reduction** in context window consumption, regardless of how m
 ## Quick Start
 
 ```bash
-# Build
-go build -o limen ./cmd/limen
+# Build every binary (limen, limenctl, limen-gateway, limen-portal, limen-staff)
+make build
 
-# Run
-./limen -config config.yaml
+# Initialise the database (one-shot)
+./limenctl migrate --config config.yaml
+
+# Run the all-in-one
+./limen serve --config config.yaml
 ```
+
+For production, run `limen-gateway`, `limen-portal`, and `limen-staff` as
+separate services with `limenctl migrate` as an init container. See
+[docs/phases/phase-09a-binary-split.md](docs/phases/phase-09a-binary-split.md)
+for the binary split rationale and per-binary scope.
 
 ## Configuration
 
