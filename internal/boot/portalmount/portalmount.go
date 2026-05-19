@@ -9,16 +9,23 @@ import (
 
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/boot"
+	"github.com/belphemur/limen/internal/portal"
 	"github.com/belphemur/limen/internal/transport"
 )
 
-// Mount wires /t/{tenant}/portal + /t/{tenant}/auth/* under r.
+// Mount wires /t/{tenant}/portal + /t/{tenant}/auth/* + the Phase 9b
+// Connect-RPC PortalService under r.
 func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC) {
+	svc := portal.NewService(rt.Store, portal.OIDCSessionResolver(oidc), rt.Logger)
+	prefix, handler := svc.Handler()
+
 	transport.MountPortal(r, transport.PortalDeps{
 		Store:                 rt.Store,
 		OIDC:                  oidc,
 		Logger:                rt.Logger,
 		PostLogoutRedirectURI: rt.Cfg.OIDC.PostLogoutRedirectURI,
 		UpstreamService:       rt.UpstreamService,
+		ConnectAPI:            handler,
+		ConnectAPIPrefix:      prefix,
 	})
 }

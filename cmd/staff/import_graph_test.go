@@ -19,6 +19,7 @@ func TestStaff_ImportGraph_ExcludesOauthproxyAndMCPHotPath(t *testing.T) {
 	forbidden := []string{
 		"github.com/belphemur/limen/internal/oauthproxy",
 		"github.com/belphemur/limen/internal/gateway/codemode",
+		"github.com/belphemur/limen/internal/portal",
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		for _, bad := range forbidden {

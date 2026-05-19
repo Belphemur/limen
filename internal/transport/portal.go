@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -37,6 +38,15 @@ type PortalDeps struct {
 	// for connecting/disconnecting MCP upstreams. Phase 9b replaces these
 	// with a Connect-RPC service.
 	UpstreamService *upstream.Service
+	// ConnectAPI, when non-nil, is mounted at /t/{tenant}/api/* — used
+	// by Phase 9b to wire the PortalService Connect-RPC handler. The
+	// handler is expected to already carry its own interceptor stack
+	// (tenancy / session / role).
+	ConnectAPI http.Handler
+	// ConnectAPIPrefix is the URL-path prefix returned by the Connect
+	// handler factory (e.g. "/limen.portal.v1.PortalService/"). It is
+	// concatenated with "/api" to form the final mount path.
+	ConnectAPIPrefix string
 }
 
 // MountPortal attaches the OIDC + tenant routes onto r.
@@ -63,6 +73,14 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		tr.Use(tenancy.RequireTenant(deps.Store, logger))
 		tr.Get("/auth/login", deps.OIDC.LoginHandler())
 		tr.Get("/auth/logout", deps.OIDC.LogoutHandler(deps.PostLogoutRedirectURI))
+
+		if deps.ConnectAPI != nil {
+			// Strip the /t/{tenant}/api prefix before delegating so the
+			// Connect handler sees its own procedure paths starting from
+			// "/limen.portal.v1.PortalService/...". chi's nested Mount
+			// already strips up to the mount point.
+			tr.Mount("/api", http.StripPrefix("/api", deps.ConnectAPI))
+		}
 
 		tr.Route("/portal", func(pr chi.Router) {
 			pr.Use(deps.OIDC.RequireSession())

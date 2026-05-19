@@ -384,23 +384,36 @@ type portalCookieValue struct {
 }
 
 func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refreshToken string, idExp time.Time) error {
+	cookie, err := o.buildPortalCookie(tenant, idToken, refreshToken, idExp)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, cookie)
+	return nil
+}
+
+// buildPortalCookie seals the (id, refresh, exp) triple into the portal
+// cookie. Factored out of writePortalCookie so the Connect-RPC portal
+// interceptor can attach a refreshed cookie to its response without
+// owning an http.ResponseWriter.
+func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken string, idExp time.Time) (*http.Cookie, error) {
 	payload, err := json.Marshal(portalCookieValue{
 		IDToken:      idToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    idExp,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: cookieAADKind})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Cookie Max-Age: keep until the refresh token would have expired. We
-	// don't know the refresh TTL from claims, so use a generous default; an
-	// invalid cookie just triggers a redirect to login.
-	maxAge := 30 * 24 * 3600
-	http.SetCookie(w, &http.Cookie{
+	// MaxAge: keep until the refresh token would have expired. We don't
+	// know the refresh TTL from claims, so use a generous default — an
+	// invalid cookie just redirects to login.
+	const maxAge = 30 * 24 * 3600
+	return &http.Cookie{
 		Name:     portalCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(sealed),
 		Path:     "/t/" + tenant,
@@ -408,8 +421,40 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refresh
 		Secure:   o.cfg.Secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
-	})
-	return nil
+	}, nil
+}
+
+// ResolvePortalSession is the Connect-RPC interceptor entry point: it
+// decrypts the portal cookie carried in header for the given tenant
+// public id, verifies the ID token, and transparently refreshes it on
+// expiry. The returned setCookie, when non-nil, MUST be attached to the
+// response so the refreshed tokens persist on the client.
+func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, *http.Cookie, error) {
+	r := &http.Request{Header: header}
+	tok, err := o.readPortalCookie(r, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.rp.IDTokenVerifier())
+	if err == nil {
+		return claims, nil, nil
+	}
+	if tok.RefreshToken == "" {
+		return nil, nil, fmt.Errorf("auth: id token invalid, no refresh: %w", err)
+	}
+	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.rp, tok.RefreshToken, "", "")
+	if rerr != nil {
+		return nil, nil, fmt.Errorf("auth: refresh failed: %w", rerr)
+	}
+	newRefresh := refreshed.RefreshToken
+	if newRefresh == "" {
+		newRefresh = tok.RefreshToken
+	}
+	setCookie, err := o.buildPortalCookie(tenant, refreshed.IDToken, newRefresh, refreshed.IDTokenClaims.GetExpiration())
+	if err != nil {
+		return nil, nil, fmt.Errorf("auth: rebuild cookie after refresh: %w", err)
+	}
+	return refreshed.IDTokenClaims, setCookie, nil
 }
 
 func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (portalCookieValue, error) {
