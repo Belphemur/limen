@@ -1,0 +1,22 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.5
+    out: .
+    opt:
+      - paths=import
+      - module=github.com/belphemur/limen
+  - remote: buf.build/connectrpc/go:v1.18.1
+    out: .
+    opt:
+      - paths=import
+      - module=github.com/belphemur/limen
+  - remote: buf.build/bufbuild/es:v2.2.3
+    out: web/src/gen
+    opt:
+      - target=ts
+      - import_extension=js
+  - remote: buf.build/connectrpc/es:v1.6.1
+    out: web/src/gen
+    opt:
+      - target=ts
+      - import_extension=js

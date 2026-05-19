@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package limen.portal.v1;
+
+option go_package = "github.com/belphemur/limen/internal/portal/portalv1;portalv1";
+
+// PortalService is the user-scoped customer surface mounted at
+// /t/{tenant}/api/portal.v1.PortalService/*. Tenant is resolved by the
+// portal binary's interceptor stack from the URL {tenant} segment;
+// request messages MUST NOT carry a tenant_id field. Identity is
+// brokered through Zitadel; the SPA never renders a password.
+service PortalService {
+  // Public. No portal session required. The SPA calls this on boot to
+  // discover whether the browser already has a valid portal cookie.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+
+  // Authenticated (any role).
+  rpc ListUpstreams(ListUpstreamsRequest) returns (ListUpstreamsResponse);
+  rpc StartConnect(StartConnectRequest) returns (StartConnectResponse);
+  rpc SubmitUpstreamAPIKey(SubmitUpstreamAPIKeyRequest) returns (SubmitUpstreamAPIKeyResponse);
+  rpc SetUpstreamLinkEnabled(SetUpstreamLinkEnabledRequest) returns (SetUpstreamLinkEnabledResponse);
+  rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
+  rpc ListMCPClients(ListMCPClientsRequest) returns (ListMCPClientsResponse);
+  rpc RevokeMCPClient(RevokeMCPClientRequest) returns (RevokeMCPClientResponse);
+}
+
+// ---- GetSession -----------------------------------------------------
+
+message GetSessionRequest {}
+
+message GetSessionResponse {
+  bool authenticated = 1;
+  // Set when authenticated=false: where the SPA should send the user
+  // to start the Zitadel OIDC flow.
+  string login_url = 2;
+
+  User user = 3;
+  repeated string roles = 4;
+}
+
+message User {
+  string subject = 1;
+  string email = 2;
+  string name = 3;
+}
+
+// ---- ListUpstreams --------------------------------------------------
+
+message ListUpstreamsRequest {}
+
+message ListUpstreamsResponse {
+  repeated UpstreamSummary upstreams = 1;
+}
+
+// LinkState mirrors the per-(user,upstream) link lifecycle.
+enum LinkState {
+  LINK_STATE_UNSPECIFIED = 0;
+  LINK_STATE_NONE = 1;
+  LINK_STATE_CONNECTED = 2;
+  LINK_STATE_DISABLED = 3;
+  LINK_STATE_AUTO_DISABLED = 4;
+  LINK_STATE_NEEDS_RELINK = 5;
+}
+
+message UpstreamSummary {
+  string public_id = 1;
+  string name = 2;
+  string display_name = 3;
+  string mcp_url = 4;
+  string strategy_type = 5;
+  // e.g. "tenant" / "user" for static_header. Empty for strategies
+  // without a sub-mode.
+  string strategy_sub_mode = 6;
+  bool requires_link = 7;
+
+  LinkState link_state = 8;
+  string last_error_reason = 9;
+  // RFC3339; empty when no failure has been recorded.
+  string last_error_at = 10;
+}
+
+// ---- StartConnect ---------------------------------------------------
+
+message StartConnectRequest {
+  string upstream_name = 1;
+  // Path the SPA wants the browser to return to after the dance.
+  string return_to = 2;
+}
+
+message StartConnectResponse {
+  // Either an absolute upstream-OAuth authorize URL (mcp_spec) or a
+  // relative SPA path that triggers an API-key modal (static_header
+  // user-mode). The SPA navigates the browser to this value.
+  string redirect_url = 1;
+}
+
+// ---- SubmitUpstreamAPIKey ------------------------------------------
+
+message SubmitUpstreamAPIKeyRequest {
+  string upstream_name = 1;
+  string api_key = 2;
+}
+
+message SubmitUpstreamAPIKeyResponse {}
+
+// ---- SetUpstreamLinkEnabled ----------------------------------------
+
+message SetUpstreamLinkEnabledRequest {
+  string upstream_name = 1;
+  bool enabled = 2;
+}
+
+message SetUpstreamLinkEnabledResponse {}
+
+// ---- Disconnect -----------------------------------------------------
+
+message DisconnectRequest {
+  string upstream_name = 1;
+}
+
+message DisconnectResponse {}
+
+// ---- ListMCPClients -------------------------------------------------
+
+message ListMCPClientsRequest {}
+
+message ListMCPClientsResponse {
+  repeated MCPClient clients = 1;
+}
+
+message MCPClient {
+  string public_id = 1;
+  string client_id = 2;
+  string name = 3;
+  string software_id = 4;
+  string software_version = 5;
+  // RFC3339.
+  string created_at = 6;
+}
+
+// ---- RevokeMCPClient -----------------------------------------------
+
+message RevokeMCPClientRequest {
+  string public_id = 1;
+}
+
+message RevokeMCPClientResponse {}
