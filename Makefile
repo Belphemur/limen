@@ -60,24 +60,24 @@ dev:
 
 # Migrate + serve with the full dev env auto-loaded.
 dev-run: .env.dev
-	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/gateway migrate && go run ./cmd/gateway serve'
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen migrate && go run ./cmd/limen serve'
 
-# Run an arbitrary gateway subcommand with the dev env loaded.
+# Run an arbitrary limen subcommand with the dev env loaded.
 # Usage: make dev-cmd ARGS="create-upstream --name foo --tenant tnt_... --url ..."
 dev-cmd: .env.dev
-	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/gateway $(ARGS)'
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen $(ARGS)'
 
 # Convenience wrappers — pass extra flags via ARGS=.
 # Usage: make dev-create-tenant   ARGS="--name Acme --zitadel-org-id $$LIMEN_SAMPLE_TENANT_ORG_ID"
 # Usage: make dev-create-upstream ARGS="--tenant tnt_... --name github --url https://api.githubcopilot.com/mcp/"
 dev-migrate: .env.dev
-	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/gateway migrate'
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen migrate'
 
 dev-create-tenant: .env.dev
-	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/gateway create-tenant $(ARGS)'
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-tenant $(ARGS)'
 
 dev-create-upstream: .env.dev
-	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/gateway create-upstream $(ARGS)'
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-upstream $(ARGS)'
 
 # Run (or re-run) the Zitadel bootstrap. Idempotent.
 dev-bootstrap:
@@ -93,7 +93,7 @@ dev-down:
 	$(COMPOSE) down
 
 build:
-	go build -o limen ./cmd/gateway
+	go build -o limen ./cmd/limen
 
 test:
 	go test ./...

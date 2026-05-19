@@ -82,7 +82,7 @@ That's a **94-99% reduction** in context window consumption, regardless of how m
 
 ```bash
 # Build
-go build -o limen ./cmd/gateway
+go build -o limen ./cmd/limen
 
 # Run
 ./limen -config config.yaml

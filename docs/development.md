@@ -36,7 +36,7 @@ That single command brings the whole environment up. It:
 5. Runs `make dev-run`, which sources the bootstrap output + `.env.dev`,
    reads `admin-sa.pat` live from the docker volume, inlines all dev
    defaults (DB DSNs, OIDC URLs, Zitadel host, Valkey address), and runs
-   `go run ./cmd/gateway migrate && go run ./cmd/gateway serve`.
+   `go run ./cmd/limen migrate && go run ./cmd/limen serve`.
 
 Limen listens on `http://localhost:8080`. Stop with `Ctrl-C`; the stack
 keeps running. Re-launch Limen alone with `make dev-run`.
@@ -57,18 +57,18 @@ keeps running. Re-launch Limen alone with `make dev-run`.
 | `make dev`                            | Full bring-up: stack → bootstrap → migrate → serve.                     |
 | `make dev-run`                        | Migrate + serve, auto-loading the env. Assumes the stack is already up. |
 | `make dev-bootstrap`                  | Re-run the Zitadel bootstrap. Idempotent.                               |
-| `make dev-cmd ARGS="…"`               | Run any `cmd/gateway` subcommand with the dev env auto-loaded.          |
+| `make dev-cmd ARGS="…"`               | Run any `cmd/limen` subcommand with the dev env auto-loaded.          |
 | `make dev-migrate`                    | Run `migrate` with the dev env auto-loaded.                             |
 | `make dev-create-tenant ARGS="…"`     | Run `create-tenant` with the dev env auto-loaded.                       |
 | `make dev-create-upstream ARGS="…"`   | Run `create-upstream` with the dev env auto-loaded.                     |
 | `make dev-down`                       | Stop services (keeps volumes).                                          |
 | `make dev-reset`                      | Stop services, wipe volumes, drop `.env.dev` and `.bootstrap-out.env`.  |
-| `make build`                          | `go build -o limen ./cmd/gateway`.                                      |
+| `make build`                          | `go build -o limen ./cmd/limen`.                                      |
 | `make test` / `make vet` / `make fmt` | Standard Go toolchain wrappers.                                         |
 
 ## CLI commands
 
-`./cmd/gateway` (a.k.a. `limen`) exposes these subcommands:
+`./cmd/limen` (the all-in-one binary) exposes these subcommands:
 
 | Command           | Purpose                                                                      |
 | ----------------- | ---------------------------------------------------------------------------- |
@@ -203,7 +203,7 @@ export LIMEN_VALKEY_ADDRESS=localhost:6380
 set +a
 ```
 
-Fish users: run `bash -l`, paste, then invoke `go run ./cmd/gateway …`
+Fish users: run `bash -l`, paste, then invoke `go run ./cmd/limen …`
 from there. The Makefile recipes pin `SHELL := /bin/bash` and work from
 any interactive shell.
 

@@ -37,7 +37,7 @@ type Config struct {
 	Valkey          ValkeyConfig          `yaml:"valkey"`
 }
 
-// LoggingConfig controls the zap logger built in cmd/gateway serve. Level
+// LoggingConfig controls the zap logger built in cmd/limen serve. Level
 // accepts the standard zapcore names (debug, info, warn, error, dpanic,
 // panic, fatal); empty falls back to "info". Development=true switches
 // from the JSON production encoder to the human-readable development

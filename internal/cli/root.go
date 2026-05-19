@@ -2,7 +2,7 @@
 //
 // Commands:
 //
-//	limen serve         — runs the HTTP server (default for cmd/gateway)
+//	limen serve         — runs the HTTP server (default for cmd/limen)
 //	limen create-tenant — provisions a Zitadel org + Limen tenant row + seed owner
 //	limen migrate       — runs storage AutoMigrate + the embedded SQL migrations
 //
@@ -65,7 +65,7 @@ func NewRootCommand() *cobra.Command {
 }
 
 // Execute runs the root command and exits with a non-zero status on
-// failure, printing the error to stderr. Used by cmd/gateway/main.go.
+// failure, printing the error to stderr. Used by cmd/limen/main.go.
 func Execute() {
 	if err := NewRootCommand().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

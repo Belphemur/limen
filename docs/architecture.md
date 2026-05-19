@@ -75,9 +75,14 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 
 ## Package Breakdown
 
-### `cmd/gateway` -- Entry Point
+### `cmd/limen` -- All-in-One Entry Point
 
-The application bootstrap. Responsibilities:
+The application bootstrap for the all-in-one binary. Production deployments
+split this into `cmd/gateway` (MCP RS), `cmd/portal` (portal + admin + OIDC RP
++ OAuth proxy), and `cmd/staff` (backoffice) — see
+[docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
+
+Responsibilities:
 
 - Parses the `-config` flag for the YAML config path.
 - Initializes structured logging via `zap`.

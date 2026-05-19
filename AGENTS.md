@@ -11,7 +11,11 @@ The project is a single binary with minimal dependencies. There is no Dockerfile
 ## Architecture
 
 ```
-cmd/gateway/main.go          # Entry point — config load, server init
+cmd/limen/main.go            # All-in-one binary (dev + small self-hosted)
+cmd/gateway/main.go          # MCP RS hot path (Phase 9a)
+cmd/portal/main.go           # Portal/admin Connect-RPC + OIDC RP + OAuth proxy + upstream callback (Phase 9a)
+cmd/staff/main.go            # Staff backoffice scaffold (Phase 9a, routes land in Phase 12)
+cmd/limenctl/main.go         # Admin CLI: migrate, create-tenant, create-upstream (Phase 9a)
 internal/
   auth/middleware.go          # JWT/JWKS auth middleware (stub — needs validation)
   config/config.go            # YAML config loading with env var substitution
@@ -28,8 +32,8 @@ internal/
 ## Setup
 
 ```bash
-# Build the binary
-go build -o limen ./cmd/gateway
+# Build the all-in-one binary
+go build -o limen ./cmd/limen
 
 # Run with config
 ./limen -config config.yaml
@@ -39,7 +43,7 @@ go build -o limen ./cmd/gateway
 
 ```bash
 # Build
-go build -o limen ./cmd/gateway
+go build -o limen ./cmd/limen
 
 # Run tests (none exist yet — feel free to add them)
 go test ./...
