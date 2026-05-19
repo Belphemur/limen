@@ -195,6 +195,28 @@ func reconcileCatalog(
 		}
 	}
 
+	// Phase 8c — recompute alias set from the just-reconciled tool list
+	// and persist it on the upstream row. Tenant-wide collision pass
+	// runs at read time (gateway.Manager), so per-upstream derivation
+	// is sufficient here.
+	toolNames := make([]string, 0, len(tools))
+	for _, t := range tools {
+		toolNames = append(toolNames, t.Name)
+	}
+	aliases := DeriveAliases(toolNames)
+	aliasesJSON, err := json.Marshal(aliases)
+	if err != nil {
+		return fmt.Errorf("marshal aliases: %w", err)
+	}
+	if len(aliasesJSON) == 0 || string(aliasesJSON) == "null" {
+		aliasesJSON = []byte("[]")
+	}
+	if err := tx.Model(&storage.Upstream{}).
+		Where("id = ?", upstreamID).
+		Update("aliases_json", aliasesJSON).Error; err != nil {
+		return fmt.Errorf("update upstream aliases: %w", err)
+	}
+
 	if err := commit(); err != nil {
 		return fmt.Errorf("commit catalog: %w", err)
 	}

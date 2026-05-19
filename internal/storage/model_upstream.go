@@ -19,6 +19,18 @@ type Upstream struct {
 	StrategyType string `gorm:"type:text;not null"`
 	McpServerURL string `gorm:"type:text;not null"`
 
+	// Phase 8c — ambient context + alias discovery.
+	//
+	// DefaultsJSON: per-upstream defaults merged under UpstreamLink.ContextJSON
+	// at read time and surfaced on codemode.tools() groups. Tenant-admin
+	// owned. Validated by gateway.ValidateContextBlob on write.
+	//
+	// AliasesJSON: JSON array of derived prefix aliases (e.g. ["jira",
+	// "confluence"]). Recomputed by IndexUpstream after each successful
+	// tools/list reconcile, with a tenant-wide collision pass.
+	DefaultsJSON []byte `gorm:"column:defaults_json;type:jsonb;not null;default:'{}'::jsonb"`
+	AliasesJSON  []byte `gorm:"column:aliases_json;type:jsonb;not null;default:'[]'::jsonb"`
+
 	Tenant *Tenant `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 }
 
@@ -100,6 +112,11 @@ type UpstreamLink struct {
 	LastFailureAt       *time.Time `gorm:"type:timestamptz"`
 	LastFailureReason   string     `gorm:"type:text;not null;default:''"`
 	AutoDisabledAt      *time.Time `gorm:"type:timestamptz;index"`
+
+	// Phase 8c — per-link context overlay. Merged over Upstream.DefaultsJSON
+	// at read time and surfaced on codemode.tools() groups. Validated by
+	// gateway.ValidateContextBlob on write.
+	ContextJSON []byte `gorm:"column:context_json;type:jsonb;not null;default:'{}'::jsonb"`
 
 	User     *User     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
