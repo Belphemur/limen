@@ -134,7 +134,7 @@ const up = upstreams[0];
 await codemode.atlassian.jira_search({ ...up.context, jql: "project = OP" });
 ```
 
-Sometimes a strategy will autopopulate context after a successful call (e.g. the Atlassian strategy pins `cloudId` from the `/oauth/token/accessible-resources` response); the next `codemode.tools()` read sees the new value automatically.
+> Full reference — derivation rules, override semantics, alias collision handling, failure modes — lives in [ambient-context.md](ambient-context.md). Read that doc before changing anything about `context` or aliases.
 
 ### `codemode.schemas(names)`
 
