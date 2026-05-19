@@ -9,37 +9,27 @@ import (
 	"fmt"
 
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/transport"
-	"github.com/belphemur/limen/internal/zitadel"
 )
 
 // mountOAuthProxy attaches the OAuth proxy routes. Best-effort: if the
-// Zitadel admin client can't be built (dev without a PAT, missing
+// Zitadel admin client wasn't built at boot (dev without a PAT, missing
 // project id, etc.), the proxy is silently skipped and the rest of the
-// gateway still boots.
-func mountOAuthProxy(r chi.Router, d *serverDeps) error {
-	zclient, zerr := zitadel.NewClient(d.ctx, zitadel.Config{
-		Domain:      d.cfg.Zitadel.Domain,
-		AuthMode:    zitadel.AuthMode(d.cfg.Zitadel.AuthMode),
-		PAT:         d.cfg.Zitadel.PAT,
-		JWTKeyPath:  d.cfg.Zitadel.JWTKeyPath,
-		ProjectID:   d.cfg.Zitadel.ProjectID,
-		HTTPTimeout: d.cfg.Zitadel.HTTPTimeout,
-	})
-	if zerr != nil {
-		d.logger.Warn("oauth proxy disabled: zitadel admin client unavailable", zap.Error(zerr))
+// binary still serves.
+func mountOAuthProxy(r chi.Router, rt *Runtime) error {
+	if rt.Zitadel == nil {
+		rt.Logger.Warn("oauth proxy disabled: zitadel admin client unavailable")
 		return nil
 	}
 	if err := transport.MountOAuthProxy(r, transport.OAuthProxyDeps{
-		Store:          d.store,
-		Zitadel:        zclient,
-		Logger:         d.logger,
-		BaseURL:        d.cfg.Server.BaseURL,
-		Issuer:         d.cfg.OIDC.Issuer,
-		MCPRSProjectID: d.cfg.Zitadel.MCPResourceAudience,
-		OAuthCfg:       d.cfg.OAuthProxy,
+		Store:          rt.Store,
+		Zitadel:        rt.Zitadel,
+		Logger:         rt.Logger,
+		BaseURL:        rt.Cfg.Server.BaseURL,
+		Issuer:         rt.Cfg.OIDC.Issuer,
+		MCPRSProjectID: rt.Cfg.Zitadel.MCPResourceAudience,
+		OAuthCfg:       rt.Cfg.OAuthProxy,
 	}); err != nil {
 		return fmt.Errorf("mount oauth proxy: %w", err)
 	}

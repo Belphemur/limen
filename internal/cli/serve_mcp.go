@@ -22,30 +22,30 @@ import (
 // setupMCPGateway returns the assembled gateway Manager + MCP
 // transport. Per-tenant upstreams are loaded from the database at
 // request time (Phase 8); there are no boot-time global upstreams to
-// connect here. Requires setupUpstreamLinking to have populated
-// d.upstreamService + d.upstreamRegistry.
-func setupMCPGateway(d *serverDeps) (*gateway.Manager, *transport.MCPServer, error) {
+// connect here. Requires BootRuntime to have been called with
+// NeedUpstream.
+func setupMCPGateway(rt *Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
-		Store:    d.store,
-		Service:  d.upstreamService,
-		Registry: d.upstreamRegistry,
+		Store:    rt.Store,
+		Service:  rt.UpstreamService,
+		Registry: rt.UpstreamRegistry,
 		HealthThresholds: upstream.HealthThresholds{
-			FailThreshold:     d.cfg.UpstreamRefresh.FailThreshold,
-			FailWindow:        d.cfg.UpstreamRefresh.FailWindow,
-			NeedsRelinkWindow: d.cfg.UpstreamRefresh.NeedsRelinkWindow,
+			FailThreshold:     rt.Cfg.UpstreamRefresh.FailThreshold,
+			FailWindow:        rt.Cfg.UpstreamRefresh.FailWindow,
+			NeedsRelinkWindow: rt.Cfg.UpstreamRefresh.NeedsRelinkWindow,
 		},
-		Timeout: d.cfg.CodeMode.ExecutionTimeout,
-		Logger:  d.logger,
+		Timeout: rt.Cfg.CodeMode.ExecutionTimeout,
+		Logger:  rt.Logger,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)
 	}
 	cmHandler := codemode.New(gateway.CodemodeDispatcher{Manager: mgr}, codemode.Config{
-		ScriptTimeout:          d.cfg.CodeMode.ScriptTimeout,
-		MaxToolCalls:           d.cfg.CodeMode.MaxToolCalls,
-		MaxConcurrentToolCalls: d.cfg.CodeMode.MaxConcurrentToolCalls,
-	}, d.logger)
-	mcpServer := transport.NewMCPServer(mgr, cmHandler, d.logger)
+		ScriptTimeout:          rt.Cfg.CodeMode.ScriptTimeout,
+		MaxToolCalls:           rt.Cfg.CodeMode.MaxToolCalls,
+		MaxConcurrentToolCalls: rt.Cfg.CodeMode.MaxConcurrentToolCalls,
+	}, rt.Logger)
+	mcpServer := transport.NewMCPServer(mgr, cmHandler, rt.Logger)
 	return mgr, mcpServer, nil
 }
 
@@ -53,26 +53,26 @@ func setupMCPGateway(d *serverDeps) (*gateway.Manager, *transport.MCPServer, err
 // /t/{tenant}/mcp/*. Builds the PRM handler first, then the
 // access-token middleware (which performs OIDC discovery against the
 // configured issuer to fetch jwks_uri at startup).
-func mountMCPResource(r chi.Router, d *serverDeps, mcpServer *transport.MCPServer) error {
+func mountMCPResource(r chi.Router, rt *Runtime, mcpServer *transport.MCPServer) error {
 	metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{
-		BaseURL: d.cfg.Server.BaseURL,
+		BaseURL: rt.Cfg.Server.BaseURL,
 	})
 	if err != nil {
 		return fmt.Errorf("build mcp resource metadata: %w", err)
 	}
-	mcpAuth, err := auth.NewMCPAuth(d.ctx, auth.MCPAuthConfig{
-		Issuer:   d.cfg.OIDC.Issuer,
-		Audience: d.cfg.Zitadel.MCPResourceAudience,
-	}, metadataHandler, d.store, d.logger)
+	mcpAuth, err := auth.NewMCPAuth(rt.Ctx, auth.MCPAuthConfig{
+		Issuer:   rt.Cfg.OIDC.Issuer,
+		Audience: rt.Cfg.Zitadel.MCPResourceAudience,
+	}, metadataHandler, rt.Store, rt.Logger)
 	if err != nil {
 		return fmt.Errorf("build mcp auth: %w", err)
 	}
 	if err := transport.MountMCPRS(r, transport.MCPRSDeps{
-		Store:     d.store,
+		Store:     rt.Store,
 		MCPServer: mcpServer,
 		MCPAuth:   mcpAuth,
 		Metadata:  metadataHandler,
-		Logger:    d.logger,
+		Logger:    rt.Logger,
 	}); err != nil {
 		return fmt.Errorf("mount mcp resource server: %w", err)
 	}

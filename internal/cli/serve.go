@@ -1,11 +1,15 @@
+// Package cli — `limen serve` (all-in-one) entry path.
+//
+// Boots the union of every suite via BootRuntime(AllProfiles) and
+// mounts every route the split binaries (cmd/gateway, cmd/portal,
+// cmd/staff) collectively expose. This is the lowest-friction
+// self-hosted deployment shape.
 package cli
 
 import (
 	"context"
 	"fmt"
 	"net/http"
-	"os/signal"
-	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/spf13/cobra"
@@ -17,7 +21,7 @@ import (
 func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Run the Limen HTTP server",
+		Short: "Run the Limen HTTP server (all-in-one)",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe(flags)
@@ -25,62 +29,44 @@ func newServeCommand(flags *rootFlags, _ *viper.Viper) *cobra.Command {
 	}
 }
 
+// runServe is the all-in-one entry point. It boots every dependency
+// and mounts every route. Used by the `limen serve` subcommand and by
+// cmd/limen/main.go.
 func runServe(flags *rootFlags) error {
-	cfg, err := loadConfig(flags)
+	rt, cleanup, err := BootRuntime(flags, AllProfiles)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	_, mcpServer, err := setupMCPGateway(rt)
 	if err != nil {
 		return err
 	}
 
-	logger, err := buildServeLogger(cfg.Logging.Level, cfg.Logging.Development)
-	if err != nil {
-		return fmt.Errorf("build logger: %w", err)
-	}
-	defer func() { _ = logger.Sync() }()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
-	d := &serverDeps{ctx: ctx, cfg: cfg, logger: logger}
-
-	// Portal suite: cipher, storage, OIDC RP + /t/{tenant}/portal routes.
-	cipher, store, signer, oidcHandler, err := setupPortal(d, cfg)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
-	d.cipher, d.store, d.signer, d.oidc = cipher, store, signer, oidcHandler
-
-	// Upstream linking suite: build the strategy registry + Service before
-	// mounting the portal so the portal PoC endpoints can consume it.
-	upstreamCleanup, err := setupUpstreamLinking(d)
-	if err != nil {
-		return err
-	}
-	defer upstreamCleanup()
-
-	// MCP suite: downstream gateway Manager + MCP transport.
-	_, mcpServer, err := setupMCPGateway(d)
-	if err != nil {
-		return err
-	}
-
-	// Compose router.
 	r := chi.NewRouter()
 	r.Use(permissiveCORS)
 	r.Get("/", landingPage)
-	mountPortal(r, d)
-	if err := mountOAuthProxy(r, d); err != nil {
+	mountHealth(r)
+	mountPortal(r, rt)
+	if err := mountOAuthProxy(r, rt); err != nil {
 		return err
 	}
-	if err := mountMCPResource(r, d, mcpServer); err != nil {
+	if err := mountMCPResource(r, rt, mcpServer); err != nil {
 		return err
 	}
-	mountUpstreamLinking(r, d)
+	mountUpstreamLinking(r, rt)
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	logger.Info("starting gateway", zap.String("addr", addr))
+	return runHTTPServer(rt, r)
+}
 
-	srv := &http.Server{Addr: addr, Handler: r}
+// runHTTPServer binds the configured listener and shuts down cleanly
+// when rt.Ctx is canceled. Shared by every service binary.
+func runHTTPServer(rt *Runtime, h http.Handler) error {
+	addr := fmt.Sprintf("%s:%d", rt.Cfg.Server.Host, rt.Cfg.Server.Port)
+	rt.Logger.Info("starting server", zap.String("addr", addr))
+
+	srv := &http.Server{Addr: addr, Handler: h}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	select {
@@ -89,7 +75,7 @@ func runServe(flags *rootFlags) error {
 			return fmt.Errorf("server failed: %w", err)
 		}
 		return nil
-	case <-ctx.Done():
+	case <-rt.Ctx.Done():
 		shutdownCtx, c := context.WithCancel(context.Background())
 		c()
 		_ = srv.Shutdown(shutdownCtx)
@@ -97,11 +83,24 @@ func runServe(flags *rootFlags) error {
 	}
 }
 
-// buildServeLogger constructs the zap logger used by `gateway serve`.
-// level accepts the standard zapcore names (debug, info, warn, error,
-// dpanic, panic, fatal); empty falls back to "info". When development is
-// true the human-readable development encoder is used; otherwise the
-// JSON production encoder is used.
+// mountHealth attaches /healthz + /readyz handlers. Liveness only —
+// readiness is a future hook for dependency probes.
+func mountHealth(r chi.Router) {
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+}
+
+// buildServeLogger constructs the zap logger used by every service
+// binary. level accepts the standard zapcore names (debug, info, warn,
+// error, dpanic, panic, fatal); empty falls back to "info". When
+// development is true the human-readable development encoder is used;
+// otherwise the JSON production encoder is used.
 func buildServeLogger(level string, development bool) (*zap.Logger, error) {
 	var cfg zap.Config
 	if development {
