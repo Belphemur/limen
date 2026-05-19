@@ -307,26 +307,26 @@ slowness comes from the cap, the upstream, or the auth round-trip.
 
 ## Checklist
 
-- [ ] Pull in `goja_nodejs/eventloop` and `golang.org/x/sync/semaphore`.
-- [ ] Rewrite `run` to own an event loop and route all VM access
+- [x] Pull in `goja_nodejs/eventloop` and `golang.org/x/sync/semaphore`.
+- [x] Rewrite `run` to own an event loop and route all VM access
       through `loop.RunOnLoop`.
-- [ ] Rewrite `makeProxy` + `codemode.call` to return goja Promises;
+- [x] Rewrite `makeProxy` + `codemode.call` to return goja Promises;
       dispatch off-VM, resolve back through the event loop.
-- [ ] Add `MaxConcurrentToolCalls` to `CodeModeConfig` (default 8),
+- [x] Add `MaxConcurrentToolCalls` to `CodeModeConfig` (default 8),
       wire to `semaphore.Weighted`, surface in `config.yaml`.
-- [ ] Introduce per-invocation `dispatchCtx` and propagate cancellation
+- [x] Introduce per-invocation `dispatchCtx` and propagate cancellation
       from ctx/timeout into in-flight tool dispatches.
-- [ ] Drop the synchronous Promise drain from `runCode`; replace with
+- [x] Drop the synchronous Promise drain from `runCode`; replace with
       event-loop-driven settlement onto `resultCh` / `errCh`.
-- [ ] Add `tool_calls_concurrent_peak`, `wait_ms`, `dispatch_ms` log
+- [x] Add `tool_calls_concurrent_peak`, `wait_ms`, `dispatch_ms` log
       fields.
-- [ ] New tests: parallelism, concurrency cap, ctx-cancel mid-flight,
+- [x] New tests: parallelism, concurrency cap, ctx-cancel mid-flight,
       timeout mid-flight, microtask ordering. Run with `-race`.
-- [ ] Re-confirm sandbox denials (`setTimeout`, `setImmediate`,
+- [x] Re-confirm sandbox denials (`setTimeout`, `setImmediate`,
       `queueMicrotask`, …) still fail.
-- [ ] `forbidigo` rule restricting `goja_nodejs` imports to
-      `internal/gateway/codemode.go` and the `eventloop` sub-package.
-- [ ] Update [docs/codemode.md](../../docs/codemode.md) — Promise
+- [x] `depguard` rule restricting `goja_nodejs` imports to
+      `internal/gateway/codemode` and the `eventloop` sub-package.
+- [x] Update [docs/codemode.md](../../docs/codemode.md) — Promise
       semantics, concurrency cap, interaction with `MaxToolCalls`.
 - [ ] Update [docs/phases/README.md](README.md) index with phase 8b
       and its dependency on phase 8.
