@@ -141,6 +141,18 @@ func defaultPortalPath(tenantPublic, upstreamPublic string) string {
 // Type implements upstream.Strategy.
 func (s *Strategy) Type() upstream.StrategyType { return upstream.StrategyStaticHeader }
 
+// SubMode reports "tenant" or "user" by reading the strategy config.
+// Implements upstream's optional subModeProvider so the portal can
+// render the right CTA without re-loading the config itself. Returns
+// the empty string on a load error so the listing degrades gracefully.
+func (s *Strategy) SubMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
+	cfg, err := s.loadConfig(ctx, lctx)
+	if err != nil {
+		return "", err
+	}
+	return string(cfg.Mode), nil
+}
+
 // RequiresLink reports per-user link rows only for user mode. The
 // registry call site doesn't know the mode at registration time, so this
 // returns true; tenant-mode upstreams simply never call StartLink and
