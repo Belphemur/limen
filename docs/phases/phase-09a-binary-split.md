@@ -360,14 +360,16 @@ rest).
       `build/docker/<binary>.Dockerfile`; CI matrix builds all five
       binaries on every PR and pushes images on tag. **Deferred to
       Phase 11 per scope decision.**
-- [ ] Schema-version mismatch on boot exits non-zero with a clear
-      "run `limenctl migrate`" message; covered by an integration
-      test that starts a service binary against a one-version-old DB.
-      **Not implemented in this slice — follow-up item.**
-- [ ] `internal/boot` + `internal/cli` packages documented (`AGENTS.md`)
-      — per-suite mount helpers under `internal/boot/*` are the
-      supported API; service `main.go` files are 1–2 calls each.
-      **Pending — `internal/boot/AGENTS.md` not yet written.**
+- [x] Schema-version mismatch on boot exits non-zero with a clear
+      "run `limenctl migrate`" message; `storage.CheckSchemaVersion`
+      is invoked from `BootRuntime` when `NeedStore` is set, with
+      match / DB-behind / fresh-DB coverage in
+      `internal/storage/schema_version_test.go`.
+- [x] `internal/boot` + `internal/cli` packages documented
+      (`internal/boot/AGENTS.md`) — per-suite mount helpers under
+      `internal/boot/*` are the supported API; service `main.go`
+      files are 1–2 calls each. Top-level `AGENTS.md` + `README.md`
+      updated for the five-binary layout.
 - [ ] Phase 11 follow-up captured: per-binary Compose services with
       appropriate replicas, timeouts, and ingress class; `staff`
       bound to a private network.
