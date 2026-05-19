@@ -1,0 +1,15 @@
+@import 'tailwindcss';
+
+/* Limen portal — global styles. Tailwind v4 picks up class usage from
+ * src/**\/*.{vue,ts} automatically; this file just imports the engine
+ * and adds a couple of base tweaks. */
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}

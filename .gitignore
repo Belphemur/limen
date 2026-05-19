@@ -21,3 +21,9 @@ scripts/zitadel-bootstrap/.bootstrap-out.env
 # hook from proto/. Generated Go bindings under internal/portal/portalv1/
 # are checked in (consumed by go build).
 web/src/gen/
+
+# Web SPA build outputs / deps
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
