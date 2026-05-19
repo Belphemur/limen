@@ -75,23 +75,61 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 
 ## Package Breakdown
 
-### `cmd/limen` -- All-in-One Entry Point
+### Binaries
 
-The application bootstrap for the all-in-one binary. Production deployments
-split this into `cmd/gateway` (MCP RS), `cmd/portal` (portal + admin + OIDC RP
+Limen ships as **five binaries** built from a single Go module. The split is
+at the entry-point + Docker-image boundary only; everything in
+`internal/boot` and `internal/*` is shared.
 
-- OAuth proxy), and `cmd/staff` (backoffice) — see
-  [docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
+| Binary           | Entry            | Mounts                                                                                 | Boot profile                                     |
+| ---------------- | ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `limen`          | `cmd/limen`      | Everything (MCP RS + portal + OIDC RP + OAuth proxy + upstream callback)               | `boot.AllProfiles`                               |
+| `limen-gateway`  | `cmd/gateway`    | `/healthz`, `/readyz`, `/t/{tenant}/mcp/*` — the MCP Resource Server hot path only     | `NeedStore \| NeedCipher \| NeedUpstream`        |
+| `limen-portal`   | `cmd/portal`     | Portal SPA, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, upstream OAuth callback | `NeedStore \| NeedCipher \| NeedSigner`          |
+| `limen-staff`    | `cmd/staff`      | `/healthz`, `/readyz` today; backoffice routes land in Phase 12                        | `NeedStore`                                      |
+| `limenctl`       | `cmd/limenctl`   | Admin CLI: `migrate`, `create-tenant`, `create-upstream` (no HTTP)                     | n/a                                              |
 
-Responsibilities:
+Production runs `limen-gateway`, `limen-portal`, and `limen-staff` as
+separate services with `limenctl migrate` as a one-shot init container. The
+all-in-one `limen` is for dev and small self-hosted deployments. See
+[docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
 
-- Parses the `-config` flag for the YAML config path.
-- Initializes structured logging via `zap`.
-- Loads configuration via `config.Load()`.
-- Iterates upstream config, creates `MCPUpstreamClient` instances, connects each, and registers them with the `Gateway`.
-- Instantiates `CodeModeHandler` with the execution timeout.
-- Wires transport: `NewMCPServer(gateway, handler, logger)` and starts the HTTP/SSE server.
-- Handles SIGINT/SIGTERM for graceful shutdown.
+**Load-bearing constraint**: `cmd/gateway`'s transitive import graph must
+**not** include `internal/oauthproxy` or `internal/zitadel`. The hot path
+holds neither the Zitadel management credential nor the portal-session
+cipher key, so a compromise of the MCP RS process cannot mint tokens or
+read portal cookies. The constraint is enforced at test time by
+`cmd/gateway/import_graph_test.go` (`go list -deps`).
+
+### `internal/boot` -- Shared boot floor
+
+`boot.BootRuntime(configPath, profile)` is the single entry point every
+binary uses to construct its runtime dependencies. It loads config, builds
+the logger, opens the database (when `NeedStore` is set), constructs the
+AES-SIV cipher (`NeedCipher`), the portal-session signer (`NeedSigner`),
+and the upstream registry + service (`NeedUpstream`) — and returns a
+`*Runtime` plus a LIFO cleanup function. When `NeedStore` is set it also
+calls `storage.CheckSchemaVersion`, which refuses to start on schema-version
+skew with a "run `limenctl migrate`" message.
+
+Per-suite mount helpers live in sibling subpackages so the binaries that
+don't need a given suite never pull it transitively:
+
+| Subpackage                   | Purpose                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| `internal/boot/mcpmount`     | Mounts the MCP RS routes + PRM document under `/t/{tenant}/mcp/*`                      |
+| `internal/boot/portalmount`  | Mounts the portal SPA under `/`                                                        |
+| `internal/boot/oauthproxymount` | Mounts inbound DCR + AS-metadata proxy under `/t/{tenant}/oauth/*`                  |
+| `internal/boot/upstreammount`   | Mounts the upstream OAuth callback                                                  |
+| `internal/boot/oidcboot`     | Builds the OIDC RP (portal login/callback/logout)                                      |
+| `internal/boot/zitadelboot`  | Builds the Zitadel admin client used by the portal + staff                             |
+| `internal/boot/serveall`     | Composes all suites for the all-in-one `cmd/limen`                                     |
+| `internal/boot/servegateway` | Composes only `mcpmount` for `cmd/gateway`                                             |
+| `internal/boot/serveportal`  | Composes `portalmount` + `oauthproxymount` + `upstreammount` + `oidcboot` + `zitadelboot` for `cmd/portal` |
+| `internal/boot/servestaff`   | Scaffolds the staff binary for `cmd/staff`                                             |
+
+Service `main.go` files are 1–2 calls each: load config path → call
+`serve{all,gateway,portal,staff}.Run(configPath)`.
 
 ### `internal/config` -- Configuration
 
