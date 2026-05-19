@@ -27,3 +27,8 @@ web/node_modules/
 web/dist/
 web/coverage/
 web/.vite/
+
+# Playwright artifacts
+web/playwright-report/
+web/test-results/
+web/.playwright/
