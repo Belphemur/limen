@@ -23,12 +23,12 @@ identifiers the vendor will happily tell us if we ask.
 Enricher** — and ships concrete enrichers for the vendors users
 actually reach for first:
 
-| Vendor    | Endpoint                                          | Yields                                                |
-| --------- | ------------------------------------------------- | ----------------------------------------------------- |
-| Atlassian | `GET https://api.atlassian.com/oauth/token/accessible-resources` | `cloudId`, `siteName`, `siteUrl` (or array if multi-site) |
-| GitHub    | `GET https://api.github.com/user/installations`   | `installations: [{ id, account }]`                    |
-| Linear    | GraphQL `viewer { organization { id urlKey name } }` | `organizationId`, `organizationUrlKey`, `organizationName` |
-| Sentry    | `GET /api/0/organizations/`                       | `organizations: [{ slug, id, name }]`                 |
+| Vendor    | Endpoint                                                         | Yields                                                     |
+| --------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| Atlassian | `GET https://api.atlassian.com/oauth/token/accessible-resources` | `cloudId`, `siteName`, `siteUrl` (or array if multi-site)  |
+| GitHub    | `GET https://api.github.com/user/installations`                  | `installations: [{ id, account }]`                         |
+| Linear    | GraphQL `viewer { organization { id urlKey name } }`             | `organizationId`, `organizationUrlKey`, `organizationName` |
+| Sentry    | `GET /api/0/organizations/`                                      | `organizations: [{ slug, id, name }]`                      |
 
 These four were selected because (a) each solves a real "model burned
 a turn rediscovering this" failure mode observed in transcripts, and
@@ -48,13 +48,13 @@ are the load-bearing constraints for 8d:
   `static_header`, `mcp_spec` — they answer "how do I attach
   credentials to outbound HTTP". Atlassian, Linear, Sentry, GitHub
   can all happily share the `mcp_spec` strategy because they all
-  speak OAuth 2.1 + DCR; their *response shapes* have nothing in
+  speak OAuth 2.1 + DCR; their _response shapes_ have nothing in
   common.
 - **The motivating data is not on a tool-call response.** Atlassian
   exposes `cloudId` on `/oauth/token/accessible-resources` (an
   OAuth-side endpoint), not on any MCP tool. Hooking
-  `AfterFirstCall(toolName, args, response)` was the wrong *timing*
-  in addition to the wrong *axis*.
+  `AfterFirstCall(toolName, args, response)` was the wrong _timing_
+  in addition to the wrong _axis_.
 - **No standard.** I looked: RFC 6749, RFC 8414, RFC 7591, RFC 8707,
   RFC 9396, OIDC Core, the MCP authorization draft — none defines a
   "list resources accessible to this token" endpoint. Every vendor
@@ -126,14 +126,15 @@ URL patterns are **hardcoded in each enricher package** — there is no
 config file or admin UI for them. Patterns are intentionally narrow
 and listed in the enricher's source:
 
-| Vendor    | URL patterns                                                |
-| --------- | ----------------------------------------------------------- |
-| atlassian | `*.atlassian.com`, `*.atlassian.net`, `mcp.atlassian.com`   |
-| github    | `api.github.com`, `mcp.github.com`                          |
-| linear    | `api.linear.app`, `mcp.linear.app`                          |
-| sentry    | `*.sentry.io`, `mcp.sentry.dev`                             |
+| Vendor    | URL patterns                                              |
+| --------- | --------------------------------------------------------- |
+| atlassian | `*.atlassian.com`, `*.atlassian.net`, `mcp.atlassian.com` |
+| github    | `api.github.com`, `mcp.github.com`                        |
+| linear    | `api.linear.app`, `mcp.linear.app`                        |
+| sentry    | `*.sentry.io`, `mcp.sentry.dev`                           |
 
 The explicit `Upstream.Vendor` override exists for:
+
 - Self-hosted instances we ship recipes for in later phases.
 - Internal proxies / staging envs (the URL hostname is unrelated to
   the upstream vendor).
@@ -247,17 +248,20 @@ Response shape (per [Atlassian docs](https://developer.atlassian.com/cloud/oauth
 
 ```json
 [
-  { "id": "1324a887-45db-1bf4-1e99-ef0ff456d421",
+  {
+    "id": "1324a887-45db-1bf4-1e99-ef0ff456d421",
     "name": "your-domain",
     "url": "https://your-domain.atlassian.net",
     "scopes": ["read:jira-work", "..."],
-    "avatarUrl": "..." }
+    "avatarUrl": "..."
+  }
 ]
 ```
 
 Allowlist: `cloudId`, `cloudIds`, `siteName`, `siteUrl`.
 
 Reduction:
+
 - 1 resource → `{ cloudId, siteName, siteUrl }`.
 - N resources → `{ cloudIds: [{id, name, url}, ...] }` and let the
   user pick a default in the portal (sets `cloudId` explicitly). The
@@ -399,7 +403,7 @@ own them know what to wire.
 - Add an enricher hook to `Strategy`. That's the rejected design from
   8c; we are not re-litigating.
 - Inject context values into outbound tool calls. The visibility rule
-  still holds; only the *contents* of the visible blob change.
+  still holds; only the _contents_ of the visible blob change.
 - Provide a generic OIDC `/userinfo` enricher. That's a different,
   smaller follow-up and lives outside the per-vendor registry.
 - Add config-file vendor-pattern customization. Patterns live in code

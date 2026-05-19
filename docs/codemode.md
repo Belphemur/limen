@@ -56,14 +56,14 @@ Code Mode runs JavaScript inside [Goja](https://github.com/dop251/goja), a pure 
 
 Only the `codemode` object is injected into the sandbox:
 
-| Method                                       | Description                                                                                              |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `codemode.tools(filter?)`                    | Returns `{ upstreams: UpstreamGroup[], hint? }` — catalog grouped by upstream, with aliases and context. |
-| `codemode.schemas(names)`                    | Batch-fetch `inputSchema` for the named tools; returns `{ found, missing }`.                             |
-| `codemode.call(upstream, name, args)`        | Calls a tool by `(upstream, name)`. Both args required; use for runtime / non-identifier names.          |
-| `codemode.<upstream>.<tool>(args)`           | Per-upstream proxy. Sub-brand **aliases** (derived from tool-name prefixes) also work as proxy names.    |
-| `codemode.json(result)`                      | Unwraps the first text block of an MCP CallToolResult and JSON-parses it.                                |
-| `codemode.quota()`                           | Returns `{ used, max, remaining, deadline_ms }` for the current invocation.                              |
+| Method                                | Description                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `codemode.tools(filter?)`             | Returns `{ upstreams: UpstreamGroup[], hint? }` — catalog grouped by upstream, with aliases and context. |
+| `codemode.schemas(names)`             | Batch-fetch `inputSchema` for the named tools; returns `{ found, missing }`.                             |
+| `codemode.call(upstream, name, args)` | Calls a tool by `(upstream, name)`. Both args required; use for runtime / non-identifier names.          |
+| `codemode.<upstream>.<tool>(args)`    | Per-upstream proxy. Sub-brand **aliases** (derived from tool-name prefixes) also work as proxy names.    |
+| `codemode.json(result)`               | Unwraps the first text block of an MCP CallToolResult and JSON-parses it.                                |
+| `codemode.quota()`                    | Returns `{ used, max, remaining, deadline_ms }` for the current invocation.                              |
 
 ### What Is NOT Available
 
@@ -89,10 +89,10 @@ Returns an envelope grouping the tools visible to the calling user by upstream. 
 
 ```ts
 type UpstreamGroup = {
-  name:    string;                    // canonical upstream name
-  aliases: string[];                  // derived sub-brand names (e.g. ["jira","confluence"] for "atlassian")
-  context: Record<string, unknown>;   // merged per-user ambient context — informational only
-  tools:   { name: string; description: string }[];
+  name: string; // canonical upstream name
+  aliases: string[]; // derived sub-brand names (e.g. ["jira","confluence"] for "atlassian")
+  context: Record<string, unknown>; // merged per-user ambient context — informational only
+  tools: { name: string; description: string }[];
 };
 
 type EmptyHint = { tried: string[]; available: string[]; suggested: string[] };
@@ -104,13 +104,13 @@ Filter shape:
 
 ```ts
 type ToolFilter = {
-  upstream?:    string | string[];   // matches canonical name OR any alias
-  name?:        string | string[];
+  upstream?: string | string[]; // matches canonical name OR any alias
+  name?: string | string[];
   description?: string | string[];
-  match?:       string | string[];   // → name + " " + description
-  allOf?:       string[];
-  regex?:       boolean;             // strings become RE2 (ci)
-  limit?:       number;              // caps TOTAL tools across all groups
+  match?: string | string[]; // → name + " " + description
+  allOf?: string[];
+  regex?: boolean; // strings become RE2 (ci)
+  limit?: number; // caps TOTAL tools across all groups
 };
 ```
 
@@ -181,7 +181,7 @@ way they would in Node:
   both upstream calls run **in parallel** rather than serially.
 - `try { await ... } catch (e) { ... }` — upstream errors reject
   the returned Promise as a normal `Error` (`tool "foo" failed:
-  …`) and can be caught with standard JS error handling.
+…`) and can be caught with standard JS error handling.
 
 The runtime uses a Node-style event loop, so microtasks
 (`Promise.resolve().then(...)`) run in FIFO order between
@@ -191,11 +191,11 @@ synchronous turns of the script.
 
 Two independent limits protect the gateway:
 
-| Limit                      | Config key                          | Default | Meaning                                                                                                                                                                       |
-| -------------------------- | ----------------------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Total tool calls           | `codemode.max_tool_calls`           |      50 | Hard cap on the number of tool invocations a single script may issue. Tripping this aborts the script with an **uncatchable** error — JS `try/catch` cannot swallow it.       |
-| Concurrent tool calls      | `codemode.max_concurrent_tool_calls`|       8 | Maximum number of in-flight upstream calls at any one time. Excess `Promise.all` fan-out is queued; the script still sees Promises, but the upstream dispatch is rate-bounded. |
-| Wall-clock script timeout  | `codemode.script_timeout`           |     30s | If the script (including all awaited tool calls) does not finish in time, in-flight workers are cancelled and the script returns a timeout error.                             |
+| Limit                     | Config key                           | Default | Meaning                                                                                                                                                                        |
+| ------------------------- | ------------------------------------ | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Total tool calls          | `codemode.max_tool_calls`            |      50 | Hard cap on the number of tool invocations a single script may issue. Tripping this aborts the script with an **uncatchable** error — JS `try/catch` cannot swallow it.        |
+| Concurrent tool calls     | `codemode.max_concurrent_tool_calls` |       8 | Maximum number of in-flight upstream calls at any one time. Excess `Promise.all` fan-out is queued; the script still sees Promises, but the upstream dispatch is rate-bounded. |
+| Wall-clock script timeout | `codemode.script_timeout`            |     30s | If the script (including all awaited tool calls) does not finish in time, in-flight workers are cancelled and the script returns a timeout error.                              |
 
 The two count quotas interact predictably: `max_tool_calls` is the
 **budget** for the whole script, `max_concurrent_tool_calls` is the
@@ -208,7 +208,9 @@ The two count quotas interact predictably: `max_tool_calls` is the
 ```js
 async () => {
   const { upstreams } = codemode.tools({ name: "search" });
-  return upstreams.flatMap((g) => g.tools.map((t) => ({ ...t, upstream: g.name })));
+  return upstreams.flatMap((g) =>
+    g.tools.map((t) => ({ ...t, upstream: g.name })),
+  );
 };
 ```
 
@@ -219,7 +221,7 @@ The `upstream` filter resolves aliases automatically, so either name works:
 ```js
 async () => {
   const { upstreams, hint } = codemode.tools({ upstream: "jira" });
-  if (hint) return { empty: true, hint };           // typo recovery in one round-trip
+  if (hint) return { empty: true, hint }; // typo recovery in one round-trip
   return upstreams;
 };
 ```
@@ -244,9 +246,11 @@ Compose multiple tool calls in a single execution:
 ```js
 async () => {
   // Step 1: Find open issues
-  const issues = codemode.json(await codemode.github.search_issues({
-    q: "is:open label:bug",
-  }));
+  const issues = codemode.json(
+    await codemode.github.search_issues({
+      q: "is:open label:bug",
+    }),
+  );
 
   // Step 2: For each issue, fetch the linked Jira ticket
   const results = await Promise.all(
