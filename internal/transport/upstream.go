@@ -122,7 +122,7 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 		}
 
 		if returnTo == "" {
-			returnTo = "/t/" + tenant.PublicID + "/portal"
+			returnTo = "/t/" + tenant.PublicID + "/"
 		}
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 	}

@@ -79,38 +79,39 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 }
 
 // FinishLink exchanges the authorization code for tokens and persists
-// the resulting UpstreamLink.
-func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, callbackQuery string) error {
+// the resulting UpstreamLink. The captured ReturnTo from StartLink is
+// returned so the callback handler can land the SPA where it started.
+func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, callbackQuery string) (string, error) {
 	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
-		return errors.New("mcpspec: tenant/user/upstream missing")
+		return "", errors.New("mcpspec: tenant/user/upstream missing")
 	}
 	vals, err := url.ParseQuery(callbackQuery)
 	if err != nil {
-		return fmt.Errorf("mcpspec: parse callback query: %w", err)
+		return "", fmt.Errorf("mcpspec: parse callback query: %w", err)
 	}
 	if errCode := vals.Get("error"); errCode != "" {
-		return fmt.Errorf("mcpspec: AS returned error: %s: %s", errCode, vals.Get("error_description"))
+		return "", fmt.Errorf("mcpspec: AS returned error: %s: %s", errCode, vals.Get("error_description"))
 	}
 	code := vals.Get("code")
 	stateVal := vals.Get("state")
 	if code == "" || stateVal == "" {
-		return errors.New("mcpspec: callback missing code or state")
+		return "", errors.New("mcpspec: callback missing code or state")
 	}
 	env, err := s.state.Consume(ctx, stateVal, lctx.Tenant.ID, lctx.User.ID)
 	if err != nil {
-		return fmt.Errorf("mcpspec: consume state: %w", err)
+		return "", fmt.Errorf("mcpspec: consume state: %w", err)
 	}
 	if env.UpstreamID != lctx.Upstream.ID {
-		return errors.New("mcpspec: state upstream mismatch")
+		return "", errors.New("mcpspec: state upstream mismatch")
 	}
 
 	reg, err := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	_, as, err := s.discover(ctx, lctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	form := url.Values{}
@@ -123,7 +124,7 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	}
 	tok, _, err := s.tokenRequest(ctx, as.TokenEndpoint, reg, form)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
@@ -140,7 +141,7 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
 	if err != nil {
-		return err
+		return "", err
 	}
 	var existing storage.UpstreamLink
 	err = tx.Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", lctx.Tenant.ID, lctx.User.ID, lctx.Upstream.ID).
@@ -159,9 +160,12 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 		}
 		if createErr := tx.Create(&newLink).Error; createErr != nil {
 			_ = commit()
-			return fmt.Errorf("mcpspec: create link: %w", createErr)
+			return "", fmt.Errorf("mcpspec: create link: %w", createErr)
 		}
-		return commit()
+		if cerr := commit(); cerr != nil {
+			return "", cerr
+		}
+		return env.ReturnTo, nil
 	}
 	existing.AccessToken = at
 	existing.RefreshToken = rt
@@ -177,9 +181,12 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	existing.AutoDisabledAt = nil
 	if updErr := tx.Save(&existing).Error; updErr != nil {
 		_ = commit()
-		return fmt.Errorf("mcpspec: update link: %w", updErr)
+		return "", fmt.Errorf("mcpspec: update link: %w", updErr)
 	}
-	return commit()
+	if cerr := commit(); cerr != nil {
+		return "", cerr
+	}
+	return env.ReturnTo, nil
 }
 
 // --- PKCE helpers ------------------------------------------------------

@@ -86,8 +86,8 @@ func (s *Strategy) StartLink(_ context.Context, _ upstream.LinkContext) (upstrea
 }
 
 // FinishLink is unsupported.
-func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ string) error {
-	return upstream.ErrUnsupported
+func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ string) (string, error) {
+	return "", upstream.ErrUnsupported
 }
 
 // Headers returns an empty header map — no credential to attach.

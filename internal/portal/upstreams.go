@@ -51,7 +51,7 @@ func (s *Service) StartConnect(ctx context.Context, req *connect.Request[portalv
 	}
 	returnTo := strings.TrimSpace(req.Msg.ReturnTo)
 	if returnTo == "" {
-		returnTo = "/t/" + tenant.PublicID + "/portal/"
+		returnTo = "/t/" + tenant.PublicID + "/"
 	}
 	redirect, err := s.upstream.StartConnect(ctx, tenant, user, name, returnTo)
 	if err != nil {

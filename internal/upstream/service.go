@@ -83,10 +83,11 @@ func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, us
 		return "", err
 	}
 	lctx := LinkContext{Tenant: tenant, User: user, Upstream: up}
-	if err := strat.FinishLink(ctx, lctx, callbackQuery); err != nil {
+	returnTo, err := strat.FinishLink(ctx, lctx, callbackQuery)
+	if err != nil {
 		return "", err
 	}
-	return "", nil
+	return returnTo, nil
 }
 
 // Disconnect soft-deletes the (tenant, user, upstream) link row. The

@@ -107,8 +107,10 @@ type Strategy interface {
 
 	// FinishLink completes the per-user link flow given the authorization-
 	// server callback parameters (raw query string). Persists the
-	// UpstreamLink. No-op for !RequiresLink strategies.
-	FinishLink(ctx context.Context, lctx LinkContext, callbackQuery string) error
+	// UpstreamLink and returns the SPA-supplied return_to that was
+	// captured by StartLink (empty when the strategy doesn't carry one).
+	// No-op for !RequiresLink strategies.
+	FinishLink(ctx context.Context, lctx LinkContext, callbackQuery string) (string, error)
 
 	// Headers returns the HTTP headers Phase 8's roundtripper attaches
 	// to outbound calls. May read or update Link (lazy refresh) under

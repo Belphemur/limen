@@ -26,7 +26,6 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManag
 		OIDC:                  oidc,
 		Logger:                rt.Logger,
 		PostLogoutRedirectURI: rt.Cfg.OIDC.PostLogoutRedirectURI,
-		UpstreamService:       rt.UpstreamService,
 		ConnectAPI:            handler,
 		ConnectAPIPrefix:      prefix,
 	})

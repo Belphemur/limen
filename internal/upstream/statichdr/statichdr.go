@@ -194,8 +194,8 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 
 // FinishLink is unsupported — user mode uses an explicit SPA submit
 // (PersistUserSecret); tenant mode has no per-user step.
-func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ string) error {
-	return upstream.ErrUnsupported
+func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ string) (string, error) {
+	return "", upstream.ErrUnsupported
 }
 
 // PersistUserSecret writes the user's API key into UpstreamLink.ExtraJSON

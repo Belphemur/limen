@@ -26,7 +26,7 @@ func TestNone_BasicShape(t *testing.T) {
 	if _, err := s.StartLink(context.Background(), upstream.LinkContext{}); !errors.Is(err, upstream.ErrUnsupported) {
 		t.Fatalf("StartLink err = %v, want ErrUnsupported", err)
 	}
-	if err := s.FinishLink(context.Background(), upstream.LinkContext{}, ""); !errors.Is(err, upstream.ErrUnsupported) {
+	if _, err := s.FinishLink(context.Background(), upstream.LinkContext{}, ""); !errors.Is(err, upstream.ErrUnsupported) {
 		t.Fatalf("FinishLink err = %v, want ErrUnsupported", err)
 	}
 }
