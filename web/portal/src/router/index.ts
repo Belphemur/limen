@@ -31,7 +31,7 @@ export function createRouter(): Router {
       { path: '/login', name: 'login', component: Login, meta: { public: true } },
       { path: '/signed-out', name: 'signed-out', component: SignedOut, meta: { public: true } },
       { path: '/', name: 'dashboard', component: Dashboard },
-      { path: '/upstreams', name: 'upstreams', component: Upstreams },
+      { path: '/mcp-servers', name: 'mcp-servers', component: Upstreams },
       { path: '/mcp-clients', name: 'mcp-clients', component: MCPClients },
       { path: '/settings', name: 'settings', component: Settings },
     ],

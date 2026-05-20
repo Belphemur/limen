@@ -13,12 +13,12 @@ const session = useSessionStore()
     </p>
     <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <RouterLink
-        to="/upstreams"
+        to="/mcp-servers"
         class="rounded-lg border border-slate-200 bg-white p-4 hover:border-indigo-400 dark:border-slate-700 dark:bg-slate-800"
       >
-        <h2 class="font-medium">Upstreams</h2>
+        <h2 class="font-medium">MCP Servers</h2>
         <p class="mt-1 text-sm text-slate-500">
-          Connect, disconnect, and manage your MCP upstreams.
+          Connect, disconnect, and manage your MCP servers.
         </p>
       </RouterLink>
       <RouterLink

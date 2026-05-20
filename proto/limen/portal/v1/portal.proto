@@ -77,6 +77,19 @@ message UpstreamSummary {
   string last_error_reason = 9;
   // RFC3339; empty when no failure has been recorded.
   string last_error_at = 10;
+
+  // Cached tool catalog for this upstream (populated by the indexer on
+  // provision / link / refresh). Same for every user of the upstream;
+  // the SPA renders these in a spoiler under the card.
+  repeated UpstreamTool tools = 11;
+  // Derived prefix aliases (Phase 15) after the tenant-wide collision
+  // pass — e.g. ["jira", "confluence"] for the Atlassian upstream.
+  repeated string aliases = 12;
+}
+
+message UpstreamTool {
+  string name = 1;
+  string description = 2;
 }
 
 // ---- StartConnect ---------------------------------------------------

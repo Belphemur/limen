@@ -179,9 +179,25 @@ func toUpstreamSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSu
 		RequiresLink:    r.RequiresLink,
 		LinkState:       linkStateProto(r.LinkState),
 		LastErrorReason: r.LastErrorReason,
+		Aliases:         r.Aliases,
+		Tools:           toToolProtos(r.Tools),
 	}
 	if r.Link != nil && r.Link.LastFailureAt != nil {
 		out.LastErrorAt = r.Link.LastFailureAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func toToolProtos(rows []storage.UpstreamTool) []*portalv1.UpstreamTool {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]*portalv1.UpstreamTool, 0, len(rows))
+	for i := range rows {
+		out = append(out, &portalv1.UpstreamTool{
+			Name:        rows[i].Name,
+			Description: rows[i].Description,
+		})
 	}
 	return out
 }

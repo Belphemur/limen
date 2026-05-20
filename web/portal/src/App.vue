@@ -18,7 +18,8 @@ onMounted(() => {
         <RouterLink to="/" class="text-lg font-semibold">Limen Portal</RouterLink>
         <nav v-if="session.authenticated" class="flex gap-4 text-sm">
           <RouterLink to="/" :class="route.path === '/' ? 'font-semibold' : ''">Dashboard</RouterLink>
-          <RouterLink to="/upstreams" :class="route.path.startsWith('/upstreams') ? 'font-semibold' : ''">Upstreams
+          <RouterLink to="/mcp-servers" :class="route.path.startsWith('/mcp-servers') ? 'font-semibold' : ''">MCP
+            Servers
           </RouterLink>
           <RouterLink to="/mcp-clients" :class="route.path.startsWith('/mcp-clients') ? 'font-semibold' : ''">MCP
             Clients</RouterLink>

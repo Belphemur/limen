@@ -73,10 +73,11 @@ function cancelModal() {
 
 <template>
   <section>
-    <h1 class="text-2xl font-semibold">Upstreams</h1>
+    <h1 class="text-2xl font-semibold">MCP Servers</h1>
     <p class="mt-1 text-sm text-slate-500">
-      Connect your account to each MCP upstream the tenant exposes. Disabled links keep credentials
-      but hide tools; disconnecting drops them.
+      Connect your account to each MCP server the tenant exposes. Disabled links keep credentials
+      but hide tools; disconnecting drops them. Expand a card to inspect its tool catalog and any
+      prefix aliases the gateway discovered.
     </p>
 
     <p v-if="upstreams.loading" class="mt-4 text-sm text-slate-500" data-state="loading">
@@ -85,29 +86,15 @@ function cancelModal() {
     <p v-else-if="upstreams.error" class="mt-4 text-sm text-rose-600" data-state="error">
       {{ upstreams.error }}
     </p>
-    <p
-      v-else-if="upstreams.items.length === 0"
-      class="mt-4 text-sm text-slate-500"
-      data-state="empty"
-    >
-      No upstreams configured for this tenant.
+    <p v-else-if="upstreams.items.length === 0" class="mt-4 text-sm text-slate-500" data-state="empty">
+      No MCP servers configured for this tenant.
     </p>
     <div v-else class="mt-4 grid gap-3">
-      <UpstreamCard
-        v-for="up in upstreams.items"
-        :key="up.publicId"
-        :upstream="up"
-        :busy="busyRow === up.publicId"
-        @action="(kind) => handleAction(up, kind)"
-      />
+      <UpstreamCard v-for="up in upstreams.items" :key="up.publicId" :upstream="up" :busy="busyRow === up.publicId"
+        @action="(kind) => handleAction(up, kind)" />
     </div>
 
-    <ApiKeyModal
-      :open="modal.open"
-      :upstream-label="modal.upstream?.displayName || modal.upstream?.name || ''"
-      :busy="busyRow !== null"
-      @submit="submitApiKey"
-      @cancel="cancelModal"
-    />
+    <ApiKeyModal :open="modal.open" :upstream-label="modal.upstream?.displayName || modal.upstream?.name || ''"
+      :busy="busyRow !== null" @submit="submitApiKey" @cancel="cancelModal" />
   </section>
 </template>

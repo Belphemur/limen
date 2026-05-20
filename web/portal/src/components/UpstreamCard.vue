@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
 import { upstreamCTAs, linkStateLabel, linkStateTone, type CTAKind } from '../lib/upstream-cta'
+import UpstreamCatalog from './UpstreamCatalog.vue'
 
 const props = defineProps<{
   upstream: UpstreamSummary
@@ -78,5 +79,7 @@ function variantClass(variant: 'primary' | 'secondary' | 'danger'): string {
         {{ cta.label }}
       </button>
     </div>
+
+    <UpstreamCatalog :upstream="upstream" />
   </article>
 </template>

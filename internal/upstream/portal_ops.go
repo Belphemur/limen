@@ -33,6 +33,13 @@ type UserUpstreamSummary struct {
 	StrategySubMode string // "tenant"/"user" for static_header; "" otherwise
 	RequiresLink    bool
 	LastErrorReason string
+	// Tools is the cached MCP tool catalog for this upstream
+	// (upstream_tools rows). Same for every user.
+	Tools []storage.UpstreamTool
+	// Aliases is the decoded prefix-alias list (post-collision-pass is
+	// applied at gateway-fan-out time; here we surface the raw set
+	// captured by the indexer).
+	Aliases []string
 }
 
 // subModeProvider is an optional capability for strategies that have
@@ -74,6 +81,25 @@ func (s *Service) LoadUserBySubject(ctx context.Context, tenantID int64, subject
 	return &u, nil
 }
 
+// loadToolCatalog returns the cached upstream_tools rows for upstreamID
+// ordered by name. Empty slice when the catalog hasn't been indexed
+// yet; never returns ErrRecordNotFound.
+func (s *Service) loadToolCatalog(ctx context.Context, tenantID, upstreamID int64) ([]storage.UpstreamTool, error) {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	var rows []storage.UpstreamTool
+	if err := tx.Where("tenant_id = ? AND upstream_id = ?", tenantID, upstreamID).
+		Order("name ASC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("upstream: load tool catalog: %w", err)
+	}
+	return rows, nil
+}
+
 // ListUpstreamsForUser returns every tenant upstream paired with the
 // caller's link state. Soft-deleted upstreams are excluded by GORM.
 func (s *Service) ListUpstreamsForUser(ctx context.Context, tenant *storage.Tenant, user *storage.User) ([]UserUpstreamSummary, error) {
@@ -87,43 +113,51 @@ func (s *Service) ListUpstreamsForUser(ctx context.Context, tenant *storage.Tena
 	out := make([]UserUpstreamSummary, 0, len(ups))
 	for i := range ups {
 		up := &ups[i]
-		strat, sErr := s.registry.Resolve(StrategyType(up.StrategyType))
-		if sErr != nil {
-			// Unknown strategy at runtime — keep listing the upstream
-			// but surface the failure shape.
-			out = append(out, UserUpstreamSummary{
-				Upstream:        up,
-				LinkState:       LinkStateNone,
-				RequiresLink:    false,
-				LastErrorReason: sErr.Error(),
-			})
-			continue
-		}
-		row := UserUpstreamSummary{
-			Upstream:     up,
-			RequiresLink: strat.RequiresLink(),
-		}
-		if smp, ok := strat.(subModeProvider); ok {
-			lctx := LinkContext{Tenant: tenant, Upstream: up}
-			if sub, err := smp.SubMode(ctx, lctx); err == nil {
-				row.StrategySubMode = sub
-			}
-		}
-		link, lerr := s.loadLink(ctx, tenant.ID, user.ID, up.ID)
-		switch {
-		case errors.Is(lerr, ErrLinkNotFound):
-			row.LinkState = LinkStateNone
-		case lerr != nil:
-			row.LinkState = LinkStateNone
-			row.LastErrorReason = lerr.Error()
-		default:
-			row.Link = link
-			row.LinkState = deriveLinkState(link)
-			row.LastErrorReason = link.LastFailureReason
-		}
+		row := s.summariseUpstream(ctx, tenant, user, up)
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// summariseUpstream builds a single UserUpstreamSummary row. Extracted
+// to keep ListUpstreamsForUser flat — the per-upstream branching used
+// to live inline.
+func (s *Service) summariseUpstream(ctx context.Context, tenant *storage.Tenant, user *storage.User, up *storage.Upstream) UserUpstreamSummary {
+	row := UserUpstreamSummary{
+		Upstream: up,
+		Aliases:  DecodeAliasesJSON(up.AliasesJSON),
+	}
+	if tools, err := s.loadToolCatalog(ctx, tenant.ID, up.ID); err == nil {
+		row.Tools = tools
+	}
+	strat, sErr := s.registry.Resolve(StrategyType(up.StrategyType))
+	if sErr != nil {
+		// Unknown strategy at runtime — keep listing the upstream but
+		// surface the failure shape.
+		row.LinkState = LinkStateNone
+		row.LastErrorReason = sErr.Error()
+		return row
+	}
+	row.RequiresLink = strat.RequiresLink()
+	if smp, ok := strat.(subModeProvider); ok {
+		lctx := LinkContext{Tenant: tenant, Upstream: up}
+		if sub, err := smp.SubMode(ctx, lctx); err == nil {
+			row.StrategySubMode = sub
+		}
+	}
+	link, lerr := s.loadLink(ctx, tenant.ID, user.ID, up.ID)
+	switch {
+	case errors.Is(lerr, ErrLinkNotFound):
+		row.LinkState = LinkStateNone
+	case lerr != nil:
+		row.LinkState = LinkStateNone
+		row.LastErrorReason = lerr.Error()
+	default:
+		row.Link = link
+		row.LinkState = deriveLinkState(link)
+		row.LastErrorReason = link.LastFailureReason
+	}
+	return row
 }
 
 // SetLinkEnabled flips UpstreamLink.Enabled. Re-enabling an

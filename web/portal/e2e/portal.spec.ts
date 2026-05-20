@@ -70,9 +70,9 @@ test.describe('portal happy path (stubbed OIDC + RPC)', () => {
           return
         case 'StartConnect':
           // Pretend the OAuth dance is instant: flip the state then
-          // hand back an in-app path so the SPA stays on /upstreams.
+          // hand back an in-app path so the SPA stays on /mcp-servers.
           state.upstreamLinkState = 'CONNECTED'
-          await route.fulfill(rpcResponse({ redirectUrl: '/upstreams' }))
+          await route.fulfill(rpcResponse({ redirectUrl: '/mcp-servers' }))
           return
         case 'Disconnect':
           state.upstreamLinkState = 'NONE'
@@ -92,16 +92,16 @@ test.describe('portal happy path (stubbed OIDC + RPC)', () => {
     await expect(page.getByRole('link', { name: 'Sign in with Zitadel' })).toBeVisible()
 
     // Step 2 — simulate the post-OIDC redirect by flipping the
-    // authenticated flag and navigating straight to /upstreams.
+    // authenticated flag and navigating straight to /mcp-servers.
     state.authenticated = true
-    await page.goto('/upstreams')
+    await page.goto('/mcp-servers')
 
-    await expect(page.getByRole('heading', { name: 'Upstreams' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'MCP Servers' })).toBeVisible()
     const card = page.locator('[data-upstream-name="atlassian"]')
     await expect(card).toBeVisible()
     await expect(card.locator('[data-link-state]')).toHaveText('not connected')
 
-    // Step 3 — Connect: StartConnect navigates the SPA to /upstreams
+    // Step 3 — Connect: StartConnect navigates the SPA to /mcp-servers
     // (our mock returns a relative path), which re-fetches and shows
     // the link as CONNECTED.
     await card.locator('[data-cta="connect"]').click()

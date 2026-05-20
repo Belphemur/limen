@@ -340,7 +340,14 @@ type UpstreamSummary struct {
 	LinkState       LinkState `protobuf:"varint,8,opt,name=link_state,json=linkState,proto3,enum=limen.portal.v1.LinkState" json:"link_state,omitempty"`
 	LastErrorReason string    `protobuf:"bytes,9,opt,name=last_error_reason,json=lastErrorReason,proto3" json:"last_error_reason,omitempty"`
 	// RFC3339; empty when no failure has been recorded.
-	LastErrorAt   string `protobuf:"bytes,10,opt,name=last_error_at,json=lastErrorAt,proto3" json:"last_error_at,omitempty"`
+	LastErrorAt string `protobuf:"bytes,10,opt,name=last_error_at,json=lastErrorAt,proto3" json:"last_error_at,omitempty"`
+	// Cached tool catalog for this upstream (populated by the indexer on
+	// provision / link / refresh). Same for every user of the upstream;
+	// the SPA renders these in a spoiler under the card.
+	Tools []*UpstreamTool `protobuf:"bytes,11,rep,name=tools,proto3" json:"tools,omitempty"`
+	// Derived prefix aliases (Phase 15) after the tenant-wide collision
+	// pass — e.g. ["jira", "confluence"] for the Atlassian upstream.
+	Aliases       []string `protobuf:"bytes,12,rep,name=aliases,proto3" json:"aliases,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -445,6 +452,72 @@ func (x *UpstreamSummary) GetLastErrorAt() string {
 	return ""
 }
 
+func (x *UpstreamSummary) GetTools() []*UpstreamTool {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+func (x *UpstreamSummary) GetAliases() []string {
+	if x != nil {
+		return x.Aliases
+	}
+	return nil
+}
+
+type UpstreamTool struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpstreamTool) Reset() {
+	*x = UpstreamTool{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpstreamTool) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpstreamTool) ProtoMessage() {}
+
+func (x *UpstreamTool) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpstreamTool.ProtoReflect.Descriptor instead.
+func (*UpstreamTool) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpstreamTool) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpstreamTool) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 type StartConnectRequest struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	UpstreamName string                 `protobuf:"bytes,1,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
@@ -456,7 +529,7 @@ type StartConnectRequest struct {
 
 func (x *StartConnectRequest) Reset() {
 	*x = StartConnectRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[6]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +541,7 @@ func (x *StartConnectRequest) String() string {
 func (*StartConnectRequest) ProtoMessage() {}
 
 func (x *StartConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[6]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,7 +554,7 @@ func (x *StartConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartConnectRequest.ProtoReflect.Descriptor instead.
 func (*StartConnectRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{6}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StartConnectRequest) GetUpstreamName() string {
@@ -510,7 +583,7 @@ type StartConnectResponse struct {
 
 func (x *StartConnectResponse) Reset() {
 	*x = StartConnectResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[7]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +595,7 @@ func (x *StartConnectResponse) String() string {
 func (*StartConnectResponse) ProtoMessage() {}
 
 func (x *StartConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[7]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +608,7 @@ func (x *StartConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartConnectResponse.ProtoReflect.Descriptor instead.
 func (*StartConnectResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{7}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *StartConnectResponse) GetRedirectUrl() string {
@@ -555,7 +628,7 @@ type SubmitUpstreamAPIKeyRequest struct {
 
 func (x *SubmitUpstreamAPIKeyRequest) Reset() {
 	*x = SubmitUpstreamAPIKeyRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[8]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -567,7 +640,7 @@ func (x *SubmitUpstreamAPIKeyRequest) String() string {
 func (*SubmitUpstreamAPIKeyRequest) ProtoMessage() {}
 
 func (x *SubmitUpstreamAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[8]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -580,7 +653,7 @@ func (x *SubmitUpstreamAPIKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitUpstreamAPIKeyRequest.ProtoReflect.Descriptor instead.
 func (*SubmitUpstreamAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{8}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SubmitUpstreamAPIKeyRequest) GetUpstreamName() string {
@@ -605,7 +678,7 @@ type SubmitUpstreamAPIKeyResponse struct {
 
 func (x *SubmitUpstreamAPIKeyResponse) Reset() {
 	*x = SubmitUpstreamAPIKeyResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[9]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +690,7 @@ func (x *SubmitUpstreamAPIKeyResponse) String() string {
 func (*SubmitUpstreamAPIKeyResponse) ProtoMessage() {}
 
 func (x *SubmitUpstreamAPIKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[9]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +703,7 @@ func (x *SubmitUpstreamAPIKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitUpstreamAPIKeyResponse.ProtoReflect.Descriptor instead.
 func (*SubmitUpstreamAPIKeyResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{9}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{10}
 }
 
 type SetUpstreamLinkEnabledRequest struct {
@@ -643,7 +716,7 @@ type SetUpstreamLinkEnabledRequest struct {
 
 func (x *SetUpstreamLinkEnabledRequest) Reset() {
 	*x = SetUpstreamLinkEnabledRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[10]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -655,7 +728,7 @@ func (x *SetUpstreamLinkEnabledRequest) String() string {
 func (*SetUpstreamLinkEnabledRequest) ProtoMessage() {}
 
 func (x *SetUpstreamLinkEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[10]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -668,7 +741,7 @@ func (x *SetUpstreamLinkEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetUpstreamLinkEnabledRequest.ProtoReflect.Descriptor instead.
 func (*SetUpstreamLinkEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{10}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SetUpstreamLinkEnabledRequest) GetUpstreamName() string {
@@ -693,7 +766,7 @@ type SetUpstreamLinkEnabledResponse struct {
 
 func (x *SetUpstreamLinkEnabledResponse) Reset() {
 	*x = SetUpstreamLinkEnabledResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[11]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +778,7 @@ func (x *SetUpstreamLinkEnabledResponse) String() string {
 func (*SetUpstreamLinkEnabledResponse) ProtoMessage() {}
 
 func (x *SetUpstreamLinkEnabledResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[11]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +791,7 @@ func (x *SetUpstreamLinkEnabledResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetUpstreamLinkEnabledResponse.ProtoReflect.Descriptor instead.
 func (*SetUpstreamLinkEnabledResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{11}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{12}
 }
 
 type DisconnectRequest struct {
@@ -730,7 +803,7 @@ type DisconnectRequest struct {
 
 func (x *DisconnectRequest) Reset() {
 	*x = DisconnectRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[12]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -742,7 +815,7 @@ func (x *DisconnectRequest) String() string {
 func (*DisconnectRequest) ProtoMessage() {}
 
 func (x *DisconnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[12]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -755,7 +828,7 @@ func (x *DisconnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectRequest.ProtoReflect.Descriptor instead.
 func (*DisconnectRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{12}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DisconnectRequest) GetUpstreamName() string {
@@ -773,7 +846,7 @@ type DisconnectResponse struct {
 
 func (x *DisconnectResponse) Reset() {
 	*x = DisconnectResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[13]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +858,7 @@ func (x *DisconnectResponse) String() string {
 func (*DisconnectResponse) ProtoMessage() {}
 
 func (x *DisconnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[13]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +871,7 @@ func (x *DisconnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectResponse.ProtoReflect.Descriptor instead.
 func (*DisconnectResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{13}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{14}
 }
 
 type ListMCPClientsRequest struct {
@@ -809,7 +882,7 @@ type ListMCPClientsRequest struct {
 
 func (x *ListMCPClientsRequest) Reset() {
 	*x = ListMCPClientsRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[14]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +894,7 @@ func (x *ListMCPClientsRequest) String() string {
 func (*ListMCPClientsRequest) ProtoMessage() {}
 
 func (x *ListMCPClientsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[14]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +907,7 @@ func (x *ListMCPClientsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMCPClientsRequest.ProtoReflect.Descriptor instead.
 func (*ListMCPClientsRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{14}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{15}
 }
 
 type ListMCPClientsResponse struct {
@@ -846,7 +919,7 @@ type ListMCPClientsResponse struct {
 
 func (x *ListMCPClientsResponse) Reset() {
 	*x = ListMCPClientsResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[15]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -858,7 +931,7 @@ func (x *ListMCPClientsResponse) String() string {
 func (*ListMCPClientsResponse) ProtoMessage() {}
 
 func (x *ListMCPClientsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[15]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -871,7 +944,7 @@ func (x *ListMCPClientsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMCPClientsResponse.ProtoReflect.Descriptor instead.
 func (*ListMCPClientsResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{15}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListMCPClientsResponse) GetClients() []*MCPClient {
@@ -896,7 +969,7 @@ type MCPClient struct {
 
 func (x *MCPClient) Reset() {
 	*x = MCPClient{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[16]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -908,7 +981,7 @@ func (x *MCPClient) String() string {
 func (*MCPClient) ProtoMessage() {}
 
 func (x *MCPClient) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[16]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -921,7 +994,7 @@ func (x *MCPClient) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPClient.ProtoReflect.Descriptor instead.
 func (*MCPClient) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{16}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MCPClient) GetPublicId() string {
@@ -975,7 +1048,7 @@ type RevokeMCPClientRequest struct {
 
 func (x *RevokeMCPClientRequest) Reset() {
 	*x = RevokeMCPClientRequest{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[17]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -987,7 +1060,7 @@ func (x *RevokeMCPClientRequest) String() string {
 func (*RevokeMCPClientRequest) ProtoMessage() {}
 
 func (x *RevokeMCPClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[17]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1000,7 +1073,7 @@ func (x *RevokeMCPClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeMCPClientRequest.ProtoReflect.Descriptor instead.
 func (*RevokeMCPClientRequest) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{17}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RevokeMCPClientRequest) GetPublicId() string {
@@ -1018,7 +1091,7 @@ type RevokeMCPClientResponse struct {
 
 func (x *RevokeMCPClientResponse) Reset() {
 	*x = RevokeMCPClientResponse{}
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[18]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1030,7 +1103,7 @@ func (x *RevokeMCPClientResponse) String() string {
 func (*RevokeMCPClientResponse) ProtoMessage() {}
 
 func (x *RevokeMCPClientResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_portal_v1_portal_proto_msgTypes[18]
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1043,7 +1116,7 @@ func (x *RevokeMCPClientResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeMCPClientResponse.ProtoReflect.Descriptor instead.
 func (*RevokeMCPClientResponse) Descriptor() ([]byte, []int) {
-	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{18}
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{19}
 }
 
 var File_limen_portal_v1_portal_proto protoreflect.FileDescriptor
@@ -1063,7 +1136,7 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\"\x16\n" +
 	"\x14ListUpstreamsRequest\"W\n" +
 	"\x15ListUpstreamsResponse\x12>\n" +
-	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xff\x02\n" +
+	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xce\x03\n" +
 	"\x0fUpstreamSummary\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -1076,7 +1149,12 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"link_state\x18\b \x01(\x0e2\x1a.limen.portal.v1.LinkStateR\tlinkState\x12*\n" +
 	"\x11last_error_reason\x18\t \x01(\tR\x0flastErrorReason\x12\"\n" +
 	"\rlast_error_at\x18\n" +
-	" \x01(\tR\vlastErrorAt\"W\n" +
+	" \x01(\tR\vlastErrorAt\x123\n" +
+	"\x05tools\x18\v \x03(\v2\x1d.limen.portal.v1.UpstreamToolR\x05tools\x12\x18\n" +
+	"\aaliases\x18\f \x03(\tR\aaliases\"D\n" +
+	"\fUpstreamTool\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"W\n" +
 	"\x13StartConnectRequest\x12#\n" +
 	"\rupstream_name\x18\x01 \x01(\tR\fupstreamName\x12\x1b\n" +
 	"\treturn_to\x18\x02 \x01(\tR\breturnTo\"9\n" +
@@ -1140,7 +1218,7 @@ func file_limen_portal_v1_portal_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_portal_v1_portal_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_limen_portal_v1_portal_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_limen_portal_v1_portal_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_limen_portal_v1_portal_proto_goTypes = []any{
 	(LinkState)(0),                         // 0: limen.portal.v1.LinkState
 	(*GetSessionRequest)(nil),              // 1: limen.portal.v1.GetSessionRequest
@@ -1149,46 +1227,48 @@ var file_limen_portal_v1_portal_proto_goTypes = []any{
 	(*ListUpstreamsRequest)(nil),           // 4: limen.portal.v1.ListUpstreamsRequest
 	(*ListUpstreamsResponse)(nil),          // 5: limen.portal.v1.ListUpstreamsResponse
 	(*UpstreamSummary)(nil),                // 6: limen.portal.v1.UpstreamSummary
-	(*StartConnectRequest)(nil),            // 7: limen.portal.v1.StartConnectRequest
-	(*StartConnectResponse)(nil),           // 8: limen.portal.v1.StartConnectResponse
-	(*SubmitUpstreamAPIKeyRequest)(nil),    // 9: limen.portal.v1.SubmitUpstreamAPIKeyRequest
-	(*SubmitUpstreamAPIKeyResponse)(nil),   // 10: limen.portal.v1.SubmitUpstreamAPIKeyResponse
-	(*SetUpstreamLinkEnabledRequest)(nil),  // 11: limen.portal.v1.SetUpstreamLinkEnabledRequest
-	(*SetUpstreamLinkEnabledResponse)(nil), // 12: limen.portal.v1.SetUpstreamLinkEnabledResponse
-	(*DisconnectRequest)(nil),              // 13: limen.portal.v1.DisconnectRequest
-	(*DisconnectResponse)(nil),             // 14: limen.portal.v1.DisconnectResponse
-	(*ListMCPClientsRequest)(nil),          // 15: limen.portal.v1.ListMCPClientsRequest
-	(*ListMCPClientsResponse)(nil),         // 16: limen.portal.v1.ListMCPClientsResponse
-	(*MCPClient)(nil),                      // 17: limen.portal.v1.MCPClient
-	(*RevokeMCPClientRequest)(nil),         // 18: limen.portal.v1.RevokeMCPClientRequest
-	(*RevokeMCPClientResponse)(nil),        // 19: limen.portal.v1.RevokeMCPClientResponse
+	(*UpstreamTool)(nil),                   // 7: limen.portal.v1.UpstreamTool
+	(*StartConnectRequest)(nil),            // 8: limen.portal.v1.StartConnectRequest
+	(*StartConnectResponse)(nil),           // 9: limen.portal.v1.StartConnectResponse
+	(*SubmitUpstreamAPIKeyRequest)(nil),    // 10: limen.portal.v1.SubmitUpstreamAPIKeyRequest
+	(*SubmitUpstreamAPIKeyResponse)(nil),   // 11: limen.portal.v1.SubmitUpstreamAPIKeyResponse
+	(*SetUpstreamLinkEnabledRequest)(nil),  // 12: limen.portal.v1.SetUpstreamLinkEnabledRequest
+	(*SetUpstreamLinkEnabledResponse)(nil), // 13: limen.portal.v1.SetUpstreamLinkEnabledResponse
+	(*DisconnectRequest)(nil),              // 14: limen.portal.v1.DisconnectRequest
+	(*DisconnectResponse)(nil),             // 15: limen.portal.v1.DisconnectResponse
+	(*ListMCPClientsRequest)(nil),          // 16: limen.portal.v1.ListMCPClientsRequest
+	(*ListMCPClientsResponse)(nil),         // 17: limen.portal.v1.ListMCPClientsResponse
+	(*MCPClient)(nil),                      // 18: limen.portal.v1.MCPClient
+	(*RevokeMCPClientRequest)(nil),         // 19: limen.portal.v1.RevokeMCPClientRequest
+	(*RevokeMCPClientResponse)(nil),        // 20: limen.portal.v1.RevokeMCPClientResponse
 }
 var file_limen_portal_v1_portal_proto_depIdxs = []int32{
 	3,  // 0: limen.portal.v1.GetSessionResponse.user:type_name -> limen.portal.v1.User
 	6,  // 1: limen.portal.v1.ListUpstreamsResponse.upstreams:type_name -> limen.portal.v1.UpstreamSummary
 	0,  // 2: limen.portal.v1.UpstreamSummary.link_state:type_name -> limen.portal.v1.LinkState
-	17, // 3: limen.portal.v1.ListMCPClientsResponse.clients:type_name -> limen.portal.v1.MCPClient
-	1,  // 4: limen.portal.v1.PortalService.GetSession:input_type -> limen.portal.v1.GetSessionRequest
-	4,  // 5: limen.portal.v1.PortalService.ListUpstreams:input_type -> limen.portal.v1.ListUpstreamsRequest
-	7,  // 6: limen.portal.v1.PortalService.StartConnect:input_type -> limen.portal.v1.StartConnectRequest
-	9,  // 7: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:input_type -> limen.portal.v1.SubmitUpstreamAPIKeyRequest
-	11, // 8: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:input_type -> limen.portal.v1.SetUpstreamLinkEnabledRequest
-	13, // 9: limen.portal.v1.PortalService.Disconnect:input_type -> limen.portal.v1.DisconnectRequest
-	15, // 10: limen.portal.v1.PortalService.ListMCPClients:input_type -> limen.portal.v1.ListMCPClientsRequest
-	18, // 11: limen.portal.v1.PortalService.RevokeMCPClient:input_type -> limen.portal.v1.RevokeMCPClientRequest
-	2,  // 12: limen.portal.v1.PortalService.GetSession:output_type -> limen.portal.v1.GetSessionResponse
-	5,  // 13: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
-	8,  // 14: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
-	10, // 15: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
-	12, // 16: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
-	14, // 17: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
-	16, // 18: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
-	19, // 19: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
-	12, // [12:20] is the sub-list for method output_type
-	4,  // [4:12] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	7,  // 3: limen.portal.v1.UpstreamSummary.tools:type_name -> limen.portal.v1.UpstreamTool
+	18, // 4: limen.portal.v1.ListMCPClientsResponse.clients:type_name -> limen.portal.v1.MCPClient
+	1,  // 5: limen.portal.v1.PortalService.GetSession:input_type -> limen.portal.v1.GetSessionRequest
+	4,  // 6: limen.portal.v1.PortalService.ListUpstreams:input_type -> limen.portal.v1.ListUpstreamsRequest
+	8,  // 7: limen.portal.v1.PortalService.StartConnect:input_type -> limen.portal.v1.StartConnectRequest
+	10, // 8: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:input_type -> limen.portal.v1.SubmitUpstreamAPIKeyRequest
+	12, // 9: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:input_type -> limen.portal.v1.SetUpstreamLinkEnabledRequest
+	14, // 10: limen.portal.v1.PortalService.Disconnect:input_type -> limen.portal.v1.DisconnectRequest
+	16, // 11: limen.portal.v1.PortalService.ListMCPClients:input_type -> limen.portal.v1.ListMCPClientsRequest
+	19, // 12: limen.portal.v1.PortalService.RevokeMCPClient:input_type -> limen.portal.v1.RevokeMCPClientRequest
+	2,  // 13: limen.portal.v1.PortalService.GetSession:output_type -> limen.portal.v1.GetSessionResponse
+	5,  // 14: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
+	9,  // 15: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
+	11, // 16: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
+	13, // 17: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
+	15, // 18: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
+	17, // 19: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
+	20, // 20: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
+	13, // [13:21] is the sub-list for method output_type
+	5,  // [5:13] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_limen_portal_v1_portal_proto_init() }
@@ -1202,7 +1282,7 @@ func file_limen_portal_v1_portal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_portal_v1_portal_proto_rawDesc), len(file_limen_portal_v1_portal_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

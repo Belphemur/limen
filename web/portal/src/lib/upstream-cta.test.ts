@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { create } from '@bufbuild/protobuf'
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import {
   LinkState,
   UpstreamSummarySchema,
@@ -7,7 +7,7 @@ import {
 } from '@gen/limen/portal/v1/portal_pb.js'
 import { upstreamCTAs } from './upstream-cta'
 
-function summary(overrides: Partial<UpstreamSummary>): UpstreamSummary {
+function summary(overrides: MessageInitShape<typeof UpstreamSummarySchema>): UpstreamSummary {
   return create(UpstreamSummarySchema, {
     publicId: 'up_test',
     name: 'test',
