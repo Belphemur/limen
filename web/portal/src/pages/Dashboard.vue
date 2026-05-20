@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 
 const session = useSessionStore()
 </script>
@@ -9,7 +9,7 @@ const session = useSessionStore()
     <h1 class="text-2xl font-semibold">Dashboard</h1>
     <p v-if="session.user" class="mt-2 text-slate-600">
       Signed in as <span class="font-medium">{{ session.user.email }}</span>
-      <span v-if="session.user.roles.length"> · {{ session.user.roles.join(', ') }}</span>
+      <span v-if="session.role !== 'unspecified'"> · {{ session.role }}</span>
     </p>
     <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <RouterLink

@@ -225,17 +225,17 @@ The phase-9b doc's "the only RPC that does not require an authenticated session"
 
 ## Checklist
 
-- [ ] `proto/limen/session/v1/session.proto` defines `SessionService.GetSession` only
-- [ ] `buf generate` produces Go bindings under `internal/session/sessionv1/` and TS under `web/shared/src/gen/session/v1/`
-- [ ] `internal/session/` implements the handler (passthrough over context-bound user/tenant); no Zitadel call inside the handler
-- [ ] Handler mounted via `tenancyInterceptor + portalSessionInterceptor` only — no `roleInterceptor`
-- [ ] `cmd/portal`, `cmd/staff`, `cmd/limen` all mount `SessionService`; `cmd/gateway` does not
-- [ ] `web/shared/` package created with session store + client factory + router guard
-- [ ] `pnpm-workspace.yaml` lists `web/shared`
-- [ ] `web/portal/` consumes `@limen/shared`; local `stores/session.ts` deleted
-- [ ] `web/admin/` consumes `@limen/shared`; local `stores/session.ts` + `getSession`-related code in `adminClient.ts` deleted
-- [ ] `PortalService.GetSession` removed from proto, handler, role map, and all doc references (Phase 9b + 9c updated)
-- [ ] `grep -r "PortalService\.GetSession" .` returns zero results
-- [ ] Both SPAs' bootstrap path uses `@limen/shared`'s `createSessionGuard`; no duplicate guard code
-- [ ] Tests pass on both Go and pnpm sides; E2E confirms the shared endpoint is the only session round-trip
-- [ ] `AGENTS.md` references the workspace structure (`web/shared/`)
+- [x] `proto/limen/session/v1/session.proto` defines `SessionService.GetSession` only
+- [x] `buf generate` produces Go bindings under `internal/session/sessionv1/` and TS under `web/shared/src/gen/session/v1/`
+- [x] `internal/session/` implements the handler (passthrough over context-bound user/tenant); no Zitadel call inside the handler
+- [x] Handler mounted via `tenancyInterceptor + portalSessionInterceptor` only — no `roleInterceptor`
+- [x] `cmd/portal`, `cmd/staff`, `cmd/limen` all mount `SessionService`; `cmd/gateway` does not
+- [x] `web/shared/` package created with session store + client factory + router guard
+- [x] `pnpm-workspace.yaml` lists `web/shared`
+- [x] `web/portal/` consumes `@limen/shared`; local `stores/session.ts` deleted
+- [x] `web/admin/` consumes `@limen/shared`; local `stores/session.ts` + `getSession`-related code in `adminClient.ts` deleted
+- [x] `PortalService.GetSession` removed from proto, handler, role map, and all doc references (Phase 9b + 9c updated)
+- [x] `grep -r "PortalService\.GetSession" .` returns zero results
+- [x] Both SPAs' bootstrap path uses `@limen/shared`'s `createSessionGuard`; no duplicate guard code
+- [x] Tests pass on both Go and pnpm sides; E2E confirms the shared endpoint is the only session round-trip
+- [x] `AGENTS.md` references the workspace structure (`web/shared/`)

@@ -6,8 +6,9 @@ import {
   type RouterHistory,
 } from 'vue-router'
 
+import { createSessionGuard } from '@limen/shared/session'
+
 import AdminShell from '@/layout/AdminShell.vue'
-import { useSessionStore } from '@/stores/session'
 import { ROUTES, routeDefs } from './routes'
 
 // Discover the admin SPA's base path at runtime. Accepts:
@@ -64,26 +65,9 @@ export function createRouter(options: CreateRouterOptions = {}): Router {
     ],
   })
 
-  // Session-aware guard. Mirrors web/portal/src/router/index.ts.
-  //
-  //   1. Public routes (login surrogate, /forbidden) render without
-  //      a session check.
-  //   2. Otherwise bootstrap() runs exactly once. If GetSession fails
-  //      with `unauthenticated`, hard-redirect to the tenant login
-  //      endpoint with return_to set to the full SPA path.
-  //   3. If it fails with `permission_denied`, route to /forbidden.
-  router.beforeEach(async (to) => {
-    if (to.meta.public === true) return true
-    const session = useSessionStore()
-    await session.bootstrap()
-    if (session.error === 'unauthenticated') {
-      window.location.replace(tenantLoginUrl(to.fullPath))
-      return false
-    }
-    if (session.error === 'permission_denied') {
-      return { name: 'forbidden' }
-    }
-    return true
+  createSessionGuard(router, {
+    loginUrl: tenantLoginUrl,
+    forbiddenRouteName: 'forbidden',
   })
 
   return router

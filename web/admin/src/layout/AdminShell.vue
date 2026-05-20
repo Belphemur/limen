@@ -3,7 +3,7 @@ import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 
 const session = useSessionStore()
 

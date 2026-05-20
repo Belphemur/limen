@@ -3,17 +3,13 @@
 // lands, this module is replaced by a thin wrapper around the
 // generated AdminService client.
 //
+// Session identity is owned by limen.session.v1.SessionService; this
+// module no longer carries a getSession() method. Consumers must
+// read the current tenant/user/role from @limen/shared/session.
+//
 // TODO(phase-9c-proto): wire to generated AdminService client when proto lands.
 
-export { AdminAuthError, isAdminAuthError, type AdminAuthErrorKind } from './authError'
-
 export type Role = 'owner' | 'admin' | 'member'
-
-export interface SessionResponse {
-  tenant: { publicId: string; name: string }
-  user: { firstName: string; email: string }
-  role: Role
-}
 
 export interface UpstreamRow {
   id: string
@@ -33,7 +29,6 @@ export interface TenantSettings {
 }
 
 export interface AdminClient {
-  getSession(): Promise<SessionResponse>
   listUpstreams(): Promise<ListUpstreamsResponse>
   getTenantSettings(): Promise<TenantSettings>
   markInvitedTeam(): Promise<void>
@@ -43,11 +38,6 @@ export interface AdminClient {
 // production bundle that accidentally reaches this module crashes
 // loudly instead of serving stale fake data.
 const DEV_FIXTURES = {
-  session: {
-    tenant: { publicId: 'tnt_dev_acme', name: 'Acme Corp' },
-    user: { firstName: 'Alex', email: 'alex@acme.example' },
-    role: 'owner' as Role,
-  },
   upstreams: { upstreams: [] as UpstreamRow[] },
   settings: {
     name: 'Acme Corp',
@@ -58,9 +48,6 @@ const DEV_FIXTURES = {
 
 class MockAdminClient implements AdminClient {
   // TODO(phase-9c-proto): replace every method with a generated stub call.
-  async getSession(): Promise<SessionResponse> {
-    return Promise.resolve(DEV_FIXTURES.session)
-  }
   async listUpstreams(): Promise<ListUpstreamsResponse> {
     return Promise.resolve(DEV_FIXTURES.upstreams)
   }

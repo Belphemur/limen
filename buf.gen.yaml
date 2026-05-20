@@ -1,4 +1,13 @@
 version: v2
+
+# Default template — emits Go + Connect-Go bindings for every proto in
+# the workspace. SPA-facing TS bindings are emitted by sibling
+# templates so each SPA package only sees the protos it consumes:
+#
+#   buf.gen.portal-ts.yaml   → web/portal/src/gen (PortalService)
+#   buf.gen.session-ts.yaml  → web/shared/src/gen (SessionService)
+#
+# All three are invoked by `make proto`.
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.11
     out: .
@@ -10,8 +19,3 @@ plugins:
     opt:
       - paths=import
       - module=github.com/belphemur/limen
-  - remote: buf.build/bufbuild/es:v2.12.0
-    out: web/portal/src/gen
-    opt:
-      - target=ts
-      - import_extension=js

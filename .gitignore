@@ -23,6 +23,7 @@ scripts/zitadel-bootstrap/.bootstrap-out.env
 web/*/src/gen/
 
 # Web SPA build outputs / deps
+web/node_modules/
 web/*/node_modules/
 web/*/dist/
 web/*/coverage/

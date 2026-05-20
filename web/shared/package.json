@@ -1,0 +1,30 @@
+{
+  "name": "@limen/shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Cross-SPA primitives — currently the SessionService client + Pinia store + router guard. Consumed by web/portal and web/admin via pnpm workspace links.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./session": "./src/session/index.ts",
+    "./gen/*": "./src/gen/*"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-web": "^2.1.1",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.34",
+    "vue-router": "^5.0.7"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "^2.4.10",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}

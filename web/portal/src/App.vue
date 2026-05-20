@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { LogOut, User } from '@lucide/vue'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import logoUrl from '@/assets/limen-logo.svg'
 
@@ -10,9 +10,10 @@ const session = useSessionStore()
 const route = useRoute()
 const menuOpen = ref(false)
 
-onMounted(() => {
-  void session.refresh()
-})
+// The router guard runs SessionService.GetSession before any route
+// renders, so by the time App mounts session.user is either populated
+// (authenticated) or the browser has already left for /auth/login.
+const authenticated = computed(() => session.user !== null)
 
 function closeMenu() {
   menuOpen.value = false
@@ -29,7 +30,7 @@ function closeMenu() {
           <span>Limen Portal</span>
         </RouterLink>
 
-        <nav v-if="session.authenticated" class="flex gap-1 text-sm font-medium">
+        <nav v-if="authenticated" class="flex gap-1 text-sm font-medium">
           <RouterLink to="/"
             class="rounded-md px-3 py-1.5 text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
             :class="route.path === '/' ? 'bg-surface-container-low text-on-surface' : ''">
@@ -61,7 +62,7 @@ function closeMenu() {
           </RouterLink>
         </nav>
 
-        <div v-if="session.authenticated" class="relative flex items-center gap-3">
+        <div v-if="authenticated" class="relative flex items-center gap-3">
           <ThemeSwitcher />
           <button type="button"
             class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-on-surface-variant hover:text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"

@@ -33,9 +33,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// PortalServiceGetSessionProcedure is the fully-qualified name of the PortalService's GetSession
-	// RPC.
-	PortalServiceGetSessionProcedure = "/limen.portal.v1.PortalService/GetSession"
 	// PortalServiceListUpstreamsProcedure is the fully-qualified name of the PortalService's
 	// ListUpstreams RPC.
 	PortalServiceListUpstreamsProcedure = "/limen.portal.v1.PortalService/ListUpstreams"
@@ -61,9 +58,6 @@ const (
 
 // PortalServiceClient is a client for the limen.portal.v1.PortalService service.
 type PortalServiceClient interface {
-	// Public. No portal session required. The SPA calls this on boot to
-	// discover whether the browser already has a valid portal cookie.
-	GetSession(context.Context, *connect.Request[portalv1.GetSessionRequest]) (*connect.Response[portalv1.GetSessionResponse], error)
 	// Authenticated (any role).
 	ListUpstreams(context.Context, *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error)
 	StartConnect(context.Context, *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error)
@@ -85,12 +79,6 @@ func NewPortalServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	portalServiceMethods := portalv1.File_limen_portal_v1_portal_proto.Services().ByName("PortalService").Methods()
 	return &portalServiceClient{
-		getSession: connect.NewClient[portalv1.GetSessionRequest, portalv1.GetSessionResponse](
-			httpClient,
-			baseURL+PortalServiceGetSessionProcedure,
-			connect.WithSchema(portalServiceMethods.ByName("GetSession")),
-			connect.WithClientOptions(opts...),
-		),
 		listUpstreams: connect.NewClient[portalv1.ListUpstreamsRequest, portalv1.ListUpstreamsResponse](
 			httpClient,
 			baseURL+PortalServiceListUpstreamsProcedure,
@@ -138,7 +126,6 @@ func NewPortalServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // portalServiceClient implements PortalServiceClient.
 type portalServiceClient struct {
-	getSession             *connect.Client[portalv1.GetSessionRequest, portalv1.GetSessionResponse]
 	listUpstreams          *connect.Client[portalv1.ListUpstreamsRequest, portalv1.ListUpstreamsResponse]
 	startConnect           *connect.Client[portalv1.StartConnectRequest, portalv1.StartConnectResponse]
 	submitUpstreamAPIKey   *connect.Client[portalv1.SubmitUpstreamAPIKeyRequest, portalv1.SubmitUpstreamAPIKeyResponse]
@@ -146,11 +133,6 @@ type portalServiceClient struct {
 	disconnect             *connect.Client[portalv1.DisconnectRequest, portalv1.DisconnectResponse]
 	listMCPClients         *connect.Client[portalv1.ListMCPClientsRequest, portalv1.ListMCPClientsResponse]
 	revokeMCPClient        *connect.Client[portalv1.RevokeMCPClientRequest, portalv1.RevokeMCPClientResponse]
-}
-
-// GetSession calls limen.portal.v1.PortalService.GetSession.
-func (c *portalServiceClient) GetSession(ctx context.Context, req *connect.Request[portalv1.GetSessionRequest]) (*connect.Response[portalv1.GetSessionResponse], error) {
-	return c.getSession.CallUnary(ctx, req)
 }
 
 // ListUpstreams calls limen.portal.v1.PortalService.ListUpstreams.
@@ -190,9 +172,6 @@ func (c *portalServiceClient) RevokeMCPClient(ctx context.Context, req *connect.
 
 // PortalServiceHandler is an implementation of the limen.portal.v1.PortalService service.
 type PortalServiceHandler interface {
-	// Public. No portal session required. The SPA calls this on boot to
-	// discover whether the browser already has a valid portal cookie.
-	GetSession(context.Context, *connect.Request[portalv1.GetSessionRequest]) (*connect.Response[portalv1.GetSessionResponse], error)
 	// Authenticated (any role).
 	ListUpstreams(context.Context, *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error)
 	StartConnect(context.Context, *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error)
@@ -210,12 +189,6 @@ type PortalServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewPortalServiceHandler(svc PortalServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	portalServiceMethods := portalv1.File_limen_portal_v1_portal_proto.Services().ByName("PortalService").Methods()
-	portalServiceGetSessionHandler := connect.NewUnaryHandler(
-		PortalServiceGetSessionProcedure,
-		svc.GetSession,
-		connect.WithSchema(portalServiceMethods.ByName("GetSession")),
-		connect.WithHandlerOptions(opts...),
-	)
 	portalServiceListUpstreamsHandler := connect.NewUnaryHandler(
 		PortalServiceListUpstreamsProcedure,
 		svc.ListUpstreams,
@@ -260,8 +233,6 @@ func NewPortalServiceHandler(svc PortalServiceHandler, opts ...connect.HandlerOp
 	)
 	return "/limen.portal.v1.PortalService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case PortalServiceGetSessionProcedure:
-			portalServiceGetSessionHandler.ServeHTTP(w, r)
 		case PortalServiceListUpstreamsProcedure:
 			portalServiceListUpstreamsHandler.ServeHTTP(w, r)
 		case PortalServiceStartConnectProcedure:
@@ -284,10 +255,6 @@ func NewPortalServiceHandler(svc PortalServiceHandler, opts ...connect.HandlerOp
 
 // UnimplementedPortalServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedPortalServiceHandler struct{}
-
-func (UnimplementedPortalServiceHandler) GetSession(context.Context, *connect.Request[portalv1.GetSessionRequest]) (*connect.Response[portalv1.GetSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.portal.v1.PortalService.GetSession is not implemented"))
-}
 
 func (UnimplementedPortalServiceHandler) ListUpstreams(context.Context, *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.portal.v1.PortalService.ListUpstreams is not implemented"))

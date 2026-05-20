@@ -1,0 +1,15 @@
+version: v2
+
+# Shared session TS bindings — consumed by every SPA via the
+# @limen/shared workspace package. Only the SessionService proto module
+# is fed through.
+inputs:
+  - directory: proto
+    paths:
+      - proto/limen/session
+plugins:
+  - remote: buf.build/bufbuild/es:v2.12.0
+    out: web/shared/src/gen
+    opt:
+      - target=ts
+      - import_extension=js

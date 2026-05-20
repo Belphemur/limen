@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/portal/portalv1"
+	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
@@ -130,7 +131,7 @@ func (s *Service) Disconnect(ctx context.Context, req *connect.Request[portalv1.
 // login, so this is essentially a race window).
 func (s *Service) callerContext(ctx context.Context) (*storage.Tenant, *storage.User, error) {
 	tenant := tenancy.MustTenant(ctx)
-	sess, ok := SessionFromContext(ctx)
+	sess, ok := session.UserFromContext(ctx)
 	if !ok {
 		return nil, nil, errUnauthenticated("no session")
 	}

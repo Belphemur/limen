@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { Bell, Settings as SettingsIcon, User, LogOut, ExternalLink } from '@lucide/vue'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import ContextualSearch from './ContextualSearch.vue'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 
 const session = useSessionStore()
 const menuOpen = ref(false)

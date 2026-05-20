@@ -1,17 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useSessionStore } from '@/stores/session'
-
-// Tenant-agnostic landing page Zitadel bounces back to after end-session.
-// The Limen portal session cookie has already been cleared by /auth/logout
-// before the browser was sent to Zitadel, so by the time we render here
-// the user is fully signed out on both sides. We still wipe the Pinia
-// store explicitly: if the user hits Back after this page, the previous
-// route should not see stale `authenticated=true`.
-const session = useSessionStore()
-onMounted(() => {
-    session.reset()
-})
+// Tenant-agnostic landing page Zitadel bounces back to after
+// end-session. The portal cookie has already been cleared by
+// /auth/logout before the browser was sent to Zitadel, and the
+// router guard refused to render this route as part of a session
+// flow — so by the time we get here there is no Pinia state worth
+// resetting. The page is intentionally inert.
 </script>
 
 <template>

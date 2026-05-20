@@ -1,3 +1,8 @@
+packages:
+  - portal
+  - admin
+  - shared
+
 allowBuilds:
   esbuild: true
   vue-demi: true

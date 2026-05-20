@@ -1,34 +1,36 @@
 import { createRouter as createVueRouter, createWebHistory, type Router } from 'vue-router'
 
-import Login from '../pages/Login.vue'
+import { createSessionGuard } from '@limen/shared/session'
+
 import SignedOut from '../pages/SignedOut.vue'
 import Dashboard from '../pages/Dashboard.vue'
 import Upstreams from '../pages/Upstreams.vue'
 import MCPClients from '../pages/MCPClients.vue'
 import Settings from '../pages/Settings.vue'
 
-import { useSessionStore } from '../stores/session'
-
 // Discover the portal's base path at runtime so a single Vite build
 // serves every tenant. Two layouts are accepted:
 //
 //   /t/<tenant>/portal/<spa-route>   (production — Limen file_server)
 //   /t/<tenant>/<spa-route>          (vite dev — bare tenant prefix)
-//
-// We grab everything up to and including the tenant segment (plus the
-// optional /portal/) and feed it to createWebHistory as the SPA's base.
-// If neither prefix is present, fall back to "/" so isolated tests and
-// the bare http://localhost:5173/ entry point still work.
 function discoverBasePath(): string {
   const match = window.location.pathname.match(/^(\/t\/[^/]+\/(?:portal\/)?)/)
   return match ? match[1] : '/'
+}
+
+// Build the backend login URL for the current tenant. The /auth/login
+// endpoint is served by Phase 4 next to every tenant-scoped SPA mount,
+// so we just lift the /t/<tenant>/ prefix off the current pathname.
+function tenantLoginUrl(returnTo: string): string {
+  const match = window.location.pathname.match(/^(\/t\/[^/]+)\//)
+  const prefix = match ? match[1] : ''
+  return `${prefix}/auth/login?return_to=${encodeURIComponent(returnTo)}`
 }
 
 export function createRouter(): Router {
   const router = createVueRouter({
     history: createWebHistory(discoverBasePath()),
     routes: [
-      { path: '/login', name: 'login', component: Login, meta: { public: true } },
       { path: '/signed-out', name: 'signed-out', component: SignedOut, meta: { public: true } },
       { path: '/', name: 'dashboard', component: Dashboard },
       { path: '/mcp-servers', name: 'mcp-servers', component: Upstreams },
@@ -37,17 +39,7 @@ export function createRouter(): Router {
     ],
   })
 
-  router.beforeEach(async (to) => {
-    if (to.meta.public) return true
-    const session = useSessionStore()
-    if (!session.loaded) {
-      await session.refresh()
-    }
-    if (!session.authenticated) {
-      return { name: 'login', query: { return_to: to.fullPath } }
-    }
-    return true
-  })
+  createSessionGuard(router, { loginUrl: tenantLoginUrl })
 
   return router
 }

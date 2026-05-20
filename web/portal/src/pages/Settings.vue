@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 
 const session = useSessionStore()
 </script>
@@ -23,7 +23,7 @@ const session = useSessionStore()
       </button>
     </div>
     <p v-if="session.user" class="mt-6 text-xs text-slate-500">
-      subject: {{ session.user.subject }}
+      subject: {{ session.user.id }}
     </p>
   </section>
 </template>

@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package limen.session.v1;
+
+option go_package = "github.com/belphemur/limen/internal/session/sessionv1;sessionv1";
+
+// SessionService is the cross-SPA session boundary mounted at
+// /t/{tenant}/api/limen.session.v1.SessionService/*. Both the portal
+// and admin SPAs call GetSession on boot to decode the Phase 4 portal
+// cookie. The tenant is resolved by the binary's interceptor stack
+// from the URL {tenant} segment; request messages MUST NOT carry a
+// tenant_id field.
+service SessionService {
+  // GetSession returns the caller's identity facts derived from the
+  // portal cookie. Unauthenticated callers receive Connect
+  // `unauthenticated` (HTTP 401); the SPA's router guard turns that
+  // into a `/auth/login` redirect.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+}
+
+message GetSessionRequest {}
+
+message GetSessionResponse {
+  Tenant tenant = 1;
+  User user = 2;
+  Role role = 3;
+}
+
+message Tenant {
+  string public_id = 1; // "tnt_<ULID>"
+  string name = 2;
+}
+
+message User {
+  string id = 1; // Zitadel subject
+  string email = 2;
+  string first_name = 3;
+  string last_name = 4;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_MEMBER = 1;
+  ROLE_ADMIN = 2;
+  ROLE_OWNER = 3;
+}

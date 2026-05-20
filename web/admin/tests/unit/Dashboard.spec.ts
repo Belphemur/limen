@@ -1,7 +1,18 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
+import { createRouterTransport, type Transport } from '@connectrpc/connect'
+import { create } from '@bufbuild/protobuf'
+import {
+  setSessionTransport,
+  resetSessionTransport,
+} from '@limen/shared/session'
+import {
+  SessionService,
+  GetSessionResponseSchema,
+  Role,
+} from '@limen/shared/gen/limen/session/v1/session_pb.ts'
 import Dashboard from '@/pages/Dashboard.vue'
 import {
   setAdminClient,
@@ -24,12 +35,6 @@ function buildRouter(): Router {
 
 function makeClient(overrides: Partial<AdminClient> = {}): AdminClient {
   const base: AdminClient = {
-    getSession: () =>
-      Promise.resolve({
-        tenant: { publicId: 'tnt_t', name: 'Acme' },
-        user: { firstName: 'Alex', email: 'alex@acme.example' },
-        role: 'owner',
-      }),
     listUpstreams: (): Promise<ListUpstreamsResponse> => Promise.resolve({ upstreams: [] }),
     getTenantSettings: (): Promise<TenantSettings> =>
       Promise.resolve({ name: 'Acme', invitedTeamAt: null, configuredAt: null }),
@@ -38,8 +43,22 @@ function makeClient(overrides: Partial<AdminClient> = {}): AdminClient {
   return { ...base, ...overrides }
 }
 
+function happySessionTransport(): Transport {
+  return createRouterTransport(({ service }) => {
+    service(SessionService, {
+      getSession: () =>
+        create(GetSessionResponseSchema, {
+          tenant: { publicId: 'tnt_t', name: 'Acme' },
+          user: { id: 'usr_1', email: 'alex@acme.example', firstName: 'Alex', lastName: 'Doe' },
+          role: Role.OWNER,
+        }),
+    })
+  })
+}
+
 async function mountDashboard(client: AdminClient) {
   setAdminClient(client)
+  setSessionTransport(happySessionTransport())
   const router = buildRouter()
   await router.push('/')
   await router.isReady()
@@ -52,6 +71,11 @@ describe('Dashboard', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     resetAdminClient()
+    resetSessionTransport()
+  })
+
+  afterEach(() => {
+    resetSessionTransport()
   })
 
   it('renders the user first name in the welcome heading', async () => {

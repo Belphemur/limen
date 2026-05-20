@@ -9,11 +9,10 @@ option go_package = "github.com/belphemur/limen/internal/portal/portalv1;portalv
 // portal binary's interceptor stack from the URL {tenant} segment;
 // request messages MUST NOT carry a tenant_id field. Identity is
 // brokered through Zitadel; the SPA never renders a password.
+//
+// Session bootstrap is owned by limen.session.v1.SessionService — see
+// proto/limen/session/v1/session.proto.
 service PortalService {
-  // Public. No portal session required. The SPA calls this on boot to
-  // discover whether the browser already has a valid portal cookie.
-  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
-
   // Authenticated (any role).
   rpc ListUpstreams(ListUpstreamsRequest) returns (ListUpstreamsResponse);
   rpc StartConnect(StartConnectRequest) returns (StartConnectResponse);
@@ -22,26 +21,6 @@ service PortalService {
   rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
   rpc ListMCPClients(ListMCPClientsRequest) returns (ListMCPClientsResponse);
   rpc RevokeMCPClient(RevokeMCPClientRequest) returns (RevokeMCPClientResponse);
-}
-
-// ---- GetSession -----------------------------------------------------
-
-message GetSessionRequest {}
-
-message GetSessionResponse {
-  bool authenticated = 1;
-  // Set when authenticated=false: where the SPA should send the user
-  // to start the Zitadel OIDC flow.
-  string login_url = 2;
-
-  User user = 3;
-  repeated string roles = 4;
-}
-
-message User {
-  string subject = 1;
-  string email = 2;
-  string name = 3;
 }
 
 // ---- ListUpstreams --------------------------------------------------

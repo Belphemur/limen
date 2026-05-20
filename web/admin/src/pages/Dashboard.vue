@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Server, Users, Cog, ArrowRight, ExternalLink } from '@lucide/vue'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 import { adminClient, type TenantSettings, type UpstreamRow } from '@/transport/adminClient'
 import { ROUTES } from '@/router/routes'
 import SetupProgress from '@/components/SetupProgress.vue'

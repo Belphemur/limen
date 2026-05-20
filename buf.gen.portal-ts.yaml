@@ -1,0 +1,15 @@
+version: v2
+
+# Portal SPA TS bindings — only the PortalService proto module is fed
+# through, so web/portal/src/gen/ never sees session bindings. The
+# session client lives in web/shared/ (see buf.gen.session-ts.yaml).
+inputs:
+  - directory: proto
+    paths:
+      - proto/limen/portal
+plugins:
+  - remote: buf.build/bufbuild/es:v2.12.0
+    out: web/portal/src/gen
+    opt:
+      - target=ts
+      - import_extension=js

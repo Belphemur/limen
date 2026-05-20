@@ -38,11 +38,12 @@ type PortalDeps struct {
 	// by Phase 9b to wire the PortalService Connect-RPC handler. The
 	// handler is expected to already carry its own interceptor stack
 	// (tenancy / session / role).
+	//
+	// Phase 9d multiplexes multiple Connect services (PortalService +
+	// SessionService) onto this same mount; the caller assembles them
+	// into an http.ServeMux keyed on the Connect procedure prefix and
+	// passes the mux here.
 	ConnectAPI http.Handler
-	// ConnectAPIPrefix is the URL-path prefix returned by the Connect
-	// handler factory (e.g. "/limen.portal.v1.PortalService/"). It is
-	// concatenated with "/api" to form the final mount path.
-	ConnectAPIPrefix string
 }
 
 // MountPortal attaches the OIDC + tenant routes onto r.

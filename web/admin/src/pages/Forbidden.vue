@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ShieldAlert } from '@lucide/vue'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore } from '@limen/shared/session'
 
 const session = useSessionStore()
 </script>

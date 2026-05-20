@@ -1,5 +1,5 @@
 import { createConnectTransport } from '@connectrpc/connect-web'
-import { createClient, type Client } from '@connectrpc/connect'
+import { createClient, type Client, type Transport } from '@connectrpc/connect'
 import { PortalService } from '@gen/limen/portal/v1/portal_pb.js'
 
 // Discover the tenant slug from the URL path. Limen mounts every
@@ -23,21 +23,27 @@ function buildBaseUrl(): string {
   return `${window.location.origin}/t/${discoverTenant()}/api`
 }
 
+let cachedTransport: Transport | null = null
 let cached: Client<typeof PortalService> | null = null
 
-// portalClient returns a process-wide Connect-RPC client for the
-// PortalService. The cookie-based session means every fetch must
-// carry `credentials: 'include'`, otherwise the portal-session cookie
-// won't be sent. In Connect v2 the transport no longer takes a
-// `credentials` option directly — wrap globalThis.fetch and inject
-// it on every call.
-export function portalClient(): Client<typeof PortalService> {
-  if (cached) return cached
-  const transport = createConnectTransport({
+// portalTransport returns the process-wide cookie-bearing Connect
+// transport. The same transport is reused for SessionService (see
+// main.ts) so SessionService.GetSession and PortalService.* both
+// hit /t/{tenant}/api/ with credentials: 'include'.
+export function portalTransport(): Transport {
+  if (cachedTransport) return cachedTransport
+  cachedTransport = createConnectTransport({
     baseUrl: buildBaseUrl(),
     fetch: (input, init) => globalThis.fetch(input, { ...init, credentials: 'include' }),
   })
-  cached = createClient(PortalService, transport)
+  return cachedTransport
+}
+
+// portalClient returns a process-wide Connect-RPC client for the
+// PortalService.
+export function portalClient(): Client<typeof PortalService> {
+  if (cached) return cached
+  cached = createClient(PortalService, portalTransport())
   return cached
 }
 
@@ -46,4 +52,5 @@ export function portalClient(): Client<typeof PortalService> {
 // URL or swapping fetch).
 export function resetPortalClient(): void {
   cached = null
+  cachedTransport = null
 }
