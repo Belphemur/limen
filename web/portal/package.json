@@ -11,7 +11,7 @@
   },
   "scripts": {
     "prebuild": "pnpm run gen",
-    "gen": "cd .. && buf generate",
+    "gen": "cd ../.. && buf generate",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",

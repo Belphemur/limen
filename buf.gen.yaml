@@ -11,7 +11,7 @@ plugins:
       - paths=import
       - module=github.com/belphemur/limen
   - remote: buf.build/bufbuild/es:v2.2.3
-    out: web/src/gen
+    out: web/portal/src/gen
     opt:
       - target=ts
       - import_extension=js
