@@ -221,22 +221,31 @@ secrets:
 
 The Limen API and the SPA share an origin (`limen.example.com`). API-shaped paths are reverse-proxied to the Go service; everything else is served from the static SPA build with an SPA-history fallback.
 
+The portal SPA itself is a pure static bundle (the `web/portal/dist/` output of `pnpm build` — HTML, hashed JS, hashed CSS). It does **not** need a Node runtime in production. What is required is the reverse proxy: it terminates TLS, serves the static bundle for SPA paths, and forwards API/auth/OAuth/MCP traffic to the Limen binary on the same origin. Same-origin is what lets the portal-session cookie flow without `SameSite=None` and without per-request CORS preflights. Caddy is the reference; Traefik / nginx / a CDN-edge worker can play the same role as long as they preserve same-origin or wire `Access-Control-Allow-Credentials` correctly on every API route.
+
+The set of paths that must hit Limen rather than the static file server is the same set the Vite dev proxy forwards in [web/portal/vite.config.ts](../../web/portal/vite.config.ts) — keep the two in lockstep so behaviour observed in `pnpm dev` matches production.
+
 ```caddy
 limen.example.com {
     encode zstd gzip
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'"
 
-    # Routes owned by Limen — OAuth proxy, MCP RS, portal API, upstream connect,
-    # OIDC login callbacks. Anything tenant-scoped under /t/{tenant}/ that isn't
-    # the portal SPA itself.
+    # Routes owned by Limen — Connect-RPC portal API, OAuth proxy, MCP RS,
+    # per-tenant OIDC login/logout, root /auth/login (tenant-agnostic
+    # entry point — callback resolves tenant from the user's home-org
+    # claim), root /auth/callback, OAuth AS metadata, DCR, healthz.
+    # Anything tenant-scoped under /t/{tenant}/ that isn't the portal
+    # SPA itself.
     @api {
         path /t/*/api/*
+        path /t/*/auth/*
         path /t/*/oauth/*
         path /t/*/mcp
         path /t/*/mcp/*
         path /t/*/upstream/*
-        path /auth/*
+        path /auth/login
+        path /auth/callback
         path /.well-known/*
         path /register*
         path /healthz

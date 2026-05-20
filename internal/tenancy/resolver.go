@@ -79,6 +79,32 @@ func Resolve(ctx context.Context, store *storage.Store, publicID string) (*stora
 	return &t, nil
 }
 
+// ResolveByZitadelOrg looks up the tenant bound to a Zitadel org id. Used
+// by the tenant-agnostic /auth/login flow so the callback handler can
+// pick the right tenant from the user's home-org claim.
+func ResolveByZitadelOrg(ctx context.Context, store *storage.Store, orgID string) (*storage.Tenant, error) {
+	if orgID == "" {
+		return nil, ErrNotFound
+	}
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return nil, err
+	}
+	var t storage.Tenant
+	err = tx.Where("zitadel_org_id = ?", orgID).First(&t).Error
+	commitErr := commit()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if commitErr != nil {
+		return nil, commitErr
+	}
+	return &t, nil
+}
+
 // RequireTenant is a chi middleware mounted on the /t/{tenant}/* subrouter.
 // It reads the {tenant} URL param (the tenant's public id), looks up the
 // row, and pushes both the tenant pointer and the storage-level tenant pin

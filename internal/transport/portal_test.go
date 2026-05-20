@@ -437,8 +437,8 @@ func TestPortal_CallbackHappyPath(t *testing.T) {
 		body := readBody(resp)
 		t.Fatalf("callback status: got %d want 302; body=%s", resp.StatusCode, body)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/t/"+tenant.PublicID+"/portal" {
-		t.Fatalf("post-callback location: got %q want /t/%s/portal", loc, tenant.PublicID)
+	if loc := resp.Header.Get("Location"); loc != "/t/"+tenant.PublicID+"/" {
+		t.Fatalf("post-callback location: got %q want /t/%s/", loc, tenant.PublicID)
 	}
 	portal := findCookie(resp.Cookies(), "limen_portal")
 	if portal == nil {

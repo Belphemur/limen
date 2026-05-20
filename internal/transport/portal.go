@@ -7,6 +7,7 @@
 //	/t/{tenant}                                  (subrouter behind tenancy.RequireTenant; {tenant} is a tnt_<ULID> public id)
 //	  GET  /auth/login
 //	  GET  /auth/logout
+//	  /api/*                                     (Connect-RPC portal service — Phase 9b)
 //
 // Tenant resolution + User upsert are wired here so internal/auth has no
 // dependency on internal/storage.
@@ -25,7 +26,6 @@ import (
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
-	"github.com/belphemur/limen/internal/upstream"
 )
 
 // PortalDeps bundles everything MountPortal needs.
@@ -34,10 +34,6 @@ type PortalDeps struct {
 	OIDC                  *auth.OIDC
 	Logger                *zap.Logger
 	PostLogoutRedirectURI string
-	// UpstreamService, when non-nil, enables the portal PoC endpoints
-	// for connecting/disconnecting MCP upstreams. Phase 9b replaces these
-	// with a Connect-RPC service.
-	UpstreamService *upstream.Service
 	// ConnectAPI, when non-nil, is mounted at /t/{tenant}/api/* — used
 	// by Phase 9b to wire the PortalService Connect-RPC handler. The
 	// handler is expected to already carry its own interceptor stack
@@ -56,18 +52,28 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		logger = zap.NewNop()
 	}
 
-	resolveTenant := func(ctx context.Context, tenantPublicID string) (int64, string, error) {
-		t, err := tenancy.Resolve(ctx, deps.Store, tenantPublicID)
-		if err != nil {
-			return 0, "", err
+	resolveTenant := func(ctx context.Context, tenantPublicID, orgID string) (int64, string, string, error) {
+		var t *storage.Tenant
+		var err error
+		if tenantPublicID != "" {
+			t, err = tenancy.Resolve(ctx, deps.Store, tenantPublicID)
+		} else {
+			t, err = tenancy.ResolveByZitadelOrg(ctx, deps.Store, orgID)
 		}
-		return t.ID, t.ZitadelOrgID, nil
+		if err != nil {
+			return 0, "", "", err
+		}
+		return t.ID, t.PublicID, t.ZitadelOrgID, nil
 	}
 	upsertUser := func(ctx context.Context, tenantID int64, sub, email, name string) error {
 		return upsertPortalUser(ctx, deps.Store, tenantID, sub, email, name)
 	}
 
 	r.Get("/auth/callback", deps.OIDC.CallbackHandler(resolveTenant, upsertUser))
+	// Tenant-agnostic login entry point: lets a user click "Sign in" on
+	// the root SPA shell without knowing their tenant slug. The
+	// callback resolves the tenant from the token's home-org claim.
+	r.Get("/auth/login", deps.OIDC.LoginHandler())
 
 	r.Route("/t/{tenant}", func(tr chi.Router) {
 		tr.Use(tenancy.RequireTenant(deps.Store, logger))
@@ -75,20 +81,33 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 		tr.Get("/auth/logout", deps.OIDC.LogoutHandler(deps.PostLogoutRedirectURI))
 
 		if deps.ConnectAPI != nil {
-			// Strip the /t/{tenant}/api prefix before delegating so the
-			// Connect handler sees its own procedure paths starting from
-			// "/limen.portal.v1.PortalService/...". chi's nested Mount
-			// already strips up to the mount point.
-			tr.Mount("/api", http.StripPrefix("/api", deps.ConnectAPI))
+			// chi.Mount tracks the path remainder in
+			// chi.RouteContext().RoutePath but does not modify r.URL.Path,
+			// so Connect (which dispatches on r.URL.Path) would see the
+			// full "/t/{tenant}/api/limen.portal.v1.PortalService/..."
+			// and 404. Rewrite r.URL.Path to the unmatched remainder so
+			// the Connect handler sees its own procedure prefix.
+			tr.Mount("/api", connectMountAdapter(deps.ConnectAPI))
 		}
+	})
+}
 
-		tr.Route("/portal", func(pr chi.Router) {
-			pr.Use(deps.OIDC.RequireSession())
-			pr.Get("/me", portalMeHandler)
-			mountPortalUpstreams(pr, deps)
-			pr.Get("/", portalStaticHandler())
-			pr.Get("/*", portalStaticHandler())
-		})
+// connectMountAdapter rewrites r.URL.Path to the chi-tracked path
+// remainder before delegating, so a Connect handler mounted at
+// /t/{tenant}/api/* sees procedure paths like
+// "/limen.portal.v1.PortalService/GetSession" — what connect-go's
+// router dispatches on.
+func connectMountAdapter(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rctx := chi.RouteContext(r.Context())
+		if rctx == nil || rctx.RoutePath == "" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = rctx.RoutePath
+		r2.URL.RawPath = ""
+		h.ServeHTTP(w, r2)
 	})
 }
 

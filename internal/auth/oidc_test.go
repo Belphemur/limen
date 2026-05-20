@@ -93,11 +93,11 @@ func TestExtractRoles(t *testing.T) {
 
 func TestSafeReturnTo(t *testing.T) {
 	tests := []struct{ in, want string }{
-		{"", "/portal"},
+		{"", "/"},
 		{"/portal", "/portal"},
 		{"/portal/users", "/portal/users"},
-		{"no-leading-slash", "/portal"},
-		{"//evil.example.com/path", "/portal"},
+		{"no-leading-slash", "/"},
+		{"//evil.example.com/path", "/"},
 		{"/portal?q=1", "/portal?q=1"},
 	}
 	for _, tt := range tests {

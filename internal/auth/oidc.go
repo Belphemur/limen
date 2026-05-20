@@ -67,7 +67,7 @@ type OIDCConfig struct {
 	// Secure controls the cookie Secure attribute. Set true in prod.
 	Secure bool
 	// DefaultReturnPath is appended to /t/{tenant} when no return_to is
-	// supplied. Default "/portal".
+	// supplied. Default "/".
 	DefaultReturnPath string
 }
 
@@ -122,7 +122,7 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig, cipher *crypto.Cipher, signer 
 		logger = zap.NewNop()
 	}
 	if cfg.DefaultReturnPath == "" {
-		cfg.DefaultReturnPath = "/portal"
+		cfg.DefaultReturnPath = "/"
 	}
 	relyingParty, err := rp.NewRelyingPartyOIDC(
 		ctx,
@@ -145,14 +145,20 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig, cipher *crypto.Cipher, signer 
 	}, nil
 }
 
-// LoginHandler is mounted at /t/{tenant}/auth/login behind RequireTenant. It
-// signs a state cookie carrying (tenant, return_to) and redirects to Zitadel.
+// LoginHandler is mounted at /t/{tenant}/auth/login behind RequireTenant
+// AND at /auth/login at the root. The tenant-scoped mount picks the
+// tenant out of the URL; the root mount mints an empty-tenant state so
+// the callback resolves the tenant from the user's Zitadel home-org id
+// claim instead.
 func (o *OIDC) LoginHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		t := tenancy.MustTenant(r.Context())
+		var tenantPublicID string
+		if t, ok := tenancy.TenantFromContext(r.Context()); ok {
+			tenantPublicID = t.PublicID
+		}
 
 		returnTo := safeReturnTo(r.URL.Query().Get("return_to"))
-		st, err := NewState(t.PublicID, returnTo)
+		st, err := NewState(tenantPublicID, returnTo)
 		if err != nil {
 			o.logger.Error("state mint", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -179,16 +185,19 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 
 // CallbackHandler is mounted at /auth/callback (root, single redirect URI).
 // It verifies the signed state cookie, exchanges the code for tokens,
+// resolves the tenant (either from state.Tenant when the user started
+// the flow at /t/{tenant}/auth/login, or from the token's Zitadel home-
+// org claim when the user started at the tenant-agnostic /auth/login),
 // confirms the token's Zitadel org matches the tenant, upserts the local
-// User row, and sets the per-tenant portal cookie. The tenant public id is
-// recovered from state, not from the URL.
+// User row, and sets the per-tenant portal cookie.
 //
-// resolveTenant looks up the tenant by public id and returns its int64 ID
-// plus the bound Zitadel org id. upsertUser writes the Limen User row
-// keyed by (tenantID, sub); both callbacks run before the cookie is set so
-// any persistence failure prevents the session from being established.
+// resolveTenant is called with whichever of publicID/orgID was known up
+// front. It must return the resolved tenant int64 ID, the canonical
+// public id, and the org id that the token MUST match. When publicID is
+// empty, look up by orgID; when both are provided, look up by publicID
+// and return that tenant's bound orgID for the caller's mismatch check.
 func (o *OIDC) CallbackHandler(
-	resolveTenant func(ctx context.Context, tenantPublicID string) (tenantID int64, orgID string, err error),
+	resolveTenant func(ctx context.Context, publicID, orgID string) (tenantID int64, resolvedPublicID, expectedOrgID string, err error),
 	upsertUser func(ctx context.Context, tenantID int64, sub, email, name string) error,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -225,15 +234,23 @@ func (o *OIDC) CallbackHandler(
 			http.Error(w, "authentication failed", http.StatusBadGateway)
 			return
 		}
-		tenantID, wantOrgID, err := resolveTenant(r.Context(), st.Tenant)
-		if err != nil {
-			o.logger.Error("tenant resolve in callback", zap.String("tenant", st.Tenant), zap.Error(err))
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		gotOrgID, _ := tokens.IDTokenClaims.Claims[orgIDClaim].(string)
+		if gotOrgID == "" {
+			o.logger.Warn("id token missing org id claim", zap.String("state_tenant", st.Tenant))
+			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
-		gotOrgID, _ := tokens.IDTokenClaims.Claims[orgIDClaim].(string)
+		tenantID, resolvedPublicID, wantOrgID, err := resolveTenant(r.Context(), st.Tenant, gotOrgID)
+		if err != nil {
+			o.logger.Warn("tenant resolve in callback",
+				zap.String("state_tenant", st.Tenant),
+				zap.String("org_id", gotOrgID),
+				zap.Error(err))
+			http.Error(w, "access denied", http.StatusForbidden)
+			return
+		}
 		if gotOrgID != wantOrgID {
-			o.logger.Warn("org mismatch", zap.String("tenant", st.Tenant), zap.String("want", wantOrgID), zap.String("got", gotOrgID))
+			o.logger.Warn("org mismatch", zap.String("tenant", resolvedPublicID), zap.String("want", wantOrgID), zap.String("got", gotOrgID))
 			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
@@ -246,17 +263,17 @@ func (o *OIDC) CallbackHandler(
 		}
 		if upsertUser != nil {
 			if err := upsertUser(r.Context(), tenantID, sub, email, name); err != nil {
-				o.logger.Error("user upsert", zap.String("tenant", st.Tenant), zap.Error(err))
+				o.logger.Error("user upsert", zap.String("tenant", resolvedPublicID), zap.Error(err))
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 		}
-		if err := o.writePortalCookie(w, st.Tenant, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
+		if err := o.writePortalCookie(w, resolvedPublicID, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
 			o.logger.Error("portal cookie seal", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		http.Redirect(w, r, "/t/"+st.Tenant+st.ReturnTo, http.StatusFound)
+		http.Redirect(w, r, "/t/"+resolvedPublicID+st.ReturnTo, http.StatusFound)
 	}
 }
 
@@ -275,6 +292,10 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 			idTokenHint = tok.IDToken
 		}
 		clearCookie(w, portalCookieName, "/t/"+t.PublicID, o.cfg.Secure)
+		// Defense-in-depth: a stale state cookie from an aborted login
+		// flow would otherwise survive logout. It's path-scoped to
+		// /auth/callback so this is the only place we can wipe it.
+		clearCookie(w, stateCookieName, stateCookiePath, o.cfg.Secure)
 
 		endpoint := o.rp.GetEndSessionEndpoint()
 		if endpoint == "" {
@@ -535,14 +556,14 @@ func clearCookie(w http.ResponseWriter, name, path string, secure bool) {
 }
 
 // safeReturnTo normalizes user-supplied return_to to a path that lives
-// under /t/{tenant}/, defaulting to "/portal". We reject anything that
+// under /t/{tenant}/, defaulting to "/". We reject anything that
 // would let the redirect escape the tenant subtree.
 func safeReturnTo(raw string) string {
 	if raw == "" {
-		return "/portal"
+		return "/"
 	}
 	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
-		return "/portal"
+		return "/"
 	}
 	return raw
 }

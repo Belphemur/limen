@@ -14,7 +14,7 @@ export interface PortalUser {
 // loaded distinguishes "we haven't asked yet" from "we asked and the
 // user isn't authenticated" — the router guard depends on this to
 // avoid an infinite redirect loop on the /login page itself.
-export const useSessionStore = defineStore('session', () => {
+export const useSessionStore = defineStore('session', ;() => {
   const loaded = ref(false)
   const authenticated = ref(false)
   const user = ref<PortalUser | null>(null)
@@ -55,5 +55,16 @@ export const useSessionStore = defineStore('session', () => {
     window.location.href = `${prefix}/auth/logout`
   }
 
-  return { loaded, authenticated, user, loginUrl, refresh, logout }
+  // reset wipes any cached session state. Called by the /signed-out
+  // landing page after Zitadel's end-session bounce so the SPA forgets
+  // the previous user even though the HttpOnly cookie (path-scoped to
+  // /t/{tenant}) can't be touched from this origin path.
+  function reset(): void {
+    authenticated.value = false
+    user.value = null
+    loginUrl.value = ''
+    loaded.value = true
+  }
+
+  return { loaded, authenticated, user, loginUrl, refresh, logout, reset }
 })

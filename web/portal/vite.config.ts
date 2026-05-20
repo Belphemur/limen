@@ -25,9 +25,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Only backend sub-paths under /t/<slug>/ are proxied to Limen on
+    // :8080. The bare /t/<slug>/ path is served by Vite (SPA history
+    // fallback) so the router can read the tenant slug from the URL.
     proxy: {
-      '/t': 'http://localhost:8080',
-      '/auth': 'http://localhost:8080',
+      '^/t/[^/]+/(api|auth|oauth)(/|$)': 'http://localhost:8080',
+      '/auth/callback': 'http://localhost:8080',
+      '/auth/login': 'http://localhost:8080',
       '/oauth': 'http://localhost:8080',
       '/mcp': 'http://localhost:8080',
       '/healthz': 'http://localhost:8080',
