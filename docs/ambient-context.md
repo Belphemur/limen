@@ -137,15 +137,24 @@ first-class proxy names on the `codemode` object.
 
 ### Derivation rule
 
-For each upstream, we group tool names by their `_` or `-` prefix and
-keep prefixes that satisfy **both**:
+For each tool name we tokenize on `_`, `-`, and camelCase boundaries
+(so `getJiraIssue` → `[get, Jira, Issue]`), then drop a leading
+CRUD/lookup verb (`get`, `create`, `update`, `find`, `search`,
+`delete`, `add`, `edit`, `list`, `lookup`, `remove`, `set`, `fetch`,
+`transition`, `analyze`). The next token (lowercased) is the
+candidate prefix. A candidate is promoted when it satisfies **both**:
 
-| Threshold                              | Why                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------- |
-| ≥ 2 tools share it                     | One tool starting with `jira_search` isn't a "brand"; two is.       |
-| ≥ 50% of the upstream's tools share it | Single-product upstreams (e.g. pure `github`) don't get alias spam. |
+| Threshold                              | Why                                                                                                  |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| ≥ 2 tools share it                     | One tool with `Jira` in its name isn't a brand; two is.                                              |
+| ≥ 20% of the upstream's tools share it | Rejects verb-heavy CRUD catalogs (e.g. sentry, whose top noun appears in only 17% of tools).         |
 
-Implementation: `gateway.DeriveAliases` in [internal/gateway/aliases.go](../internal/gateway/aliases.go).
+This keeps multi-brand upstreams like Atlassian (jira ≈ 23%,
+confluence ≈ 28%) producing useful aliases while suppressing the
+verb-grouping noise a naive prefix split would emit for `<verb>_<noun>`
+catalogs.
+
+Implementation: `upstream.DeriveAliases` in [internal/upstream/aliases.go](../internal/upstream/aliases.go).
 The canonical upstream name **always** survives in `aliases` lists for
 free; you never have to remember which form to use.
 
