@@ -1,5 +1,6 @@
 .PHONY: dev dev-run dev-cmd dev-migrate dev-create-tenant dev-create-upstream \
-	dev-reset dev-bootstrap dev-down dev-spa dev-spa-install dev-spa-build \
+	dev-reset dev-bootstrap dev-down dev-portal dev-portal-install dev-portal-build \
+	dev-admin dev-admin-install dev-admin-build \
 	build test vet fmt proto tools
 
 # Pinned buf version. Bump deliberately; the buf.build remote plugin
@@ -100,30 +101,46 @@ dev-down:
 
 # ---- SPA dev targets ------------------------------------------------
 #
-# Each SPA lives under web/<name>/. Today that's just web/portal/; the
-# tenant-admin / staff SPAs (Phase 9c, 12) will slot in alongside.
+# Each SPA lives under web/<name>/. The portal SPA (Phase 9b) targets
+# end-users; the admin SPA (Phase 9c) targets tenant administrators.
+# Both share the same Go backend on :8080.
 #
-# `make dev-spa` boots the portal SPA on http://localhost:5173 with
-# Vite's HMR, and proxies /t/*/api, /auth, /oauth, /mcp, /healthz to
-# the locally-running Limen binary on :8080 (started by `make dev` or
-# `make dev-run`).
-SPA_DIR := web/portal
+# `make dev-portal` → portal on http://localhost:5173
+# `make dev-admin`  → admin  on http://localhost:5174
+#
+# Vite's dev-proxy in each SPA forwards /t/*/api, /auth, /oauth, /mcp,
+# /healthz to the locally-running Limen binary on :8080 (started by
+# `make dev` or `make dev-run`).
+PORTAL_DIR := web/portal
+ADMIN_DIR  := web/admin
 
-dev-spa-install:
-	cd $(SPA_DIR) && corepack pnpm install --frozen-lockfile
+# Each SPA gets its own trio of targets: install / dev / build.
+dev-portal-install:
+	cd $(PORTAL_DIR) && corepack pnpm install --frozen-lockfile
 
-# Auto-install on first run; otherwise just `pnpm dev`.
-dev-spa:
-	@if [ ! -d $(SPA_DIR)/node_modules ]; then \
-		echo "[dev-spa] no node_modules in $(SPA_DIR), installing…"; \
-		$(MAKE) dev-spa-install; \
+dev-portal:
+	@if [ ! -d $(PORTAL_DIR)/node_modules ]; then \
+		echo "[dev-portal] no node_modules in $(PORTAL_DIR), installing…"; \
+		$(MAKE) dev-portal-install; \
 	fi
-	cd $(SPA_DIR) && corepack pnpm dev
+	cd $(PORTAL_DIR) && corepack pnpm dev
 
-# Production build — outputs to web/portal/dist/. Useful for smoke
-# tests with `vite preview` or Caddy file_server.
-dev-spa-build:
-	cd $(SPA_DIR) && corepack pnpm build
+dev-portal-build:
+	cd $(PORTAL_DIR) && corepack pnpm build
+
+# Admin SPA — same shape, different folder + port.
+dev-admin-install:
+	cd $(ADMIN_DIR) && corepack pnpm install --frozen-lockfile
+
+dev-admin:
+	@if [ ! -d $(ADMIN_DIR)/node_modules ]; then \
+		echo "[dev-admin] no node_modules in $(ADMIN_DIR), installing…"; \
+		$(MAKE) dev-admin-install; \
+	fi
+	cd $(ADMIN_DIR) && corepack pnpm dev
+
+dev-admin-build:
+	cd $(ADMIN_DIR) && corepack pnpm build
 
 build:
 	go build -o limen ./cmd/limen
