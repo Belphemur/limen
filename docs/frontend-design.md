@@ -15,15 +15,48 @@ The design is anchored on a **Stitch project** ("Limen Admin Console", project `
 | **Corporate Modern, data-density-aware**   | Limen is an administrative gateway. The portal is consumer-friendly but data-dense (audit, links, sessions); the admin SPA is power-user-first. The visual language prioritises legibility, alignment, and information hierarchy over decorative flair.            |
 | **Two shells, one token set**              | Portal is a lean top-nav app for end users. Admin is a fixed-sidebar + topbar app for tenant administrators. Both share the exact same colour, type, shape, and spacing tokens — only the shell differs. No "brand drift" between the two surfaces.                |
 | **Light + dark from day one**              | Every token has a light and a dark value. The theme switcher (system / light / dark) is wired before any feature page lands so we never ship a screen that only looks right in one mode.                                                                           |
-| **Self-hosted everything**                 | Fonts ship from `@fontsource-variable/*`; icons from `lucide-vue-next`. No runtime CDN dependencies — the SPA must work behind air-gapped Caddy and across Cloudflare Pages, GitLab Pages, and self-hosted file servers without external font/icon fetches.         |
+| **Self-hosted everything**                 | Fonts ship from `@fontsource-variable/*`; icons from `@lucide/vue`. No runtime CDN dependencies — the SPA must work behind air-gapped Caddy and across Cloudflare Pages, GitLab Pages, and self-hosted file servers without external font/icon fetches.             |
 | **Tailwind v4 with `@theme`**              | Tokens are defined once in `web/portal/src/styles/main.css` under `@theme { ... }`. There is **no** `tailwind.config.{ts,js}` — v4's CSS-first config is the contract. The same `main.css` (or a near-identical sibling) drives the admin SPA.                       |
-| **Lucide everywhere**                      | Single icon library (`lucide-vue-next`), tree-shaken per icon. No Material Symbols variable font, no Heroicons mix, no inline SVG soup. New icons must come from Lucide; if Lucide lacks one, file an issue before improvising.                                    |
+| **Lucide everywhere**                      | Single icon library (`@lucide/vue`), tree-shaken per icon. No Material Symbols variable font, no Heroicons mix, no inline SVG soup. New icons must come from Lucide; if Lucide lacks one, file an issue before improvising.                                        |
 
 Non-goals:
 
 - Component library extraction (`@limen/ui`). Both SPAs are small; duplication is cheaper than a private package until phase 12.
 - RTL support. English-only v1; RTL is a Phase-13 conversation tied to billing localisation.
 - Animations beyond Tailwind's defaults plus `transition-colors` / `transition-transform` and a single `active:scale-95` press affordance. No Lottie, no GSAP, no entrance/exit choreography.
+
+### 1.1 Brand mark — the Limen logo
+
+The canonical logo is a single SVG with **no text** — a rounded blue tile containing a lean `L` monogram and a four-node connector cluster representing the gateway routing tools between clients and upstreams.
+
+<p><img src="assets/limen-logo.svg" alt="Limen logo" width="96" height="96" /></p>
+
+**Canonical source:** [`docs/assets/limen-logo.svg`](assets/limen-logo.svg). The portal SPA ships a byte-identical copy at [`web/portal/src/assets/limen-logo.svg`](../web/portal/src/assets/limen-logo.svg) so Vite can hash + fingerprint it as a build asset. The admin SPA will mirror the same file under `web/admin/src/assets/` when it lands. If you edit the mark, edit **both** copies in the same commit — there is no build step that syncs them.
+
+Rules:
+
+| Rule                | Detail                                                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Colour              | Tile fill is the brand primary `#3c50e0`. Mark strokes/fills are pure white. The tile colour is **fixed** — it does not flip in dark mode. The mark is designed to read against both light surfaces and the dark sidebar.                                          |
+| Minimum size        | 20 × 20 px. Below that the connector dots collapse visually; use a wordmark or initial instead.                                                                                                                                                                     |
+| Topbar tile size    | 28 × 28 px in both portal (`h-portal-header` 64 px) and admin (`h-header-height` 80 px) shells. Class: `h-7 w-7 rounded-md`.                                                                                                                                        |
+| Sidebar brand block | 32 × 32 px tile next to the "Limen Admin / Enterprise Control" stack (Stitch reference). The L-tile remains the same SVG — only the surrounding type changes.                                                                                                       |
+| Alt text            | When the logo sits next to the word "Limen" (topbar, sidebar header), it is decorative — pass `alt=""` and `aria-hidden="true"`. When it appears alone (favicon, OG image, splash), use `alt="Limen"`.                                                              |
+| Don't               | Don't recolour the tile per route/tenant. Don't replace the mark with an emoji or initial. Don't apply drop shadows or gradients. Don't render the mark on a coloured tile other than the brand primary.                                                            |
+
+Usage in a Vue SFC (Vite imports SVGs as URL strings — the file is fingerprinted into `dist/assets/`):
+
+```vue
+<script setup lang="ts">
+import logoUrl from '@/assets/limen-logo.svg'
+</script>
+
+<template>
+  <img :src="logoUrl" alt="" aria-hidden="true" width="28" height="28" class="h-7 w-7 rounded-md" />
+</template>
+```
+
+The favicon, Open Graph image, and any future marketing surfaces all derive from this same SVG.
 
 ---
 
