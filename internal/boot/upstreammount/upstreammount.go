@@ -1,6 +1,7 @@
 // Package upstreammount attaches the OAuth /callback route under
-// /t/{tenant}/upstream/{name}/callback. Requires a built OIDC RP (for
-// the portal-session middleware that gates the callback) and the
+// /t/{tenant}<server.upstream_callback_path>/{name}/callback (default
+// segment "/mcp-servers"). Requires a built OIDC RP (for the
+// portal-session middleware that gates the callback) and the
 // upstream.Service populated by boot.NeedUpstream.
 package upstreammount
 
@@ -19,9 +20,10 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC) {
 		return
 	}
 	transport.MountUpstream(r, transport.UpstreamDeps{
-		Store:   rt.Store,
-		OIDC:    oidc,
-		Service: rt.UpstreamService,
-		Logger:  rt.Logger,
+		Store:        rt.Store,
+		OIDC:         oidc,
+		Service:      rt.UpstreamService,
+		Logger:       rt.Logger,
+		CallbackPath: rt.Cfg.Server.UpstreamCallbackPath,
 	})
 }

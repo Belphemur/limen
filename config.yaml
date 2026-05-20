@@ -4,6 +4,12 @@ server:
   # Public origin Limen is reachable on. Required once Phase 4 lands;
   # used as the OIDC issuer / MCP RS base URL.
   base_url: "${LIMEN_BASE_URL:-https://limen.example.com}"
+  # Path segment for the upstream OAuth redirect URI between
+  # /t/{tenant} and /{name}/callback. Single segment, leading slash,
+  # no trailing slash. Exposed to the portal SPA and to upstream
+  # Authorization Servers via DCR — rename only if the portal route
+  # and any provisioned DCR clients are updated in lockstep.
+  upstream_callback_path: "${LIMEN_UPSTREAM_CALLBACK_PATH:-/mcp-servers}"
 
 # Logger configuration for `gateway serve`. Level accepts debug / info /
 # warn / error (the standard zapcore names). Development=true switches

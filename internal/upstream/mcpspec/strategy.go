@@ -53,7 +53,7 @@ type Options struct {
 	HTTPClient *http.Client
 	// RedirectURLFn builds the absolute URL the upstream AS redirects
 	// back to after the user authorizes. Must be registered with the AS.
-	// Shape: https://<gateway>/t/{tenant_public_id}/upstream/{name}/callback
+	// Shape: https://<gateway>/t/{tenant_public_id}<server.upstream_callback_path>/{name}/callback
 	RedirectURLFn func(tenantPublic, upstreamName string) string
 	// ProactiveWindow is the "refresh if expiring within X" threshold.
 	ProactiveWindow time.Duration

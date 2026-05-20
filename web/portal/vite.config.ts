@@ -30,6 +30,7 @@ export default defineConfig({
     // fallback) so the router can read the tenant slug from the URL.
     proxy: {
       '^/t/[^/]+/(api|auth|oauth)(/|$)': 'http://localhost:8080',
+      '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': 'http://localhost:8080',
       '/auth/callback': 'http://localhost:8080',
       '/auth/login': 'http://localhost:8080',
       '/oauth': 'http://localhost:8080',

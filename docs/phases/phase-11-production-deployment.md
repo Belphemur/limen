@@ -237,13 +237,21 @@ limen.example.com {
     # claim), root /auth/callback, OAuth AS metadata, DCR, healthz.
     # Anything tenant-scoped under /t/{tenant}/ that isn't the portal
     # SPA itself.
+    #
+    # The upstream OAuth callback lives under
+    # /t/{tenant}<server.upstream_callback_path>/{name}/callback — the
+    # path segment is configurable (default "/mcp-servers", see
+    # config.yaml). The bare /t/*/mcp-servers route is owned by the
+    # SPA, so the matcher pins the trailing /*/callback leaf. If you
+    # change server.upstream_callback_path, update this matcher and
+    # web/portal/vite.config.ts in lockstep.
     @api {
         path /t/*/api/*
         path /t/*/auth/*
         path /t/*/oauth/*
         path /t/*/mcp
         path /t/*/mcp/*
-        path /t/*/upstream/*
+        path /t/*/mcp-servers/*/callback
         path /auth/login
         path /auth/callback
         path /.well-known/*

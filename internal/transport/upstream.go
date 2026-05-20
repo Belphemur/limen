@@ -2,8 +2,11 @@
 //
 // Phase 7 only owns one HTTP route: the OAuth redirect URI that upstream
 // Authorization Servers redirect the user to after they authorize. The
-// route lives under /t/{tenant}/upstream/{name}/callback behind the
-// usual tenancy.RequireTenant + OIDC.RequireSession middlewares.
+// route lives under /t/{tenant}<CallbackPath>/{name}/callback behind the
+// usual tenancy.RequireTenant + OIDC.RequireSession middlewares; the
+// path segment is configurable (default "/mcp-servers") via
+// server.upstream_callback_path so deployments can rename it without
+// touching code.
 //
 // Every other portal action (StartConnect, Disconnect, SubmitUpstreamAPIKey)
 // is a plain Go method on upstream.Service. Phase 9b wraps them via
@@ -32,6 +35,10 @@ type UpstreamDeps struct {
 	OIDC    *auth.OIDC
 	Service *upstream.Service
 	Logger  *zap.Logger
+	// CallbackPath is the single path segment between /t/{tenant} and
+	// /{name}/callback, e.g. "/mcp-servers". Required; must start with
+	// "/" and contain no trailing slash.
+	CallbackPath string
 }
 
 // MountUpstream attaches the /callback route to r.
@@ -40,7 +47,11 @@ func MountUpstream(r chi.Router, deps UpstreamDeps) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	r.Route("/t/{tenant}/upstream/{name}/callback", func(cr chi.Router) {
+	if deps.CallbackPath == "" {
+		logger.Error("transport.MountUpstream: CallbackPath is empty; refusing to mount")
+		return
+	}
+	r.Route("/t/{tenant}"+deps.CallbackPath+"/{name}/callback", func(cr chi.Router) {
 		cr.Use(tenancy.RequireTenant(deps.Store, logger))
 		cr.Use(deps.OIDC.RequireSession())
 		cr.Get("/", upstreamCallbackHandler(deps, logger))

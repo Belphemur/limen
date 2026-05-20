@@ -51,10 +51,16 @@ type LoggingConfig struct {
 
 // ServerConfig governs the inbound HTTP listener and the public base URL
 // used as the OIDC issuer / resource identifier in later phases.
+//
+// UpstreamCallbackPath is the path segment between /t/{tenant} and
+// /{name}/callback for the upstream OAuth redirect URI. It must start
+// with "/", contain no further slashes, and is exposed to the SPA + the
+// upstream Authorization Server via DCR. Defaults to "/mcp-servers".
 type ServerConfig struct {
-	Host    string `yaml:"host"`
-	Port    int    `yaml:"port"`
-	BaseURL string `yaml:"base_url"`
+	Host                 string `yaml:"host"`
+	Port                 int    `yaml:"port"`
+	BaseURL              string `yaml:"base_url"`
+	UpstreamCallbackPath string `yaml:"upstream_callback_path"`
 }
 
 // DatabaseConfig configures the Postgres connections used by
@@ -260,6 +266,9 @@ func (c *Config) applyDefaults() {
 	if c.Server.Host == "" {
 		c.Server.Host = "0.0.0.0"
 	}
+	if c.Server.UpstreamCallbackPath == "" {
+		c.Server.UpstreamCallbackPath = "/mcp-servers"
+	}
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
 	}
@@ -383,6 +392,18 @@ func (c *Config) Validate() error {
 func (s ServerConfig) Validate() error {
 	if s.Port <= 0 || s.Port > 65535 {
 		return fmt.Errorf("port %d is out of range", s.Port)
+	}
+	if s.UpstreamCallbackPath != "" {
+		p := s.UpstreamCallbackPath
+		if !strings.HasPrefix(p, "/") {
+			return errors.New("upstream_callback_path must start with '/'")
+		}
+		if strings.HasSuffix(p, "/") {
+			return errors.New("upstream_callback_path must not have a trailing slash")
+		}
+		if strings.Count(p, "/") != 1 {
+			return errors.New("upstream_callback_path must be a single path segment (e.g. /mcp-servers)")
+		}
 	}
 	if s.BaseURL != "" {
 		u, err := url.Parse(s.BaseURL)

@@ -223,7 +223,7 @@ func bootUpstream(rt *Runtime) error {
 
 	mcpStrat, err := mcpspec.New(rt.Store, rt.Cipher, stateStore, mcpspec.Options{
 		RedirectURLFn: func(tenantPublic, upstreamName string) string {
-			return rt.Cfg.Server.BaseURL + "/t/" + tenantPublic + "/upstream/" + upstreamName + "/callback"
+			return rt.Cfg.Server.BaseURL + "/t/" + tenantPublic + rt.Cfg.Server.UpstreamCallbackPath + "/" + upstreamName + "/callback"
 		},
 		ProactiveWindow: rt.Cfg.UpstreamRefresh.ProactiveWindow,
 		SoftwareID:      "limen-gateway",
