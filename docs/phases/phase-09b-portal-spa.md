@@ -299,11 +299,11 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [x] Vitest for unit tests; Playwright for the smoke path (login → connect upstream → tool visible → disconnect)
 - [x] Login flow is Zitadel-only: SPA never renders a password field; portal backend never validates a password; profile / password / MFA / passkey / member-management / IdP federation surfaces are deep-linked to Zitadel Console
 - [x] Authorization is claim-driven: `roleInterceptor` enforces `requiredRole` table against the cached `urn:zitadel:iam:org:project:roles` claim; no Limen-side role tables
-- [ ] Pages: Login, Dashboard, Upstreams, Members, MCP Clients, Settings, Consent
+- [x] Pages: Login, Dashboard, MCP Servers (Upstreams), MCP Clients, Settings — member management lives in the admin SPA's `ZitadelDirectory.vue` ([Phase 9c](phase-09c-tenant-admin-spa.md)), and consent is rendered by Zitadel's hosted UI, so neither is a portal page
 - [x] SPA base path resolved at boot from `/t/<tenant>/portal/`
 - [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
 - [x] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
-- [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/upstream/*` so SPA + API stay same-origin
+- [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/mcp-servers/*/callback` so SPA + API stay same-origin
 - [x] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
 - [x] CSP header set by the static host (Caddy directive or Pages `_headers`)
 - [x] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
