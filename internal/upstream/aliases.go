@@ -1,9 +1,24 @@
 package upstream
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 )
+
+// DecodeAliasesJSON parses storage.Upstream.AliasesJSON into a string
+// slice. A nil, empty, or malformed payload yields a nil slice so
+// callers can range over the result unconditionally.
+func DecodeAliasesJSON(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
 
 // AliasMinTools is the per-prefix floor; a prefix shared by fewer than
 // this many tools is not promoted to an alias.

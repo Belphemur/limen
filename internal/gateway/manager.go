@@ -272,7 +272,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 			}
 		}
 		visible = append(visible, up)
-		aliasesByName[up.Name] = decodeAliasesJSON(up.AliasesJSON)
+		aliasesByName[up.Name] = upstream.DecodeAliasesJSON(up.AliasesJSON)
 	}
 
 	resolved, collisions := upstream.ResolveAliasCollisions(aliasesByName)
@@ -309,17 +309,6 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 		})
 	}
 	return out, nil
-}
-
-func decodeAliasesJSON(raw []byte) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var out []string
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil
-	}
-	return out
 }
 
 // bundleFor returns the cached Bundle for (tenant, upstreamName) or
