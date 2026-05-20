@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { useSessionStore } from './stores/session'
+import { useSessionStore } from '@/stores/session'
 
 const session = useSessionStore()
 const route = useRoute()

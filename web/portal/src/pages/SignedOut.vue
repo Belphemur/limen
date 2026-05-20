@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { useSessionStore } from '../stores/session'
+import { useSessionStore } from '@/stores/session'
 
 // Tenant-agnostic landing page Zitadel bounces back to after end-session.
 // The Limen portal session cookie has already been cleared by /auth/logout

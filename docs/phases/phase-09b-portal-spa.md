@@ -304,8 +304,8 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
 - [x] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
 - [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/upstream/*` so SPA + API stay same-origin
-- [ ] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
-- [ ] CSP header set by the static host (Caddy directive or Pages `_headers`)
+- [x] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
+- [x] CSP header set by the static host (Caddy directive or Pages `_headers`)
 - [x] `vite.config.ts` proxies API / auth / oauth / mcp / upstream paths to local Limen in dev so SPA + API stay same-origin during development
 - [x] `AGENTS.md` build section updated with `buf generate` and `pnpm build`
 - [x] Unit tests for the role-enforcement interceptor (matrix of method × role)

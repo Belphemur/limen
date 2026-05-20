@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import type { MCPClient } from '@gen/limen/portal/v1/portal_pb.js'
-import { portalClient } from '../api/client'
+import { portalClient } from '@/api/client'
 
 const clients = ref<MCPClient[]>([])
 const loading = ref(false)
