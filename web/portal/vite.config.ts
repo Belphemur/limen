@@ -25,17 +25,35 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // Only backend sub-paths under /t/<slug>/ are proxied to Limen on
-    // :8080. The bare /t/<slug>/ path is served by Vite (SPA history
-    // fallback) so the router can read the tenant slug from the URL.
+    // Dev proxy: forward every path Limen owns to the Go process on
+    // :8080. Everything else falls through to Vite's SPA history
+    // fallback so Vue Router can take over.
+    //
+    // Keep this list in lockstep with the Caddyfile @api matcher in
+    // docs/phases/phase-11-production-deployment.md — same rules,
+    // expressed as glob (path) vs regex (proxy) respectively.
+    //
+    // Limen-owned routes:
+    //   /t/<tenant>/api/*                      Connect-RPC portal API
+    //   /t/<tenant>/auth/*                     per-tenant OIDC login/callback/logout
+    //   /t/<tenant>/oauth/*                    OAuth AS redirector + DCR
+    //   /t/<tenant>/mcp                        MCP RS root (streamable HTTP)
+    //   /t/<tenant>/mcp/*                      MCP RS sub-routes (/sse, /message, PRM)
+    //   /t/<tenant>/mcp-servers/<n>/callback   upstream OAuth callback (config: server.upstream_callback_path)
+    //   /auth/login                            tenant-agnostic entry point
+    //   /auth/callback                         OIDC RP callback
+    //   /.well-known/*                         OAuth AS + OIDC + PRM discovery (strict-client variants)
+    //   /healthz                               liveness
+    //
+    // Everything tenant-scoped under /t/<tenant>/ that is NOT listed
+    // above belongs to the SPA (notably the bare /t/<tenant>/mcp-servers
+    // page).
     proxy: {
-      '^/t/[^/]+/(api|auth|oauth)(/|$)': 'http://localhost:8080',
+      '^/t/[^/]+/(api|auth|oauth|mcp)(/|\\?|$)': 'http://localhost:8080',
       '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': 'http://localhost:8080',
-      '/auth/callback': 'http://localhost:8080',
-      '/auth/login': 'http://localhost:8080',
-      '/oauth': 'http://localhost:8080',
-      '/mcp': 'http://localhost:8080',
-      '/healthz': 'http://localhost:8080',
+      '^/\.well-known/': 'http://localhost:8080',
+      '^/auth/(login|callback)(/|\\?|$)': 'http://localhost:8080',
+      '^/healthz$': 'http://localhost:8080',
     },
   },
   build: {

@@ -231,20 +231,29 @@ limen.example.com {
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'"
 
-    # Routes owned by Limen — Connect-RPC portal API, OAuth proxy, MCP RS,
-    # per-tenant OIDC login/logout, root /auth/login (tenant-agnostic
-    # entry point — callback resolves tenant from the user's home-org
-    # claim), root /auth/callback, OAuth AS metadata, DCR, healthz.
-    # Anything tenant-scoped under /t/{tenant}/ that isn't the portal
-    # SPA itself.
+    # Routes owned by Limen. Anything tenant-scoped under /t/{tenant}/
+    # that is NOT listed here (notably the bare /t/*/mcp-servers page)
+    # belongs to the SPA.
     #
-    # The upstream OAuth callback lives under
-    # /t/{tenant}<server.upstream_callback_path>/{name}/callback — the
-    # path segment is configurable (default "/mcp-servers", see
-    # config.yaml). The bare /t/*/mcp-servers route is owned by the
-    # SPA, so the matcher pins the trailing /*/callback leaf. If you
-    # change server.upstream_callback_path, update this matcher and
-    # web/portal/vite.config.ts in lockstep.
+    #   /t/<tenant>/api/*                       Connect-RPC portal API
+    #   /t/<tenant>/auth/*                      per-tenant OIDC login/callback/logout
+    #   /t/<tenant>/oauth/*                     OAuth AS redirector + DCR (/register lives here)
+    #   /t/<tenant>/mcp                         MCP RS root (streamable HTTP)
+    #   /t/<tenant>/mcp/*                       MCP RS sub-routes (/sse, /message, PRM)
+    #   /t/<tenant>/mcp-servers/<n>/callback    upstream OAuth callback
+    #                                           (config: server.upstream_callback_path,
+    #                                            default "/mcp-servers")
+    #   /auth/login                             tenant-agnostic entry point
+    #   /auth/callback                          OIDC RP callback
+    #   /.well-known/*                          OAuth AS + OIDC + PRM discovery
+    #                                           (RFC 8414 well-known-insertion variants)
+    #   /healthz                                liveness
+    #
+    # Keep this matcher in lockstep with the Vite proxy in
+    # web/portal/vite.config.ts — both lists must move together. The bare
+    # /t/*/mcp-servers route is owned by the SPA, so the matcher pins
+    # the trailing /*/callback leaf; if you change
+    # server.upstream_callback_path, update both files.
     @api {
         path /t/*/api/*
         path /t/*/auth/*
@@ -255,7 +264,6 @@ limen.example.com {
         path /auth/login
         path /auth/callback
         path /.well-known/*
-        path /register*
         path /healthz
     }
     reverse_proxy @api limen:8080
