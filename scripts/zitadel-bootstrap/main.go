@@ -149,24 +149,37 @@ func (b *bootstrap) findAppRaw(ctx context.Context, projectID, name string) (*ap
 
 func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirectURI, postLogoutURI string) (string, error) {
 	postLogoutURIs := postLogoutURIVariants(postLogoutURI)
+	redirectURIs := []string{redirectURI}
 	if existing, err := b.findAppRaw(ctx, projectID, name); err == nil && existing != nil {
 		oidc := existing.GetOidcConfiguration()
 		if oidc == nil {
 			return "", fmt.Errorf("app %q exists but is not OIDC", name)
 		}
-		if len(postLogoutURIs) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), postLogoutURIs) {
+		needsRedirect := !containsAll(oidc.GetRedirectUris(), redirectURIs)
+		needsPostLogout := len(postLogoutURIs) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), postLogoutURIs)
+		if needsRedirect || needsPostLogout {
+			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{}
+			if needsRedirect {
+				cfg.RedirectUris = redirectURIs
+			}
+			if needsPostLogout {
+				cfg.PostLogoutRedirectUris = postLogoutURIs
+			}
 			if _, err := b.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
 				ProjectId:     projectID,
 				ApplicationId: existing.GetApplicationId(),
 				ApplicationType: &applicationV2.UpdateApplicationRequest_OidcConfiguration{
-					OidcConfiguration: &applicationV2.UpdateOIDCApplicationConfigurationRequest{
-						PostLogoutRedirectUris: postLogoutURIs,
-					},
+					OidcConfiguration: cfg,
 				},
 			}); err != nil {
-				return "", fmt.Errorf("update OIDC app %q post-logout URIs: %w", name, err)
+				return "", fmt.Errorf("update OIDC app %q URIs: %w", name, err)
 			}
-			log.Printf("updated %s post-logout URIs: %v", name, postLogoutURIs)
+			if needsRedirect {
+				log.Printf("updated %s redirect URIs: %v", name, redirectURIs)
+			}
+			if needsPostLogout {
+				log.Printf("updated %s post-logout URIs: %v", name, postLogoutURIs)
+			}
 		}
 		return oidc.GetClientId(), nil
 	}
@@ -175,7 +188,7 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirect
 		Name:      name,
 		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
-				RedirectUris:             []string{redirectURI},
+				RedirectUris:             redirectURIs,
 				PostLogoutRedirectUris:   postLogoutURIs,
 				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
 				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN},
@@ -411,8 +424,14 @@ func main() {
 	}
 	log.Printf("project: %s", projectID)
 
-	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:8080/auth/callback")
-	portalPostLogout := getenvDefault("LIMEN_PORTAL_POST_LOGOUT", "http://localhost:8080/")
+	// Defaults target the Vite dev origin (web/portal pnpm dev). The
+	// browser stays on a single origin throughout login/logout so the
+	// portal cookie is same-origin and the SPA picks up the session on
+	// the next render. Vite proxies /auth/* to Limen; the /signed-out
+	// route is a tenant-agnostic SPA page that Zitadel bounces back to
+	// after end-session.
+	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:5173/auth/callback")
+	portalPostLogout := getenvDefault("LIMEN_PORTAL_POST_LOGOUT", "http://localhost:5173/signed-out")
 	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", portalRedirect, portalPostLogout)
 	if err != nil {
 		log.Fatalf("ensure portal app: %v", err)

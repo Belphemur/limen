@@ -30,12 +30,13 @@ test -f scripts/zitadel-bootstrap/.bootstrap-out.env || { \
 set -a
 source scripts/zitadel-bootstrap/.bootstrap-out.env
 source .env.dev
-export LIMEN_BASE_URL=http://localhost:8080
+export LIMEN_BASE_URL=http://localhost:5173
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_OIDC_ISSUER=http://localhost:8081
 export LIMEN_OIDC_CLIENT_ID="$$LIMEN_OIDC_PORTAL_CLIENT_ID"
-export LIMEN_OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
+export LIMEN_OIDC_REDIRECT_URI=http://localhost:5173/auth/callback
+export LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:5173/signed-out
 export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
 export LIMEN_ZITADEL_AUTH_MODE=pat
 export LIMEN_ZITADEL_PAT="$$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)"
