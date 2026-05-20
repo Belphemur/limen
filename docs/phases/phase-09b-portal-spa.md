@@ -231,9 +231,22 @@ go build ./...
 
 `AGENTS.md` (Phase 10) documents this sequence.
 
+### Login flow
+
+Login is delegated end-to-end to Zitadel — the SPA never collects credentials, and Limen never validates a password. The flow is:
+
+1. The router guard sees an unauthenticated request for a protected route and 302s the browser to `GET /t/{tenant}/auth/login?return_to=<path>` (tenant-scoped) or `GET /auth/login` (tenant-agnostic, e.g. from a marketing link). Both are handled by `OIDC.LoginHandler` in [`internal/auth/oidc.go`](../../internal/auth/oidc.go).
+2. `LoginHandler` mints a signed `State{tenant, returnTo, nonce, exp}` (see [`internal/auth/state.go`](../../internal/auth/state.go)), drops it in an `HttpOnly; SameSite=Lax` `_limen_oidc_state` cookie scoped to `/auth/callback`, and 302s the browser to Zitadel's `/authorize` with the same signed value passed as the OIDC `state` parameter.
+3. Zitadel renders its hosted credentials UI (password + MFA + passkeys + external IdPs — all owned by Zitadel) and on success redirects to `GET /auth/callback?code=...&state=...`.
+4. `CallbackHandler` verifies the `state` query parameter equals the cookie value (CSRF defence), verifies the HMAC signature on the cookie, exchanges the code for tokens via the configured OIDC RP, resolves the tenant (from `state.Tenant` when the user started tenant-scoped, otherwise from the ID-token's Zitadel home-org claim), confirms the token's org matches the tenant, upserts the `User` row, and sets the portal cookie at `Path=/t/<tenant>` (`HttpOnly; Secure; SameSite=Lax`).
+5. The browser is 302'd to `state.ReturnTo` (sanitised by `safeReturnTo` to stay on-origin), landing the user inside the SPA with a valid portal session.
+
 ### CSRF & content-type
 
-Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`, both browser-preflight-triggering. Browsers therefore won't send these CORS preflighted requests cross-origin from a third-party site, mitigating CSRF. The OIDC login flow itself is CSRF-protected by the signed `state` parameter (Phase 4).
+Two orthogonal defences, one per surface:
+
+- **OIDC round-trip** (`/auth/login` → Zitadel → `/auth/callback`): CSRF-protected by the HMAC-signed `state` parameter. The callback rejects any request where the `state` query value does not equal the `_limen_oidc_state` cookie, and where the signature does not verify under the Phase 2 key. There is no Limen-rendered form to forge a POST against in the first place — `/auth/login` is `GET`-only.
+- **Connect-RPC API** at `/t/{tenant}/api/...`: protected by the `Content-Type: application/connect+json` / `application/proto` requirement. Both content types trigger a CORS preflight, which a third-party origin cannot satisfy without an explicit `Access-Control-Allow-Origin` from Limen — and the portal is same-origin-only, so no such header is ever sent. No double-submit CSRF cookie is needed.
 
 ## Deliverables
 
@@ -301,7 +314,7 @@ Connect-RPC uses `Content-Type: application/connect+json` or `application/proto`
 - [x] Authorization is claim-driven: `roleInterceptor` enforces `requiredRole` table against the cached `urn:zitadel:iam:org:project:roles` claim; no Limen-side role tables
 - [x] Pages: Login, Dashboard, MCP Servers (Upstreams), MCP Clients, Settings — member management lives in the admin SPA's `ZitadelDirectory.vue` ([Phase 9c](phase-09c-tenant-admin-spa.md)), and consent is rendered by Zitadel's hosted UI, so neither is a portal page
 - [x] SPA base path resolved at boot from `/t/<tenant>/portal/`
-- [ ] Login flow uses classic POST + cookie (no JSON), CSRF via double-submit cookie
+- [x] Login flow is `GET`-only `/auth/login` → Zitadel hosted UI → `/auth/callback` → portal cookie; CSRF on the round-trip is the HMAC-signed `state` (Phase 4) and on the Connect-RPC API is the preflight-triggering `application/connect+json` content type — no Limen-rendered form, no double-submit cookie required (see _Login flow_ above)
 - [x] SPA built to `web/dist/`; no `//go:embed`; no SPA fallback handler in Go
 - [ ] Cloudflare Pages deployment path: `wrangler pages deploy web/dist/` from CI; Worker / Pages Functions reverse-proxy for `/t/*/api/*`, `/auth/*`, `/oauth/*`, `/mcp/*`, `/t/*/mcp-servers/*/callback` so SPA + API stay same-origin
 - [x] Static-host wiring documented in Phase 11 for both Cloudflare Pages (managed default) and Caddy `file_server` (self-hosted)
