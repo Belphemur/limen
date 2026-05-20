@@ -8,79 +8,61 @@ Limen is configured entirely via a YAML file. Pass the path at startup:
 
 ## Quick Examples
 
-### Single Upstream
+### Minimal
 
 ```yaml
 server:
   host: "0.0.0.0"
   port: 8080
+  base_url: "https://limen.example.com"
 
-upstreams:
-  - name: "github"
-    url: "https://api.github.com/mcp"
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
-    timeout: "30s"
+database:
+  dsn: "${LIMEN_DB_DSN}"
+
+security:
+  token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
 
 codemode:
   execution_timeout: "30s"
   max_memory_mb: 64
 ```
 
-### Multiple Upstreams
+### Auth-Enabled (Zitadel)
 
 ```yaml
 server:
   host: "0.0.0.0"
   port: 8080
+  base_url: "https://limen.example.com"
 
-upstreams:
-  - name: "github"
-    url: "https://api.github.com/mcp"
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
-    timeout: "30s"
+database:
+  dsn: "${LIMEN_DB_DSN}"
+  admin_dsn: "${LIMEN_DB_ADMIN_DSN}"
 
-  - name: "jira"
-    url: "https://jira.example.com/mcp"
-    headers:
-      Authorization: "Bearer ${JIRA_TOKEN}"
-    timeout: "15s"
-
-  - name: "internal-docs"
-    url: "http://docs.internal:9000/mcp"
-    timeout: "10s"
-
-codemode:
-  execution_timeout: "30s"
-  max_memory_mb: 64
-```
-
-### Auth-Enabled
-
-```yaml
-server:
-  host: "127.0.0.1"
-  port: 8443
-
-upstreams:
-  - name: "github"
-    url: "https://api.github.com/mcp"
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
-    timeout: "30s"
+security:
+  token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
 
 codemode:
   execution_timeout: "60s"
   max_memory_mb: 128
 
+oidc:
+  issuer: "${LIMEN_OIDC_ISSUER}"
+  client_id: "${LIMEN_OIDC_CLIENT_ID}"
+  redirect_uri: "${LIMEN_OIDC_REDIRECT_URI}"
+  scopes: [openid, profile, email, offline_access]
+
 zitadel:
-  domain: "https://auth.example.com"
+  domain: "${LIMEN_ZITADEL_DOMAIN}"
   auth_mode: "pat"
   pat: "${LIMEN_ZITADEL_PAT}"
-  project_id: "my-zitadel-project-id"
-  mcp_resource_audience: "my-zitadel-project-id"
+  project_id: "${LIMEN_ZITADEL_PROJECT_ID}"
+  mcp_resource_audience: "${LIMEN_ZITADEL_MCP_RESOURCE_AUDIENCE}"
 ```
+
+> **Note:** Upstream MCP servers are no longer configured in YAML. They are stored
+> per-tenant in the database and managed via `limen create-upstream` or the portal UI.
+> See [upstreams.md](upstreams.md) for details.
 
 ---
 
@@ -97,14 +79,13 @@ Bindings for the HTTP/SSE server that LLM clients connect to.
 
 ### `upstreams`
 
-A list of remote MCP servers to aggregate. Each upstream is connected at startup; if a connection fails, that upstream is skipped but the gateway continues with the remaining ones. The gateway will not start if **zero** upstreams connect successfully.
+Upstream MCP servers are **not** configured in YAML. They are stored per-tenant
+in the database and managed through the `limen create-upstream` CLI command or
+the portal UI. Each upstream is owned by a tenant and uses a
+strategy-driven credential model (`none`, `static_header`, `mcp_spec`).
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `name` | `string` | Yes | -- | Unique identifier for this upstream. Used to namespace tools and in logs. Must not contain duplicate values across the list. |
-| `url` | `string` | Yes | -- | MCP Streamable HTTP endpoint URL. Limen uses the `mcp-go` Streamable HTTP client to communicate. |
-| `headers` | `map[string]string` | No | `{}` | Custom HTTP headers sent with every request to this upstream. Supports environment variable substitution with `${VAR_NAME}` syntax. Commonly used for `Authorization: "Bearer ${TOKEN}"`. |
-| `timeout` | `duration` | No | `30s` | Per-request timeout for all operations with this upstream (connect, list tools, call tool). Parsed as Go duration string (e.g., `30s`, `1m`, `500ms`). |
+See [upstreams.md](upstreams.md) for a full guide to upstream configuration and
+authentication strategies.
 
 ### `codemode`
 
@@ -112,7 +93,8 @@ Settings for the JavaScript sandbox (Code Mode) that executes LLM-generated code
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `execution_timeout` | `duration` | `30s` | Maximum time allowed for a single JS execution (both `search` and `execute`). Prevents infinite loops. Parsed as Go duration string. If the timeout fires, the Goja VM is interrupted and an error is returned. |
+| `execution_timeout` | `duration` | `30s` | Maximum time allowed for a single JS execution. Prevents infinite loops. Parsed as Go duration string. If the timeout fires, the Goja VM is interrupted and an error is returned. |
+| `script_timeout` | `duration` | falls back to `execution_timeout` | Per-invocation wall-clock cap. Defaults to `10s` when zero; inherits `execution_timeout` if that is set and `script_timeout` is not, so existing configs keep working. |
 | `max_tool_calls` | `int` | `50` | Maximum number of upstream tool invocations a single Code Mode script may issue. Exceeding this aborts the script with an uncatchable quota error. |
 | `max_concurrent_tool_calls` | `int` | `8` | Maximum number of upstream tool calls allowed to be in flight at once. `Promise.all` fan-out beyond this cap is queued on a semaphore; total invocations are still bounded by `max_tool_calls`. |
 | `max_memory_mb` | `int` | `64` | Intended cap on JS heap size. **Note:** This value is configured but not yet enforced in the runtime. Reserved for future implementation. |
@@ -136,24 +118,32 @@ token whose `aud` claim does not contain `mcp_resource_audience`.
 
 ## Environment Variable Substitution
 
-The `headers` map in upstream config supports `${VAR_NAME}` syntax. The gateway reads these variables from the process environment at config load time. For example:
+All string scalars in the YAML config support `${VAR_NAME}` expansion. The
+gateway substitutes values from the process environment before parsing YAML.
+Two forms are supported:
+
+| Syntax | Behaviour |
+|--------|----------|
+| `${VAR}` | Required — load error if `VAR` is unset |
+| `${VAR:-fallback}` | Optional — uses `fallback` if `VAR` is unset or empty |
+
+Example:
 
 ```yaml
-upstreams:
-  - name: "github"
-    url: "https://api.github.com/mcp"
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
+database:
+  dsn: "${LIMEN_DB_DSN}"
+  admin_dsn: "${LIMEN_DB_ADMIN_DSN:-}"
+
+zitadel:
+  pat: "${LIMEN_ZITADEL_PAT}"
 ```
 
-Before connecting, Limen resolves `${GITHUB_TOKEN}` to the value of the `GITHUB_TOKEN` environment variable. If the variable is unset, the literal string `""` (empty) is used.
-
-Set environment variables before starting Limen:
+Set variables before starting Limen:
 
 ```bash
-export GITHUB_TOKEN=ghp_xxxx
-export JIRA_TOKEN=atlassian_token_here
-./limen -config config.yaml
+export LIMEN_DB_DSN="postgres://limen_app:pass@localhost/limen"
+export LIMEN_ZITADEL_PAT="pat_xxxx"
+./limen serve --config config.yaml
 ```
 
 ## Duration Format
@@ -175,17 +165,24 @@ When omitted, these defaults are applied:
 |-------|---------|
 | `server.host` | `"0.0.0.0"` |
 | `server.port` | `8080` |
-| `upstreams[].timeout` | `30s` (Go zero-duration, so must be specified to override) |
+| `server.upstream_callback_path` | `"/mcp-servers"` |
 | `codemode.execution_timeout` | `30s` |
+| `codemode.script_timeout` | `10s` (or inherits `execution_timeout`) |
 | `codemode.max_tool_calls` | `50` |
 | `codemode.max_concurrent_tool_calls` | `8` |
 | `codemode.max_memory_mb` | `64` |
-| `auth.enabled` | `false` |
+| `upstream_refresh.interval` | `2m` |
+| `upstream_refresh.refresh_window` | `5m` |
+| `upstream_refresh.proactive_window` | `60s` |
+| `upstream_refresh.fail_threshold` | `5` |
+| `upstream_refresh.fail_window` | `15m` |
+| `upstream_refresh.needs_relink_window` | `24h` |
+| `upstream_refresh.catalog_interval` | `6h` |
 
 ## Startup Behavior
 
-1. Load and parse YAML; apply defaults for missing fields.
-2. For each upstream: create client, connect via Streamable HTTP, send MCP initialize handshake, list tools.
-3. If an upstream fails to connect, log the error and skip it.
-4. If **zero** upstreams connected, exit with a fatal error.
-5. Start the SSE server on `host:port`.
+1. Load and parse YAML; apply environment-variable substitution; validate required fields.
+2. Open Postgres connection pools (app + admin DSNs).
+3. Load all active, provisioned upstreams for all tenants from the database.
+4. Start the background upstream-refresh loop (`upstream_refresh` settings).
+5. Start the HTTP/SSE server on `server.host:server.port`.
