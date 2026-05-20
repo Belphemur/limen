@@ -337,7 +337,7 @@ CreateUpstream, UpdateUpstream, DeleteUpstream,
 UpdateTenantSettings
 ```
 
-`PortalService` keeps the user-scoped subset: `GetSession`, `ListUpstreams`, `StartConnect`, `SubmitUpstreamAPIKey`, `SetUpstreamLinkEnabled`, `Disconnect`, `ListMCPClients`, `RevokeMCPClient`.
+`PortalService` keeps the user-scoped subset: `ListUpstreams`, `StartConnect`, `SubmitUpstreamAPIKey`, `SetUpstreamLinkEnabled`, `Disconnect`, `ListMCPClients`, `RevokeMCPClient`. The session bootstrap RPC (`GetSession`) moves to the shared `limen.session.v1.SessionService` — see [Phase 9d](phase-09d-shared-session-service.md).
 
 Previously-considered member / IdP / TransferOwnership RPCs are **dropped entirely** — they are not Limen's responsibility (see Phase 4 _Self-service delegation_).
 

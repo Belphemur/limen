@@ -1,5 +1,12 @@
 # AGENTS.md — Limen (MCP Gateway)
 
+## Engineering posture (read first)
+
+- **DRY, SOLID, KISS — always.** If the same logic appears in two places, lift it. If a service has two unrelated responsibilities, split it. If a clever abstraction is shorter than the obvious one, keep the obvious one. These rules win against personal taste, file-locality convenience, and "I'll refactor it later."
+- **Full development mode.** Limen has no external users yet. **Breaking changes are accepted and expected.** When DRYing or refactoring, do the cutover in one commit — do **not** add migration shims, compatibility aliases, deprecated re-exports, or transitional code paths. Delete the old name in the same change that introduces the new one.
+- **Cross-cutting concerns get their own home.** A capability used by ≥2 callers belongs in a shared package (`internal/<concern>/`, `web/shared/`, etc.), not duplicated. The shared `SessionService` ([Phase 9d](docs/phases/phase-09d-shared-session-service.md)) is the canonical example.
+- **No backwards-compatibility tax.** No feature flags for behaviour we'll always want. No `v1alpha → v1` aliases. Bump the proto, regenerate, delete the old call sites — all in one PR.
+
 ## Project Overview
 
 Limen is a Model Context Protocol (MCP) gateway written in Go. It aggregates upstream MCP servers into a unified endpoint, exposing their tools over HTTP/SSE transport. Clients connect to Limen as a single MCP server, while Limen routes requests to the configured upstream servers.

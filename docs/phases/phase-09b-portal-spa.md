@@ -44,11 +44,9 @@ package limen.portal.v1;
 // Limen-domain operations: upstream catalog CRUD, tenant settings,
 // and self-serve tenant signup.
 service PortalService {
-  // Public — no session required. The SPA calls this on boot to discover whether
-  // the user already has a valid portal session; if not, the SPA redirects the
-  // browser to /auth/login?tenant=<tenant>&return_to=... (which initiates the
-  // Zitadel OIDC flow — see Phase 4).
-  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Session bootstrap moved to limen.session.v1.SessionService — see
+  // Phase 9d (phase-09d-shared-session-service.md). PortalService is
+  // user-action surface only; both SPAs share the session RPC.
 
   // Authenticated (any role)
   rpc ListUpstreams(ListUpstreamsRequest) returns (ListUpstreamsResponse);
@@ -124,7 +122,6 @@ Required-role table (illustrative):
 
 ```go
 var requiredRole = map[string]Role{
-    "GetSession":          RoleAny,
     "ListUpstreams":       RoleMember,
     "StartConnect":        RoleMember,
     "SubmitUpstreamAPIKey":RoleMember,
@@ -134,6 +131,8 @@ var requiredRole = map[string]Role{
     "RevokeMCPClient":     RoleMember,
 }
 ```
+
+`SessionService.GetSession` is mounted separately ([Phase 9d](phase-09d-shared-session-service.md)) with only the tenancy + portal-session interceptors — no role interceptor.
 
 All admin / owner RPCs live in [Phase 9c](phase-09c-tenant-admin-spa.md)'s `AdminService` and have their own required-role table there.
 
@@ -187,13 +186,13 @@ Dependency policy: every direct dependency must be "latest stable" at the time o
 Login and every authorization decision are delegated to Zitadel. The
 SPA owns navigation and presentation; it does not own identity.
 
-1. SPA boots, calls `GetSession` (the only RPC that does not require an authenticated session).
+1. SPA boots, calls `SessionService.GetSession` ([Phase 9d](phase-09d-shared-session-service.md) — the only RPC that does not require an authenticated session).
 2. If unauthenticated, the `/login` route renders a single "Sign in with Zitadel" button.
 3. Clicking it navigates the browser to `/auth/login?tenant=<tenant>&return_to=<current path>`.
 4. Limen's `/auth/login` handler ([Phase 4](phase-04-tenant-auth-session.md)) signs state and redirects to Zitadel's authorize endpoint.
 5. Zitadel renders its hosted login UI — password, MFA, passkeys, external IdP federation, password reset, account recovery, email / phone verification. All of it. Limen has zero UI responsibility here.
 6. Zitadel returns to `/auth/callback`. Limen exchanges the code, validates the ID token (issuer + audience + signature via JWKS), reads the `urn:zitadel:iam:org:project:roles` claim, sets the portal cookie (`Path=/t/<tenant>; HttpOnly; Secure; SameSite=Lax`), redirects to `/t/<tenant>/portal/<return_to>`.
-7. SPA reloads, `GetSession` succeeds, dashboard renders.
+7. SPA reloads, `SessionService.GetSession` succeeds, dashboard renders.
 
 Guarantees this flow buys us:
 
@@ -201,7 +200,7 @@ Guarantees this flow buys us:
 - **No Limen-side identity tables.** No `users.password_hash`, no `users.totp_secret`, no `password_reset_tokens`. The `User` row only mirrors `ZitadelSubject` + display fields.
 - **Authorization is claim-driven.** The portal-session interceptor populates `*User` + roles from the cached Zitadel claim; the `roleInterceptor` enforces against the per-RPC `requiredRole` table. Backend RPCs never re-derive role membership from a Limen-side table.
 - **Self-service primitives are deep-linked, not re-implemented.** Profile, password change, MFA, passkey enrollment, social logins, session listing, and member / role grant management all open Zitadel Console in a new tab. The SPA renders the deep-link card; it does not render the form.
-- **Session revocation is Zitadel-side.** Logout calls Zitadel's end-session endpoint (with `post_logout_redirect_uri` back to the SPA) and clears the portal cookie. Forced revocation from a Zitadel admin (terminate session) causes the next `GetSession` to fail validation and the SPA falls back to the login route.
+- **Session revocation is Zitadel-side.** Logout calls Zitadel's end-session endpoint (with `post_logout_redirect_uri` back to the SPA) and clears the portal cookie. Forced revocation from a Zitadel admin (terminate session) causes the next `SessionService.GetSession` to fail validation and the SPA falls back to the login route.
 
 ### Build & deploy
 
