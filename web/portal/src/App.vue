@@ -24,8 +24,8 @@ function closeMenu() {
     <header
       class="sticky top-0 z-topbar border-b border-border-subtle bg-surface backdrop-blur supports-[backdrop-filter]:bg-surface/90">
       <div class="mx-auto flex h-portal-header max-w-6xl items-center justify-between px-4">
-        <RouterLink to="/" class="flex items-center gap-2 font-display text-lg font-semibold tracking-tight">
-          <img :src="logoUrl" alt="" aria-hidden="true" width="28" height="28" class="h-7 w-7 rounded-md" />
+        <RouterLink to="/" class="flex items-center gap-3 font-display text-xl font-semibold tracking-tight">
+          <img :src="logoUrl" alt="" aria-hidden="true" width="44" height="44" class="h-11 w-11 rounded-lg" />
           <span>Limen Portal</span>
         </RouterLink>
 
