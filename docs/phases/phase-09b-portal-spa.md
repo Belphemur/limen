@@ -175,7 +175,7 @@ Stack — pinned at "latest stable" for v1; the lockfile is the source of truth,
 - **Pinia** (latest 2.x) for state (`session`, `upstreams`).
 - **Vue Router** (latest 4.x) for `/login`, `/`, `/upstreams`, `/mcp-clients`, `/settings`. Base path is `/t/<tenant>/portal`; resolved at boot from `window.location.pathname`. (Member management lives in the admin SPA at `/t/<tenant>/admin/` — see [Phase 9c](phase-09c-tenant-admin-spa.md) — which links out to Zitadel Console.)
 - **`@connectrpc/connect-web`** (latest) for typed RPC calls. Codegen output lives under `web/src/gen/`.
-- **Tailwind CSS** (latest 4.x) for styling — keeps dependency count low and gives us consistent design tokens.
+- **Tailwind CSS** (latest 4.x) for styling — keeps dependency count low and gives us consistent design tokens. The token set, theming model, and component vocabulary are normative in [`docs/frontend-design.md`](../frontend-design.md).
 - **ESLint** + **Prettier** + **`@vue/eslint-config-typescript`** at latest stable; one config, no per-package overrides.
 - **Vitest** (latest) for unit tests; **Playwright** (latest) for the smoke test path.
 - **No SSR.** **No Nuxt.** **No state-management lib other than Pinia.** **No alternative router.**

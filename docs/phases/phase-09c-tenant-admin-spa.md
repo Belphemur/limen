@@ -19,6 +19,8 @@ Phase 9b handles the **user**'s view of their own tenant (link/unlink upstreams,
 
 Splitting the bundle at the route-loader level means a `member` browsing the customer portal never downloads the admin code, and an unauthenticated visitor to `/signup` never downloads either gated bundle.
 
+The admin SPA's visual language — sidebar structure, topbar layout, design tokens, theming (light + dark), component vocabulary, and the Lucide icon mapping — is normative in [`docs/frontend-design.md`](../frontend-design.md). This phase implements that spec; it does not redefine it.
+
 ## Design
 
 ### Where the admin SPA lives
