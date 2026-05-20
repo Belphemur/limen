@@ -14,7 +14,7 @@ export interface PortalUser {
 // loaded distinguishes "we haven't asked yet" from "we asked and the
 // user isn't authenticated" — the router guard depends on this to
 // avoid an infinite redirect loop on the /login page itself.
-export const useSessionStore = defineStore('session', ;() => {
+export const useSessionStore = defineStore('session', () => {
   const loaded = ref(false)
   const authenticated = ref(false)
   const user = ref<PortalUser | null>(null)
