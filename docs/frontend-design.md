@@ -530,11 +530,11 @@ Top-right stack, `z-toast`. Each toast: `bg-surface border-l-4 border-{token} ro
 
 ## 7. Icons — Lucide
 
-Package: `lucide-vue-next`. Each icon imported by name; the bundler tree-shakes the rest.
+Package: `@lucide/vue` (the maintained successor to the deprecated `lucide-vue-next`). Each icon imported by name; the bundler tree-shakes the rest.
 
 ```vue
 <script setup lang="ts">
-import { LayoutDashboard, Brain, Building2, Plus, Settings, LogOut } from 'lucide-vue-next';
+import { LayoutDashboard, Brain, Building2, Plus, Settings, LogOut } from '@lucide/vue';
 </script>
 
 <template>

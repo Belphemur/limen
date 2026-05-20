@@ -8,3 +8,8 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>
   export default component
 }
+
+// Side-effect imports for self-hosted variable fonts. The packages ship CSS
+// without TS type declarations, so we stub them as empty modules.
+declare module '@fontsource-variable/inter'
+declare module '@fontsource-variable/outfit'
