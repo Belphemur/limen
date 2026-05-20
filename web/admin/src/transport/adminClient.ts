@@ -1,85 +1,89 @@
-// Hand-written interface for the admin RPCs the SPA needs while
-// proto/limen/admin/v1/admin.proto is being authored. When the proto
-// lands, this module is replaced by a thin wrapper around the
-// generated AdminService client.
+// Connect-RPC clients for the tenant admin SPA.
 //
-// Session identity is owned by limen.session.v1.SessionService; this
-// module no longer carries a getSession() method. Consumers must
-// read the current tenant/user/role from @limen/shared/session.
+// PortalService + AdminService share the per-tenant transport
+// (cookie-bearing, baseUrl /t/{tenant}/admin/api); SignupService rides
+// a separate root-scoped transport (baseUrl /api) because the wizard
+// runs before any tenant exists.
 //
-// TODO(phase-9c-proto): wire to generated AdminService client when proto lands.
+// All transports are cached at module scope so tests can swap them
+// via set*Transport (typically with createRouterTransport from
+// @connectrpc/connect).
 
-export type Role = 'owner' | 'admin' | 'member'
+import { createClient, type Client, type Transport } from '@connectrpc/connect'
+import { createConnectTransport } from '@connectrpc/connect-web'
 
-export interface UpstreamRow {
-  id: string
-  name: string
-  status: 'pending_catalog' | 'ready' | 'error'
-  toolCount: number
+import { AdminService } from '@/gen/limen/admin/v1/admin_pb.ts'
+import { PortalService } from '@/gen/limen/portal/v1/portal_pb.ts'
+import { SignupService } from '@/gen/limen/signup/v1/signup_pb.ts'
+
+function discoverTenant(): string {
+  const w = window as Window & { __LIMEN_TENANT__?: string }
+  if (w.__LIMEN_TENANT__) return w.__LIMEN_TENANT__
+  const match = window.location.pathname.match(/^\/t\/([^/]+)\//)
+  return match ? match[1] : 'dev'
 }
 
-export interface ListUpstreamsResponse {
-  upstreams: UpstreamRow[]
+function cookieFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(input, { ...init, credentials: 'include' })
 }
 
-export interface TenantSettings {
-  name: string
-  invitedTeamAt: string | null
-  configuredAt: string | null
+let adminTransportCache: Transport | null = null
+let signupTransportCache: Transport | null = null
+
+function buildAdminTransport(): Transport {
+  return createConnectTransport({
+    baseUrl: `${window.location.origin}/t/${discoverTenant()}/admin/api`,
+    fetch: cookieFetch,
+  })
 }
 
-export interface AdminClient {
-  listUpstreams(): Promise<ListUpstreamsResponse>
-  getTenantSettings(): Promise<TenantSettings>
-  markInvitedTeam(): Promise<void>
+function buildSignupTransport(): Transport {
+  return createConnectTransport({
+    baseUrl: `${window.location.origin}/api`,
+    fetch: cookieFetch,
+  })
 }
 
-// Dev / preview fixtures. Kept gated behind import.meta.env.DEV so a
-// production bundle that accidentally reaches this module crashes
-// loudly instead of serving stale fake data.
-const DEV_FIXTURES = {
-  upstreams: { upstreams: [] as UpstreamRow[] },
-  settings: {
-    name: 'Acme Corp',
-    invitedTeamAt: null as string | null,
-    configuredAt: null as string | null,
-  },
+function adminTransport(): Transport {
+  if (!adminTransportCache) adminTransportCache = buildAdminTransport()
+  return adminTransportCache
 }
 
-class MockAdminClient implements AdminClient {
-  // TODO(phase-9c-proto): replace every method with a generated stub call.
-  async listUpstreams(): Promise<ListUpstreamsResponse> {
-    return Promise.resolve(DEV_FIXTURES.upstreams)
-  }
-  async getTenantSettings(): Promise<TenantSettings> {
-    return Promise.resolve({ ...DEV_FIXTURES.settings })
-  }
-  async markInvitedTeam(): Promise<void> {
-    DEV_FIXTURES.settings.invitedTeamAt = new Date().toISOString()
-    return Promise.resolve()
-  }
+function signupTransport(): Transport {
+  if (!signupTransportCache) signupTransportCache = buildSignupTransport()
+  return signupTransportCache
 }
 
-let cached: AdminClient | null = null
-
-export function adminClient(): AdminClient {
-  if (cached) return cached
-  if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
-    cached = new MockAdminClient()
-    return cached
-  }
-  // TODO(phase-9c-proto): construct the real Connect-RPC client here.
-  // Until the proto lands, refuse to serve production traffic with
-  // canned fixtures — fail loudly instead.
-  throw new Error(
-    'AdminClient is not configured: build is missing the generated AdminService client (phase-9c-proto).',
-  )
+export function setAdminTransport(t: Transport): void {
+  adminTransportCache = t
 }
 
-export function resetAdminClient(): void {
-  cached = null
+export function resetAdminTransport(): void {
+  adminTransportCache = null
 }
 
-export function setAdminClient(client: AdminClient): void {
-  cached = client
+export function setSignupTransport(t: Transport): void {
+  signupTransportCache = t
+}
+
+export function resetSignupTransport(): void {
+  signupTransportCache = null
+}
+
+// adminClient is the generated AdminService client. Lazy-built so
+// tests can call setAdminTransport before the first call.
+export function adminClient(): Client<typeof AdminService> {
+  return createClient(AdminService, adminTransport())
+}
+
+// portalClient shares the admin transport — PortalService and
+// AdminService are multiplexed on the same /t/{tenant}/admin/api/
+// mount via the http.ServeMux assembled by internal/boot/portalmount.
+export function portalClient(): Client<typeof PortalService> {
+  return createClient(PortalService, adminTransport())
+}
+
+// signupClient targets the root-scoped /api/ mount.
+export function signupClient(): Client<typeof SignupService> {
+  return createClient(SignupService, signupTransport())
 }

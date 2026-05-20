@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package limen.admin.v1;
+
+import "limen/portal/v1/portal.proto";
+
+option go_package = "github.com/belphemur/limen/internal/admin/adminv1;adminv1";
+
+// AdminService is the admin/owner-scoped tenant control surface mounted
+// at /t/{tenant}/api/limen.admin.v1.AdminService/*. Tenant is resolved
+// by the binary's interceptor stack from the URL {tenant} segment;
+// request messages MUST NOT carry a tenant_id field.
+//
+// Public, tenant-agnostic signup lives on limen.signup.v1.SignupService
+// at the root /api/ mount — not here.
+service AdminService {
+  // Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
+  rpc CreateUpstream(CreateUpstreamRequest) returns (CreateUpstreamResponse);
+  rpc UpdateUpstream(UpdateUpstreamRequest) returns (UpdateUpstreamResponse);
+  rpc DeleteUpstream(DeleteUpstreamRequest) returns (DeleteUpstreamResponse);
+  rpc ReindexUpstreamCatalog(ReindexUpstreamCatalogRequest) returns (ReindexUpstreamCatalogResponse);
+  rpc PreviewUpstreamContext(PreviewUpstreamContextRequest) returns (PreviewUpstreamContextResponse);
+
+  // Tenant settings + dashboard step-completion toggles. Admin floor.
+  rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
+
+  // Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
+  rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
+}
+
+// ---- CreateUpstream -------------------------------------------------
+
+// OAuthClientOverride lets the admin pin a pre-registered upstream
+// OAuth client (for mcp_spec ASes without DCR). Both fields are
+// required when this message is present.
+message OAuthClientOverride {
+  string client_id = 1;
+  string client_secret = 2;
+}
+
+message CreateUpstreamRequest {
+  string name = 1;
+  string display_name = 2;
+  string mcp_url = 3;
+  string strategy_type = 4;
+  // e.g. "tenant" / "user" for static_header. Empty otherwise.
+  string strategy_sub_mode = 5;
+  // Strategy-specific static config (e.g. tenant-wide API key for
+  // static_header tenant-mode).
+  map<string, string> strategy_config = 6;
+  // Optional pre-registered OAuth client for ASes without DCR.
+  OAuthClientOverride oauth_client_override = 7;
+  // JSON object serialised as a string; validated server-side via
+  // gateway.validateContextBlob.
+  string defaults_json = 8;
+}
+
+message CreateUpstreamResponse {
+  limen.portal.v1.UpstreamSummary upstream = 1;
+  // True when the strategy requires an owner/admin link before the
+  // tool catalog can be populated (mcp_spec, static_header user-mode).
+  bool requires_admin_link = 2;
+  // Absolute or SPA-relative URL the SPA should open to start the
+  // admin-link flow. Empty when requires_admin_link is false.
+  string connect_url = 3;
+}
+
+// ---- UpdateUpstream -------------------------------------------------
+
+message UpdateUpstreamRequest {
+  string public_id = 1;
+  // Optional. Empty string clears the override; absent leaves it.
+  // Use the wrapper-free convention: callers send empty strings to
+  // mean "no change" — this matches the rest of PortalService.
+  string display_name = 2;
+  // Optional. Empty string is interpreted as "no change"; pass "{}"
+  // to clear. Validated server-side.
+  string defaults_json = 3;
+}
+
+message UpdateUpstreamResponse {
+  limen.portal.v1.UpstreamSummary upstream = 1;
+}
+
+// ---- DeleteUpstream -------------------------------------------------
+
+message DeleteUpstreamRequest {
+  string public_id = 1;
+}
+
+message DeleteUpstreamResponse {}
+
+// ---- ReindexUpstreamCatalog ----------------------------------------
+
+message ReindexUpstreamCatalogRequest {
+  string public_id = 1;
+}
+
+message ReindexUpstreamCatalogResponse {
+  limen.portal.v1.UpstreamSummary upstream = 1;
+}
+
+// ---- PreviewUpstreamContext ----------------------------------------
+
+message PreviewUpstreamContextRequest {
+  string public_id = 1;
+  // Zitadel subject of the user whose per-link context the admin
+  // wants to spot-check against the upstream's defaults_json.
+  string user_id = 2;
+}
+
+message PreviewUpstreamContextResponse {
+  // The merged JSON object as a string: merge(linkContext, defaultsJson).
+  string merged_json = 1;
+}
+
+// ---- UpdateTenantSettings ------------------------------------------
+
+message UpdateTenantSettingsRequest {
+  // Optional. Empty string means "no change".
+  string name = 1;
+  // One-shot toggle: when true, flip tenant_settings.invited_team_at
+  // to NOW() if it is currently NULL. No-op otherwise.
+  bool invited_team_at_now = 2;
+  // One-shot toggle: same semantics as invited_team_at_now but for
+  // tenant_settings.configured_at.
+  bool configured_at_now = 3;
+}
+
+message TenantSettings {
+  string name = 1;
+  string public_id = 2;
+  // RFC3339; empty when unset.
+  string invited_team_at = 3;
+  string configured_at = 4;
+}
+
+message UpdateTenantSettingsResponse {
+  TenantSettings settings = 1;
+}
+
+// ---- DeleteTenant --------------------------------------------------
+
+message DeleteTenantRequest {
+  // Typed confirmation: caller must send the tenant's PublicID
+  // verbatim. Mismatches reject with invalid_argument.
+  string public_id_confirmation = 1;
+}
+
+message DeleteTenantResponse {}

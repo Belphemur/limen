@@ -3,7 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Server, Users, Cog, ArrowRight, ExternalLink } from '@lucide/vue'
 import { useSessionStore } from '@limen/shared/session'
-import { adminClient, type TenantSettings, type UpstreamRow } from '@/transport/adminClient'
+import { ConnectError, Code } from '@connectrpc/connect'
+import { create } from '@bufbuild/protobuf'
+import { adminClient, portalClient } from '@/transport/adminClient'
+import { UpdateTenantSettingsRequestSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
+import { LinkState, type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
 import SetupProgress from '@/components/SetupProgress.vue'
 import TaskBentoCard from '@/components/TaskBentoCard.vue'
@@ -12,16 +16,35 @@ import QuickResources from '@/components/QuickResources.vue'
 
 const router = useRouter()
 const session = useSessionStore()
-const client = adminClient()
 
-const upstreams = ref<UpstreamRow[]>([])
-const settings = ref<TenantSettings>({ name: '', invitedTeamAt: null, configuredAt: null })
+// Local mirror of the tenant-settings shape we actually render. The
+// generated admin TenantSettings carries protobuf Timestamp fields;
+// we only need the "was it ever set?" signal here, so we collapse
+// each timestamp to a boolean. Slice 3 will replace this with a real
+// GetTenantSettings RPC.
+interface DashboardSettings {
+  invitedTeam: boolean
+  configured: boolean
+}
+
+const upstreams = ref<UpstreamSummary[]>([])
+const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
+
+function ignoreUnimplemented(err: unknown): void {
+  // Slice 1 ships every admin RPC as Unimplemented. Treat that as
+  // "no data yet" so the dashboard still renders. Anything else is
+  // a real error and should bubble.
+  if (err instanceof ConnectError && err.code === Code.Unimplemented) return
+  throw err
+}
 
 onMounted(async () => {
   await Promise.all([
     session.refresh(),
-    client.listUpstreams().then((r) => (upstreams.value = r.upstreams)),
-    client.getTenantSettings().then((r) => (settings.value = r)),
+    portalClient()
+      .listUpstreams({})
+      .then((r) => (upstreams.value = r.upstreams))
+      .catch(ignoreUnimplemented),
   ])
 })
 
@@ -33,10 +56,16 @@ interface Step {
 const steps = computed<Step[]>(() => [
   {
     key: 'connect',
-    done: upstreams.value.some((u) => u.status === 'ready' && u.toolCount > 0),
+    // An upstream counts as "ready" once it has cached tools AND
+    // either does not need linking or has been linked.
+    done: upstreams.value.some(
+      (u) =>
+        u.tools.length > 0 &&
+        (!u.requiresLink || u.linkState === LinkState.CONNECTED),
+    ),
   },
-  { key: 'invite', done: settings.value.invitedTeamAt !== null },
-  { key: 'configure', done: settings.value.configuredAt !== null },
+  { key: 'invite', done: settings.value.invitedTeam },
+  { key: 'configure', done: settings.value.configured },
 ])
 
 const completed = computed(() => steps.value.filter((s) => s.done).length)
@@ -46,13 +75,19 @@ const isDone = (key: Step['key']) => steps.value.find((s) => s.key === key)?.don
 const firstName = computed(() => session.user?.firstName ?? 'there')
 
 async function openZitadelConsole() {
-  // The real issuer comes from GET /auth/discovery; mock until the
-  // backend handler lands. We still flip the invited_team marker so
-  // the step ticks regardless of whether the new tab actually opens.
-  // TODO(phase-9c-proto): swap the placeholder URL for the resolved
-  //   Zitadel Console deep-link once /auth/discovery is wired.
-  await client.markInvitedTeam()
-  settings.value.invitedTeamAt = new Date().toISOString()
+  // Optimistically tick the local "invited" flag so the step flips
+  // even when slice 3's UpdateTenantSettings backend is still
+  // Unimplemented. Once slice 3 lands the RPC response replaces this.
+  settings.value.invitedTeam = true
+  try {
+    await adminClient().updateTenantSettings(
+      create(UpdateTenantSettingsRequestSchema, { invitedTeamAtNow: true }),
+    )
+  } catch (err) {
+    ignoreUnimplemented(err)
+  }
+  // TODO(phase-9c-slice-3): replace the hard-coded link with the
+  // Zitadel issuer returned by GET /auth/discovery.
   window.open('https://zitadel.example/ui/console/users', '_blank', 'noopener,noreferrer')
 }
 </script>

@@ -84,6 +84,18 @@ Go binary. Limen ships the Connect-RPC API at
 `/t/{tenant}/api/limen.portal.v1.PortalService/*`; the static host serves
 `web/dist/`. See [docs/phases/phase-09b-portal-spa.md](docs/phases/phase-09b-portal-spa.md).
 
+Phase 9c (tenant admin SPA, slice 1) adds two further service mounts plus a
+discovery endpoint on the root router; all are wired by
+`internal/transport.MountPortal` via `internal/boot/portalmount`:
+
+- `/t/{tenant}/api/limen.admin.v1.AdminService/*` — admin/owner-scoped
+  RPCs (same per-tenant ServeMux as PortalService + SessionService).
+- `/api/limen.signup.v1.SignupService/*` — public, tenant-agnostic
+  signup wizard backend (no tenancy / session / role interceptors).
+- `GET /auth/discovery` — returns the configured Zitadel issuer URL as
+  `{"zitadelIssuer": "…"}` so SPAs can build Console deep-links without
+  hard-coding the IdP.
+
 - Package manager: **pnpm v11** via Corepack (`"packageManager": "pnpm@11.x.x"`
   in `web/package.json`). `npm install` / `yarn install` are not supported.
 - Codegen: `pnpm run gen` (a `pnpm build` prebuild hook) shells out to

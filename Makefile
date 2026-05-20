@@ -165,12 +165,16 @@ tools:
 	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
 # Regenerate Go + TS bindings from proto/. Go output lands under
-# internal/portal/portalv1/ + internal/session/sessionv1/ (checked in);
+# internal/portal/portalv1/, internal/session/sessionv1/,
+# internal/admin/adminv1/, internal/signup/signupv1/ (checked in);
 # TS output is split per SPA scope:
 #   - web/portal/src/gen/  ← PortalService bindings (gitignored)
+#   - web/admin/src/gen/   ← AdminService + SignupService bindings
+#                            (+ portal.v1 messages reused by admin)
 #   - web/shared/src/gen/  ← SessionService bindings (gitignored,
 #                            consumed via @limen/shared by every SPA)
 proto:
 	buf generate
 	buf generate --template buf.gen.portal-ts.yaml
+	buf generate --template buf.gen.admin-ts.yaml
 	buf generate --template buf.gen.session-ts.yaml

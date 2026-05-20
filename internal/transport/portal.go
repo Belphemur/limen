@@ -4,10 +4,12 @@
 // Layout:
 //
 //	GET  /auth/callback                          (root — tenant public id rides in signed state)
+//	GET  /auth/discovery                         (root — exposes the configured Zitadel issuer URL)
+//	/api/limen.signup.v1.SignupService/*         (root — tenant-agnostic SignupService)
 //	/t/{tenant}                                  (subrouter behind tenancy.RequireTenant; {tenant} is a tnt_<ULID> public id)
 //	  GET  /auth/login
 //	  GET  /auth/logout
-//	  /api/*                                     (Connect-RPC portal service — Phase 9b)
+//	  /api/*                                     (Connect-RPC portal / session / admin services)
 //
 // Tenant resolution + User upsert are wired here so internal/auth has no
 // dependency on internal/storage.
@@ -34,16 +36,20 @@ type PortalDeps struct {
 	OIDC                  *auth.OIDC
 	Logger                *zap.Logger
 	PostLogoutRedirectURI string
+	// OIDCIssuer is the configured Zitadel issuer URL surfaced by
+	// GET /auth/discovery. Empty disables the discovery endpoint.
+	OIDCIssuer string
 	// ConnectAPI, when non-nil, is mounted at /t/{tenant}/api/* — used
-	// by Phase 9b to wire the PortalService Connect-RPC handler. The
-	// handler is expected to already carry its own interceptor stack
-	// (tenancy / session / role).
-	//
-	// Phase 9d multiplexes multiple Connect services (PortalService +
-	// SessionService) onto this same mount; the caller assembles them
-	// into an http.ServeMux keyed on the Connect procedure prefix and
-	// passes the mux here.
+	// to wire per-tenant Connect-RPC handlers (PortalService +
+	// SessionService + AdminService). The handler is expected to
+	// already carry its own interceptor stack (tenancy / session /
+	// role) and to multiplex the per-service procedure prefixes via an
+	// http.ServeMux.
 	ConnectAPI http.Handler
+	// SignupAPI, when non-nil, is mounted at /api/* on the root router
+	// for the tenant-agnostic SignupService. No tenancy middleware
+	// fires here.
+	SignupAPI http.Handler
 }
 
 // MountPortal attaches the OIDC + tenant routes onto r.
@@ -75,6 +81,13 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 	// the root SPA shell without knowing their tenant slug. The
 	// callback resolves the tenant from the token's home-org claim.
 	r.Get("/auth/login", deps.OIDC.LoginHandler())
+	if deps.OIDCIssuer != "" {
+		r.Get("/auth/discovery", DiscoveryHandler(deps.OIDCIssuer))
+	}
+
+	if deps.SignupAPI != nil {
+		r.Mount("/api", connectMountAdapter(deps.SignupAPI))
+	}
 
 	r.Route("/t/{tenant}", func(tr chi.Router) {
 		tr.Use(tenancy.RequireTenant(deps.Store, logger))

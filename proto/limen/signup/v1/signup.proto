@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package limen.signup.v1;
+
+option go_package = "github.com/belphemur/limen/internal/signup/signupv1;signupv1";
+
+// SignupService is the public, tenant-agnostic self-serve signup
+// surface mounted at /api/limen.signup.v1.SignupService/* (root, no
+// /t/{tenant} prefix). It is deliberately a sibling of AdminService
+// rather than a skip-list on it: there is no tenant to resolve, no
+// portal cookie to verify, and no role to check — encoding any of
+// those would mis-shape the interceptor stack on AdminService.
+//
+// Captcha + per-IP rate limiting are added in phase 9c slice 4.
+service SignupService {
+  // StartSignup validates the form + captcha, mints a signed signup
+  // token, and returns the URL the SPA should navigate the browser to
+  // for the next step. No Zitadel calls happen here — abandonment
+  // leaves zero side effects.
+  rpc StartSignup(StartSignupRequest) returns (StartSignupResponse);
+  // CompleteSignup is invoked from /auth/callback after the new owner
+  // verifies their email and sets a password in Zitadel. It finalises
+  // the local User row, clears the one-shot pending_signup cookie,
+  // and returns the URL to redirect the browser to (/t/<id>/admin/).
+  rpc CompleteSignup(CompleteSignupRequest) returns (CompleteSignupResponse);
+}
+
+message StartSignupRequest {
+  string organization_name = 1;
+  string owner_email = 2;
+  string owner_name = 3;
+  // Captcha provider's response token (Cloudflare Turnstile in dev).
+  string captcha_token = 4;
+}
+
+message StartSignupResponse {
+  // HMAC-signed token carrying the signup payload + expiry.
+  string signup_token = 1;
+  // Absolute or SPA-relative URL the SPA should send the browser to
+  // (typically /auth/signup?token=<signup_token>).
+  string signup_url = 2;
+}
+
+message CompleteSignupRequest {}
+
+message CompleteSignupResponse {
+  string tenant_public_id = 1;
+  // Absolute or SPA-relative URL: /t/<tenant_public_id>/admin/.
+  string admin_url = 2;
+}

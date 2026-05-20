@@ -23,6 +23,8 @@ func TestGateway_ImportGraph_ExcludesOauthproxyAndZitadel(t *testing.T) {
 		"github.com/belphemur/limen/internal/oauthproxy",
 		"github.com/belphemur/limen/internal/zitadel",
 		"github.com/belphemur/limen/internal/portal",
+		"github.com/belphemur/limen/internal/admin",
+		"github.com/belphemur/limen/internal/signup",
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		for _, bad := range forbidden {

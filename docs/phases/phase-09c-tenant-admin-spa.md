@@ -370,9 +370,9 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 
 ### v1 (this phase)
 
-- [ ] `proto/limen/admin/v1/admin.proto` defines `AdminService` with **only** signup + upstream catalog CRUD + tenant-settings RPCs — no member RPCs at v1
-- [ ] `buf generate` produces Go bindings under `internal/admin/adminv1/` and TS under `web/src/gen/admin/v1/`
-- [ ] `internal/admin/` package implements the above RPCs and the three layered interceptors with a signup skip-list
+- [x] `proto/limen/admin/v1/admin.proto` defines `AdminService` with upstream catalog CRUD + tenant-settings RPCs — no member RPCs at v1; **signup is a sibling `proto/limen/signup/v1/signup.proto`/`SignupService`** instead of a skip-list, so the three layered interceptors stay uniform
+- [x] `buf generate` produces Go bindings under `internal/admin/adminv1/`, `internal/signup/signupv1/`, and TS under `web/admin/src/gen/limen/{admin,signup}/v1/` (template `buf.gen.admin-ts.yaml`)
+- [ ] `internal/admin/` package implements the above RPCs — slice 1 ships the handler skeleton (every RPC returns `CodeUnimplemented`) plus the three layered interceptors and a default-deny `requiredRole` map (`DeleteTenant`=`owner`, everything else=`admin`); subsequent slices implement bodies
 - [ ] `CreateUpstream` runs `IndexUpstream` inline for tenant-mode strategies (`none`, `static_header` tenant-mode) and returns `{requires_admin_link: false, tools: [...]}`; for per-user strategies it returns `{requires_admin_link: true, connect_url}` and leaves the catalog empty until an admin/owner completes the connect flow
 - [ ] `ReindexUpstreamCatalog` rejects per-user-strategy calls from admins who hold no enabled link to the upstream with `failed_precondition`
 - [ ] `Upstreams.vue` blocks the "upstream ready" state on `tool_count > 0` and renders the admin-link modal as the mandatory next step after creating an OAuth/per-user upstream
@@ -389,7 +389,7 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
 - [ ] Signup completes a full round-trip: name + email → MailHog → password set → admin SPA
 - [ ] Admin SPA routes lazy-loaded; all v1 pages above implemented
-- [ ] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
+- [x] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [ ] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
 - [ ] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
 - [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen

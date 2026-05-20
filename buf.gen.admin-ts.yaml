@@ -1,0 +1,20 @@
+version: v2
+
+# Admin SPA TS bindings — only the AdminService + SignupService proto
+# modules are fed through, so web/admin/src/gen/ never sees portal- or
+# session-only types. The shared SessionService client lives in
+# web/shared/ (see buf.gen.session-ts.yaml); AdminService imports
+# UpstreamSummary / UpstreamTool from portal.v1 via a proto import so
+# the admin .pb.ts module pulls in only those reused messages.
+inputs:
+  - directory: proto
+    paths:
+      - proto/limen/admin
+      - proto/limen/signup
+      - proto/limen/portal
+plugins:
+  - remote: buf.build/bufbuild/es:v2.12.0
+    out: web/admin/src/gen
+    opt:
+      - target=ts
+      - import_extension=js

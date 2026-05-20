@@ -1,0 +1,21 @@
+package admin
+
+import "github.com/belphemur/limen/internal/session"
+
+// requiredRole maps the RPC procedure name (the leaf method as
+// returned by session.ProcedureMethod) to the minimum role required
+// to invoke it. Unknown procedures default-deny in
+// session.RoleInterceptor; every new RPC MUST be added here before
+// it ships.
+//
+// AdminService floor is RoleAdmin. DeleteTenant escalates to
+// RoleOwner; owner naturally satisfies admin via session.Satisfies.
+var requiredRole = map[string]session.Role{
+	"CreateUpstream":         session.RoleAdmin,
+	"UpdateUpstream":         session.RoleAdmin,
+	"DeleteUpstream":         session.RoleAdmin,
+	"ReindexUpstreamCatalog": session.RoleAdmin,
+	"PreviewUpstreamContext": session.RoleAdmin,
+	"UpdateTenantSettings":   session.RoleAdmin,
+	"DeleteTenant":           session.RoleOwner,
+}

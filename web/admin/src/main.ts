@@ -10,13 +10,13 @@ import '@fontsource-variable/outfit'
 import App from './App.vue'
 import { createRouter } from './router'
 import { useThemeStore } from './stores/theme'
+import { setAdminTransport, setSignupTransport } from '@/transport/adminClient'
 import './styles/main.css'
 
-// Build the cookie-bearing Connect transport for the SessionService.
-// Limen mounts every SPA's APIs under /t/<tenant>/api/, so we lift
-// the tenant slug off the URL path. In vite dev mode this falls back
-// to "dev"; the bootstrap call will fail and the router guard will
-// redirect to /auth/login, which is the intended behaviour.
+// Build the cookie-bearing Connect transports for SessionService,
+// AdminService + PortalService (per-tenant) and SignupService (root).
+// Per-tenant services are multiplexed onto /t/<tenant>/api/ via
+// http.ServeMux; SignupService lives at /api/ on the root router.
 function discoverTenant(): string {
   const w = window as Window & { __LIMEN_TENANT__?: string }
   if (w.__LIMEN_TENANT__) return w.__LIMEN_TENANT__
@@ -24,10 +24,27 @@ function discoverTenant(): string {
   return match ? match[1] : 'dev'
 }
 
+const cookieFetch = (input: RequestInfo | URL, init?: RequestInit) =>
+  globalThis.fetch(input, { ...init, credentials: 'include' })
+
 setSessionTransport(
   createConnectTransport({
     baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
-    fetch: (input, init) => globalThis.fetch(input, { ...init, credentials: 'include' }),
+    fetch: cookieFetch,
+  }),
+)
+
+setAdminTransport(
+  createConnectTransport({
+    baseUrl: `${window.location.origin}/t/${discoverTenant()}/admin/api`,
+    fetch: cookieFetch,
+  }),
+)
+
+setSignupTransport(
+  createConnectTransport({
+    baseUrl: `${window.location.origin}/api`,
+    fetch: cookieFetch,
   }),
 )
 
