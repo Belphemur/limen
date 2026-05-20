@@ -5,6 +5,8 @@
 //
 // TODO(phase-9c-proto): wire to generated AdminService client when proto lands.
 
+export { AdminAuthError, isAdminAuthError, type AdminAuthErrorKind } from './authError'
+
 export type Role = 'owner' | 'admin' | 'member'
 
 export interface SessionResponse {
@@ -80,8 +82,11 @@ export function adminClient(): AdminClient {
     return cached
   }
   // TODO(phase-9c-proto): construct the real Connect-RPC client here.
-  cached = new MockAdminClient()
-  return cached
+  // Until the proto lands, refuse to serve production traffic with
+  // canned fixtures — fail loudly instead.
+  throw new Error(
+    'AdminClient is not configured: build is missing the generated AdminService client (phase-9c-proto).',
+  )
 }
 
 export function resetAdminClient(): void {

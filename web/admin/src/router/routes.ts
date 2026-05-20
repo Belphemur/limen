@@ -21,6 +21,7 @@ export const ROUTES = {
   mcpServerDetail: '/mcp-servers/:id',
   members: '/org/members',
   settings: '/org/settings',
+  forbidden: '/forbidden',
 } as const
 
 export type SearchMode = 'filter' | 'palette' | 'hidden'
@@ -34,6 +35,13 @@ export interface RouteDef {
   path: string
   component: () => Promise<Component | { default: Component }>
   search: SearchMeta
+  // Routes flagged `public` skip the session-bootstrap router guard.
+  // Used for /forbidden so that a permission_denied bootstrap can
+  // still render the page it's redirecting to.
+  public?: boolean
+  // Routes flagged `outsideShell` render at the top level instead of
+  // inside AdminShell — used for full-bleed error pages.
+  outsideShell?: boolean
 }
 
 export const routeDefs: RouteDef[] = [
@@ -72,6 +80,14 @@ export const routeDefs: RouteDef[] = [
     path: ROUTES.settings,
     component: () => import('@/pages/Settings.vue'),
     search: { mode: 'hidden' },
+  },
+  {
+    name: 'forbidden',
+    path: ROUTES.forbidden,
+    component: () => import('@/pages/Forbidden.vue'),
+    search: { mode: 'hidden' },
+    public: true,
+    outsideShell: true,
   },
 ]
 
