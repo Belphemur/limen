@@ -1,5 +1,6 @@
 .PHONY: dev dev-run dev-cmd dev-migrate dev-create-tenant dev-create-upstream \
-	dev-reset dev-bootstrap dev-down build test vet fmt proto tools
+	dev-reset dev-bootstrap dev-down dev-spa dev-spa-install dev-spa-build \
+	build test vet fmt proto tools
 
 # Pinned buf version. Bump deliberately; the buf.build remote plugin
 # pins in buf.gen.yaml are the matching half of this contract.
@@ -95,6 +96,33 @@ dev-reset:
 
 dev-down:
 	$(COMPOSE) down
+
+# ---- SPA dev targets ------------------------------------------------
+#
+# Each SPA lives under web/<name>/. Today that's just web/portal/; the
+# tenant-admin / staff SPAs (Phase 9c, 12) will slot in alongside.
+#
+# `make dev-spa` boots the portal SPA on http://localhost:5173 with
+# Vite's HMR, and proxies /t/*/api, /auth, /oauth, /mcp, /healthz to
+# the locally-running Limen binary on :8080 (started by `make dev` or
+# `make dev-run`).
+SPA_DIR := web/portal
+
+dev-spa-install:
+	cd $(SPA_DIR) && corepack pnpm install --frozen-lockfile
+
+# Auto-install on first run; otherwise just `pnpm dev`.
+dev-spa:
+	@if [ ! -d $(SPA_DIR)/node_modules ]; then \
+		echo "[dev-spa] no node_modules in $(SPA_DIR), installing…"; \
+		$(MAKE) dev-spa-install; \
+	fi
+	cd $(SPA_DIR) && corepack pnpm dev
+
+# Production build — outputs to web/portal/dist/. Useful for smoke
+# tests with `vite preview` or Caddy file_server.
+dev-spa-build:
+	cd $(SPA_DIR) && corepack pnpm build
 
 build:
 	go build -o limen ./cmd/limen
