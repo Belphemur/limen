@@ -11,3 +11,8 @@ export {
 } from './sessionClient.ts'
 export { useSessionStore, type SessionRole } from './store.ts'
 export { createSessionGuard, type SessionGuardOptions } from './routerGuard.ts'
+export {
+  tenantPrefix,
+  tenantLoginUrl,
+  discoverSpaBasePath,
+} from "./tenantUrls.ts";

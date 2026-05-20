@@ -8,6 +8,19 @@ import tailwindcss from '@tailwindcss/vite'
 // base: "./" makes the built bundle path-relative so a single artifact
 // can be mounted under any /t/<tenant>/admin/ prefix. The router reads
 // the actual prefix from window.location.pathname at boot.
+
+// Each proxied path needs X-Forwarded-Proto/Host so the backend's
+// per-request RP picker (internal/auth/oidc.go: requestOriginKey)
+// matches the admin SPA's origin instead of the Vite proxy target.
+const backend = {
+  target: 'http://localhost:8080',
+  changeOrigin: false,
+  headers: {
+    'X-Forwarded-Proto': 'http',
+    'X-Forwarded-Host': 'localhost:5174',
+  },
+} as const
+
 export default defineConfig({
   base: './',
   plugins: [vue(), tailwindcss()],
@@ -24,11 +37,11 @@ export default defineConfig({
     // to the Go backend on :8080. The admin SPA additionally needs
     // /t/<tenant>/admin/api/* for AdminService.
     proxy: {
-      '^/t/[^/]+/(api|admin/api|auth|oauth|mcp)(/|\\?|$)': 'http://localhost:8080',
-      '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': 'http://localhost:8080',
-      '^/\\.well-known/': 'http://localhost:8080',
-      '^/auth/(login|callback|discovery)(/|\\?|$)': 'http://localhost:8080',
-      '^/healthz$': 'http://localhost:8080',
+      '^/t/[^/]+/(api|admin/api|auth|oauth|mcp)(/|\\?|$)': backend,
+      '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': backend,
+      '^/\\.well-known/': backend,
+      '^/auth/(login|callback|discovery)(/|\\?|$)': backend,
+      '^/healthz$': backend,
     },
   },
   build: {

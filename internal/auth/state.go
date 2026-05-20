@@ -29,10 +29,14 @@ const stateDomainTag = "oidc.state"
 // detect replays if we later add a one-shot store. Tenant is the tenant
 // public id (e.g. "tnt_01H...").
 type State struct {
-	Nonce     string    `json:"n"`
-	Tenant    string    `json:"s"`
-	ReturnTo  string    `json:"r"`
-	ExpiresAt time.Time `json:"e"`
+	Nonce    string `json:"n"`
+	Tenant   string `json:"s"`
+	ReturnTo string `json:"r"`
+	// RedirectKey identifies which registered redirect URI the
+	// /authorize hop used, so the callback can pick the matching
+	// relying party for code exchange. Empty means the default URI.
+	RedirectKey string    `json:"k,omitempty"`
+	ExpiresAt   time.Time `json:"e"`
 }
 
 // StateSigner produces and verifies HMAC-SHA256 signed state strings using

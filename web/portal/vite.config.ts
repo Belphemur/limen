@@ -3,6 +3,18 @@ import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
+// Each proxied path needs X-Forwarded-Proto/Host so the backend's
+// per-request RP picker (internal/auth/oidc.go: requestOriginKey)
+// matches the portal SPA's origin instead of the Vite proxy target.
+const backend = {
+  target: 'http://localhost:8080',
+  changeOrigin: false,
+  headers: {
+    'X-Forwarded-Proto': 'http',
+    'X-Forwarded-Host': 'localhost:5173',
+  },
+} as const
+
 // Vite config for the Limen portal SPA.
 //
 // base: "./" makes the built bundle path-relative so a single artifact
@@ -49,11 +61,11 @@ export default defineConfig({
     // above belongs to the SPA (notably the bare /t/<tenant>/mcp-servers
     // page).
     proxy: {
-      '^/t/[^/]+/(api|auth|oauth|mcp)(/|\\?|$)': 'http://localhost:8080',
-      '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': 'http://localhost:8080',
-      '^/\.well-known/': 'http://localhost:8080',
-      '^/auth/(login|callback)(/|\\?|$)': 'http://localhost:8080',
-      '^/healthz$': 'http://localhost:8080',
+      '^/t/[^/]+/(api|auth|oauth|mcp)(/|\\?|$)': backend,
+      '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': backend,
+      '^/\.well-known/': backend,
+      '^/auth/(login|callback)(/|\\?|$)': backend,
+      '^/healthz$': backend,
     },
   },
   build: {

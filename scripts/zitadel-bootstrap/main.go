@@ -147,23 +147,25 @@ func (b *bootstrap) findAppRaw(ctx context.Context, projectID, name string) (*ap
 	return nil, nil
 }
 
-func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirectURI, postLogoutURI string) (string, error) {
-	postLogoutURIs := postLogoutURIVariants(postLogoutURI)
-	redirectURIs := []string{redirectURI}
+func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, redirectURIs, postLogoutURIs []string) (string, error) {
+	var expandedPostLogout []string
+	for _, u := range postLogoutURIs {
+		expandedPostLogout = append(expandedPostLogout, postLogoutURIVariants(u)...)
+	}
 	if existing, err := b.findAppRaw(ctx, projectID, name); err == nil && existing != nil {
 		oidc := existing.GetOidcConfiguration()
 		if oidc == nil {
 			return "", fmt.Errorf("app %q exists but is not OIDC", name)
 		}
 		needsRedirect := !containsAll(oidc.GetRedirectUris(), redirectURIs)
-		needsPostLogout := len(postLogoutURIs) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), postLogoutURIs)
+		needsPostLogout := len(expandedPostLogout) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), expandedPostLogout)
 		if needsRedirect || needsPostLogout {
 			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{}
 			if needsRedirect {
-				cfg.RedirectUris = redirectURIs
+				cfg.RedirectUris = mergeUnique(oidc.GetRedirectUris(), redirectURIs)
 			}
 			if needsPostLogout {
-				cfg.PostLogoutRedirectUris = postLogoutURIs
+				cfg.PostLogoutRedirectUris = mergeUnique(oidc.GetPostLogoutRedirectUris(), expandedPostLogout)
 			}
 			if _, err := b.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
 				ProjectId:     projectID,
@@ -175,10 +177,10 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirect
 				return "", fmt.Errorf("update OIDC app %q URIs: %w", name, err)
 			}
 			if needsRedirect {
-				log.Printf("updated %s redirect URIs: %v", name, redirectURIs)
+				log.Printf("updated %s redirect URIs: %v", name, cfg.RedirectUris)
 			}
 			if needsPostLogout {
-				log.Printf("updated %s post-logout URIs: %v", name, postLogoutURIs)
+				log.Printf("updated %s post-logout URIs: %v", name, cfg.PostLogoutRedirectUris)
 			}
 		}
 		return oidc.GetClientId(), nil
@@ -189,7 +191,7 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name, redirect
 		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
 				RedirectUris:             redirectURIs,
-				PostLogoutRedirectUris:   postLogoutURIs,
+				PostLogoutRedirectUris:   expandedPostLogout,
 				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
 				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN},
 				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
@@ -229,6 +231,29 @@ func containsAll(haystack, needles []string) bool {
 		}
 	}
 	return true
+}
+
+// mergeUnique returns base + extras with duplicates removed, preserving
+// insertion order so Zitadel keeps the original ordering of registered
+// URIs across runs.
+func mergeUnique(base, extras []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extras))
+	out := make([]string, 0, len(base)+len(extras))
+	for _, v := range base {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	for _, v := range extras {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 // postLogoutURIVariants returns both the with-trailing-slash and
@@ -424,15 +449,25 @@ func main() {
 	}
 	log.Printf("project: %s", projectID)
 
-	// Defaults target the Vite dev origin (web/portal pnpm dev). The
-	// browser stays on a single origin throughout login/logout so the
-	// portal cookie is same-origin and the SPA picks up the session on
-	// the next render. Vite proxies /auth/* to Limen; the /signed-out
-	// route is a tenant-agnostic SPA page that Zitadel bounces back to
-	// after end-session.
+	// Defaults cover both Vite dev origins: the portal SPA on :5173
+	// and the tenant-admin SPA on :5174. The browser stays on a single
+	// origin throughout login/logout so the portal cookie is same-
+	// origin and the SPA picks up the session on the next render. Vite
+	// proxies /auth/* to Limen; the /signed-out route is a tenant-
+	// agnostic SPA page that Zitadel bounces back to after end-session.
+	//
+	// Override via LIMEN_PORTAL_REDIRECT / LIMEN_PORTAL_POST_LOGOUT
+	// (primary entry, must match the Limen config redirect_uri) and
+	// LIMEN_EXTRA_REDIRECTS / LIMEN_EXTRA_POST_LOGOUTS (comma-separated
+	// additional entries that must appear in Limen's
+	// oidc.allowed_redirect_uris).
 	portalRedirect := getenvDefault("LIMEN_PORTAL_REDIRECT", "http://localhost:5173/auth/callback")
 	portalPostLogout := getenvDefault("LIMEN_PORTAL_POST_LOGOUT", "http://localhost:5173/signed-out")
-	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", portalRedirect, portalPostLogout)
+	extraRedirects := splitCSV(getenvDefault("LIMEN_EXTRA_REDIRECTS", "http://localhost:5174/auth/callback"))
+	extraPostLogouts := splitCSV(getenvDefault("LIMEN_EXTRA_POST_LOGOUTS", "http://localhost:5174/signed-out"))
+	redirectURIs := mergeUnique([]string{portalRedirect}, extraRedirects)
+	postLogoutURIs := mergeUnique([]string{portalPostLogout}, extraPostLogouts)
+	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", redirectURIs, postLogoutURIs)
 	if err != nil {
 		log.Fatalf("ensure portal app: %v", err)
 	}
@@ -538,4 +573,19 @@ func getenvDefault(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// splitCSV trims and drops empty entries from a comma-separated list.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

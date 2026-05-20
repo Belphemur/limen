@@ -95,6 +95,12 @@ services:
       ZITADEL_PAT_FILE: "/zitadel/bootstrap/admin-sa.pat"
       LIMEN_PORTAL_REDIRECT: "http://localhost:5173/auth/callback"
       LIMEN_PORTAL_POST_LOGOUT: "http://localhost:5173/signed-out"
+      # Admin SPA dev origin — registered alongside the portal callback so
+      # the backend can pick the matching RP per-request and Zitadel will
+      # accept both. Comma-separated; override via the environment to add
+      # more dev origins.
+      LIMEN_EXTRA_REDIRECTS: "http://localhost:5174/auth/callback"
+      LIMEN_EXTRA_POST_LOGOUTS: "http://localhost:5174/signed-out"
       LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
       LIMEN_SAMPLE_TENANT_NAME: "acme"
       LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"

@@ -201,6 +201,11 @@ type OIDCConfig struct {
 	// e.g. https://limen.example.com/auth/callback. Must be a sub-path of
 	// Server.BaseURL.
 	RedirectURI string `yaml:"redirect_uri"`
+	// AllowedRedirectURIs lists additional absolute callback URLs the
+	// relying party may use. Useful in dev where the portal and admin
+	// SPAs run on different vite ports and each needs its own same-origin
+	// /auth/callback. Each entry must be registered in Zitadel.
+	AllowedRedirectURIs []string `yaml:"allowed_redirect_uris,omitempty"`
 	// Scopes requested at /authorize. Must include "openid"; usually also
 	// "profile", "email", "offline_access", and the project-roles scope
 	// urn:zitadel:iam:org:project:id:<projectID>:aud.
@@ -494,6 +499,15 @@ func (o OIDCConfig) Validate(baseURL string) error {
 	}
 	if baseURL != "" && !strings.HasPrefix(o.RedirectURI, baseURL+"/") {
 		return fmt.Errorf("redirect_uri %q must live under server.base_url %q", o.RedirectURI, baseURL)
+	}
+	for _, extra := range o.AllowedRedirectURIs {
+		if strings.TrimSpace(extra) == "" {
+			return errors.New("allowed_redirect_uris contains an empty entry")
+		}
+		eu, perr := url.Parse(extra)
+		if perr != nil || !eu.IsAbs() {
+			return fmt.Errorf("allowed_redirect_uris entry %q must be an absolute URL", extra)
+		}
 	}
 	hasOpenID := slices.Contains(o.Scopes, "openid")
 	if !hasOpenID {

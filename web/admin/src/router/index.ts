@@ -6,28 +6,10 @@ import {
   type RouterHistory,
 } from 'vue-router'
 
-import { createSessionGuard } from '@limen/shared/session'
+import { createSessionGuard, discoverSpaBasePath, tenantLoginUrl } from '@limen/shared/session'
 
 import AdminShell from '@/layout/AdminShell.vue'
 import { ROUTES, routeDefs } from './routes'
-
-// Discover the admin SPA's base path at runtime. Accepts:
-//   /t/<tenant>/admin/<spa-route>   (production)
-//   /t/<tenant>/<spa-route>         (dev convenience)
-// Fallback "/" keeps standalone vite dev and unit tests happy.
-function discoverBasePath(): string {
-  const match = window.location.pathname.match(/^(\/t\/[^/]+\/(?:admin\/)?)/)
-  return match ? match[1] : '/'
-}
-
-// Build the backend login URL for the current tenant. The /auth/login
-// endpoint is served by Phase 4 next to every tenant-scoped SPA mount,
-// so we just lift the /t/<tenant>/ prefix off the current pathname.
-function tenantLoginUrl(returnTo: string): string {
-  const match = window.location.pathname.match(/^(\/t\/[^/]+)\//)
-  const prefix = match ? match[1] : ''
-  return `${prefix}/auth/login?return_to=${encodeURIComponent(returnTo)}`
-}
 
 export interface CreateRouterOptions {
   // Optional history override. Production uses createWebHistory; tests
@@ -54,7 +36,7 @@ export function createRouter(options: CreateRouterOptions = {}): Router {
   }
 
   const router = createVueRouter({
-    history: options.history ?? createWebHistory(discoverBasePath()),
+    history: options.history ?? createWebHistory(discoverSpaBasePath('admin')),
     routes: [
       ...topLevel,
       {

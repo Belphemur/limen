@@ -55,8 +55,17 @@ type OIDCConfig struct {
 	// ClientSecret is empty for a public PKCE client.
 	ClientSecret string
 	// RedirectURI is the absolute URL for the root callback handler, e.g.
-	// https://limen.example.com/auth/callback.
+	// https://limen.example.com/auth/callback. This is the default and is
+	// always registered as a valid redirect URI.
 	RedirectURI string
+	// AllowedRedirectURIs lists additional absolute callback URLs the
+	// relying party may use. Useful in dev where the portal and admin
+	// SPAs run on different vite ports and each needs its own same-origin
+	// /auth/callback. The login handler picks the entry matching the
+	// request's origin; the matched URI is then carried in the signed
+	// state cookie so the callback can pair it back to the same relying
+	// party for code exchange. Each entry must be absolute http(s).
+	AllowedRedirectURIs []string
 	// Scopes requested at /authorize. Must include "openid"; usually also
 	// "profile", "email", "offline_access", and the Zitadel-specific scope
 	// "urn:zitadel:iam:user:resourceowner" which causes Zitadel to emit the
@@ -81,6 +90,14 @@ func (c OIDCConfig) validate() error {
 	if strings.TrimSpace(c.RedirectURI) == "" {
 		return errors.New("auth: OIDCConfig.RedirectURI is required")
 	}
+	for _, u := range c.AllowedRedirectURIs {
+		if strings.TrimSpace(u) == "" {
+			return errors.New("auth: OIDCConfig.AllowedRedirectURIs contains an empty entry")
+		}
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return fmt.Errorf("auth: OIDCConfig.AllowedRedirectURIs entry %q must be an absolute http(s) URL", u)
+		}
+	}
 	if len(c.Scopes) == 0 {
 		return errors.New("auth: OIDCConfig.Scopes is required")
 	}
@@ -97,12 +114,18 @@ func (c OIDCConfig) validate() error {
 // Limen is a relying party: Zitadel renders the login UI, enforces MFA,
 // owns the user store, and issues the tokens. Limen never sees passwords.
 type OIDC struct {
-	cfg     OIDCConfig
-	rp      rp.RelyingParty
-	cipher  *crypto.Cipher
-	signer  *StateSigner
-	logger  *zap.Logger
-	timeNow func() time.Time
+	cfg OIDCConfig
+	// parties maps a redirect-URI key (scheme+host[:port]) to the
+	// relying party configured for that callback URL. The default
+	// RedirectURI is always present and indexed by defaultKey; any
+	// additional AllowedRedirectURIs add further entries.
+	parties      map[string]rp.RelyingParty
+	defaultKey   string
+	defaultParty rp.RelyingParty
+	cipher       *crypto.Cipher
+	signer       *StateSigner
+	logger       *zap.Logger
+	timeNow      func() time.Time
 }
 
 // NewOIDC discovers the Zitadel issuer and builds the RP. The discovery
@@ -124,25 +147,99 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig, cipher *crypto.Cipher, signer 
 	if cfg.DefaultReturnPath == "" {
 		cfg.DefaultReturnPath = "/"
 	}
-	relyingParty, err := rp.NewRelyingPartyOIDC(
-		ctx,
-		cfg.Issuer,
-		cfg.ClientID,
-		cfg.ClientSecret,
-		cfg.RedirectURI,
-		cfg.Scopes,
-	)
+	parties := make(map[string]rp.RelyingParty, 1+len(cfg.AllowedRedirectURIs))
+	defaultKey, defaultParty, err := buildParty(ctx, cfg, cfg.RedirectURI)
 	if err != nil {
-		return nil, fmt.Errorf("auth: build relying party: %w", err)
+		return nil, err
+	}
+	parties[defaultKey] = defaultParty
+	for _, uri := range cfg.AllowedRedirectURIs {
+		if uri == cfg.RedirectURI {
+			continue
+		}
+		k, party, perr := buildParty(ctx, cfg, uri)
+		if perr != nil {
+			return nil, perr
+		}
+		if _, dup := parties[k]; dup {
+			continue
+		}
+		parties[k] = party
 	}
 	return &OIDC{
-		cfg:     cfg,
-		rp:      relyingParty,
-		cipher:  cipher,
-		signer:  signer,
-		logger:  logger,
-		timeNow: time.Now,
+		cfg:          cfg,
+		parties:      parties,
+		defaultKey:   defaultKey,
+		defaultParty: defaultParty,
+		cipher:       cipher,
+		signer:       signer,
+		logger:       logger,
+		timeNow:      time.Now,
 	}, nil
+}
+
+// buildParty discovers the issuer and builds a relying party scoped to
+// redirectURI. The returned key is the scheme+host[:port] derived from
+// redirectURI and is used to route incoming requests to the matching
+// party.
+func buildParty(ctx context.Context, cfg OIDCConfig, redirectURI string) (string, rp.RelyingParty, error) {
+	u, err := url.Parse(redirectURI)
+	if err != nil || !u.IsAbs() {
+		return "", nil, fmt.Errorf("auth: invalid redirect uri %q", redirectURI)
+	}
+	party, err := rp.NewRelyingPartyOIDC(ctx, cfg.Issuer, cfg.ClientID, cfg.ClientSecret, redirectURI, cfg.Scopes)
+	if err != nil {
+		return "", nil, fmt.Errorf("auth: build relying party for %q: %w", redirectURI, err)
+	}
+	return originKey(u.Scheme, u.Host), party, nil
+}
+
+// originKey is the canonical map key for a redirect URI: lowercased
+// scheme + "://" + host[:port].
+func originKey(scheme, host string) string {
+	return strings.ToLower(scheme) + "://" + strings.ToLower(host)
+}
+
+// requestOriginKey derives the originKey of the inbound request,
+// honouring X-Forwarded-Proto and X-Forwarded-Host when present so
+// reverse-proxied traffic resolves to the public origin the SPA sees.
+func requestOriginKey(r *http.Request) string {
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return originKey(scheme, host)
+}
+
+// partyForRequest returns the relying party whose redirect URI matches
+// the request origin, falling back to the default. The returned key
+// must be persisted in state so the callback can pair the same party.
+func (o *OIDC) partyForRequest(r *http.Request) (string, rp.RelyingParty) {
+	k := requestOriginKey(r)
+	if p, ok := o.parties[k]; ok {
+		return k, p
+	}
+	return o.defaultKey, o.defaultParty
+}
+
+// partyForKey returns the party indexed by k, falling back to the
+// default when k is empty or unknown.
+func (o *OIDC) partyForKey(k string) rp.RelyingParty {
+	if k == "" {
+		return o.defaultParty
+	}
+	if p, ok := o.parties[k]; ok {
+		return p
+	}
+	return o.defaultParty
 }
 
 // LoginHandler is mounted at /t/{tenant}/auth/login behind RequireTenant
@@ -157,6 +254,7 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 			tenantPublicID = t.PublicID
 		}
 
+		key, party := o.partyForRequest(r)
 		returnTo := safeReturnTo(r.URL.Query().Get("return_to"))
 		st, err := NewState(tenantPublicID, returnTo)
 		if err != nil {
@@ -164,6 +262,7 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		st.RedirectKey = key
 		signed, err := o.signer.Sign(st)
 		if err != nil {
 			o.logger.Error("state sign", zap.Error(err))
@@ -179,7 +278,7 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   int(stateTTL / time.Second),
 		})
-		http.Redirect(w, r, rp.AuthURL(signed, o.rp), http.StatusFound)
+		http.Redirect(w, r, rp.AuthURL(signed, party), http.StatusFound)
 	}
 }
 
@@ -228,7 +327,7 @@ func (o *OIDC) CallbackHandler(
 			return
 		}
 
-		tokens, err := rp.CodeExchange[*oidc.IDTokenClaims](r.Context(), code, o.rp)
+		tokens, err := rp.CodeExchange[*oidc.IDTokenClaims](r.Context(), code, o.partyForKey(st.RedirectKey))
 		if err != nil {
 			o.logger.Warn("code exchange failed", zap.String("tenant", st.Tenant), zap.Error(err))
 			http.Error(w, "authentication failed", http.StatusBadGateway)
@@ -297,7 +396,7 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 		// /auth/callback so this is the only place we can wipe it.
 		clearCookie(w, stateCookieName, stateCookiePath, o.cfg.Secure)
 
-		endpoint := o.rp.GetEndSessionEndpoint()
+		endpoint := o.defaultParty.GetEndSessionEndpoint()
 		if endpoint == "" {
 			o.logger.Warn("OP discovery has no end_session_endpoint, falling back to local redirect",
 				zap.String("tenant", t.PublicID))
@@ -305,7 +404,7 @@ func (o *OIDC) LogoutHandler(postLogoutRedirectURI string) http.HandlerFunc {
 			return
 		}
 		q := url.Values{}
-		q.Set("client_id", o.rp.OAuthConfig().ClientID)
+		q.Set("client_id", o.defaultParty.OAuthConfig().ClientID)
 		if idTokenHint != "" {
 			q.Set("id_token_hint", idTokenHint)
 		}
@@ -339,7 +438,7 @@ func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](r.Context(), tok.IDToken, o.rp.IDTokenVerifier())
+			claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](r.Context(), tok.IDToken, o.defaultParty.IDTokenVerifier())
 			if err != nil {
 				if tok.RefreshToken == "" {
 					o.logger.Debug("id token invalid, no refresh", zap.String("tenant", t.PublicID), zap.Error(err))
@@ -347,7 +446,7 @@ func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 					http.Redirect(w, r, loginURL, http.StatusFound)
 					return
 				}
-				refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](r.Context(), o.rp, tok.RefreshToken, "", "")
+				refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](r.Context(), o.defaultParty, tok.RefreshToken, "", "")
 				if rerr != nil {
 					o.logger.Info("refresh failed", zap.String("tenant", t.PublicID), zap.Error(rerr))
 					clearCookie(w, portalCookieName, "/t/"+t.PublicID, o.cfg.Secure)
@@ -456,14 +555,14 @@ func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, ten
 	if err != nil {
 		return nil, nil, err
 	}
-	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.rp.IDTokenVerifier())
+	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.defaultParty.IDTokenVerifier())
 	if err == nil {
 		return claims, nil, nil
 	}
 	if tok.RefreshToken == "" {
 		return nil, nil, fmt.Errorf("auth: id token invalid, no refresh: %w", err)
 	}
-	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.rp, tok.RefreshToken, "", "")
+	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.defaultParty, tok.RefreshToken, "", "")
 	if rerr != nil {
 		return nil, nil, fmt.Errorf("auth: refresh failed: %w", rerr)
 	}

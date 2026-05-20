@@ -17,12 +17,13 @@ func Build(rt *boot.Runtime) (*auth.OIDC, error) {
 		return nil, fmt.Errorf("oidcboot: requires NeedCipher + NeedSigner in BootProfile")
 	}
 	h, err := auth.NewOIDC(rt.Ctx, auth.OIDCConfig{
-		Issuer:       rt.Cfg.OIDC.Issuer,
-		ClientID:     rt.Cfg.OIDC.ClientID,
-		ClientSecret: rt.Cfg.OIDC.ClientSecret,
-		RedirectURI:  rt.Cfg.OIDC.RedirectURI,
-		Scopes:       rt.Cfg.OIDC.Scopes,
-		Secure:       rt.Cfg.Security.PortalSessionCookieSecure,
+		Issuer:              rt.Cfg.OIDC.Issuer,
+		ClientID:            rt.Cfg.OIDC.ClientID,
+		ClientSecret:        rt.Cfg.OIDC.ClientSecret,
+		RedirectURI:         rt.Cfg.OIDC.RedirectURI,
+		AllowedRedirectURIs: rt.Cfg.OIDC.AllowedRedirectURIs,
+		Scopes:              rt.Cfg.OIDC.Scopes,
+		Secure:              rt.Cfg.Security.PortalSessionCookieSecure,
 	}, rt.Cipher, rt.Signer, rt.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("build oidc handler: %w", err)

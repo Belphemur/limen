@@ -70,6 +70,15 @@ oidc:
   client_id: "${LIMEN_OIDC_CLIENT_ID}"
   client_secret: "${LIMEN_OIDC_CLIENT_SECRET:-}"
   redirect_uri: "${LIMEN_OIDC_REDIRECT_URI:-https://limen.example.com/auth/callback}"
+  # Additional callback URLs that may be selected per-request based on the
+  # incoming origin (X-Forwarded-Proto/Host or r.TLS+r.Host). Each entry
+  # must be an absolute http(s) URL and must also be registered with the
+  # upstream Authorization Server (Zitadel). Used in dev to host the admin
+  # SPA on a separate port (5174) alongside the portal SPA (5173); in
+  # production the portal and admin SPAs share the same origin so this
+  # list is typically empty.
+  allowed_redirect_uris:
+    - "http://localhost:5174/auth/callback"
   scopes:
     - openid
     - profile
