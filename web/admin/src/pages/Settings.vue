@@ -1,13 +1,15 @@
 <script setup lang="ts">
-// Organization Settings — phase 9c slice 3, updated in phase 9f.
+// Organization Settings — phase 9c slice 3.
 //
-// Four sections:
+// Three sections:
 //
 //  1. Organization     → UpdateTenantSettings({ name })
 //  2. Zitadel identity → readonly; deep-links into Console via the
 //                        shared zitadelConsoleUrl helper
-//  3. IDE allowlist    → IDEAllowlistManager (own RPCs)
-//  4. Danger Zone      → DeleteTenant({ publicIdConfirmation })
+//  3. Danger Zone      → DeleteTenant({ publicIdConfirmation })
+//
+// The IDE redirect-URI allowlist lives on its own page under
+// Organization → IDE Configuration.
 
 import { computed, onMounted, ref } from 'vue'
 import { ConnectError } from '@connectrpc/connect'
@@ -19,7 +21,6 @@ import {
     fetchDiscovery,
     zitadelConsoleUrl,
 } from '@limen/shared'
-import IDEAllowlistManager from '@/components/IDEAllowlistManager.vue'
 import { adminClient } from '@/transport/adminClient'
 import {
     DeleteTenantRequestSchema,
@@ -167,9 +168,10 @@ async function confirmDelete() {
                 Organization Settings
             </h1>
             <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-                Configure your organization name, the IDE redirect-URI allowlist,
-                and cross-reference your Zitadel identity. Destructive actions live in
-                the Danger Zone at the bottom.
+                Configure your organization name and cross-reference your Zitadel
+                identity. The IDE redirect-URI allowlist lives on its own page under
+                Organization → IDE Configuration. Destructive actions live in the
+                Danger Zone at the bottom.
             </p>
         </header>
 
@@ -247,21 +249,6 @@ async function confirmDelete() {
                     Zitadel Console link is unavailable — the deployment is missing an
                     issuer in /auth/discovery.
                 </p>
-            </section>
-
-            <!-- 3. IDE allowlist -->
-            <section aria-labelledby="allowlist-heading"
-                class="space-y-3 rounded-lg border border-outline-variant bg-surface p-6"
-                data-testid="section-allowlist">
-                <h2 id="allowlist-heading" class="text-lg font-semibold text-on-surface">
-                    IDE redirect-URI allowlist
-                </h2>
-                <p class="text-sm text-on-surface-variant">
-                    Pick the AI IDEs your users will connect from. Each preset adds
-                    the official redirect URIs the IDE will register via DCR. The
-                    global HTTPS / loopback floor always applies.
-                </p>
-                <IDEAllowlistManager />
             </section>
 
             <!-- 4. Danger zone -->

@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { LayoutDashboard, Brain, Building2, Server, SlidersHorizontal, Users } from '@lucide/vue'
+import { LayoutDashboard, Brain, Building2, Code2, Server, SlidersHorizontal, Users } from '@lucide/vue'
 
 // Single source of truth for every admin SPA route.
 //
@@ -21,6 +21,7 @@ export const ROUTES = {
   mcpServerDetail: '/mcp-servers/:id',
   members: '/org/members',
   settings: '/org/settings',
+  ideConfiguration: '/org/ide-configuration',
   forbidden: '/forbidden',
   oauthPopupClose: '/oauth-popup-close',
 } as const
@@ -83,6 +84,12 @@ export const routeDefs: RouteDef[] = [
     search: { mode: 'hidden' },
   },
   {
+    name: 'ide-configuration',
+    path: ROUTES.ideConfiguration,
+    component: () => import('@/pages/IDEConfiguration.vue'),
+    search: { mode: 'hidden' },
+  },
+  {
     name: 'forbidden',
     path: ROUTES.forbidden,
     component: () => import('@/pages/Forbidden.vue'),
@@ -128,6 +135,7 @@ export const navTree: NavNode[] = [
     icon: Building2,
     children: [
       { kind: 'leaf', label: 'Org Settings', path: ROUTES.settings, icon: SlidersHorizontal },
+      { kind: 'leaf', label: 'IDE Configuration', path: ROUTES.ideConfiguration, icon: Code2 },
       { kind: 'leaf', label: 'Users & Roles', path: ROUTES.members, icon: Users },
     ],
   },

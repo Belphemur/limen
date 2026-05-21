@@ -107,7 +107,7 @@ describe('Settings', () => {
     expect(w.find('[data-testid="settings-loading"]').exists()).toBe(false)
     expect(w.find('[data-testid="section-organization"]').exists()).toBe(true)
     expect(w.find('[data-testid="section-zitadel"]').exists()).toBe(true)
-    expect(w.find('[data-testid="section-allowlist"]').exists()).toBe(true)
+    expect(w.find('[data-testid="section-allowlist"]').exists()).toBe(false)
     expect(w.find('[data-testid="section-danger"]').exists()).toBe(true)
 
     expect((w.find('[data-testid="org-name-input"]').element as HTMLInputElement).value).toBe(

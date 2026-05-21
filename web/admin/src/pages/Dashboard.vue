@@ -76,6 +76,7 @@ const steps = computed<Step[]>(() => [
 
 const completed = computed(() => steps.value.filter((s) => s.done).length)
 const total = computed(() => steps.value.length)
+const allDone = computed(() => total.value > 0 && completed.value === total.value)
 const isDone = (key: Step['key']) => steps.value.find((s) => s.key === key)?.done ?? false
 
 const firstName = computed(() => session.user?.firstName ?? 'there')
@@ -105,6 +106,18 @@ async function skipIDEChoice() {
     settings.value.choseIde = true
   }
 }
+
+async function openSettings() {
+  try {
+    const resp = await adminClient().updateTenantSettings(
+      create(UpdateTenantSettingsRequestSchema, { configuredAtNow: true }),
+    )
+    settings.value.configured = (resp.settings?.configuredAt ?? '') !== ''
+  } catch {
+    settings.value.configured = true
+  }
+  void router.push(ROUTES.settings)
+}
 </script>
 
 <template>
@@ -120,24 +133,22 @@ async function skipIDEChoice() {
       </p>
     </header>
 
-    <SetupProgress :completed="completed" :total="total" />
+    <SetupProgress v-if="!allDone" :completed="completed" :total="total" />
 
     <!-- Task bento -->
-    <section class="grid gap-gutter md:grid-cols-3" aria-label="Setup tasks">
-      <div class="md:col-span-2">
-        <TaskBentoCard
-          variant="primary"
-          :icon="Server"
-          title="Connect MCP Servers"
-          body="Link your internal AI tools, external APIs, and custom data sources to the gateway."
-          cta-label="Add First Server"
-          :cta-icon="ArrowRight"
-          :done="isDone('connect')"
-          data-step="connect"
-          @activate="router.push(ROUTES.mcpServerNew)"
-        />
-      </div>
-      <div class="flex flex-col gap-gutter">
+    <section v-if="!allDone" class="grid gap-gutter md:grid-cols-2 xl:grid-cols-4" aria-label="Setup tasks">
+      <TaskBentoCard
+        variant="primary"
+        :icon="Server"
+        title="Connect MCP Servers"
+        body="Link your internal AI tools, external APIs, and custom data sources to the gateway."
+        cta-label="Add First Server"
+        :cta-icon="ArrowRight"
+        :done="isDone('connect')"
+        data-step="connect"
+        @activate="router.push(ROUTES.mcpServerNew)"
+      />
+      <div class="flex flex-col gap-2">
         <TaskBentoCard
           variant="secondary"
           :icon="Code2"
@@ -146,7 +157,7 @@ async function skipIDEChoice() {
           cta-label="Pick IDEs"
           :done="isDone('ide')"
           data-step="ide"
-          @activate="router.push(ROUTES.settings)"
+          @activate="router.push(ROUTES.ideConfiguration)"
         />
         <button
           v-if="!isDone('ide')"
@@ -157,28 +168,28 @@ async function skipIDEChoice() {
         >
           Skip for now
         </button>
-        <TaskBentoCard
-          variant="secondary"
-          :icon="Users"
-          title="Invite Your Team"
-          body="Add collaborators to your organization to manage resources."
-          cta-label="Manage Users in Zitadel"
-          :cta-icon="ExternalLink"
-          :done="isDone('invite')"
-          data-step="invite"
-          @activate="openZitadelConsole"
-        />
-        <TaskBentoCard
-          variant="secondary"
-          :icon="Cog"
-          title="Configure Organization"
-          body="Set up your tenant details, limits, and core preferences."
-          cta-label="Review Settings"
-          :done="isDone('configure')"
-          data-step="configure"
-          @activate="router.push(ROUTES.settings)"
-        />
       </div>
+      <TaskBentoCard
+        variant="secondary"
+        :icon="Users"
+        title="Invite Your Team"
+        body="Add collaborators to your organization to manage resources."
+        cta-label="Manage Users in Zitadel"
+        :cta-icon="ExternalLink"
+        :done="isDone('invite')"
+        data-step="invite"
+        @activate="openZitadelConsole"
+      />
+      <TaskBentoCard
+        variant="secondary"
+        :icon="Cog"
+        title="Configure Organization"
+        body="Set up your tenant details, limits, and core preferences."
+        cta-label="Review Settings"
+        :done="isDone('configure')"
+        data-step="configure"
+        @activate="openSettings"
+      />
     </section>
 
     <!-- Bottom row -->

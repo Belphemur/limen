@@ -47,14 +47,17 @@ function detailPath(id: string): string {
   return ROUTES.mcpServerDetail.replace(':id', id)
 }
 
-// Per-row icon: ask Google's s2 favicon service for the hostname behind
-// mcpUrl. Failing URL parse (relative / malformed) returns null and the
-// row falls back to a generic Server glyph.
+// Per-row icon: ask Google's s2 favicon service for the root domain behind
+// mcpUrl (e.g. api.github.com -> github.com) so vendor icons resolve even
+// when the MCP endpoint lives on a subdomain. Failing URL parse returns
+// null and the row falls back to a generic Server glyph.
 function faviconUrl(mcpUrl: string): string | null {
   try {
     const host = new URL(mcpUrl).hostname
     if (!host) return null
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+    const parts = host.split('.').filter(Boolean)
+    const root = parts.length >= 2 ? parts.slice(-2).join('.') : host
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(root)}&sz=64`
   } catch {
     return null
   }

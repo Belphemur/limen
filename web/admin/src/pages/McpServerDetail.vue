@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ConnectError, Code } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
 import { ArrowLeft, RefreshCw, Trash2, Save, ChevronDown } from '@lucide/vue'
-import { ContextJsonEditor } from '@limen/shared'
+import { ContextJsonEditor, hintsFor } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
@@ -34,6 +34,8 @@ const reindexing = ref(false)
 const deleting = ref(false)
 const confirmText = ref('')
 const toolsOpen = ref(false)
+
+const defaultsHint = computed(() => (summary.value ? hintsFor(summary.value.mcpUrl) : null))
 
 async function refresh() {
   loading.value = true
@@ -159,7 +161,7 @@ async function remove() {
       <section class="rounded-lg border border-border-subtle bg-surface p-4">
         <dl class="grid gap-stack-sm md:grid-cols-2 text-sm">
           <div>
-            <dt class="text-on-surface-variant">Name</dt>
+            <dt class="text-on-surface-variant">Identifier</dt>
             <dd class="font-mono text-on-surface">{{ summary.identifier }}</dd>
           </div>
           <div>
@@ -248,10 +250,19 @@ async function remove() {
         </label>
         <div>
           <label class="mb-1 block text-sm font-medium text-on-surface">
-            Defaults JSON (leave blank to keep current)
+            Ambient context (optional)
           </label>
+          <p class="mb-2 text-xs text-on-surface-variant">
+            Pre-filled values the LLM can use without asking the user — Atlassian
+            <code class="font-mono">cloudId</code>, Sentry <code class="font-mono">organization_slug</code>,
+            Cloudflare <code class="font-mono">account_id</code>, default project keys, region names,
+            and other stable identifiers this MCP server expects on most tool calls. Provide a JSON
+            object whose keys are merged into every tool call's arguments as defaults; tool calls
+            may still override any field. Leave blank to keep the current value.
+          </p>
           <ContextJsonEditor
             v-model="defaultsJson"
+            :caption="defaultsHint?.caption"
             @update:valid="onDefaultsValid"
           />
         </div>

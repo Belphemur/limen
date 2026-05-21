@@ -46,6 +46,7 @@ function buildRouter(): Router {
       { path: '/', component: { template: '<div />' } },
       { path: '/mcp-servers/new', component: { template: '<div />' } },
       { path: '/org/settings', component: { template: '<div />' } },
+      { path: '/org/ide-configuration', component: { template: '<div />' } },
     ],
   })
 }

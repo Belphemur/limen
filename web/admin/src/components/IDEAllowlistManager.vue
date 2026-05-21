@@ -17,10 +17,27 @@
 // The component owns its own load + mutation state; the parent only
 // embeds it.
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { ConnectError } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import { ChevronDown, Loader2, Plus, Pencil, Trash2 } from '@lucide/vue'
+import {
+    Bot,
+    Brain,
+    ChevronDown,
+    Code,
+    Code2,
+    Loader2,
+    Monitor,
+    Package,
+    Pencil,
+    Plus,
+    Search,
+    Sparkles,
+    Terminal,
+    Trash2,
+    Wind,
+    Puzzle,
+} from '@lucide/vue'
 import { ErrorModal, SuccessModal, validateRedirectURIPattern } from '@limen/shared'
 import { adminClient } from '@/transport/adminClient'
 import {
@@ -41,6 +58,47 @@ const successOpen = ref(false)
 const successMessage = ref('')
 
 const customEntries = computed(() => entries.value.filter((e) => e.ideKey === ''))
+
+interface EffectivePattern {
+    pattern: string
+    sources: string[]
+}
+
+const effectivePatterns = computed<EffectivePattern[]>(() => {
+    const presetName = new Map<string, string>()
+    for (const p of presets.value) presetName.set(p.key, p.displayName)
+    const byPattern = new Map<string, Set<string>>()
+    for (const e of entries.value) {
+        const src = e.ideKey === '' ? 'Custom' : presetName.get(e.ideKey) ?? e.ideKey
+        const set = byPattern.get(e.pattern) ?? new Set<string>()
+        set.add(src)
+        byPattern.set(e.pattern, set)
+    }
+    return Array.from(byPattern.entries())
+        .map(([pattern, sources]) => ({
+            pattern,
+            sources: Array.from(sources).sort((a, b) => a.localeCompare(b)),
+        }))
+        .sort((a, b) => a.pattern.localeCompare(b.pattern))
+})
+
+const presetSearch = ref('')
+
+const presetIconMap: Record<string, Component> = {
+    terminal: Terminal,
+    code: Code,
+    'code-2': Code2,
+    bot: Bot,
+    brain: Brain,
+    package: Package,
+    sparkles: Sparkles,
+    wind: Wind,
+    monitor: Monitor,
+}
+
+function iconFor(name: string): Component {
+    return presetIconMap[name] ?? Puzzle
+}
 
 interface PresetView {
     preset: IDEPreset
@@ -65,6 +123,16 @@ const presetViews = computed<PresetView[]>(() =>
         return { preset: p, status, matched, busy: presetBusy.value[p.key] ?? false }
     }),
 )
+
+const filteredPresetViews = computed<PresetView[]>(() => {
+    const q = presetSearch.value.trim().toLowerCase()
+    if (q === '') return presetViews.value
+    return presetViews.value.filter((v) => {
+        if (v.preset.displayName.toLowerCase().includes(q)) return true
+        if (v.preset.key.toLowerCase().includes(q)) return true
+        return v.preset.patterns.some((pat) => pat.toLowerCase().includes(q))
+    })
+})
 
 async function reload() {
     const [pr, en] = await Promise.all([
@@ -223,26 +291,37 @@ async function deleteEntry(e: AllowlistEntry) {
                 <p class="text-sm text-on-surface-variant">
                     One-click presets for the official redirect URIs of popular AI IDEs.
                 </p>
-                <div class="grid gap-gutter md:grid-cols-2 lg:grid-cols-3">
-                    <article v-for="v in presetViews" :key="v.preset.key" class="rounded-lg border p-4"
+                <div class="relative">
+                    <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant" />
+                    <input v-model="presetSearch" type="search" placeholder="Search IDEs or redirect URIs…"
+                        class="w-full rounded border border-outline bg-surface py-2 pl-9 pr-3 text-sm focus:border-primary focus:outline-none"
+                        data-testid="ide-preset-search" />
+                </div>
+                <div v-if="filteredPresetViews.length === 0"
+                    class="rounded border border-outline-variant p-4 text-sm text-on-surface-variant"
+                    data-testid="ide-preset-empty">
+                    No IDE presets match “{{ presetSearch }}”.
+                </div>
+                <div v-else class="grid gap-gutter md:grid-cols-2 lg:grid-cols-3">
+                    <article v-for="v in filteredPresetViews" :key="v.preset.key" class="rounded-lg border p-4"
                         :class="v.status === 'active'
                             ? 'border-primary bg-primary/5'
                             : v.status === 'partial'
                                 ? 'border-warning/40 bg-warning/5'
                                 : 'border-outline-variant bg-surface'" :data-testid="`ide-preset-${v.preset.key}`">
-                        <header class="flex items-center justify-between">
-                            <h4 class="font-semibold text-on-surface">{{ v.preset.displayName }}</h4>
-                            <span class="text-xs uppercase tracking-wide" :class="v.status === 'active'
+                        <header class="flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <component :is="iconFor(v.preset.icon)" class="h-5 w-5 shrink-0 text-on-surface-variant" />
+                                <h4 class="font-semibold text-on-surface truncate">{{ v.preset.displayName }}</h4>
+                            </div>
+                            <span class="text-xs uppercase tracking-wide shrink-0" :class="v.status === 'active'
                                 ? 'text-primary'
                                 : v.status === 'partial'
                                     ? 'text-warning'
                                     : 'text-on-surface-variant'
                                 ">{{ v.status }}</span>
                         </header>
-                        <p class="mt-1 text-xs text-on-surface-variant">
-                            {{ v.matched }} / {{ v.preset.patterns.length }} patterns active
-                        </p>
-                        <details class="mt-2 group" :data-testid="`patterns-${v.preset.key}`">
+                        <details class="mt-3 group" :data-testid="`patterns-${v.preset.key}`">
                             <summary class="flex cursor-pointer items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface select-none">
                                 <ChevronDown class="h-3 w-3 transition-transform group-open:rotate-180" />
                                 Show redirect URIs
@@ -316,6 +395,37 @@ async function deleteEntry(e: AllowlistEntry) {
                         </tr>
                     </tbody>
                 </table>
+            </section>
+
+            <!-- Effective allowlist (all sources merged) -->
+            <section aria-labelledby="ide-effective-heading" class="space-y-2">
+                <details class="rounded border border-outline-variant bg-surface p-3 group"
+                    data-testid="effective-allowlist">
+                    <summary
+                        class="flex cursor-pointer items-center gap-2 text-sm font-medium text-on-surface select-none">
+                        <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
+                        <span id="ide-effective-heading">
+                            All allowed redirect URIs ({{ effectivePatterns.length }})
+                        </span>
+                    </summary>
+                    <p class="mt-2 text-xs text-on-surface-variant">
+                        The full set of patterns the gateway will accept for OAuth dynamic client
+                        registration, merged across every active preset and your custom entries.
+                    </p>
+                    <div v-if="effectivePatterns.length === 0"
+                        class="mt-2 text-xs text-on-surface-variant" data-testid="effective-empty">
+                        No redirect URIs allowed yet. Apply an IDE preset or add a custom URI above.
+                    </div>
+                    <ul v-else class="mt-2 space-y-1">
+                        <li v-for="row in effectivePatterns" :key="row.pattern"
+                            class="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-outline-variant/40 py-1 last:border-b-0">
+                            <span class="font-mono text-xs text-on-surface break-all">{{ row.pattern }}</span>
+                            <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">
+                                {{ row.sources.join(', ') }}
+                            </span>
+                        </li>
+                    </ul>
+                </details>
             </section>
 
             <!-- Editor modal -->
