@@ -38,9 +38,31 @@ That single command brings the whole environment up. It:
    defaults (DB DSNs, OIDC URLs, Zitadel host, Valkey address), and runs
    `go run ./cmd/limen migrate && go run ./cmd/limen serve`.
 
-Limen listens on `http://localhost:8080`. Stop with `Ctrl-C`; the stack
-keeps running. Re-launch Limen alone with `make dev-run`.
+Limen listens on `http://localhost:8080`, and a dev Caddy container in
+`compose.dev.yaml` fronts the whole environment on **`http://localhost:8000`**
+as a single origin. Browsers should hit `:8000` for everything:
 
+- `/t/<tenant>/portal/*` — portal SPA (Vite dev server on host `:5173`)
+- `/t/<tenant>/admin/*` — tenant-admin SPA (Vite on host `:5174`)
+- `/t/<tenant>/{api,auth,oauth,mcp,mcp-servers/*/callback}` — Limen `:8080`
+- `/auth/*`, `/signup*`, `/api/limen.signup*`, `/.well-known/*`, `/healthz` — Limen `:8080`
+
+The route table lives in [deploy/caddy/Caddyfile.dev](../deploy/caddy/Caddyfile.dev)
+and mirrors the production Caddyfile in [Phase 11](phases/phase-11-production-deployment.md)
+one-for-one. Run the SPAs in their own shells:
+
+```bash
+make dev-portal   # vite portal on :5173, reachable via :8000
+make dev-admin    # vite admin  on :5174, reachable via :8000
+```
+
+Stop with `Ctrl-C`; the stack keeps running. Re-launch Limen alone with
+`make dev-run`.
+
+> **Don't hit `:5173`/`:5174` directly.** The portal-session cookie is
+> scoped to the `:8000` origin; loading the SPA on its raw Vite port
+> works but every API/OIDC call will 401 because the cookie isn't sent.
+>
 > **Cookie note** — on plain `http://localhost`, set
 > `security.portal_session_cookie_secure: false` in [config.yaml](../config.yaml).
 > Otherwise the browser drops the session cookie and the callback loops
@@ -108,20 +130,21 @@ After `make dev` is up:
    Each invocation prints a `PublicID` (`tnt_<ULID>`). Use that for every
    `/t/<tenant>/...` URL below — there is no slug.
 
-2. Open `http://localhost:8080/t/<tenant>/auth/login` — Limen redirects to
+2. Open `http://localhost:8000/t/<tenant>/auth/login` — Limen redirects to
    Zitadel.
 3. Log in as the tenant owner.
 4. Zitadel redirects to `/auth/callback`; Limen exchanges the code, sets
-   the `limen_portal` cookie, and lands you on `/t/<tenant>/portal/`.
-5. `GET /t/<tenant>/portal/me` returns JSON with `sub`, `email`, `name`,
-   and the tenant id — confirms the cookie, tenant resolver, and user
-   upsert all work.
+   the `limen_portal` cookie, and lands you on `/t/<tenant>/portal/`
+   (or `/admin/` if you came in via the admin SPA).
+5. `GET /t/<tenant>/api/limen.portal.v1.PortalService/GetMe` (called by
+   the SPA on boot) returns `sub`, `email`, `name`, and the tenant id —
+   confirms the cookie, tenant resolver, and user upsert all work.
 6. `/t/<tenant>/auth/logout` clears the cookie and redirects through
    Zitadel's `end_session_endpoint`.
 
 Negative checks:
 
-- `/t/<tenant>/portal/me` with no cookie → 401 + login redirect.
+- Calling any tenant RPC with no cookie → 401 + login redirect.
 - `/t/tnt_0000000000000000000000000Z/auth/login` → 404 (unknown tenant).
 
 ## Walking the Phase 7 outbound-upstream PoC
@@ -141,7 +164,7 @@ test surface — Phase 9b replaces it with a real SPA.
    Idempotent on `(tenant, name)` — re-running updates the MCP URL in
    place. Prints the new `ups_<ULID>` and the portal URL to visit.
 
-2. **Connect from the portal.** Reload `http://localhost:8080/t/<tenant>/portal/`
+2. **Connect from the portal.** Reload `http://localhost:8000/t/<tenant>/portal/`
    — the **MCP Upstreams** table shows the row as `disconnected`. Click
    **Connect**; the portal POSTs `/portal/upstreams/<name>/connect`, Limen
    runs MCP-spec discovery, performs DCR if needed, mints a state token,
@@ -188,12 +211,13 @@ attach a debugger — replicate the env block from the `dev-run` recipe:
 set -a
 source scripts/zitadel-bootstrap/.bootstrap-out.env
 source .env.dev
-export LIMEN_BASE_URL=http://localhost:8080
+export LIMEN_BASE_URL=http://localhost:8000
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_OIDC_ISSUER=http://localhost:8081
 export LIMEN_OIDC_CLIENT_ID=$LIMEN_OIDC_PORTAL_CLIENT_ID
-export LIMEN_OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
+export LIMEN_OIDC_REDIRECT_URI=http://localhost:8000/auth/callback
+export LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:8000/signed-out
 export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
 export LIMEN_ZITADEL_AUTH_MODE=pat
 export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)
@@ -211,7 +235,10 @@ any interactive shell.
 
 | URL                                                    | What                                                |
 | ------------------------------------------------------ | --------------------------------------------------- |
-| http://localhost:8080                                  | Limen (this gateway)                                |
+| http://localhost:8000                                  | Caddy dev origin (portal + admin + API)             |
+| http://localhost:8080                                  | Limen Go backend (bypass Caddy)                     |
+| http://localhost:5173                                  | Vite portal dev server (do not load directly)       |
+| http://localhost:5174                                  | Vite admin  dev server (do not load directly)       |
 | http://localhost:8081                                  | Zitadel console (`root` / `RootPassword1!`)         |
 | http://localhost:8081/.well-known/openid-configuration | OIDC discovery (Limen validates `iss` against this) |
 | http://localhost:8025                                  | MailHog inbox                                       |
@@ -237,7 +264,7 @@ ports exposed). It is **not** production-ready — see
 | `Project Grant not found` during bootstrap            | Stale Zitadel state. `make dev-reset && make dev`.                                                                                                                                                                                          |
 | SDK error `ExternalDomain mismatch`                   | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`.                                                                                                                 |
 | `invalid_client` at the token endpoint                | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                                                                                                                                         |
-| Callback loops back to login                          | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`.                                                                                                                                               |
+| Callback loops back to login                          | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`, and make sure you're loading the SPA via `http://localhost:8000` (the cookie is bound to that origin, not the raw `:5173`/`:5174` Vite ports).                                                                                                                                               |
 | `password authentication failed for user "limen_app"` | Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Either run it manually (`docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`) or `make dev-reset`.                  |
 | `dial limen-valkey: no such host`                     | Limen on the host can't resolve docker DNS. `make dev-run` exports `LIMEN_VALKEY_ADDRESS=localhost:6380` — make sure that's set if you run `serve` manually.                                                                                |
 | `create-tenant` fails with auth error                 | PAT changed (every `dev-reset` mints a new one). `make dev-run` re-reads it live; manual shells need to re-export.                                                                                                                          |

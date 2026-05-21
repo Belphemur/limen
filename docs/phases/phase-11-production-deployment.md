@@ -51,7 +51,8 @@ services:
     ports: ["80:80", "443:443"]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./web/dist:/srv/portal:ro          # SPA static build (self-hosted mode)
+      - ./web/portal/dist:/srv/portal:ro   # portal SPA static build
+      - ./web/admin/dist:/srv/admin:ro     # tenant-admin SPA static build
       - caddy-data:/data
       - caddy-config:/config
     depends_on: [limen, zitadel]
@@ -219,11 +220,25 @@ secrets:
 
 ### `deploy/Caddyfile` outline
 
-The Limen API and the SPA share an origin (`limen.example.com`). API-shaped paths are reverse-proxied to the Go service; everything else is served from the static SPA build with an SPA-history fallback.
+Limen ships **two SPA bundles** plus the Go API behind one origin
+(`limen.example.com`). Paths in the `@api` matcher are reverse-proxied
+to the Go service; `/t/<tenant>/portal/*` and `/t/<tenant>/admin/*`
+serve their respective static bundles with an SPA-history fallback.
 
-The portal SPA itself is a pure static bundle (the `web/portal/dist/` output of `pnpm build` — HTML, hashed JS, hashed CSS). It does **not** need a Node runtime in production. What is required is the reverse proxy: it terminates TLS, serves the static bundle for SPA paths, and forwards API/auth/OAuth/MCP traffic to the Limen binary on the same origin. Same-origin is what lets the portal-session cookie flow without `SameSite=None` and without per-request CORS preflights. Caddy is the reference; Traefik / nginx / a CDN-edge worker can play the same role as long as they preserve same-origin or wire `Access-Control-Allow-Credentials` correctly on every API route.
+Each SPA is a pure static build (`web/portal/dist/` and
+`web/admin/dist/` produced by `pnpm build`) — hashed JS/CSS, no Node
+runtime needed. Caddy terminates TLS, serves the bundles, and forwards
+API/auth/OAuth/MCP/discovery traffic to the Limen binary. Same-origin
+is what lets the `Path=/t/<tenant>` portal-session cookie cover both
+the customer portal and the admin SPA without `SameSite=None` or CORS
+preflights.
 
-The set of paths that must hit Limen rather than the static file server is the same set the Vite dev proxy forwards in [web/portal/vite.config.ts](../../web/portal/vite.config.ts) — keep the two in lockstep so behaviour observed in `pnpm dev` matches production.
+The `@api` matcher is the canonical route list. The dev Caddyfile
+([deploy/caddy/Caddyfile.dev](../../deploy/caddy/Caddyfile.dev)) mirrors
+it one-for-one against a single :8000 origin so behaviour observed
+under `make dev` + `make dev-portal` + `make dev-admin` matches
+production. Vite no longer carries proxy rules — keep dev/prod
+Caddyfiles in lockstep instead.
 
 ```caddy
 limen.example.com {
@@ -231,11 +246,12 @@ limen.example.com {
     header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://auth.limen.example.com; img-src 'self' data:; frame-ancestors 'none'"
 
-    # Routes owned by Limen. Anything tenant-scoped under /t/{tenant}/
-    # that is NOT listed here (notably the bare /t/*/mcp-servers page)
-    # belongs to the SPA.
+    # Routes owned by Limen (the Go binary). Anything tenant-scoped
+    # under /t/{tenant}/ that is NOT listed here (notably the bare
+    # /t/*/mcp-servers page inside the SPA) belongs to one of the SPA
+    # handlers below.
     #
-    #   /t/<tenant>/api/*                       Connect-RPC portal API
+    #   /t/<tenant>/api/*                       Connect-RPC (Portal + Session + Admin services multiplexed)
     #   /t/<tenant>/auth/*                      per-tenant OIDC login/callback/logout
     #   /t/<tenant>/oauth/*                     OAuth AS redirector + DCR (/register lives here)
     #   /t/<tenant>/mcp                         MCP RS root (streamable HTTP)
@@ -245,14 +261,15 @@ limen.example.com {
     #                                            default "/mcp-servers")
     #   /auth/login                             tenant-agnostic entry point
     #   /auth/callback                          OIDC RP callback
+    #   /auth/discovery                         IdP issuer discovery for SPAs
+    #   /auth/signup*, /signup*                 self-serve signup wizard
+    #   /api/limen.signup*                      Connect-RPC SignupService (root-scoped, no tenant)
     #   /.well-known/*                          OAuth AS + OIDC + PRM discovery
     #                                           (RFC 8414 well-known-insertion variants)
     #   /healthz                                liveness
     #
-    # Keep this matcher in lockstep with the Vite proxy in
-    # web/portal/vite.config.ts — both lists must move together. The bare
-    # /t/*/mcp-servers route is owned by the SPA, so the matcher pins
-    # the trailing /*/callback leaf; if you change
+    # Keep this matcher in lockstep with deploy/caddy/Caddyfile.dev so
+    # `make dev` and prod see the same route table. If you change
     # server.upstream_callback_path, update both files.
     @api {
         path /t/*/api/*
@@ -263,20 +280,46 @@ limen.example.com {
         path /t/*/mcp-servers/*/callback
         path /auth/login
         path /auth/callback
+        path /auth/discovery
+        path /auth/signup*
+        path /signup
+        path /signup/*
+        path /api/limen.signup*
         path /.well-known/*
         path /healthz
     }
     reverse_proxy @api limen:8080
 
-    # SPA: everything else. The Vite build lives in /srv/portal, hashed asset
-    # filenames get long-cache headers, and unknown deep links fall back to
-    # index.html so Vue Router can take over.
-    root * /srv/portal
-    @assets path /assets/*
-    header @assets Cache-Control "public, max-age=31536000, immutable"
-    header /index.html Cache-Control "no-store"
-    try_files {path} /index.html
-    file_server
+    # Tenant-admin SPA — owner/admin surface. Strip /t/<tenant>/admin/
+    # before serving so the bundle's relative asset paths
+    # (Vite `base: "./"`) resolve against /srv/admin. SPA-history
+    # fallback hands unknown deep links to Vue Router.
+    @admin path_regexp adminroute ^/t/[^/]+/admin(/.*)?$
+    handle @admin {
+        rewrite * /{re.adminroute.1}
+        root * /srv/admin
+        @adminAssets path /assets/*
+        header @adminAssets Cache-Control "public, max-age=31536000, immutable"
+        header /index.html Cache-Control "no-store"
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Customer portal SPA — same shape.
+    @portal path_regexp portalroute ^/t/[^/]+/portal(/.*)?$
+    handle @portal {
+        rewrite * /{re.portalroute.1}
+        root * /srv/portal
+        @portalAssets path /assets/*
+        header @portalAssets Cache-Control "public, max-age=31536000, immutable"
+        header /index.html Cache-Control "no-store"
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Anything else (bare /, signed-out shell, signup landing) is owned
+    # by the backend — it picks the right page for the request.
+    reverse_proxy limen:8080
 }
 
 auth.limen.example.com {
@@ -295,14 +338,35 @@ auth.limen.example.com {
 
 ### Cloudflare Pages alternative
 
-For managed deployments, skip the `./web/dist:/srv/portal` mount and replace the SPA block in the Caddyfile with a reverse proxy to a Pages project:
+For managed deployments, skip the `./web/portal/dist` and `./web/admin/dist`
+mounts and replace the two SPA handlers in the Caddyfile with reverse
+proxies to Pages projects (one per SPA):
 
 ```caddy
     handle @api { reverse_proxy limen:8080 }
-    handle { reverse_proxy https://limen-portal.pages.dev { header_up Host {upstream_hostport} } }
+
+    @admin path_regexp adminroute ^/t/[^/]+/admin(/.*)?$
+    handle @admin {
+        rewrite * /{re.adminroute.1}
+        reverse_proxy https://limen-admin.pages.dev { header_up Host {upstream_hostport} }
+    }
+
+    @portal path_regexp portalroute ^/t/[^/]+/portal(/.*)?$
+    handle @portal {
+        rewrite * /{re.portalroute.1}
+        reverse_proxy https://limen-portal.pages.dev { header_up Host {upstream_hostport} }
+    }
+
+    handle { reverse_proxy limen:8080 }
 ```
 
-The SPA is published with `wrangler pages deploy web/dist --project-name=limen-portal` in CI. A `web/public/_headers` file in the Pages project carries the same CSP + cache directives shown above so behavior is identical regardless of which host serves the static files. Because Caddy still terminates TLS at `limen.example.com` and routes API traffic to Limen, the browser sees a single origin and the Phase 4 cookie scoping continues to work unchanged.
+Each SPA is published with its own `wrangler pages deploy` in CI
+(`web/portal/dist` → `limen-portal`, `web/admin/dist` → `limen-admin`).
+A `public/_headers` file in each Pages project carries the same CSP +
+cache directives shown above. Because Caddy still terminates TLS at
+`limen.example.com` and routes API traffic to Limen, the browser sees
+a single origin and the `Path=/t/<tenant>` cookie scoping continues to
+work unchanged.
 
 ### `deploy/postgres/limen-init.sql`
 
