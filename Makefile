@@ -86,9 +86,18 @@ dev-create-tenant: .env.dev
 dev-create-upstream: .env.dev
 	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-upstream $(ARGS)'
 
-# Run (or re-run) the Zitadel bootstrap. Idempotent.
+# Run (or re-run) the Zitadel bootstrap, then mirror the resulting sample
+# org + seed owner into Limen's own database. Both steps are idempotent.
 dev-bootstrap:
 	$(COMPOSE) run --rm zitadel-bootstrap
+	$(MAKE) dev-migrate
+	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-tenant \
+		--name "$$LIMEN_SAMPLE_TENANT_NAME" \
+		--zitadel-org-id "$$LIMEN_SAMPLE_TENANT_ORG_ID" \
+		--owner-user-id "$$LIMEN_SAMPLE_OWNER_USER_ID" \
+		--owner-email "$$LIMEN_SAMPLE_OWNER_EMAIL" \
+		--owner-given-name Test \
+		--owner-family-name Owner'
 
 # Stop services and wipe all volumes (Limen Postgres, Zitadel Postgres, PATs).
 # Also drops the pinned encryption key so the next `make dev` starts fresh.

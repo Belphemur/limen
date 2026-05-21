@@ -324,6 +324,16 @@ func (b *bootstrap) ensureOrg(ctx context.Context, name string) (string, error) 
 }
 
 func (b *bootstrap) ensureHumanUser(ctx context.Context, orgID, email, given, family string) (string, error) {
+	return b.ensureHumanUserWithPassword(ctx, orgID, email, given, family, "")
+}
+
+// ensureHumanUserWithPassword is the password-bearing variant. When
+// password is non-empty the user is created with a pre-set, already-
+// verified credential so dev seed users (e.g. test@test.com) can log in
+// without waiting on the MailHog invite link. When password is empty
+// behaviour is identical to ensureHumanUser — Zitadel emails an init
+// link.
+func (b *bootstrap) ensureHumanUserWithPassword(ctx context.Context, orgID, email, given, family, password string) (string, error) {
 	list, err := b.api.UserServiceV2().ListUsers(ctx, &userV2.ListUsersRequest{
 		Queries: []*userV2.SearchQuery{
 			{Query: &userV2.SearchQuery_OrganizationIdQuery{OrganizationIdQuery: &userV2.OrganizationIdQuery{
@@ -343,7 +353,7 @@ func (b *bootstrap) ensureHumanUser(ctx context.Context, orgID, email, given, fa
 		}
 	}
 	username := email
-	resp, err := b.api.UserServiceV2().AddHumanUser(ctx, &userV2.AddHumanUserRequest{
+	req := &userV2.AddHumanUserRequest{
 		Organization: &objectV2.Organization{Org: &objectV2.Organization_OrgId{OrgId: orgID}},
 		Username:     &username,
 		Profile: &userV2.SetHumanProfile{
@@ -352,7 +362,14 @@ func (b *bootstrap) ensureHumanUser(ctx context.Context, orgID, email, given, fa
 			PreferredLanguage: ptr("en"),
 		},
 		Email: &userV2.SetHumanEmail{Email: email},
-	})
+	}
+	if password != "" {
+		req.PasswordType = &userV2.AddHumanUserRequest_Password{
+			Password: &userV2.Password{Password: password, ChangeRequired: false},
+		}
+		req.Email.Verification = &userV2.SetHumanEmail_IsVerified{IsVerified: true}
+	}
+	resp, err := b.api.UserServiceV2().AddHumanUser(ctx, req)
 	if err != nil {
 		if alreadyExists(err) {
 			// Re-search once: the conflict implies the user is on this org.
@@ -504,6 +521,24 @@ func main() {
 	}
 	log.Printf("project granted to sample org")
 
+	// Seed owner for the sample tenant. The credential is fixed so dev
+	// flows (Playwright e2e, manual smoke tests) can log straight in
+	// without waiting on the MailHog invite link. Override via
+	// LIMEN_SAMPLE_OWNER_{EMAIL,PASSWORD} when you want a different
+	// identity (e.g. CI's per-run unique email).
+	sampleOwnerEmail := getenvDefault("LIMEN_SAMPLE_OWNER_EMAIL", "test@test.com")
+	sampleOwnerPassword := getenvDefault("LIMEN_SAMPLE_OWNER_PASSWORD", "Password1!")
+	sampleOwnerUserID, err := b.ensureHumanUserWithPassword(ctx, orgID, sampleOwnerEmail, "Test", "Owner", sampleOwnerPassword)
+	if err != nil {
+		log.Fatalf("ensure sample owner %q: %v", sampleOwnerEmail, err)
+	}
+	log.Printf("sample owner %q: %s", sampleOwnerEmail, sampleOwnerUserID)
+
+	if err := b.ensureAuthorization(ctx, sampleOwnerUserID, projectID, orgID, []string{"owner"}); err != nil {
+		log.Fatalf("ensure sample owner authorization: %v", err)
+	}
+	log.Printf("granted owner to %s in sample org", sampleOwnerEmail)
+
 	// Staff (operator) org — see docs/phases/phase-12-staff-backoffice.md.
 	staffOrgName := getenvDefault("LIMEN_STAFF_ORG_NAME", "limen-staff")
 	staffOrgID, err := b.ensureOrg(ctx, staffOrgName)
@@ -537,6 +572,9 @@ func main() {
 		"LIMEN_GATEWAY_ORG_NAME":      gatewayOrgName,
 		"LIMEN_SAMPLE_TENANT_ORG_ID":  orgID,
 		"LIMEN_SAMPLE_TENANT_NAME":    sampleName,
+		"LIMEN_SAMPLE_OWNER_USER_ID":  sampleOwnerUserID,
+		"LIMEN_SAMPLE_OWNER_EMAIL":    sampleOwnerEmail,
+		"LIMEN_SAMPLE_OWNER_PASSWORD": sampleOwnerPassword,
 		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
 		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
 	}

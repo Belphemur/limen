@@ -66,8 +66,11 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 			if strings.TrimSpace(f.name) == "" {
 				return errors.New("--name is required")
 			}
-			if f.existingOrgID == "" && f.existingUserID == "" && strings.TrimSpace(f.ownerEmail) == "" {
-				return errors.New("--owner-email is required (or pass --owner-user-id to reuse an existing Zitadel user, or --zitadel-org-id to bind to an existing org)")
+			if strings.TrimSpace(f.ownerEmail) == "" {
+				return errors.New("--owner-email is required (every tenant must have at least one owner)")
+			}
+			if f.existingOrgID != "" && strings.TrimSpace(f.existingUserID) == "" {
+				return errors.New("--owner-user-id is required when --zitadel-org-id is set (the user must already exist in that org)")
 			}
 
 			ctx := cmd.Context()
@@ -97,7 +100,10 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 
 			if f.existingOrgID != "" {
 				orgID = f.existingOrgID
-				logger.Info("binding to existing Zitadel org", zap.String("org_id", orgID))
+				ownerUserID = f.existingUserID
+				logger.Info("binding to existing Zitadel org",
+					zap.String("org_id", orgID),
+					zap.String("owner_user_id", ownerUserID))
 			} else {
 				seed := &zitadel.SeedAdmin{
 					ExistingUserID: f.existingUserID,
@@ -139,13 +145,13 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 				Name:         f.name,
 				ZitadelOrgID: orgID,
 			}
-			var user *storage.User
-			if ownerUserID != "" {
-				user = &storage.User{
-					Email:          f.ownerEmail,
-					Name:           strings.TrimSpace(f.givenName + " " + f.familyName),
-					ZitadelSubject: ownerUserID,
-				}
+			if ownerUserID == "" {
+				return errors.New("internal error: owner user id was not resolved")
+			}
+			user := &storage.User{
+				Email:          f.ownerEmail,
+				Name:           strings.TrimSpace(f.givenName + " " + f.familyName),
+				ZitadelSubject: ownerUserID,
 			}
 
 			if err := persistTenantAndOwner(ctx, store, tenant, user); err != nil {
@@ -188,8 +194,8 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 	cmd.Flags().StringVar(&f.ownerEmail, "owner-email", "", "email address of the seed owner (receives the Zitadel invite)")
 	cmd.Flags().StringVar(&f.givenName, "owner-given-name", "", "seed owner given name (optional)")
 	cmd.Flags().StringVar(&f.familyName, "owner-family-name", "", "seed owner family name (optional)")
-	cmd.Flags().StringVar(&f.existingUserID, "owner-user-id", "", "reuse an existing Zitadel user id as the seed owner instead of creating a new human")
-	cmd.Flags().StringVar(&f.existingOrgID, "zitadel-org-id", "", "bind this tenant to an existing Zitadel org (skips org + owner creation; manage users via Zitadel Console)")
+	cmd.Flags().StringVar(&f.existingUserID, "owner-user-id", "", "reuse an existing Zitadel user id as the seed owner (required with --zitadel-org-id)")
+	cmd.Flags().StringVar(&f.existingOrgID, "zitadel-org-id", "", "bind this tenant to an existing Zitadel org (requires --owner-user-id; owner must already be granted in that org)")
 
 	_ = cmd.MarkFlagRequired("name")
 
@@ -209,23 +215,43 @@ func bindFlag(v *viper.Viper, key string) {
 
 // persistTenantAndOwner writes the Tenant + User rows in a single
 // transaction using the admin pool (the tenants table is not RLS-scoped).
+// Idempotent on (ZitadelOrgID) and (TenantID, ZitadelSubject) so dev
+// bootstrap can re-run safely against an already-seeded database.
 func persistTenantAndOwner(ctx context.Context, store *storage.Store, tenant *storage.Tenant, user *storage.User) error {
 	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
 	if err != nil {
 		return err
 	}
 	if err := tx.Transaction(func(t *gorm.DB) error {
-		if err := t.Create(tenant).Error; err != nil {
-			return fmt.Errorf("insert tenant: %w", err)
+		var existingTenant storage.Tenant
+		switch err := t.Where("zitadel_org_id = ?", tenant.ZitadelOrgID).First(&existingTenant).Error; {
+		case err == nil:
+			*tenant = existingTenant
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := t.Create(tenant).Error; err != nil {
+				return fmt.Errorf("insert tenant: %w", err)
+			}
+		default:
+			return fmt.Errorf("lookup tenant by zitadel_org_id: %w", err)
 		}
+
 		if user == nil {
 			return nil
 		}
 		user.TenantID = tenant.ID
-		if err := t.Create(user).Error; err != nil {
-			return fmt.Errorf("insert owner user: %w", err)
+		var existingUser storage.User
+		switch err := t.Where("tenant_id = ? AND zitadel_subject = ?", tenant.ID, user.ZitadelSubject).First(&existingUser).Error; {
+		case err == nil:
+			*user = existingUser
+			return nil
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := t.Create(user).Error; err != nil {
+				return fmt.Errorf("insert owner user: %w", err)
+			}
+			return nil
+		default:
+			return fmt.Errorf("lookup owner user: %w", err)
 		}
-		return nil
 	}); err != nil {
 		_ = commit()
 		return err
