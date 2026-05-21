@@ -50,6 +50,11 @@ const mcpUrl = computed(() => {
     return `${window.location.origin}${prefix}/mcp`
 })
 
+const portalUrl = computed(() => {
+    const prefix = tenantPrefix() ?? ''
+    return `${window.location.origin}${prefix}/portal/`
+})
+
 const copied = ref(false)
 
 async function copy(text: string) {
@@ -221,6 +226,31 @@ onMounted(() => {
                 <button type="button"
                     class="inline-flex items-center gap-1 rounded border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-variant"
                     data-testid="gateway-url-copy" @click="copy(mcpUrl)">
+                    <Copy class="h-4 w-4" />
+                    Copy
+                </button>
+            </div>
+        </section>
+
+        <!-- Portal URL -->
+        <section aria-labelledby="portal-url-heading"
+            class="space-y-3 rounded-lg border border-outline-variant bg-surface p-6"
+            data-testid="section-portal-url">
+            <h2 id="portal-url-heading" class="text-lg font-semibold text-on-surface">
+                Share with your team
+            </h2>
+            <p class="text-sm text-on-surface-variant">
+                Send this portal URL to your users. They sign in there to link their
+                personal upstream accounts (GitHub, Sentry, Atlassian, …) so the
+                gateway can forward tool calls on their behalf.
+            </p>
+            <div class="flex items-center gap-2">
+                <a :href="portalUrl" target="_blank" rel="noopener"
+                    class="flex-1 rounded border border-outline-variant bg-surface-variant px-3 py-2 font-mono text-sm text-primary underline decoration-dotted underline-offset-2 hover:text-primary-container break-all"
+                    data-testid="portal-url-value">{{ portalUrl }}</a>
+                <button type="button"
+                    class="inline-flex items-center gap-1 rounded border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-variant"
+                    data-testid="portal-url-copy" @click="copy(portalUrl)">
                     <Copy class="h-4 w-4" />
                     Copy
                 </button>
