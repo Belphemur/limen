@@ -58,6 +58,7 @@ const defaultsValid = ref(true)
 const submitting = ref(false)
 const existingNames = ref<Set<string>>(new Set())
 const staticClientOpen = ref(false)
+const defaultsOpen = ref(false)
 
 interface ErrorState {
   title: string
@@ -129,6 +130,7 @@ watch(hint, (h) => {
   if (!h) return
   if (form.defaultsJson.trim() !== '') return
   form.defaultsJson = JSON.stringify(h.template, null, 2)
+  defaultsOpen.value = true
 })
 
 const nameError = computed<string | null>(() => {
@@ -561,11 +563,31 @@ function goToDetail() {
       </section>
 
       <section class="rounded-xl border border-outline-variant bg-surface-container-lowest">
-        <header class="border-b border-outline-variant px-4 py-3">
-          <h2 class="text-base font-semibold text-on-surface">Defaults JSON (context blob)</h2>
-        </header>
-        <div class="p-4">
-          <ContextJsonEditor v-model="form.defaultsJson" :caption="hint?.caption" @update:valid="onDefaultsValid" />
+        <button type="button"
+          class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          :aria-expanded="defaultsOpen" data-testid="defaults-toggle"
+          @click="defaultsOpen = !defaultsOpen">
+          <span>
+            <span class="block text-base font-semibold text-on-surface">Ambient context (optional)</span>
+            <span class="mt-0.5 block text-xs text-on-surface-variant">
+              Pre-filled values the LLM can use without asking the user — Atlassian
+              <code class="font-mono">cloudId</code>, Sentry <code class="font-mono">organization_slug</code>,
+              Cloudflare <code class="font-mono">account_id</code>, default project keys, region names,
+              and other stable identifiers this MCP server expects on most tool calls.
+            </span>
+          </span>
+          <ChevronDown :size="20" aria-hidden="true"
+            class="shrink-0 text-on-surface-variant transition-transform"
+            :class="defaultsOpen ? 'rotate-180' : ''" />
+        </button>
+        <div v-if="defaultsOpen" class="space-y-stack-md border-t border-outline-variant p-4"
+          data-testid="defaults-panel">
+          <p class="text-xs text-on-surface-variant">
+            Provide a JSON object whose keys are merged into every tool call's arguments as defaults.
+            Tool calls may still override any field. Leave empty if the server needs no ambient context.
+          </p>
+          <ContextJsonEditor v-model="form.defaultsJson" :caption="hint?.caption"
+            @update:valid="onDefaultsValid" />
         </div>
       </section>
 
