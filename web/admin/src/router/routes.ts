@@ -22,6 +22,7 @@ export const ROUTES = {
   members: '/org/members',
   settings: '/org/settings',
   forbidden: '/forbidden',
+  oauthPopupClose: '/oauth-popup-close',
 } as const
 
 export type SearchMode = 'filter' | 'palette' | 'hidden'
@@ -85,6 +86,14 @@ export const routeDefs: RouteDef[] = [
     name: 'forbidden',
     path: ROUTES.forbidden,
     component: () => import('@/pages/Forbidden.vue'),
+    search: { mode: 'hidden' },
+    public: true,
+    outsideShell: true,
+  },
+  {
+    name: 'oauth-popup-close',
+    path: ROUTES.oauthPopupClose,
+    component: () => import('@/pages/OAuthPopupClose.vue'),
     search: { mode: 'hidden' },
     public: true,
     outsideShell: true,

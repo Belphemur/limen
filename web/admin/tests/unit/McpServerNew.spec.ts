@@ -66,9 +66,7 @@ describe('McpServerNew', () => {
 
   it('submits a none-strategy upstream and navigates back to the list', async () => {
     const captured: { req?: { name: string; strategyType: string; mcpUrl: string } } = {}
-    const { wrapper, router } = await mountPage(
-      transport(captured as { req?: unknown }),
-    )
+    const { wrapper, router } = await mountPage(transport(captured as { req?: unknown }))
 
     await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
     await wrapper.get('[data-testid="field-mcp-url"]').setValue('https://example.com/mcp')
@@ -78,6 +76,13 @@ describe('McpServerNew', () => {
     expect(captured.req).toBeTruthy()
     expect(captured.req!.name).toBe('demo')
     expect(captured.req!.strategyType).toBe('none')
+    // Success modal is teleported to document.body.
+    const primary = document.querySelector<HTMLButtonElement>(
+      '[data-testid="success-modal-primary"]',
+    )
+    expect(primary).toBeTruthy()
+    primary!.click()
+    await flushPromises()
     expect(router.currentRoute.value.path).toBe('/mcp-servers')
   })
 

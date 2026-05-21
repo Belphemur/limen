@@ -4,9 +4,19 @@ import { useRouter } from 'vue-router'
 import { ConnectError } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
 import { ArrowLeft, KeyRound, ShieldCheck, ShieldOff, Save } from '@lucide/vue'
-import { ContextJsonEditor, hintsFor } from '@limen/shared'
+import {
+  ContextJsonEditor,
+  ErrorModal,
+  SuccessModal,
+  hintsFor,
+  openOAuthPopup,
+} from '@limen/shared'
+import { tenantPrefix } from '@limen/shared/session'
 import { adminClient, portalClient } from '@/transport/adminClient'
-import { CreateUpstreamRequestSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
+import {
+  CreateUpstreamRequestSchema,
+  DeleteUpstreamRequestSchema,
+} from '@/gen/limen/admin/v1/admin_pb.ts'
 import { ROUTES } from '@/router/routes'
 
 type StrategyType = 'none' | 'mcp_spec' | 'static_header'
@@ -45,8 +55,17 @@ const form = reactive<Form>({
 })
 const defaultsValid = ref(true)
 const submitting = ref(false)
-const error = ref<string | null>(null)
 const existingNames = ref<Set<string>>(new Set())
+
+interface ErrorState {
+  title: string
+  message: string
+  // Optional retry handler — when set the modal exposes a primary button.
+  retry?: () => void
+}
+const errorState = ref<ErrorState | null>(null)
+const successOpen = ref(false)
+const successUpstream = ref<{ name: string; publicId: string } | null>(null)
 
 function onDefaultsValid(v: boolean) {
   defaultsValid.value = v
@@ -181,10 +200,67 @@ function buildStrategyConfig(): Record<string, string> {
   return {}
 }
 
+function describeError(err: unknown): string {
+  if (err instanceof ConnectError) return err.rawMessage || err.message
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+async function rollbackUpstream(publicId: string) {
+  try {
+    await adminClient().deleteUpstream(create(DeleteUpstreamRequestSchema, { publicId }))
+  } catch (delErr) {
+    // Surface as a console warning — the modal still shows the
+    // original OAuth failure; the admin can clean up from the list.
+    console.warn('rollback deleteUpstream failed', delErr)
+  }
+}
+
+async function runOAuthPopup(upstreamName: string, publicId: string) {
+  // The backend callback redirects the browser to whatever path the
+  // SPA passes here, with no prefixing. The popup-close page is at
+  // /t/<tenant>/admin/oauth-popup-close in prod and /t/<tenant>/oauth-popup-close
+  // in vite dev — build the absolute tenant path so the redirect lands
+  // back in the popup window inside this SPA.
+  const prefix = tenantPrefix() ?? ''
+  const adminBase = window.location.pathname.startsWith(`${prefix}/admin/`)
+    ? `${prefix}/admin`
+    : prefix
+  const sc = await portalClient().startConnect({
+    upstreamName,
+    returnTo: `${adminBase}${ROUTES.oauthPopupClose}`,
+  })
+  if (!sc.redirectUrl) {
+    throw new Error('Backend did not return an authorize URL')
+  }
+  const result = await openOAuthPopup({ url: sc.redirectUrl })
+  if (!result.ok) {
+    await rollbackUpstream(publicId)
+    const message =
+      result.error === 'cancelled'
+        ? 'You closed the authorization window before completing the flow. The server has not been saved.'
+        : result.error === 'popup_blocked'
+          ? (result.errorDescription ?? 'Popups are blocked.')
+          : (result.errorDescription ??
+            `The upstream OAuth flow failed (${result.error ?? 'unknown error'}). The server has not been saved.`)
+    errorState.value = {
+      title: 'Authorization failed',
+      message,
+      retry: () => {
+        errorState.value = null
+        void submit()
+      },
+    }
+    return false
+  }
+  return true
+}
+
 async function submit() {
   if (!canSubmit.value) return
   submitting.value = true
-  error.value = null
+  errorState.value = null
+  let createdPublicId = ''
   try {
     const resp = await adminClient().createUpstream(
       create(CreateUpstreamRequestSchema, {
@@ -205,30 +281,39 @@ async function submit() {
             : undefined,
       }),
     )
+    createdPublicId = resp.upstream?.publicId ?? ''
 
     if (resp.requiresAdminLink) {
-      try {
-        const sc = await portalClient().startConnect({
-          upstreamName: form.name.trim(),
-          returnTo: ROUTES.mcpServers,
-        })
-        if (sc.redirectUrl) {
-          window.location.href = sc.redirectUrl
-          return
-        }
-      } catch (sErr) {
-        console.warn('startConnect after create failed', sErr)
-      }
+      const ok = await runOAuthPopup(form.name.trim(), createdPublicId)
+      if (!ok) return
     }
-    await router.push(ROUTES.mcpServers)
+    successUpstream.value = {
+      name: form.displayName.trim() || form.name.trim(),
+      publicId: createdPublicId,
+    }
+    successOpen.value = true
   } catch (err) {
-    if (err instanceof ConnectError) {
-      error.value = err.rawMessage || err.message
-    } else {
-      error.value = err instanceof Error ? err.message : String(err)
+    errorState.value = {
+      title: 'Connection Failed',
+      message: describeError(err),
     }
   } finally {
     submitting.value = false
+  }
+}
+
+function goToList() {
+  successOpen.value = false
+  void router.push(ROUTES.mcpServers)
+}
+
+function goToDetail() {
+  const id = successUpstream.value?.publicId
+  successOpen.value = false
+  if (id) {
+    void router.push(ROUTES.mcpServerDetail.replace(':id', id))
+  } else {
+    void router.push(ROUTES.mcpServers)
   }
 }
 </script>
@@ -252,21 +337,12 @@ async function submit() {
         Add MCP server
       </h1>
       <p class="mt-1 max-w-2xl text-sm text-on-surface-variant">
-        Connect a new Model Context Protocol (MCP) server. We'll probe it with the
-        chosen authentication strategy before the configuration is saved.
+        Connect a new Model Context Protocol (MCP) server. We'll probe it with the chosen
+        authentication strategy before the configuration is saved.
       </p>
     </div>
 
     <form class="space-y-stack-lg" data-testid="upstream-new-form" @submit.prevent="submit">
-      <div
-        v-if="error"
-        role="alert"
-        class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
-        data-testid="upstream-new-error"
-      >
-        {{ error }}
-      </div>
-
       <section class="rounded-xl border border-outline-variant bg-surface-container-lowest">
         <header class="border-b border-outline-variant px-4 py-3">
           <h2 class="text-base font-semibold text-on-surface">Basic information</h2>
@@ -322,8 +398,8 @@ async function submit() {
               {{ nameError }}
             </span>
             <span v-else class="mt-1 block text-xs text-on-surface-variant">
-              Stable identifier used in tool prefixes. Auto-derived from the display
-              name; edit only if you need a specific slug.
+              Stable identifier used in tool prefixes. Auto-derived from the display name; edit only
+              if you need a specific slug.
             </span>
           </label>
 
@@ -389,7 +465,9 @@ async function submit() {
         <div class="space-y-stack-md p-4">
           <fieldset class="space-y-2">
             <legend class="text-sm font-medium text-on-surface">Secret resolution mode</legend>
-            <div class="inline-flex rounded-md border border-outline-variant bg-surface-container p-1">
+            <div
+              class="inline-flex rounded-md border border-outline-variant bg-surface-container p-1"
+            >
               <button
                 type="button"
                 class="rounded px-3 py-1 text-xs font-medium transition-colors"
@@ -416,8 +494,7 @@ async function submit() {
               </button>
             </div>
             <p class="text-xs text-on-surface-variant">
-              Tenant mode uses one global secret. User mode lets each member supply
-              their own.
+              Tenant mode uses one global secret. User mode lets each member supply their own.
             </p>
           </fieldset>
           <div class="grid gap-stack-md md:grid-cols-2">
@@ -441,7 +518,10 @@ async function submit() {
               </span>
             </label>
           </div>
-          <label v-if="form.strategySubMode === 'tenant'" class="block border-t border-dashed border-outline-variant pt-stack-md">
+          <label
+            v-if="form.strategySubMode === 'tenant'"
+            class="block border-t border-dashed border-outline-variant pt-stack-md"
+          >
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
               Shared tenant secret
               <span class="text-xs font-normal text-on-surface-variant">Required</span>
@@ -466,8 +546,8 @@ async function submit() {
         </header>
         <div class="space-y-stack-md p-4">
           <p class="text-xs text-on-surface-variant">
-            Override Dynamic Client Registration with a pre-registered OAuth client
-            for upstreams that don't support DCR. Leave blank to use DCR.
+            Override Dynamic Client Registration with a pre-registered OAuth client for upstreams
+            that don't support DCR. Leave blank to use DCR.
           </p>
           <div class="grid gap-stack-md md:grid-cols-2">
             <label class="block">
@@ -522,5 +602,28 @@ async function submit() {
         </button>
       </div>
     </form>
+
+    <ErrorModal
+      :open="errorState !== null"
+      :title="errorState?.title ?? ''"
+      :message="errorState?.message ?? ''"
+      :primary-label="errorState?.retry ? 'Try again' : undefined"
+      secondary-label="Close"
+      @primary="errorState?.retry?.()"
+      @secondary="errorState = null"
+      @close="errorState = null"
+    />
+
+    <SuccessModal
+      :open="successOpen"
+      title="Connection Successful"
+      :chip="successUpstream?.name"
+      message="The MCP server has been authenticated and registered. Its tool catalog will be indexed in the background."
+      primary-label="Go to MCP Management"
+      secondary-label="View Server Details"
+      @primary="goToList"
+      @secondary="goToDetail"
+      @close="goToList"
+    />
   </div>
 </template>
