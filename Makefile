@@ -104,6 +104,7 @@ dev-bootstrap:
 dev-reset:
 	$(COMPOSE) down -v
 	rm -f scripts/zitadel-bootstrap/.bootstrap-out.env .env.dev
+	rm -rf data/
 
 dev-down:
 	$(COMPOSE) down
