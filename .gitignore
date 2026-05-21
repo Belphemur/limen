@@ -33,3 +33,6 @@ web/*/.vite/
 web/*/playwright-report/
 web/*/test-results/
 web/*/.playwright/
+
+# Local dev data (bind-mounted into postgres containers)
+/data/

@@ -30,7 +30,11 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      # Bind-mount under ./data/ so dev data lives in the workspace (and
+      # is easy to inspect / nuke / .gitignore'd). postgres:18+ stores
+      # data under a versioned subdirectory (/var/lib/postgresql/<major>/docker),
+      # so mount the parent and let the image manage the layout.
+      - ./data/limen-postgres:/var/lib/postgresql
       - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "limen"]
@@ -122,5 +126,4 @@ services:
       - zitadel
 
 volumes:
-  pg-data:
   go-mod-cache:
