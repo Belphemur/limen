@@ -71,17 +71,24 @@ service AdminService {
 }
 ```
 
-**Not in this v1 service** (delegated to [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice) or scheduled for v1.5/v2):
+**Member management is owned by Limen** (`ListMembers` / `InviteMember` /
+`UpdateMemberRole` / `RemoveMember`). Each RPC is a thin pass-through to
+the Zitadel User & Authorization V2 APIs — Limen carries **zero**
+mirror tables for users, grants, or invites. See _Member management_
+below for the details.
 
-| RPC family                                                                               | v1 (this phase)          | v1.5                                            | v2                                              |
-| ---------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------- | ----------------------------------------------- |
-| `ListMembers`                                                                            | deep-link to Console     | **read-only Management-API proxy** (added here) | unchanged                                       |
-| `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `ResendInvite`                       | deep-link to Console     | deep-link to Console                            | **added** (writes via Zitadel Management API)   |
-| `TransferOwnership`                                                                      | deep-link to Console     | deep-link to Console                            | deep-link to Console (deliberately kept manual) |
-| `ListExternalIDPs`, `AddOIDCIDP`, `AddSAMLIDP`, `UpdateExternalIDP`, `RemoveExternalIDP` | **permanent delegation** | permanent delegation                            | permanent delegation                            |
-| Profile / password / MFA / passkey                                                       | **permanent delegation** | permanent delegation                            | permanent delegation                            |
+**Delegated permanently to [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice):**
 
-Limen carries no mirror tables for membership in any version — `ListMembers` proxies in v1.5 and the v2 mutations write straight through to Zitadel. No schema for IdP configs is added at any version.
+| Surface                                                              | Why                                                                                                                            |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| External IdP federation (OIDC / SAML / social)                       | Tracks Zitadel's permission model; doubles the secret-handling surface to no end.                                              |
+| Profile self-service, password, MFA enrollment, passkeys             | Pure Zitadel concerns; the admin SPA links to `<issuer>/ui/console/users/me`.                                                  |
+| Branding (logo, colors, custom login domain)                         | Per-org Zitadel feature with no Limen-side state.                                                                              |
+| Login / lockout policy                                               | Evolves with Zitadel's policy engine; reimplementing would mean tracking that engine.                                          |
+| `TransferOwnership`                                                  | Deliberately manual via Console. Rare, high-impact, not worth a custom UI.                                                     |
+
+No schema for IdP configs, user mirrors, or membership rosters is added
+at any point.
 
 Requests do **not** carry `tenant_id` for any authenticated method — the tenant `PublicID` comes from `/t/{tenant}/admin/api/...`, exactly as in Phase 9b. `StartSignup` and `CompleteSignup` are tenant-agnostic at the URL level and carry their state via a signed token (see below).
 
@@ -185,39 +192,160 @@ Rate limits (`internal/resilience`):
 - `StartSignup`: per-IP token bucket (5 / hour) + captcha.
 - `CompleteSignup`: per-cookie bucket; the cookie is single-shot, so the cap is effectively 1.
 
-### Member management — phased delivery
+### Member management
 
-Membership data lives in Zitadel at every phase. Limen never holds a mirror copy. What changes is **how the admin SPA surfaces it**:
+Limen owns the **list / invite / change-role / remove** surface from
+day one. Every mutation is a pass-through to Zitadel's User V2 +
+Authorization V2 APIs — Limen stores **no** mirror table for users,
+authorizations, or invites. The admin SPA renders the Stitch
+"Users & Roles" layout: invite CTA, search input, role filter, and a
+data table (avatar, name + email, role, status, last login, actions).
+Beneath the table, a collapsed "Identity & policies" panel holds the
+deep-link cards for IdP federation, branding, login/lockout policy,
+and the user's own profile — concerns delegated to Zitadel Console
+permanently (see the table in the previous section).
 
-#### v1 — deep-link only (this phase)
+#### RPCs (`limen.admin.v1.AdminService`)
 
-`Members.vue` renders `ZitadelDirectory.vue`, a card-style page that links into the tenant's Zitadel org Console for each operation. No Limen RPCs are involved.
+```proto
+// Tenant scope is resolved from the URL — no tenant_id in any payload.
+// All four are admin-floor (added to internal/admin/roles.go).
+rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);
+rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
 
-| Card                         | Deep-link target (template)                                     | Console area            |
-| ---------------------------- | --------------------------------------------------------------- | ----------------------- |
-| Invite a user                | `<issuer>/ui/console/users?org=<orgId>`                         | Users → New             |
-| Change member role           | `<issuer>/ui/console/users/<userId>/authorizations?org=<orgId>` | Users → Authorizations  |
-| Remove a user                | `<issuer>/ui/console/users?org=<orgId>`                         | Users                   |
-| Configure SSO / external IdP | `<issuer>/ui/console/org/idp?org=<orgId>`                       | Identity Providers      |
-| Org branding                 | `<issuer>/ui/console/org/branding?org=<orgId>`                  | Branding                |
-| Login / lockout policy       | `<issuer>/ui/console/org/policies/login?org=<orgId>`            | Settings → Login policy |
-| Personal profile / passkeys  | `<issuer>/ui/console/users/me`                                  | User self-service       |
+// Closed enum of the role keys the tenant admin can assign on the
+// Limen project. Mirrors the keys seeded by zitadel-bootstrap
+// (member / admin / owner). super_admin is staff-only and absent here
+// on purpose — invalid_argument is returned if a client somehow
+// crafts the wire value 4.
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_MEMBER = 1;
+  MEMBER_ROLE_ADMIN = 2;
+  MEMBER_ROLE_OWNER = 3;
+}
 
-The SPA fetches `<issuer>` once via `GET /auth/discovery` (a tiny Limen endpoint that returns the static issuer URL from config) and substitutes the tenant's `zitadel_org_id` (carried in the portal cookie's claims as `urn:zitadel:iam:user:resourceowner:id`).
+// Mirrors Zitadel's UserState enum 1:1. UNSPECIFIED is returned only
+// when Zitadel reports a state Limen does not understand (forward
+// compat).
+enum MemberState {
+  MEMBER_STATE_UNSPECIFIED = 0;
+  MEMBER_STATE_ACTIVE = 1;
+  MEMBER_STATE_INACTIVE = 2;
+  MEMBER_STATE_LOCKED = 3;
+  MEMBER_STATE_INITIAL = 4;
+}
 
-This is the [Administrators in delegation](https://zitadel.com/docs/concepts/features/selfservice#administrators-in-delegation) pattern: the tenant's `ORG_OWNER` already has the Zitadel permissions to perform every operation above.
+message Member {
+  // Zitadel user id; opaque ULID-shaped string.
+  string user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  // UNSPECIFIED when the user exists in the org but has no grant on
+  // the Limen project (e.g. invited but not yet authorized — Limen
+  // still shows the row so the admin can fix the missing grant).
+  MemberRole role = 4;
+  MemberState state = 5;
+  // RFC3339; empty when Zitadel has no last-login record.
+  string last_login = 6;
+}
 
-#### v1.5 — read-only members table
+message ListMembersRequest {
+  // Optional client-side search hint; the server applies it as a
+  // Zitadel DisplayNameQuery / EmailQuery OR. Empty returns everyone.
+  string search = 1;
+  // UNSPECIFIED returns everyone regardless of role.
+  MemberRole role_filter = 2;
+}
+message ListMembersResponse { repeated Member members = 1; }
 
-A new `AdminService.ListMembers` RPC proxies Zitadel's `ManagementService.ListUsers` (filtered by the tenant's `zitadel_org_id`) and returns name, email, role, status, last login. `Members.vue` swaps from the deep-link card grid to the full table layout from the Stitch "Users & Roles" reference: search input + role dropdown filter + table (avatar / name / email / role / status / last login / actions). The **Actions** column items still bounce to Console for invite / role / remove via the same deep-link templates above — only the visualisation changed. The IdP / branding / login-policy / profile cards stay deep-linked permanently and move to a collapsed "Identity & policies" panel beneath the members table.
+message InviteMemberRequest {
+  string email = 1;
+  string given_name = 2;
+  string family_name = 3;
+  // Required. UNSPECIFIED → invalid_argument.
+  MemberRole role = 4;
+}
+message InviteMemberResponse { Member member = 1; }
 
-A new thin `internal/zitadel/management.go` client is introduced here. It uses Zitadel's machine-user JWT (the same one bootstrap uses) and is the **only** way Limen talks to Zitadel's Management API; it returns Limen-shaped DTOs so the admin handler stays free of Zitadel proto types.
+message UpdateMemberRoleRequest {
+  string user_id = 1;
+  // Required. UNSPECIFIED → invalid_argument.
+  MemberRole role = 2;
+}
+message UpdateMemberRoleResponse { Member member = 1; }
 
-#### v2 — full ownership of writes
+message RemoveMemberRequest { string user_id = 1; }
+message RemoveMemberResponse {}
+```
 
-`InviteMember`, `UpdateMemberRole`, `RemoveMember`, `ResendInvite` are added to `AdminService`. They write through `internal/zitadel/management.go` to Zitadel's Management API. `Members.vue` swaps its action handlers from `window.open(deepLink)` to direct RPC calls; the IdP / branding / login-policy / profile cards remain deep-linked permanently.
+#### Server flow
 
-`TransferOwnership` stays manual at every version (deep-link to Console). Reassigning the `owner` project role is rare, high-impact, and not worth a custom UI.
+A new `internal/admin/members.go` implements the four RPCs via a small
+consumer-side interface, mirroring the `ProjectGrantLookup` pattern
+already used by `GetTenantSettings`:
+
+```go
+// MemberDirectory is the slice of *zitadel.Client the admin Service
+// uses to manage users + grants. Defined in internal/admin so the MCP
+// gateway hot path never transitively links the Zitadel client.
+type MemberDirectory interface {
+    ListOrgMembers(ctx context.Context, orgID, projectID, search, roleFilter string) ([]Member, error)
+    InviteOrgMember(ctx context.Context, orgID, projectID string, in InviteInput) (Member, error)
+    UpdateOrgMemberRole(ctx context.Context, orgID, projectID, userID, role string) (Member, error)
+    RemoveOrgMember(ctx context.Context, orgID, userID string) error
+}
+```
+
+`*zitadel.Client` satisfies the interface; the wiring stays exactly as
+for `ProjectGrantLookup` (constructed once in
+`internal/boot/serveportal` / `serveall`, threaded through `portalmount` →
+`adminmount` → `admin.NewService`). No new bindings, no new packages,
+no new background workers.
+
+Operation details:
+
+| RPC                  | Zitadel calls                                                                                                              | Notes                                                                                                                                                                                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ListMembers`        | `UserServiceV2.ListUsers` (filtered by `OrganizationIdQuery`) + `AuthorizationServiceV2.ListAuthorizations` (project-wide) | Join on `userId` happens in `internal/zitadel`. Users without a grant on the Limen project surface with `role = ""`. A single round-trip per RPC: list users, list grants, merge. No pagination in v1 — the table caps at a few hundred per tenant; Zitadel's default suffices. |
+| `InviteMember`       | `CreateUser` + `CreateAuthorization` + `CreateInviteCode`                                                                  | `CreateInviteCode` triggers the Zitadel-side invite email. We do not store the code. Failure between steps leaves Zitadel in a partially-provisioned state, surfaced on the next `ListMembers` (user exists, `role = ""`); admin can re-issue.                                |
+| `UpdateMemberRole`   | `ListAuthorizations` (find grant for user) → `UpdateAuthorization` _or_ `CreateAuthorization`                              | One grant per (user, project, org) — replace its `RoleKeys` with the single new role. If the user has no grant yet (invited but not authorized), create one.                                                                                                                  |
+| `RemoveMember`       | `DeleteUser`                                                                                                               | Removes the user globally from Zitadel. Their Limen project grant is cascaded by Zitadel. Limen never soft-deletes — once the admin has confirmed, the row is gone.                                                                                                            |
+
+#### Authorization & guardrails
+
+- All four RPCs require `RoleAdmin` (the `owner` automatically satisfies
+  via `session.Satisfies`).
+- `UpdateMemberRole` and `RemoveMember` reject when `user_id` equals the
+  caller's own Zitadel subject (`CodeFailedPrecondition`) so an admin
+  cannot lock themselves out or downgrade their own role. The "at least
+  one owner" invariant is checked by counting `owner` grants on the
+  project _after_ the proposed change — if the count would drop to 0,
+  reject.
+- `role` is the `MemberRole` enum; `MEMBER_ROLE_UNSPECIFIED` on a
+  mutation returns `CodeInvalidArgument`. `super_admin` has no enum
+  value and is therefore unrepresentable on the wire — staff-only.
+
+#### Identity & policies panel (deep-link only)
+
+Beneath the members table the SPA renders the existing
+`ZitadelDirectory.vue` grid (introduced in the original v1 plan) with
+exactly four cards — IdP federation, branding, login & lockout policy,
+your profile — all linking to the v2 Console at
+`<issuer>/ui/console/org-settings?id={idp,branding,login,lockout}` or
+`/ui/console/users/me`. The "invite a user" / "manage members" / "role
+assignment" cards are removed from the grid because Limen now owns
+those flows directly.
+
+#### Dashboard step "Invite Your Team"
+
+The dashboard task tile keeps the same completion rule
+(`tenant_settings.invited_team_at IS NOT NULL`) but now flips that flag
+on the first successful `AdminService.InviteMember` rather than on the
+user opening the deep-link card. Clicking the tile from the dashboard
+navigates to `/users` and focuses the "Invite User" CTA.
 
 ### Backend (`internal/admin/`)
 
@@ -395,21 +523,14 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen
 - [ ] Bundle-separation test: a clean-cache `member` browsing `/portal/` does not fetch the admin bundle
 - [ ] Phase 9b proto and handlers trimmed: admin RPCs moved out; Phase 9b doc updated to point at this phase
-- [ ] Phase 4 _Self-service delegation_ table updated to reflect v1 / v1.5 / v2 member-management phasing
+- [ ] Phase 4 _Self-service delegation_ table updated to reflect Limen-owned member management
 - [ ] `AGENTS.md` build section updated
 
-### v1.5 (follow-up — read-only members table)
+### Member management
 
-- [ ] `proto/limen/admin/v1/admin.proto` gains `ListMembers` (read-only)
-- [ ] `internal/zitadel/management.go` added — thin Management-API client returning Limen-shaped DTOs
-- [ ] `internal/admin/members.go` implements `ListMembers` via the Management client
-- [ ] `Members.vue` swaps from `ZitadelDirectory.vue` to the inline table layout (avatar / name / email / role / status / last login / actions); action items still deep-link to Console
-- [ ] `Dashboard.vue` task card "Invite Your Team" scrolls to the inline table when clicked (no behavioural change to the completion rule)
-
-### v2 (follow-up — write ownership of members)
-
-- [ ] `proto/limen/admin/v1/admin.proto` gains `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `ResendInvite`
-- [ ] `internal/admin/members.go` expands to handle writes via the Management client
-- [ ] `Members.vue` actions wire to the new RPCs (Invite User CTA, role-change dropdown, remove action)
-- [ ] IdP / branding / login-policy / profile cards remain deep-linked permanently
-- [ ] `TransferOwnership` stays deep-linked (deliberately manual)
+- [x] `proto/limen/admin/v1/admin.proto` adds `Member`, `ListMembers`, `InviteMember`, `UpdateMemberRole`, `RemoveMember`
+- [x] `internal/zitadel/users.go` gains `ListOrgUsers`, `UpdateUserGrant`, `DeleteUserGrant`, `DeleteUser`
+- [x] `internal/admin/members.go` implements the four RPCs via a `MemberDirectory` interface satisfied by `*zitadel.Client`; self-edit + last-owner guardrails enforced
+- [x] `internal/admin/roles.go` adds the four RPCs at `RoleAdmin`
+- [x] `Members.vue` renders the Stitch "Users & Roles" layout (invite CTA, search + role filter, data table, identity-policies panel below)
+- [x] Identity-policies panel keeps the four permanent-delegation cards (IdP, branding, login/lockout, profile); members/role cards removed from the grid
