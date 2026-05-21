@@ -38,6 +38,15 @@ service AdminService {
 
   // Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
   rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
+
+  // Member management. Pass-through to Zitadel User V2 +
+  // Authorization V2; Limen stores no mirror tables. See
+  // docs/phases/phase-09c-tenant-admin-spa.md "Member management".
+  // All four require admin (owner satisfies admin).
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);
+  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -135,6 +144,17 @@ message GetTenantSettingsResponse {
   // Read-only Zitadel identity. The SPA renders these as a panel and
   // uses zitadel_org_id to build Console deep-links.
   string zitadel_org_id = 2;
+  // Limen Gateway project ID (Zitadel-side). Constant per Limen
+  // instance, echoed here so the SPA can render the
+  // /ui/console/granted-projects/<projectId>/grant/<grantId> deep-link
+  // for managing this tenant's role assignments without a separate
+  // discovery round-trip.
+  string zitadel_project_id = 3;
+  // ID of the project grant that grants the Limen project to this
+  // tenant's org. Empty when the grant cannot be resolved (Zitadel
+  // unreachable, grant missing) — the SPA renders the
+  // role-assignment card disabled in that case.
+  string zitadel_project_grant_id = 4;
 }
 
 // ---- UpdateTenantSettings ------------------------------------------
@@ -258,3 +278,77 @@ message DeleteTenantRequest {
 }
 
 message DeleteTenantResponse {}
+
+// ---- Member management ---------------------------------------------
+
+// MemberRole is the closed set of role keys the tenant admin can
+// assign on the Limen project. Mirrors the keys seeded by
+// scripts/zitadel-bootstrap (member / admin / owner). super_admin is
+// staff-only and deliberately absent so it cannot be assigned over
+// the wire.
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_MEMBER = 1;
+  MEMBER_ROLE_ADMIN = 2;
+  MEMBER_ROLE_OWNER = 3;
+}
+
+// MemberState mirrors Zitadel's UserState. UNSPECIFIED is returned
+// only when Zitadel reports a state Limen does not understand.
+enum MemberState {
+  MEMBER_STATE_UNSPECIFIED = 0;
+  MEMBER_STATE_ACTIVE = 1;
+  MEMBER_STATE_INACTIVE = 2;
+  MEMBER_STATE_LOCKED = 3;
+  MEMBER_STATE_INITIAL = 4;
+}
+
+message Member {
+  // Zitadel user id.
+  string user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  // UNSPECIFIED when the user exists in the org but has no grant on
+  // the Limen project (invited but not yet authorized — the row is
+  // still surfaced so the admin can fix the missing grant).
+  MemberRole role = 4;
+  MemberState state = 5;
+  // RFC3339; empty when Zitadel has no last-login record.
+  string last_login = 6;
+}
+
+message ListMembersRequest {
+  // Optional substring; applied server-side as a Zitadel
+  // DisplayNameQuery / EmailQuery OR. Empty returns everyone.
+  string search = 1;
+  // UNSPECIFIED returns everyone regardless of role.
+  MemberRole role_filter = 2;
+}
+message ListMembersResponse {
+  repeated Member members = 1;
+}
+
+message InviteMemberRequest {
+  string email = 1;
+  string given_name = 2;
+  string family_name = 3;
+  // Required. UNSPECIFIED rejects with invalid_argument.
+  MemberRole role = 4;
+}
+message InviteMemberResponse {
+  Member member = 1;
+}
+
+message UpdateMemberRoleRequest {
+  string user_id = 1;
+  // Required. UNSPECIFIED rejects with invalid_argument.
+  MemberRole role = 2;
+}
+message UpdateMemberRoleResponse {
+  Member member = 1;
+}
+
+message RemoveMemberRequest {
+  string user_id = 1;
+}
+message RemoveMemberResponse {}

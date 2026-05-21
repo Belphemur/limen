@@ -81,6 +81,18 @@ const (
 	// AdminServiceDeleteTenantProcedure is the fully-qualified name of the AdminService's DeleteTenant
 	// RPC.
 	AdminServiceDeleteTenantProcedure = "/limen.admin.v1.AdminService/DeleteTenant"
+	// AdminServiceListMembersProcedure is the fully-qualified name of the AdminService's ListMembers
+	// RPC.
+	AdminServiceListMembersProcedure = "/limen.admin.v1.AdminService/ListMembers"
+	// AdminServiceInviteMemberProcedure is the fully-qualified name of the AdminService's InviteMember
+	// RPC.
+	AdminServiceInviteMemberProcedure = "/limen.admin.v1.AdminService/InviteMember"
+	// AdminServiceUpdateMemberRoleProcedure is the fully-qualified name of the AdminService's
+	// UpdateMemberRole RPC.
+	AdminServiceUpdateMemberRoleProcedure = "/limen.admin.v1.AdminService/UpdateMemberRole"
+	// AdminServiceRemoveMemberProcedure is the fully-qualified name of the AdminService's RemoveMember
+	// RPC.
+	AdminServiceRemoveMemberProcedure = "/limen.admin.v1.AdminService/RemoveMember"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -106,6 +118,14 @@ type AdminServiceClient interface {
 	MarkIDEChoiceSkipped(context.Context, *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
+	// Member management. Pass-through to Zitadel User V2 +
+	// Authorization V2; Limen stores no mirror tables. See
+	// docs/phases/phase-09c-tenant-admin-spa.md "Member management".
+	// All four require admin (owner satisfies admin).
+	ListMembers(context.Context, *connect.Request[adminv1.ListMembersRequest]) (*connect.Response[adminv1.ListMembersResponse], error)
+	InviteMember(context.Context, *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error)
+	UpdateMemberRole(context.Context, *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error)
+	RemoveMember(context.Context, *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -215,6 +235,30 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("DeleteTenant")),
 			connect.WithClientOptions(opts...),
 		),
+		listMembers: connect.NewClient[adminv1.ListMembersRequest, adminv1.ListMembersResponse](
+			httpClient,
+			baseURL+AdminServiceListMembersProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		inviteMember: connect.NewClient[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse](
+			httpClient,
+			baseURL+AdminServiceInviteMemberProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("InviteMember")),
+			connect.WithClientOptions(opts...),
+		),
+		updateMemberRole: connect.NewClient[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse](
+			httpClient,
+			baseURL+AdminServiceUpdateMemberRoleProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("UpdateMemberRole")),
+			connect.WithClientOptions(opts...),
+		),
+		removeMember: connect.NewClient[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse](
+			httpClient,
+			baseURL+AdminServiceRemoveMemberProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveMember")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -236,6 +280,10 @@ type adminServiceClient struct {
 	removeIDEPreset        *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
 	markIDEChoiceSkipped   *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
 	deleteTenant           *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
+	listMembers            *connect.Client[adminv1.ListMembersRequest, adminv1.ListMembersResponse]
+	inviteMember           *connect.Client[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse]
+	updateMemberRole       *connect.Client[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse]
+	removeMember           *connect.Client[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -318,6 +366,26 @@ func (c *adminServiceClient) DeleteTenant(ctx context.Context, req *connect.Requ
 	return c.deleteTenant.CallUnary(ctx, req)
 }
 
+// ListMembers calls limen.admin.v1.AdminService.ListMembers.
+func (c *adminServiceClient) ListMembers(ctx context.Context, req *connect.Request[adminv1.ListMembersRequest]) (*connect.Response[adminv1.ListMembersResponse], error) {
+	return c.listMembers.CallUnary(ctx, req)
+}
+
+// InviteMember calls limen.admin.v1.AdminService.InviteMember.
+func (c *adminServiceClient) InviteMember(ctx context.Context, req *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error) {
+	return c.inviteMember.CallUnary(ctx, req)
+}
+
+// UpdateMemberRole calls limen.admin.v1.AdminService.UpdateMemberRole.
+func (c *adminServiceClient) UpdateMemberRole(ctx context.Context, req *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error) {
+	return c.updateMemberRole.CallUnary(ctx, req)
+}
+
+// RemoveMember calls limen.admin.v1.AdminService.RemoveMember.
+func (c *adminServiceClient) RemoveMember(ctx context.Context, req *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error) {
+	return c.removeMember.CallUnary(ctx, req)
+}
+
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
 type AdminServiceHandler interface {
 	// Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
@@ -341,6 +409,14 @@ type AdminServiceHandler interface {
 	MarkIDEChoiceSkipped(context.Context, *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
+	// Member management. Pass-through to Zitadel User V2 +
+	// Authorization V2; Limen stores no mirror tables. See
+	// docs/phases/phase-09c-tenant-admin-spa.md "Member management".
+	// All four require admin (owner satisfies admin).
+	ListMembers(context.Context, *connect.Request[adminv1.ListMembersRequest]) (*connect.Response[adminv1.ListMembersResponse], error)
+	InviteMember(context.Context, *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error)
+	UpdateMemberRole(context.Context, *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error)
+	RemoveMember(context.Context, *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -446,6 +522,30 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("DeleteTenant")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceListMembersHandler := connect.NewUnaryHandler(
+		AdminServiceListMembersProcedure,
+		svc.ListMembers,
+		connect.WithSchema(adminServiceMethods.ByName("ListMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceInviteMemberHandler := connect.NewUnaryHandler(
+		AdminServiceInviteMemberProcedure,
+		svc.InviteMember,
+		connect.WithSchema(adminServiceMethods.ByName("InviteMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceUpdateMemberRoleHandler := connect.NewUnaryHandler(
+		AdminServiceUpdateMemberRoleProcedure,
+		svc.UpdateMemberRole,
+		connect.WithSchema(adminServiceMethods.ByName("UpdateMemberRole")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveMemberHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveMemberProcedure,
+		svc.RemoveMember,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveMember")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceCreateUpstreamProcedure:
@@ -480,6 +580,14 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceMarkIDEChoiceSkippedHandler.ServeHTTP(w, r)
 		case AdminServiceDeleteTenantProcedure:
 			adminServiceDeleteTenantHandler.ServeHTTP(w, r)
+		case AdminServiceListMembersProcedure:
+			adminServiceListMembersHandler.ServeHTTP(w, r)
+		case AdminServiceInviteMemberProcedure:
+			adminServiceInviteMemberHandler.ServeHTTP(w, r)
+		case AdminServiceUpdateMemberRoleProcedure:
+			adminServiceUpdateMemberRoleHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveMemberProcedure:
+			adminServiceRemoveMemberHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -551,4 +659,20 @@ func (UnimplementedAdminServiceHandler) MarkIDEChoiceSkipped(context.Context, *c
 
 func (UnimplementedAdminServiceHandler) DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.DeleteTenant is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListMembers(context.Context, *connect.Request[adminv1.ListMembersRequest]) (*connect.Response[adminv1.ListMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ListMembers is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) InviteMember(context.Context, *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.InviteMember is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) UpdateMemberRole(context.Context, *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.UpdateMemberRole is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveMember(context.Context, *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.RemoveMember is not implemented"))
 }
