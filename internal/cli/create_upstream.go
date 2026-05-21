@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
@@ -48,10 +47,10 @@ discovery flow) and the none strategy (no auth, public upstream).
 The static_header strategy requires per-tenant secret material and is
 plumbed through the admin SPA (Phase 9b), not this CLI.
 
-The command is idempotent on the (tenant, name) tuple — re-running with
-the same name updates the URL in place. For the 'none' strategy the
-tool catalog is indexed synchronously after the row is written, so the
-upstream is usable end-to-end as soon as the command exits.`,
+The command rejects re-creates: pick a fresh --name or delete the
+existing upstream first. For the 'none' strategy the tool catalog
+is indexed synchronously after the row is written, so the upstream
+is usable end-to-end as soon as the command exits.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newCLILogger()
@@ -91,7 +90,7 @@ upstream is usable end-to-end as soon as the command exits.`,
 				return fmt.Errorf("resolve tenant: %w", err)
 			}
 
-			up, err := upsertUpstream(ctx, store, tenant.ID, f.name, f.strategy, f.mcpURL)
+			up, err := createUpstreamViaService(ctx, store, tenant, f)
 			if err != nil {
 				return err
 			}
@@ -103,14 +102,6 @@ upstream is usable end-to-end as soon as the command exits.`,
 				AuthorizationEndpoint: strings.TrimSpace(f.authEndpoint),
 				TokenEndpoint:         strings.TrimSpace(f.tokenEndpoint),
 				Scopes:                f.scopes,
-			}
-			if !staticCfg.IsZero() {
-				if f.strategy != string(upstream.StrategyMCPSpec) {
-					return fmt.Errorf("static OAuth client flags (--client-id / --issuer / ...) only apply to --strategy %q", upstream.StrategyMCPSpec)
-				}
-				if err := upsertMCPSpecConfig(ctx, store, tenant.ID, up.ID, staticCfg); err != nil {
-					return err
-				}
 			}
 
 			if f.strategy == string(upstream.StrategyNone) {
@@ -175,87 +166,41 @@ upstream is usable end-to-end as soon as the command exits.`,
 	return cmd
 }
 
-// upsertMCPSpecConfig creates / replaces the UpstreamStrategyConfig row
-// holding the static OAuth client for an mcp_spec upstream. Idempotent on
-// the unique (upstream_id) index.
-func upsertMCPSpecConfig(ctx context.Context, store *storage.Store, tenantID, upstreamID int64, cfg mcpspec.Config) error {
-	sf, err := mcpspec.EncodeConfig(tenantID, cfg)
+// createUpstreamViaService delegates to the canonical
+// upstream.Service.CreateUpstream so CLI and admin RPC share the
+// same validation, encoding, and persistence path.
+func createUpstreamViaService(ctx context.Context, store *storage.Store, tenant *storage.Tenant, f *createUpstreamFlags) (*storage.Upstream, error) {
+	staticCfg := mcpspec.Config{
+		Issuer:                strings.TrimSpace(f.issuer),
+		ClientID:              strings.TrimSpace(f.clientID),
+		ClientSecret:          f.clientSecret,
+		AuthorizationEndpoint: strings.TrimSpace(f.authEndpoint),
+		TokenEndpoint:         strings.TrimSpace(f.tokenEndpoint),
+		Scopes:                f.scopes,
+	}
+	in := upstream.CreateUpstreamInput{
+		Name:         f.name,
+		MCPServerURL: f.mcpURL,
+		StrategyType: upstream.StrategyType(f.strategy),
+	}
+	if !staticCfg.IsZero() {
+		if f.strategy != string(upstream.StrategyMCPSpec) {
+			return nil, fmt.Errorf("static OAuth client flags (--client-id / --issuer / ...) only apply to --strategy %q", upstream.StrategyMCPSpec)
+		}
+		sf, err := mcpspec.EncodeConfig(tenant.ID, staticCfg)
+		if err != nil {
+			return nil, fmt.Errorf("encode mcpspec config: %w", err)
+		}
+		in.EncodedStrategyConfig = sf
+	}
+	registry := upstream.NewRegistry()
+	registry.Register(none.New(nil))
+	svc := upstream.NewService(store, registry)
+	up, err := svc.CreateUpstream(ctx, tenant, in)
 	if err != nil {
-		return fmt.Errorf("encode mcpspec config: %w", err)
+		return nil, fmt.Errorf("create upstream: %w", err)
 	}
-	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
-	if err != nil {
-		return fmt.Errorf("open session: %w", err)
-	}
-	var existing storage.UpstreamStrategyConfig
-	err = tx.Where("upstream_id = ?", upstreamID).First(&existing).Error
-	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		row := &storage.UpstreamStrategyConfig{
-			TenantID:   tenantID,
-			UpstreamID: upstreamID,
-			Type:       string(upstream.StrategyMCPSpec),
-			ConfigJSON: sf,
-		}
-		if err := tx.Create(row).Error; err != nil {
-			_ = commit()
-			return fmt.Errorf("create strategy config: %w", err)
-		}
-	case err != nil:
-		_ = commit()
-		return fmt.Errorf("load strategy config: %w", err)
-	default:
-		existing.Type = string(upstream.StrategyMCPSpec)
-		existing.ConfigJSON = sf
-		if err := tx.Save(&existing).Error; err != nil {
-			_ = commit()
-			return fmt.Errorf("update strategy config: %w", err)
-		}
-	}
-	return commit()
-}
-
-// upsertUpstream creates or updates the Upstream row for (tenant, name).
-// Runs on the admin pool — this is an operator action, not a request.
-func upsertUpstream(ctx context.Context, store *storage.Store, tenantID int64, name, strategy, mcpURL string) (*storage.Upstream, error) {
-	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("open session: %w", err)
-	}
-
-	var existing storage.Upstream
-	err = tx.Where("tenant_id = ? AND name = ?", tenantID, name).First(&existing).Error
-	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		up := &storage.Upstream{
-			TenantID:     tenantID,
-			Name:         name,
-			StrategyType: strategy,
-			McpServerURL: mcpURL,
-		}
-		if err := tx.Create(up).Error; err != nil {
-			_ = commit()
-			return nil, fmt.Errorf("create upstream: %w", err)
-		}
-		if err := commit(); err != nil {
-			return nil, err
-		}
-		return up, nil
-	case err != nil:
-		_ = commit()
-		return nil, fmt.Errorf("load upstream: %w", err)
-	default:
-		existing.StrategyType = strategy
-		existing.McpServerURL = mcpURL
-		if err := tx.Save(&existing).Error; err != nil {
-			_ = commit()
-			return nil, fmt.Errorf("update upstream: %w", err)
-		}
-		if err := commit(); err != nil {
-			return nil, err
-		}
-		return &existing, nil
-	}
+	return up, nil
 }
 
 // printNextSteps writes the strategy-specific bootstrap instructions the

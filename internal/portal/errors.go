@@ -31,4 +31,7 @@ func errInvalidArgument(reason string) error {
 
 // Silence "unused" until other slices land. errInternal takes err so
 // callers can log it; ignore here.
-var _ = errInternal
+var (
+	_ = errInternal
+	_ = errPermissionDenied
+)

@@ -16,6 +16,7 @@ type Upstream struct {
 	Base
 	TenantID     int64  `gorm:"not null;index;uniqueIndex:idx_upstream_tenant_name,where:deleted_at IS NULL"`
 	Name         string `gorm:"type:text;not null;uniqueIndex:idx_upstream_tenant_name,where:deleted_at IS NULL"`
+	DisplayName  string `gorm:"type:text;not null;default:''"`
 	StrategyType string `gorm:"type:text;not null"`
 	McpServerURL string `gorm:"type:text;not null"`
 

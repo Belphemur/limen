@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
@@ -14,6 +13,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
+	"github.com/belphemur/limen/internal/upstream/protoview"
 )
 
 // ListUpstreams returns every tenant upstream paired with the caller's
@@ -33,7 +33,7 @@ func (s *Service) ListUpstreams(ctx context.Context, _ *connect.Request[portalv1
 	}
 	out := make([]*portalv1.UpstreamSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, toUpstreamSummaryProto(r))
+		out = append(out, protoview.ToSummaryProto(r))
 	}
 	return connect.NewResponse(&portalv1.ListUpstreamsResponse{Upstreams: out}), nil
 }
@@ -168,54 +168,4 @@ func mapUpstreamError(err error, op, upstreamName string, logger *zap.Logger) er
 	}
 }
 
-func toUpstreamSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSummary {
-	up := r.Upstream
-	out := &portalv1.UpstreamSummary{
-		PublicId:        up.PublicID,
-		Name:            up.Name,
-		DisplayName:     up.Name,
-		McpUrl:          up.McpServerURL,
-		StrategyType:    up.StrategyType,
-		StrategySubMode: r.StrategySubMode,
-		RequiresLink:    r.RequiresLink,
-		LinkState:       linkStateProto(r.LinkState),
-		LastErrorReason: r.LastErrorReason,
-		Aliases:         r.Aliases,
-		Tools:           toToolProtos(r.Tools),
-	}
-	if r.Link != nil && r.Link.LastFailureAt != nil {
-		out.LastErrorAt = r.Link.LastFailureAt.UTC().Format(time.RFC3339)
-	}
-	return out
-}
 
-func toToolProtos(rows []storage.UpstreamTool) []*portalv1.UpstreamTool {
-	if len(rows) == 0 {
-		return nil
-	}
-	out := make([]*portalv1.UpstreamTool, 0, len(rows))
-	for i := range rows {
-		out = append(out, &portalv1.UpstreamTool{
-			Name:        rows[i].Name,
-			Description: rows[i].Description,
-		})
-	}
-	return out
-}
-
-func linkStateProto(s upstream.LinkState) portalv1.LinkState {
-	switch s {
-	case upstream.LinkStateNone:
-		return portalv1.LinkState_LINK_STATE_NONE
-	case upstream.LinkStateConnected:
-		return portalv1.LinkState_LINK_STATE_CONNECTED
-	case upstream.LinkStateDisabled:
-		return portalv1.LinkState_LINK_STATE_DISABLED
-	case upstream.LinkStateAutoDisabled:
-		return portalv1.LinkState_LINK_STATE_AUTO_DISABLED
-	case upstream.LinkStateNeedsRelink:
-		return portalv1.LinkState_LINK_STATE_NEEDS_RELINK
-	default:
-		return portalv1.LinkState_LINK_STATE_UNSPECIFIED
-	}
-}

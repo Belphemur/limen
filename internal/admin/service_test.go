@@ -91,6 +91,19 @@ func TestRequiredRole_CoversEveryHandlerMethod(t *testing.T) {
 	}
 }
 
+// implementedUpstreamRPCs is the set of AdminService methods whose
+// handlers shipped in phase 9c slice 2. Asserting CodeUnimplemented
+// on them in role-enforcement tests would conflate routing with
+// implementation; their real behaviour is covered by
+// upstreams_test.go.
+var implementedUpstreamRPCs = map[string]bool{
+	"CreateUpstream":         true,
+	"UpdateUpstream":         true,
+	"DeleteUpstream":         true,
+	"ReindexUpstreamCatalog": true,
+	"PreviewUpstreamContext": true,
+}
+
 // TestOwner_ReachesHandler asserts an owner session passes every
 // interceptor and the handler returns CodeUnimplemented. Once a slice
 // implements an RPC for real this will start returning a different
@@ -98,6 +111,9 @@ func TestRequiredRole_CoversEveryHandlerMethod(t *testing.T) {
 func TestOwner_ReachesHandler_AllRPCsUnimplemented(t *testing.T) {
 	c := mount(t, []string{"owner"})
 	for name, call := range callers() {
+		if implementedUpstreamRPCs[name] {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			err := call(context.Background(), c)
 			if err == nil {
@@ -140,9 +156,9 @@ func TestAdmin_DeniedOnDeleteTenant(t *testing.T) {
 		t.Fatalf("want CodePermissionDenied, got %v: %v", got, err)
 	}
 
-	// Sanity: admin still reaches every non-owner RPC.
+	// Sanity: admin still reaches every non-owner, still-stubbed RPC.
 	for name, call := range callers() {
-		if name == "DeleteTenant" {
+		if name == "DeleteTenant" || implementedUpstreamRPCs[name] {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {

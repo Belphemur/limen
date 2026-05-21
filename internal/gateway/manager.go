@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/contextblob"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
@@ -284,7 +285,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 
 	out := make([]UpstreamView, 0, len(visible))
 	for _, up := range visible {
-		defaults, ok := SafeLoadContextBlob(up.DefaultsJSON)
+		defaults, ok := contextblob.SafeLoadContextBlob(up.DefaultsJSON)
 		if !ok {
 			m.opts.Logger.Warn("gateway.context.invalid_json",
 				zap.Int64("tenant_id", tenant.ID),
@@ -294,7 +295,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 		var linkCtx map[string]any
 		if l := linkByUpstream[up.ID]; l != nil {
 			var lok bool
-			linkCtx, lok = SafeLoadContextBlob(l.ContextJSON)
+			linkCtx, lok = contextblob.SafeLoadContextBlob(l.ContextJSON)
 			if !lok {
 				m.opts.Logger.Warn("gateway.context.invalid_json",
 					zap.Int64("tenant_id", tenant.ID),
@@ -305,7 +306,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 		out = append(out, UpstreamView{
 			Name:    up.Name,
 			Aliases: resolved[up.Name],
-			Context: MergeContext(defaults, linkCtx),
+			Context: contextblob.MergeContext(defaults, linkCtx),
 		})
 	}
 	return out, nil
