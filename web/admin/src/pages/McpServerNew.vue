@@ -389,7 +389,7 @@ function goToDetail() {
       <h1 class="mt-stack-sm font-display text-2xl font-bold tracking-tight text-on-surface">
         Add MCP server
       </h1>
-      <p class="mt-1 max-w-2xl text-sm text-on-surface-variant">
+      <p class="mt-1 text-sm text-on-surface-variant">
         Connect a new Model Context Protocol (MCP) server. We'll probe it with the chosen
         authentication strategy before the configuration is saved.
       </p>

@@ -37,24 +37,24 @@ const menuOpen = ref(false)
       </a>
     </nav>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1">
       <button
         type="button"
         aria-label="Notifications"
-        class="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
+        class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
       >
-        <Bell :size="20" aria-hidden="true" />
+        <Bell :size="18" aria-hidden="true" />
       </button>
       <ThemeSwitcher />
       <div class="relative">
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-on-surface-variant hover:text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-subtle bg-surface px-2 py-1 text-sm text-on-surface-variant hover:text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           :aria-expanded="menuOpen"
           aria-haspopup="menu"
           @click="menuOpen = !menuOpen"
         >
-          <User :size="16" aria-hidden="true" />
+          <User :size="14" aria-hidden="true" />
           <span class="max-w-40 truncate text-xs">{{ session.user?.email ?? 'Loading…' }}</span>
         </button>
         <div
@@ -80,9 +80,9 @@ const menuOpen = ref(false)
       <button
         type="button"
         aria-label="Settings"
-        class="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface md:hidden"
+        class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface md:hidden"
       >
-        <SettingsIcon :size="20" aria-hidden="true" />
+        <SettingsIcon :size="18" aria-hidden="true" />
       </button>
     </div>
   </header>

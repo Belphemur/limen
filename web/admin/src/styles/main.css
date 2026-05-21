@@ -21,8 +21,8 @@
 
   /* ───── Spacing aliases (Stitch parity) ───── */
   --spacing-sidebar-width: 280px;
-  --spacing-header-height: 80px;
-  --spacing-portal-header: 64px;
+  --spacing-header-height: 48px;
+  --spacing-portal-header: 48px;
   --spacing-container-padding: 2rem;
   --spacing-gutter: 1.5rem;
   --spacing-stack-sm: 0.5rem;
