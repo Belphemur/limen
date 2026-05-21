@@ -36,7 +36,7 @@ setSessionTransport(
 
 setAdminTransport(
   createConnectTransport({
-    baseUrl: `${window.location.origin}/t/${discoverTenant()}/admin/api`,
+    baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
     fetch: cookieFetch,
   }),
 )

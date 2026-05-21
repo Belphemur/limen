@@ -1,7 +1,7 @@
 // Connect-RPC clients for the tenant admin SPA.
 //
 // PortalService + AdminService share the per-tenant transport
-// (cookie-bearing, baseUrl /t/{tenant}/admin/api); SignupService rides
+// (cookie-bearing, baseUrl /t/{tenant}/api); SignupService rides
 // a separate root-scoped transport (baseUrl /api) because the wizard
 // runs before any tenant exists.
 //
@@ -32,7 +32,7 @@ let signupTransportCache: Transport | null = null
 
 function buildAdminTransport(): Transport {
   return createConnectTransport({
-    baseUrl: `${window.location.origin}/t/${discoverTenant()}/admin/api`,
+    baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
     fetch: cookieFetch,
   })
 }
@@ -77,7 +77,7 @@ export function adminClient(): Client<typeof AdminService> {
 }
 
 // portalClient shares the admin transport — PortalService and
-// AdminService are multiplexed on the same /t/{tenant}/admin/api/
+// AdminService are multiplexed on the same /t/{tenant}/api/
 // mount via the http.ServeMux assembled by internal/boot/portalmount.
 export function portalClient(): Client<typeof PortalService> {
   return createClient(PortalService, adminTransport())

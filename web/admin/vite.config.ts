@@ -34,10 +34,10 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     // Mirror the portal proxy rules — every Limen-owned route forwards
-    // to the Go backend on :8080. The admin SPA additionally needs
-    // /t/<tenant>/admin/api/* for AdminService.
+    // to the Go backend on :8080. PortalService, SessionService, and
+    // AdminService are all multiplexed at /t/<tenant>/api/*.
     proxy: {
-      '^/t/[^/]+/(api|admin/api|auth|oauth|mcp)(/|\\?|$)': backend,
+      '^/t/[^/]+/(api|auth|oauth|mcp)(/|\\?|$)': backend,
       '^/t/[^/]+/mcp-servers/[^/]+/callback(\\?|$)': backend,
       '^/\\.well-known/': backend,
       '^/auth/(login|callback|discovery|signup)(/|\\?|$)': backend,
