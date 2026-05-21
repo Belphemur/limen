@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ConnectError, Code } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import { ArrowLeft, RefreshCw, Trash2, Save } from '@lucide/vue'
+import { ArrowLeft, RefreshCw, Trash2, Save, ChevronDown } from '@lucide/vue'
 import { ContextJsonEditor } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -33,6 +33,7 @@ function onDefaultsValid(v: boolean) {
 const reindexing = ref(false)
 const deleting = ref(false)
 const confirmText = ref('')
+const toolsOpen = ref(false)
 
 async function refresh() {
   loading.value = true
@@ -177,7 +178,61 @@ async function remove() {
             <dt class="text-on-surface-variant">Tools cached</dt>
             <dd class="text-on-surface">{{ summary.tools.length }}</dd>
           </div>
+          <div class="md:col-span-2">
+            <dt class="text-on-surface-variant">Aliases</dt>
+            <dd class="mt-1 flex flex-wrap gap-1" data-testid="upstream-aliases">
+              <span
+                v-for="alias in summary.aliases"
+                :key="alias"
+                class="inline-flex items-center rounded-full border border-surface-dim bg-surface-container-low px-2 py-0.5 font-mono text-xs text-primary"
+              >
+                {{ alias }}
+              </span>
+              <span v-if="summary.aliases.length === 0" class="text-on-surface-variant">
+                None
+              </span>
+            </dd>
+          </div>
         </dl>
+      </section>
+
+      <section class="rounded-lg border border-border-subtle bg-surface">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+          :aria-expanded="toolsOpen"
+          data-testid="tools-disclosure"
+          @click="toolsOpen = !toolsOpen"
+        >
+          <span class="font-display text-lg font-semibold text-on-surface">
+            Tools
+            <span class="ml-1 text-sm font-normal text-on-surface-variant">
+              ({{ summary.tools.length }})
+            </span>
+          </span>
+          <ChevronDown
+            :size="18"
+            class="text-on-surface-variant transition-transform"
+            :class="toolsOpen ? 'rotate-180' : ''"
+            aria-hidden="true"
+          />
+        </button>
+        <div v-if="toolsOpen" class="border-t border-border-subtle px-4 py-3">
+          <p v-if="summary.tools.length === 0" class="text-sm text-on-surface-variant">
+            No tools cached yet. Reindex the catalog after the upstream is linked.
+          </p>
+          <ul v-else class="divide-y divide-border-subtle" data-testid="tools-list">
+            <li v-for="tool in summary.tools" :key="tool.name" class="py-2">
+              <div class="font-mono text-sm text-on-surface">{{ tool.name }}</div>
+              <div
+                v-if="tool.description"
+                class="mt-0.5 text-sm text-on-surface-variant"
+              >
+                {{ tool.description }}
+              </div>
+            </li>
+          </ul>
+        </div>
       </section>
 
       <section class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4">
