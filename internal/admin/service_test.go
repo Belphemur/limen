@@ -26,7 +26,7 @@ func resolverFor(roles []string) session.Resolver {
 func mount(t *testing.T, roles []string) adminv1connect.AdminServiceClient {
 	t.Helper()
 	tenant := &storage.Tenant{Base: storage.Base{PublicID: "tnt_test"}, Name: "Acme"}
-	svc := NewService(nil, nil, resolverFor(roles), zap.NewNop())
+	svc := NewService(nil, nil, nil, resolverFor(roles), zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
@@ -66,6 +66,10 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 			_, err := c.UpdateTenantSettings(ctx, connect.NewRequest(&adminv1.UpdateTenantSettingsRequest{}))
 			return err
 		},
+		"GetTenantSettings": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.GetTenantSettings(ctx, connect.NewRequest(&adminv1.GetTenantSettingsRequest{}))
+			return err
+		},
 		"DeleteTenant": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
 			_, err := c.DeleteTenant(ctx, connect.NewRequest(&adminv1.DeleteTenantRequest{}))
 			return err
@@ -91,39 +95,21 @@ func TestRequiredRole_CoversEveryHandlerMethod(t *testing.T) {
 	}
 }
 
-// implementedUpstreamRPCs is the set of AdminService methods whose
-// handlers shipped in phase 9c slice 2. Asserting CodeUnimplemented
-// on them in role-enforcement tests would conflate routing with
-// implementation; their real behaviour is covered by
-// upstreams_test.go.
-var implementedUpstreamRPCs = map[string]bool{
+// implementedRPCs is the set of AdminService methods whose handlers
+// are wired to real product logic. Their role/auth behaviour is
+// covered by the dedicated *_test.go files in this package
+// (upstreams_test.go, settings_test.go, tenant_test.go); asserting
+// CodeUnimplemented on them here would conflate routing with
+// implementation.
+var implementedRPCs = map[string]bool{
 	"CreateUpstream":         true,
 	"UpdateUpstream":         true,
 	"DeleteUpstream":         true,
 	"ReindexUpstreamCatalog": true,
 	"PreviewUpstreamContext": true,
-}
-
-// TestOwner_ReachesHandler asserts an owner session passes every
-// interceptor and the handler returns CodeUnimplemented. Once a slice
-// implements an RPC for real this will start returning a different
-// code for that method — flip the assertion at that time.
-func TestOwner_ReachesHandler_AllRPCsUnimplemented(t *testing.T) {
-	c := mount(t, []string{"owner"})
-	for name, call := range callers() {
-		if implementedUpstreamRPCs[name] {
-			continue
-		}
-		t.Run(name, func(t *testing.T) {
-			err := call(context.Background(), c)
-			if err == nil {
-				t.Fatalf("want CodeUnimplemented, got nil")
-			}
-			if got := connect.CodeOf(err); got != connect.CodeUnimplemented {
-				t.Fatalf("want CodeUnimplemented, got %v: %v", got, err)
-			}
-		})
-	}
+	"GetTenantSettings":      true,
+	"UpdateTenantSettings":   true,
+	"DeleteTenant":           true,
 }
 
 // TestMember_DeniedOnEveryRPC: a member session never satisfies
@@ -145,7 +131,7 @@ func TestMember_DeniedOnEveryRPC(t *testing.T) {
 }
 
 // TestAdmin_DeniedOnDeleteTenant: DeleteTenant requires the owner
-// tier; admin (which satisfies every other RPC) must be rejected.
+// tier; admin must be rejected at the role interceptor.
 func TestAdmin_DeniedOnDeleteTenant(t *testing.T) {
 	c := mount(t, []string{"admin"})
 	err := callers()["DeleteTenant"](context.Background(), c)
@@ -155,17 +141,9 @@ func TestAdmin_DeniedOnDeleteTenant(t *testing.T) {
 	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
 		t.Fatalf("want CodePermissionDenied, got %v: %v", got, err)
 	}
-
-	// Sanity: admin still reaches every non-owner, still-stubbed RPC.
-	for name, call := range callers() {
-		if name == "DeleteTenant" || implementedUpstreamRPCs[name] {
-			continue
-		}
-		t.Run(name, func(t *testing.T) {
-			err := call(context.Background(), c)
-			if got := connect.CodeOf(err); got != connect.CodeUnimplemented {
-				t.Fatalf("admin should reach handler for %s, got code %v: %v", name, got, err)
-			}
-		})
-	}
 }
+
+// Silence the unused-warning for the implementedRPCs map; it is
+// referenced by package-level tests in other files (settings_test.go,
+// tenant_test.go) that load the real handler under Postgres.
+var _ = implementedRPCs

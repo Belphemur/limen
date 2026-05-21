@@ -33,6 +33,7 @@ import (
 	"github.com/belphemur/limen/internal/admin/adminv1/adminv1connect"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
+	"github.com/belphemur/limen/internal/tenant"
 	"github.com/belphemur/limen/internal/upstream"
 )
 
@@ -40,17 +41,18 @@ import (
 type Service struct {
 	store    *storage.Store
 	upstream *upstream.Service
+	tenant   *tenant.Service
 	resolver session.Resolver
 	logger   *zap.Logger
 }
 
 // NewService builds the admin Connect-RPC service. resolver MUST
 // verify the portal cookie against the Zitadel ID-token issuer.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, resolver session.Resolver, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{store: store, upstream: upstreamSvc, resolver: resolver, logger: logger}
+	return &Service{store: store, upstream: upstreamSvc, tenant: tenantSvc, resolver: resolver, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to mount on

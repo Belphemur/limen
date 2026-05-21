@@ -120,6 +120,16 @@ type Pattern struct {
 // pattern text.
 func (p Pattern) String() string { return p.raw }
 
+// ValidateRedirectURIPattern validates a single tenant-allowlist glob
+// without retaining the compiled form. It is the shared entrypoint
+// callers (e.g. the admin Settings RPC) use to surface a per-row
+// validation error to the SPA. The underlying rules come from
+// CompilePattern — keep it that way.
+func ValidateRedirectURIPattern(raw string) error {
+	_, err := CompilePattern(raw)
+	return err
+}
+
 // CompilePattern parses a single allowlist glob. It enforces the structural
 // rules — including the "≥2 fixed suffix labels" rule for wildcard hosts —
 // so callers can persist only patterns that the matcher will accept.

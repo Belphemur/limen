@@ -623,6 +623,105 @@ func (x *PreviewUpstreamContextResponse) GetMergedJson() string {
 	return ""
 }
 
+type GetTenantSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTenantSettingsRequest) Reset() {
+	*x = GetTenantSettingsRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTenantSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTenantSettingsRequest) ProtoMessage() {}
+
+func (x *GetTenantSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTenantSettingsRequest.ProtoReflect.Descriptor instead.
+func (*GetTenantSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{11}
+}
+
+type GetTenantSettingsResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Settings *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	// Mirror of storage.Tenant.DCRRedirectURIAllowlist. Empty list = floor only.
+	DcrRedirectUriAllowlist []string `protobuf:"bytes,2,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
+	// Read-only Zitadel identity. The SPA renders these as a panel and
+	// uses zitadel_org_id to build Console deep-links.
+	ZitadelOrgId  string `protobuf:"bytes,3,opt,name=zitadel_org_id,json=zitadelOrgId,proto3" json:"zitadel_org_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTenantSettingsResponse) Reset() {
+	*x = GetTenantSettingsResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTenantSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTenantSettingsResponse) ProtoMessage() {}
+
+func (x *GetTenantSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTenantSettingsResponse.ProtoReflect.Descriptor instead.
+func (*GetTenantSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetTenantSettingsResponse) GetSettings() *TenantSettings {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+func (x *GetTenantSettingsResponse) GetDcrRedirectUriAllowlist() []string {
+	if x != nil {
+		return x.DcrRedirectUriAllowlist
+	}
+	return nil
+}
+
+func (x *GetTenantSettingsResponse) GetZitadelOrgId() string {
+	if x != nil {
+		return x.ZitadelOrgId
+	}
+	return ""
+}
+
 type UpdateTenantSettingsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional. Empty string means "no change".
@@ -633,13 +732,19 @@ type UpdateTenantSettingsRequest struct {
 	// One-shot toggle: same semantics as invited_team_at_now but for
 	// tenant_settings.configured_at.
 	ConfiguredAtNow bool `protobuf:"varint,3,opt,name=configured_at_now,json=configuredAtNow,proto3" json:"configured_at_now,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// DCR redirect-URI allowlist. Sentinel pattern: only honoured when
+	// dcr_redirect_uri_allowlist_set is true; otherwise the existing
+	// value is preserved (an empty repeated field is indistinguishable
+	// from "leave it alone" without an explicit sentinel).
+	DcrRedirectUriAllowlist    []string `protobuf:"bytes,4,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
+	DcrRedirectUriAllowlistSet bool     `protobuf:"varint,5,opt,name=dcr_redirect_uri_allowlist_set,json=dcrRedirectUriAllowlistSet,proto3" json:"dcr_redirect_uri_allowlist_set,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *UpdateTenantSettingsRequest) Reset() {
 	*x = UpdateTenantSettingsRequest{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[11]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +756,7 @@ func (x *UpdateTenantSettingsRequest) String() string {
 func (*UpdateTenantSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateTenantSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[11]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +769,7 @@ func (x *UpdateTenantSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTenantSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTenantSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{11}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UpdateTenantSettingsRequest) GetName() string {
@@ -688,6 +793,20 @@ func (x *UpdateTenantSettingsRequest) GetConfiguredAtNow() bool {
 	return false
 }
 
+func (x *UpdateTenantSettingsRequest) GetDcrRedirectUriAllowlist() []string {
+	if x != nil {
+		return x.DcrRedirectUriAllowlist
+	}
+	return nil
+}
+
+func (x *UpdateTenantSettingsRequest) GetDcrRedirectUriAllowlistSet() bool {
+	if x != nil {
+		return x.DcrRedirectUriAllowlistSet
+	}
+	return false
+}
+
 type TenantSettings struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -701,7 +820,7 @@ type TenantSettings struct {
 
 func (x *TenantSettings) Reset() {
 	*x = TenantSettings{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[12]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -713,7 +832,7 @@ func (x *TenantSettings) String() string {
 func (*TenantSettings) ProtoMessage() {}
 
 func (x *TenantSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[12]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -726,7 +845,7 @@ func (x *TenantSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantSettings.ProtoReflect.Descriptor instead.
 func (*TenantSettings) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{12}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TenantSettings) GetName() string {
@@ -758,15 +877,16 @@ func (x *TenantSettings) GetConfiguredAt() string {
 }
 
 type UpdateTenantSettingsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Settings      *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Settings                *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	DcrRedirectUriAllowlist []string               `protobuf:"bytes,2,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *UpdateTenantSettingsResponse) Reset() {
 	*x = UpdateTenantSettingsResponse{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[13]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -778,7 +898,7 @@ func (x *UpdateTenantSettingsResponse) String() string {
 func (*UpdateTenantSettingsResponse) ProtoMessage() {}
 
 func (x *UpdateTenantSettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[13]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -791,12 +911,19 @@ func (x *UpdateTenantSettingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTenantSettingsResponse.ProtoReflect.Descriptor instead.
 func (*UpdateTenantSettingsResponse) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{13}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UpdateTenantSettingsResponse) GetSettings() *TenantSettings {
 	if x != nil {
 		return x.Settings
+	}
+	return nil
+}
+
+func (x *UpdateTenantSettingsResponse) GetDcrRedirectUriAllowlist() []string {
+	if x != nil {
+		return x.DcrRedirectUriAllowlist
 	}
 	return nil
 }
@@ -812,7 +939,7 @@ type DeleteTenantRequest struct {
 
 func (x *DeleteTenantRequest) Reset() {
 	*x = DeleteTenantRequest{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[14]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -824,7 +951,7 @@ func (x *DeleteTenantRequest) String() string {
 func (*DeleteTenantRequest) ProtoMessage() {}
 
 func (x *DeleteTenantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[14]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -837,7 +964,7 @@ func (x *DeleteTenantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTenantRequest.ProtoReflect.Descriptor instead.
 func (*DeleteTenantRequest) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{14}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeleteTenantRequest) GetPublicIdConfirmation() string {
@@ -855,7 +982,7 @@ type DeleteTenantResponse struct {
 
 func (x *DeleteTenantResponse) Reset() {
 	*x = DeleteTenantResponse{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[15]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +994,7 @@ func (x *DeleteTenantResponse) String() string {
 func (*DeleteTenantResponse) ProtoMessage() {}
 
 func (x *DeleteTenantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[15]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +1007,7 @@ func (x *DeleteTenantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTenantResponse.ProtoReflect.Descriptor instead.
 func (*DeleteTenantResponse) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{15}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{17}
 }
 
 var File_limen_admin_v1_admin_proto protoreflect.FileDescriptor
@@ -928,27 +1055,36 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"A\n" +
 	"\x1ePreviewUpstreamContextResponse\x12\x1f\n" +
 	"\vmerged_json\x18\x01 \x01(\tR\n" +
-	"mergedJson\"\x8c\x01\n" +
+	"mergedJson\"\x1a\n" +
+	"\x18GetTenantSettingsRequest\"\xba\x01\n" +
+	"\x19GetTenantSettingsResponse\x12:\n" +
+	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\x12;\n" +
+	"\x1adcr_redirect_uri_allowlist\x18\x02 \x03(\tR\x17dcrRedirectUriAllowlist\x12$\n" +
+	"\x0ezitadel_org_id\x18\x03 \x01(\tR\fzitadelOrgId\"\x8d\x02\n" +
 	"\x1bUpdateTenantSettingsRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12-\n" +
 	"\x13invited_team_at_now\x18\x02 \x01(\bR\x10invitedTeamAtNow\x12*\n" +
-	"\x11configured_at_now\x18\x03 \x01(\bR\x0fconfiguredAtNow\"\x8e\x01\n" +
+	"\x11configured_at_now\x18\x03 \x01(\bR\x0fconfiguredAtNow\x12;\n" +
+	"\x1adcr_redirect_uri_allowlist\x18\x04 \x03(\tR\x17dcrRedirectUriAllowlist\x12B\n" +
+	"\x1edcr_redirect_uri_allowlist_set\x18\x05 \x01(\bR\x1adcrRedirectUriAllowlistSet\"\x8e\x01\n" +
 	"\x0eTenantSettings\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tpublic_id\x18\x02 \x01(\tR\bpublicId\x12&\n" +
 	"\x0finvited_team_at\x18\x03 \x01(\tR\rinvitedTeamAt\x12#\n" +
-	"\rconfigured_at\x18\x04 \x01(\tR\fconfiguredAt\"Z\n" +
+	"\rconfigured_at\x18\x04 \x01(\tR\fconfiguredAt\"\x97\x01\n" +
 	"\x1cUpdateTenantSettingsResponse\x12:\n" +
-	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\"K\n" +
+	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\x12;\n" +
+	"\x1adcr_redirect_uri_allowlist\x18\x02 \x03(\tR\x17dcrRedirectUriAllowlist\"K\n" +
 	"\x13DeleteTenantRequest\x124\n" +
 	"\x16public_id_confirmation\x18\x01 \x01(\tR\x14publicIdConfirmation\"\x16\n" +
-	"\x14DeleteTenantResponse2\xf1\x05\n" +
+	"\x14DeleteTenantResponse2\xdb\x06\n" +
 	"\fAdminService\x12_\n" +
 	"\x0eCreateUpstream\x12%.limen.admin.v1.CreateUpstreamRequest\x1a&.limen.admin.v1.CreateUpstreamResponse\x12_\n" +
 	"\x0eUpdateUpstream\x12%.limen.admin.v1.UpdateUpstreamRequest\x1a&.limen.admin.v1.UpdateUpstreamResponse\x12_\n" +
 	"\x0eDeleteUpstream\x12%.limen.admin.v1.DeleteUpstreamRequest\x1a&.limen.admin.v1.DeleteUpstreamResponse\x12w\n" +
 	"\x16ReindexUpstreamCatalog\x12-.limen.admin.v1.ReindexUpstreamCatalogRequest\x1a..limen.admin.v1.ReindexUpstreamCatalogResponse\x12w\n" +
-	"\x16PreviewUpstreamContext\x12-.limen.admin.v1.PreviewUpstreamContextRequest\x1a..limen.admin.v1.PreviewUpstreamContextResponse\x12q\n" +
+	"\x16PreviewUpstreamContext\x12-.limen.admin.v1.PreviewUpstreamContextRequest\x1a..limen.admin.v1.PreviewUpstreamContextResponse\x12h\n" +
+	"\x11GetTenantSettings\x12(.limen.admin.v1.GetTenantSettingsRequest\x1a).limen.admin.v1.GetTenantSettingsResponse\x12q\n" +
 	"\x14UpdateTenantSettings\x12+.limen.admin.v1.UpdateTenantSettingsRequest\x1a,.limen.admin.v1.UpdateTenantSettingsResponse\x12Y\n" +
 	"\fDeleteTenant\x12#.limen.admin.v1.DeleteTenantRequest\x1a$.limen.admin.v1.DeleteTenantResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
 
@@ -964,7 +1100,7 @@ func file_limen_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_limen_admin_v1_admin_proto_rawDescData
 }
 
-var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*OAuthClientOverride)(nil),            // 0: limen.admin.v1.OAuthClientOverride
 	(*CreateUpstreamRequest)(nil),          // 1: limen.admin.v1.CreateUpstreamRequest
@@ -977,40 +1113,45 @@ var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*ReindexUpstreamCatalogResponse)(nil), // 8: limen.admin.v1.ReindexUpstreamCatalogResponse
 	(*PreviewUpstreamContextRequest)(nil),  // 9: limen.admin.v1.PreviewUpstreamContextRequest
 	(*PreviewUpstreamContextResponse)(nil), // 10: limen.admin.v1.PreviewUpstreamContextResponse
-	(*UpdateTenantSettingsRequest)(nil),    // 11: limen.admin.v1.UpdateTenantSettingsRequest
-	(*TenantSettings)(nil),                 // 12: limen.admin.v1.TenantSettings
-	(*UpdateTenantSettingsResponse)(nil),   // 13: limen.admin.v1.UpdateTenantSettingsResponse
-	(*DeleteTenantRequest)(nil),            // 14: limen.admin.v1.DeleteTenantRequest
-	(*DeleteTenantResponse)(nil),           // 15: limen.admin.v1.DeleteTenantResponse
-	nil,                                    // 16: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
-	(*portalv1.UpstreamSummary)(nil),       // 17: limen.portal.v1.UpstreamSummary
+	(*GetTenantSettingsRequest)(nil),       // 11: limen.admin.v1.GetTenantSettingsRequest
+	(*GetTenantSettingsResponse)(nil),      // 12: limen.admin.v1.GetTenantSettingsResponse
+	(*UpdateTenantSettingsRequest)(nil),    // 13: limen.admin.v1.UpdateTenantSettingsRequest
+	(*TenantSettings)(nil),                 // 14: limen.admin.v1.TenantSettings
+	(*UpdateTenantSettingsResponse)(nil),   // 15: limen.admin.v1.UpdateTenantSettingsResponse
+	(*DeleteTenantRequest)(nil),            // 16: limen.admin.v1.DeleteTenantRequest
+	(*DeleteTenantResponse)(nil),           // 17: limen.admin.v1.DeleteTenantResponse
+	nil,                                    // 18: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	(*portalv1.UpstreamSummary)(nil),       // 19: limen.portal.v1.UpstreamSummary
 }
 var file_limen_admin_v1_admin_proto_depIdxs = []int32{
-	16, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	18, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
 	0,  // 1: limen.admin.v1.CreateUpstreamRequest.oauth_client_override:type_name -> limen.admin.v1.OAuthClientOverride
-	17, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	17, // 3: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	17, // 4: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	12, // 5: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
-	1,  // 6: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
-	3,  // 7: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
-	5,  // 8: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
-	7,  // 9: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
-	9,  // 10: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
-	11, // 11: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
-	14, // 12: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
-	2,  // 13: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
-	4,  // 14: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
-	6,  // 15: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
-	8,  // 16: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
-	10, // 17: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
-	13, // 18: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
-	15, // 19: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
-	13, // [13:20] is the sub-list for method output_type
-	6,  // [6:13] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	19, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	19, // 3: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	19, // 4: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	14, // 5: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	14, // 6: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	1,  // 7: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
+	3,  // 8: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
+	5,  // 9: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
+	7,  // 10: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
+	9,  // 11: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
+	11, // 12: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
+	13, // 13: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
+	16, // 14: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
+	2,  // 15: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
+	4,  // 16: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
+	6,  // 17: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
+	8,  // 18: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
+	10, // 19: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
+	12, // 20: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
+	15, // 21: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
+	17, // 22: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_limen_admin_v1_admin_proto_init() }
@@ -1024,7 +1165,7 @@ func file_limen_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_admin_v1_admin_proto_rawDesc), len(file_limen_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

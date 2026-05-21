@@ -34,6 +34,7 @@ type Base struct {
 func AllModels() []any {
 	return []any{
 		&Tenant{},
+		&TenantSettings{},
 		&User{},
 		&Upstream{},
 		&UpstreamStrategyConfig{},

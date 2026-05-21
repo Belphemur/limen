@@ -16,6 +16,7 @@ var requiredRole = map[string]session.Role{
 	"DeleteUpstream":         session.RoleAdmin,
 	"ReindexUpstreamCatalog": session.RoleAdmin,
 	"PreviewUpstreamContext": session.RoleAdmin,
+	"GetTenantSettings":      session.RoleAdmin,
 	"UpdateTenantSettings":   session.RoleAdmin,
 	"DeleteTenant":           session.RoleOwner,
 }

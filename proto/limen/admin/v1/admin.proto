@@ -22,6 +22,7 @@ service AdminService {
   rpc PreviewUpstreamContext(PreviewUpstreamContextRequest) returns (PreviewUpstreamContextResponse);
 
   // Tenant settings + dashboard step-completion toggles. Admin floor.
+  rpc GetTenantSettings(GetTenantSettingsRequest) returns (GetTenantSettingsResponse);
   rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
 
   // Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
@@ -114,6 +115,19 @@ message PreviewUpstreamContextResponse {
   string merged_json = 1;
 }
 
+// ---- GetTenantSettings ---------------------------------------------
+
+message GetTenantSettingsRequest {}
+
+message GetTenantSettingsResponse {
+  TenantSettings settings = 1;
+  // Mirror of storage.Tenant.DCRRedirectURIAllowlist. Empty list = floor only.
+  repeated string dcr_redirect_uri_allowlist = 2;
+  // Read-only Zitadel identity. The SPA renders these as a panel and
+  // uses zitadel_org_id to build Console deep-links.
+  string zitadel_org_id = 3;
+}
+
 // ---- UpdateTenantSettings ------------------------------------------
 
 message UpdateTenantSettingsRequest {
@@ -125,6 +139,13 @@ message UpdateTenantSettingsRequest {
   // One-shot toggle: same semantics as invited_team_at_now but for
   // tenant_settings.configured_at.
   bool configured_at_now = 3;
+
+  // DCR redirect-URI allowlist. Sentinel pattern: only honoured when
+  // dcr_redirect_uri_allowlist_set is true; otherwise the existing
+  // value is preserved (an empty repeated field is indistinguishable
+  // from "leave it alone" without an explicit sentinel).
+  repeated string dcr_redirect_uri_allowlist = 4;
+  bool dcr_redirect_uri_allowlist_set = 5;
 }
 
 message TenantSettings {
@@ -137,6 +158,7 @@ message TenantSettings {
 
 message UpdateTenantSettingsResponse {
   TenantSettings settings = 1;
+  repeated string dcr_redirect_uri_allowlist = 2;
 }
 
 // ---- DeleteTenant --------------------------------------------------

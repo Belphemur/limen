@@ -48,6 +48,9 @@ const (
 	// AdminServicePreviewUpstreamContextProcedure is the fully-qualified name of the AdminService's
 	// PreviewUpstreamContext RPC.
 	AdminServicePreviewUpstreamContextProcedure = "/limen.admin.v1.AdminService/PreviewUpstreamContext"
+	// AdminServiceGetTenantSettingsProcedure is the fully-qualified name of the AdminService's
+	// GetTenantSettings RPC.
+	AdminServiceGetTenantSettingsProcedure = "/limen.admin.v1.AdminService/GetTenantSettings"
 	// AdminServiceUpdateTenantSettingsProcedure is the fully-qualified name of the AdminService's
 	// UpdateTenantSettings RPC.
 	AdminServiceUpdateTenantSettingsProcedure = "/limen.admin.v1.AdminService/UpdateTenantSettings"
@@ -65,6 +68,7 @@ type AdminServiceClient interface {
 	ReindexUpstreamCatalog(context.Context, *connect.Request[adminv1.ReindexUpstreamCatalogRequest]) (*connect.Response[adminv1.ReindexUpstreamCatalogResponse], error)
 	PreviewUpstreamContext(context.Context, *connect.Request[adminv1.PreviewUpstreamContextRequest]) (*connect.Response[adminv1.PreviewUpstreamContextResponse], error)
 	// Tenant settings + dashboard step-completion toggles. Admin floor.
+	GetTenantSettings(context.Context, *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error)
 	UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
@@ -111,6 +115,12 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("PreviewUpstreamContext")),
 			connect.WithClientOptions(opts...),
 		),
+		getTenantSettings: connect.NewClient[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse](
+			httpClient,
+			baseURL+AdminServiceGetTenantSettingsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("GetTenantSettings")),
+			connect.WithClientOptions(opts...),
+		),
 		updateTenantSettings: connect.NewClient[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse](
 			httpClient,
 			baseURL+AdminServiceUpdateTenantSettingsProcedure,
@@ -133,6 +143,7 @@ type adminServiceClient struct {
 	deleteUpstream         *connect.Client[adminv1.DeleteUpstreamRequest, adminv1.DeleteUpstreamResponse]
 	reindexUpstreamCatalog *connect.Client[adminv1.ReindexUpstreamCatalogRequest, adminv1.ReindexUpstreamCatalogResponse]
 	previewUpstreamContext *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
+	getTenantSettings      *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
 	updateTenantSettings   *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
 	deleteTenant           *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
 }
@@ -162,6 +173,11 @@ func (c *adminServiceClient) PreviewUpstreamContext(ctx context.Context, req *co
 	return c.previewUpstreamContext.CallUnary(ctx, req)
 }
 
+// GetTenantSettings calls limen.admin.v1.AdminService.GetTenantSettings.
+func (c *adminServiceClient) GetTenantSettings(ctx context.Context, req *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error) {
+	return c.getTenantSettings.CallUnary(ctx, req)
+}
+
 // UpdateTenantSettings calls limen.admin.v1.AdminService.UpdateTenantSettings.
 func (c *adminServiceClient) UpdateTenantSettings(ctx context.Context, req *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error) {
 	return c.updateTenantSettings.CallUnary(ctx, req)
@@ -181,6 +197,7 @@ type AdminServiceHandler interface {
 	ReindexUpstreamCatalog(context.Context, *connect.Request[adminv1.ReindexUpstreamCatalogRequest]) (*connect.Response[adminv1.ReindexUpstreamCatalogResponse], error)
 	PreviewUpstreamContext(context.Context, *connect.Request[adminv1.PreviewUpstreamContextRequest]) (*connect.Response[adminv1.PreviewUpstreamContextResponse], error)
 	// Tenant settings + dashboard step-completion toggles. Admin floor.
+	GetTenantSettings(context.Context, *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error)
 	UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
@@ -223,6 +240,12 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("PreviewUpstreamContext")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceGetTenantSettingsHandler := connect.NewUnaryHandler(
+		AdminServiceGetTenantSettingsProcedure,
+		svc.GetTenantSettings,
+		connect.WithSchema(adminServiceMethods.ByName("GetTenantSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
 	adminServiceUpdateTenantSettingsHandler := connect.NewUnaryHandler(
 		AdminServiceUpdateTenantSettingsProcedure,
 		svc.UpdateTenantSettings,
@@ -247,6 +270,8 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceReindexUpstreamCatalogHandler.ServeHTTP(w, r)
 		case AdminServicePreviewUpstreamContextProcedure:
 			adminServicePreviewUpstreamContextHandler.ServeHTTP(w, r)
+		case AdminServiceGetTenantSettingsProcedure:
+			adminServiceGetTenantSettingsHandler.ServeHTTP(w, r)
 		case AdminServiceUpdateTenantSettingsProcedure:
 			adminServiceUpdateTenantSettingsHandler.ServeHTTP(w, r)
 		case AdminServiceDeleteTenantProcedure:
@@ -278,6 +303,10 @@ func (UnimplementedAdminServiceHandler) ReindexUpstreamCatalog(context.Context, 
 
 func (UnimplementedAdminServiceHandler) PreviewUpstreamContext(context.Context, *connect.Request[adminv1.PreviewUpstreamContextRequest]) (*connect.Response[adminv1.PreviewUpstreamContextResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.PreviewUpstreamContext is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) GetTenantSettings(context.Context, *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.GetTenantSettings is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error) {

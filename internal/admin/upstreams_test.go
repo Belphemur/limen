@@ -18,6 +18,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/storage/storagetest"
 	"github.com/belphemur/limen/internal/tenancy"
+	tenantsvc "github.com/belphemur/limen/internal/tenant"
 	"github.com/belphemur/limen/internal/upstream"
 	"github.com/belphemur/limen/internal/upstream/none"
 	"github.com/belphemur/limen/internal/upstream/statichdr"
@@ -85,11 +86,12 @@ func mountReal(t *testing.T, roles []string) (adminv1connect.AdminServiceClient,
 	registry.Register(none.New(nil))
 	registry.Register(statichdr.New(store, cipher, nil))
 	upstreamSvc := upstream.NewService(store, registry)
+	tenantSvc := tenantsvc.NewService(store)
 
 	resolver := func(_ context.Context, _ http.Header, _ string) (*session.UserSession, *http.Cookie, error) {
 		return &session.UserSession{Subject: "sub-admin-test", Email: "owner@example.com", Roles: roles}, nil, nil
 	}
-	svc := NewService(store, upstreamSvc, resolver, zap.NewNop())
+	svc := NewService(store, upstreamSvc, tenantSvc, resolver, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
