@@ -167,5 +167,3 @@ func mapUpstreamError(err error, op, upstreamName string, logger *zap.Logger) er
 		return errInternal(err)
 	}
 }
-
-

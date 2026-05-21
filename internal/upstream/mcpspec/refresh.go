@@ -57,18 +57,18 @@ func headersFromLink(link *storage.UpstreamLink) map[string]string {
 // (force=true) or if it expires inside ProactiveWindow. Concurrent calls
 // for the same link coalesce via singleflight.
 func (s *Strategy) ensureFresh(ctx context.Context, lctx upstream.LinkContext, force bool) (*storage.UpstreamLink, error) {
-	missing := make([]string, 0, 4)
+	// No user/link means the caller is the tenant-mode bootstrap path
+	// (e.g. CreateUpstream's inline IndexUpstream). Surface the
+	// documented sentinel so ProvisionTenantMode can swallow it.
+	if lctx.User == nil || lctx.Link == nil {
+		return nil, upstream.ErrLinkNotFound
+	}
+	missing := make([]string, 0, 2)
 	if lctx.Tenant == nil {
 		missing = append(missing, "tenant")
 	}
-	if lctx.User == nil {
-		missing = append(missing, "user")
-	}
 	if lctx.Upstream == nil {
 		missing = append(missing, "upstream")
-	}
-	if lctx.Link == nil {
-		missing = append(missing, "link")
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("mcpspec: %s missing", strings.Join(missing, "/"))

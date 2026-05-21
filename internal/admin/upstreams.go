@@ -52,20 +52,20 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 		return nil, s.mapCreateError(err)
 	}
 
-	// Tenant-mode strategies (`none`, `static_header` tenant-mode)
+	// Tenant-mode strategies (`none`, `static_header` tenant mode)
 	// have their tool catalog populated inline; per-user strategies
-	// will be indexed by the first admin/owner that links. A
-	// provision failure here means we could not reach the upstream
-	// (or the strategy rejected the supplied config) — roll the row
-	// back so the admin's next attempt sees a clean slate.
+	// (`mcp_spec`, `static_header` user mode) only run Provision
+	// here — the catalog is filled in by the first admin/owner to
+	// complete the OAuth flow. A failure here means provision could
+	// not complete (discovery, DCR, missing static client, …) so we
+	// roll back the row.
 	if provErr := s.upstream.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
 		if delErr := s.upstream.DeleteUpstream(ctx, tenant, up.PublicID); delErr != nil {
 			s.logger.Error("admin: rollback after failed provision",
 				zap.String("upstream", up.Name),
 				zap.Error(delErr))
 		}
-		return nil, connect.NewError(connect.CodeFailedPrecondition,
-			fmt.Errorf("admin: could not reach upstream: %w", provErr))
+		return nil, s.mapProvisionError(in.StrategyType, provErr)
 	}
 
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
@@ -153,6 +153,38 @@ func (s *Service) mapCreateError(err error) error {
 		return s.invalidArg("defaults_json", msg)
 	}
 	return s.internal("create upstream", err)
+}
+
+// mapProvisionError translates a strategy Provision failure into a
+// FailedPrecondition Connect error with a structpb detail of
+// `{stage, strategy, reason}`. The SPA reads the stage to render a
+// targeted modal (e.g. "Authorization server unreachable" vs
+// "Dynamic client registration was rejected").
+func (s *Service) mapProvisionError(strategyType upstream.StrategyType, err error) error {
+	stage := "provision"
+	switch {
+	case errors.Is(err, mcpspec.ErrDiscoveryFailed):
+		stage = "discovery"
+	case errors.Is(err, mcpspec.ErrDCRFailed):
+		stage = "dcr"
+	case errors.Is(err, mcpspec.ErrStaticClientRequired):
+		stage = "static_client_required"
+	case errors.Is(err, mcpspec.ErrPersistFailed):
+		stage = "persist"
+	}
+	cerr := connect.NewError(connect.CodeFailedPrecondition,
+		fmt.Errorf("admin: provision %s: %w", stage, err))
+	st, sErr := structpb.NewStruct(map[string]any{
+		"stage":    stage,
+		"strategy": string(strategyType),
+		"reason":   err.Error(),
+	})
+	if sErr == nil {
+		if d, dErr := connect.NewErrorDetail(st); dErr == nil {
+			cerr.AddDetail(d)
+		}
+	}
+	return cerr
 }
 
 func (s *Service) mapMutationError(err error) error {

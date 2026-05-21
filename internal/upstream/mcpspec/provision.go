@@ -33,7 +33,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 
 	prm, as, err := s.discover(ctx, lctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
 	}
 
 	var (
@@ -46,7 +46,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	case as.RegistrationEndpoint != "":
 		dcr, err := s.dynamicallyRegister(ctx, lctx, as.RegistrationEndpoint)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrDCRFailed, err)
 		}
 		clientID = dcr.ClientID
 		clientSecret = dcr.ClientSecret
@@ -55,12 +55,10 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	default:
 		cfg, err := s.loadConfig(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
 		}
 		if !cfg.HasStaticClient() {
-			return fmt.Errorf(
-				"mcpspec: AS %s does not advertise registration_endpoint and no static client is configured for upstream %q; provision one via `limen create-upstream --client-id ... --client-secret ...`",
-				as.Issuer, lctx.Upstream.Name)
+			return fmt.Errorf("%w: AS %s, upstream %q", ErrStaticClientRequired, as.Issuer, lctx.Upstream.Name)
 		}
 		clientID = cfg.ClientID
 		clientSecret = cfg.ClientSecret
@@ -69,7 +67,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	row := s.buildRegistrationRow(lctx, tenantStr, prm.primaryResource(), as.Issuer,
 		clientID, clientSecret, registrationAccessToken, registrationClientURI)
 	if err := s.persistRegistration(ctx, lctx.Tenant.ID, row); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPersistFailed, err)
 	}
 	s.invalidate(lctx.Upstream)
 	return nil

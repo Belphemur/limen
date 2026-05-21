@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ConnectError } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
+import { StructSchema } from '@bufbuild/protobuf/wkt'
 import { ArrowLeft, KeyRound, ShieldCheck, ShieldOff, Save } from '@lucide/vue'
 import {
   ContextJsonEditor,
@@ -206,6 +207,64 @@ function describeError(err: unknown): string {
   return String(err)
 }
 
+// Extracts the `{stage, strategy, reason}` detail attached by the
+// backend's mapProvisionError. Returns null when the error is not a
+// structured provision failure.
+function extractProvisionDetail(
+  err: unknown,
+): { stage: string; reason: string; strategy?: string } | null {
+  if (!(err instanceof ConnectError)) return null
+  const structs = err.findDetails(StructSchema)
+  for (const s of structs) {
+    const stage = s.fields['stage']?.kind.case === 'stringValue' ? s.fields['stage'].kind.value : ''
+    if (!stage) continue
+    const reason =
+      s.fields['reason']?.kind.case === 'stringValue'
+        ? s.fields['reason'].kind.value
+        : (err.rawMessage ?? '')
+    const strategy =
+      s.fields['strategy']?.kind.case === 'stringValue'
+        ? s.fields['strategy'].kind.value
+        : undefined
+    return { stage, reason, strategy }
+  }
+  return null
+}
+
+function provisionErrorState(err: unknown): ErrorState {
+  const detail = extractProvisionDetail(err)
+  if (!detail) {
+    return { title: 'Connection Failed', message: describeError(err) }
+  }
+  switch (detail.stage) {
+    case 'discovery':
+      return {
+        title: 'Could not reach the MCP server',
+        message: `We could not discover the OAuth metadata for this server. Check that the URL is reachable from Limen and exposes either a Protected Resource Metadata document or that you provided the AS issuer/endpoints. (${detail.reason})`,
+      }
+    case 'dcr':
+      return {
+        title: 'Dynamic client registration rejected',
+        message: `The authorization server refused to register Limen as an OAuth client. (${detail.reason})`,
+      }
+    case 'static_client_required':
+      return {
+        title: 'Static OAuth client required',
+        message: `This authorization server does not support dynamic client registration. Provide an OAuth client ID and secret in the advanced section and try again. (${detail.reason})`,
+      }
+    case 'persist':
+      return {
+        title: 'Could not save provisioning result',
+        message: `Provisioning succeeded but we failed to store the result. (${detail.reason})`,
+      }
+    default:
+      return {
+        title: 'Provisioning failed',
+        message: detail.reason || describeError(err),
+      }
+  }
+}
+
 async function rollbackUpstream(publicId: string) {
   try {
     await adminClient().deleteUpstream(create(DeleteUpstreamRequestSchema, { publicId }))
@@ -293,10 +352,7 @@ async function submit() {
     }
     successOpen.value = true
   } catch (err) {
-    errorState.value = {
-      title: 'Connection Failed',
-      message: describeError(err),
-    }
+    errorState.value = provisionErrorState(err)
   } finally {
     submitting.value = false
   }
