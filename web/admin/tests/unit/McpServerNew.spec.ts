@@ -70,6 +70,7 @@ describe('McpServerNew', () => {
 
     await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
     await wrapper.get('[data-testid="field-mcp-url"]').setValue('https://example.com/mcp')
+    await wrapper.get('[data-testid="strategy-none"]').setValue()
     await wrapper.get('[data-testid="upstream-new-form"]').trigger('submit.prevent')
     await flushPromises()
 
