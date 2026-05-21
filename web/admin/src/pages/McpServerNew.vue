@@ -279,18 +279,18 @@ async function rollbackUpstream(publicId: string) {
 }
 
 async function runOAuthPopup(upstreamName: string, publicId: string) {
-  // The backend callback redirects the browser to whatever path the
-  // SPA passes here, with no prefixing. The popup-close page is at
-  // /t/<tenant>/admin/oauth-popup-close in prod and /t/<tenant>/oauth-popup-close
-  // in vite dev — build the absolute tenant path so the redirect lands
-  // back in the popup window inside this SPA.
+  // Anchor returnTo on the SPA's own origin so the upstream callback
+  // (which may live on a different host if base_url is misconfigured
+  // or sits behind a separate reverse-proxy) bounces the popup back
+  // to the same origin as this opener — required for the
+  // BroadcastChannel/postMessage handshake in openOAuthPopup.
   const prefix = tenantPrefix() ?? ''
   const adminBase = window.location.pathname.startsWith(`${prefix}/admin/`)
     ? `${prefix}/admin`
     : prefix
   const sc = await portalClient().startConnect({
     upstreamName,
-    returnTo: `${adminBase}${ROUTES.oauthPopupClose}`,
+    returnTo: `${window.location.origin}${adminBase}${ROUTES.oauthPopupClose}`,
   })
   if (!sc.redirectUrl) {
     throw new Error('Backend did not return an authorize URL')
