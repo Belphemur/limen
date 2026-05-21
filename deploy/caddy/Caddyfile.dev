@@ -53,21 +53,29 @@
 		header_up X-Forwarded-Proto http
 	}
 
-	# Admin SPA — strip /t/<tenant>/admin/ before forwarding so the
-	# Vite dev server (which serves at "/") finds its assets, /@vite
-	# client, and HMR socket. The SPA reads the tenant slug from
-	# window.location at boot, so the browser still sees the prefixed
-	# URL.
+	# Admin SPA — rewrite the tenant-scoped path to Vite's dev base
+	# (/__vite/admin/) before forwarding. The bundled HTML emits asset
+	# URLs at that absolute base, so we also proxy bare /__vite/admin/*
+	# straight through for the follow-up /src, /@vite, /@id, /@fs, and
+	# /node_modules requests (and the HMR websocket). The SPA reads the
+	# tenant slug from window.location at boot, so the browser still
+	# sees the prefixed URL.
 	@admin path_regexp adminroute ^/t/[^/]+/admin(/.*)?$
 	handle @admin {
-		rewrite * /{re.adminroute.1}
+		rewrite * /__vite/admin{re.adminroute.1}
+		reverse_proxy host.docker.internal:5174
+	}
+	handle /__vite/admin/* {
 		reverse_proxy host.docker.internal:5174
 	}
 
 	# Portal SPA — same shape.
 	@portal path_regexp portalroute ^/t/[^/]+/portal(/.*)?$
 	handle @portal {
-		rewrite * /{re.portalroute.1}
+		rewrite * /__vite/portal{re.portalroute.1}
+		reverse_proxy host.docker.internal:5173
+	}
+	handle /__vite/portal/* {
 		reverse_proxy host.docker.internal:5173
 	}
 
