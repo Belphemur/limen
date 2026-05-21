@@ -53,11 +53,29 @@ func (f *fakeAppManager) EnsureProject(_ context.Context, _, name string) (strin
 	return "proj_" + name, nil
 }
 
+// fakeAllowlistLoader satisfies AllowlistPatternsLoader without hitting
+// the DB. Tests assign Patterns to drive the per-tenant policy.
+type fakeAllowlistLoader struct {
+	Patterns []string
+	Err      error
+}
+
+func (f *fakeAllowlistLoader) ListAllowlistPatterns(_ context.Context, _ *storage.Tenant) ([]string, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	return f.Patterns, nil
+}
+
 func dcrRequestCtx(req *http.Request, t *storage.Tenant) *http.Request {
 	return req.WithContext(tenancy.WithTenant(req.Context(), t))
 }
 
 func newDCRHandlerForValidation(t *testing.T, cfg DCRConfig, apps appManager) *DCRHandler {
+	return newDCRHandlerForValidationWithAllowlist(t, cfg, apps, nil)
+}
+
+func newDCRHandlerForValidationWithAllowlist(t *testing.T, cfg DCRConfig, apps appManager, patterns []string) *DCRHandler {
 	t.Helper()
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://limen.example.com"
@@ -65,11 +83,12 @@ func newDCRHandlerForValidation(t *testing.T, cfg DCRConfig, apps appManager) *D
 	// Pass nil store: the validation paths under test return before any
 	// DB hit. Tests that exercise persistence wire a real *storage.Store.
 	h := &DCRHandler{
-		cfg:     cfg,
-		store:   nil,
-		apps:    apps,
-		logger:  zap.NewNop(),
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
+		cfg:       cfg,
+		store:     nil,
+		apps:      apps,
+		allowlist: &fakeAllowlistLoader{Patterns: patterns},
+		logger:    zap.NewNop(),
+		baseURL:   strings.TrimRight(cfg.BaseURL, "/"),
 	}
 	return h
 }
@@ -155,12 +174,9 @@ func TestDCR_RejectsRedirectURIFailingFloor(t *testing.T) {
 }
 
 func TestDCR_RejectsRedirectURIFailingAllowlist(t *testing.T) {
-	tn := &storage.Tenant{
-		DCREnabled:              true,
-		DCRRedirectURIAllowlist: []string{"https://*.acme.com/**"},
-	}
+	tn := &storage.Tenant{DCREnabled: true}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{DCREnabled: true}, &fakeAppManager{}, []string{"https://*.acme.com/**"})
 
 	body := []byte(`{"redirect_uris":["https://app.example.com/cb"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -178,7 +194,7 @@ func TestDCR_NormalizeDefaults(t *testing.T) {
 	tn.PublicID = "tnt_a"
 	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
 
-	norm, zin, err := h.normalize(tn, dcrRequest{RedirectURIs: []string{"https://app.example.com/cb"}})
+	norm, zin, err := h.normalize(context.Background(), tn, dcrRequest{RedirectURIs: []string{"https://app.example.com/cb"}})
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -199,7 +215,7 @@ func TestDCR_NormalizeDefaults(t *testing.T) {
 func TestDCR_NormalizeRejectsBadGrantType(t *testing.T) {
 	tn := &storage.Tenant{ZitadelOrgID: "org_a"}
 	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
-	_, _, err := h.normalize(tn, dcrRequest{
+	_, _, err := h.normalize(context.Background(), tn, dcrRequest{
 		RedirectURIs: []string{"https://app.example.com/cb"},
 		GrantTypes:   []string{"implicit"},
 	})

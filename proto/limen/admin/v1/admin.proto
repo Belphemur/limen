@@ -25,6 +25,17 @@ service AdminService {
   rpc GetTenantSettings(GetTenantSettingsRequest) returns (GetTenantSettingsResponse);
   rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
 
+  // IDE presets + per-tenant redirect-URI allowlist. Admin floor.
+  // See docs/phases/phase-09f-ide-presets-and-allowlist.md.
+  rpc ListIDEPresets(ListIDEPresetsRequest) returns (ListIDEPresetsResponse);
+  rpc ListAllowlistEntries(ListAllowlistEntriesRequest) returns (ListAllowlistEntriesResponse);
+  rpc AddAllowlistEntry(AddAllowlistEntryRequest) returns (AddAllowlistEntryResponse);
+  rpc UpdateAllowlistEntry(UpdateAllowlistEntryRequest) returns (UpdateAllowlistEntryResponse);
+  rpc RemoveAllowlistEntry(RemoveAllowlistEntryRequest) returns (RemoveAllowlistEntryResponse);
+  rpc ApplyIDEPreset(ApplyIDEPresetRequest) returns (ApplyIDEPresetResponse);
+  rpc RemoveIDEPreset(RemoveIDEPresetRequest) returns (RemoveIDEPresetResponse);
+  rpc MarkIDEChoiceSkipped(MarkIDEChoiceSkippedRequest) returns (MarkIDEChoiceSkippedResponse);
+
   // Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
   rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
 }
@@ -121,11 +132,9 @@ message GetTenantSettingsRequest {}
 
 message GetTenantSettingsResponse {
   TenantSettings settings = 1;
-  // Mirror of storage.Tenant.DCRRedirectURIAllowlist. Empty list = floor only.
-  repeated string dcr_redirect_uri_allowlist = 2;
   // Read-only Zitadel identity. The SPA renders these as a panel and
   // uses zitadel_org_id to build Console deep-links.
-  string zitadel_org_id = 3;
+  string zitadel_org_id = 2;
 }
 
 // ---- UpdateTenantSettings ------------------------------------------
@@ -139,13 +148,6 @@ message UpdateTenantSettingsRequest {
   // One-shot toggle: same semantics as invited_team_at_now but for
   // tenant_settings.configured_at.
   bool configured_at_now = 3;
-
-  // DCR redirect-URI allowlist. Sentinel pattern: only honoured when
-  // dcr_redirect_uri_allowlist_set is true; otherwise the existing
-  // value is preserved (an empty repeated field is indistinguishable
-  // from "leave it alone" without an explicit sentinel).
-  repeated string dcr_redirect_uri_allowlist = 4;
-  bool dcr_redirect_uri_allowlist_set = 5;
 }
 
 message TenantSettings {
@@ -154,11 +156,97 @@ message TenantSettings {
   // RFC3339; empty when unset.
   string invited_team_at = 3;
   string configured_at = 4;
+  string chose_ide_at = 5;
 }
 
 message UpdateTenantSettingsResponse {
   TenantSettings settings = 1;
-  repeated string dcr_redirect_uri_allowlist = 2;
+}
+
+// ---- IDE presets & per-tenant redirect-URI allowlist ---------------
+//
+// See docs/phases/phase-09f-ide-presets-and-allowlist.md. The allowlist
+// is one row per (tenant, pattern); rows seeded from an IDE preset
+// carry ide_key, free-form admin entries carry ide_key = "".
+
+message IDEPreset {
+  // Stable key: "cursor", "vscode", "claude_code", ...
+  string key = 1;
+  string display_name = 2;
+  // Lucide icon name shown on the quick-setup tile.
+  string icon = 3;
+  // Raw glob patterns the preset declares. Every pattern passes
+  // oauthproxy.CompilePattern at seed time.
+  repeated string patterns = 4;
+  int32 sort_order = 5;
+}
+
+message AllowlistEntry {
+  // "ral_<ULID>" — opaque to the SPA, only used as the addressable id
+  // on Update/Remove.
+  string public_id = 1;
+  // "" when the entry is a free-form admin entry (no preset link).
+  string ide_key = 2;
+  string label = 3;
+  string pattern = 4;
+  // RFC3339.
+  string created_at = 5;
+}
+
+message ListIDEPresetsRequest {}
+message ListIDEPresetsResponse {
+  repeated IDEPreset presets = 1;
+}
+
+message ListAllowlistEntriesRequest {}
+message ListAllowlistEntriesResponse {
+  repeated AllowlistEntry entries = 1;
+}
+
+message AddAllowlistEntryRequest {
+  // Empty for custom entries.
+  string ide_key = 1;
+  string label = 2;
+  string pattern = 3;
+}
+message AddAllowlistEntryResponse {
+  AllowlistEntry entry = 1;
+}
+
+message UpdateAllowlistEntryRequest {
+  string public_id = 1;
+  string label = 2;
+  string pattern = 3;
+}
+message UpdateAllowlistEntryResponse {
+  AllowlistEntry entry = 1;
+}
+
+message RemoveAllowlistEntryRequest {
+  string public_id = 1;
+}
+message RemoveAllowlistEntryResponse {}
+
+message ApplyIDEPresetRequest {
+  string ide_key = 1;
+}
+message ApplyIDEPresetResponse {
+  // Rows freshly inserted by this call.
+  int32 added = 1;
+  // Rows already present (idempotent re-apply).
+  int32 already_present = 2;
+}
+
+message RemoveIDEPresetRequest {
+  string ide_key = 1;
+}
+message RemoveIDEPresetResponse {
+  int32 removed = 1;
+}
+
+message MarkIDEChoiceSkippedRequest {}
+message MarkIDEChoiceSkippedResponse {
+  TenantSettings settings = 1;
 }
 
 // ---- DeleteTenant --------------------------------------------------

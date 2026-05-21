@@ -662,11 +662,9 @@ func (*GetTenantSettingsRequest) Descriptor() ([]byte, []int) {
 type GetTenantSettingsResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Settings *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
-	// Mirror of storage.Tenant.DCRRedirectURIAllowlist. Empty list = floor only.
-	DcrRedirectUriAllowlist []string `protobuf:"bytes,2,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
 	// Read-only Zitadel identity. The SPA renders these as a panel and
 	// uses zitadel_org_id to build Console deep-links.
-	ZitadelOrgId  string `protobuf:"bytes,3,opt,name=zitadel_org_id,json=zitadelOrgId,proto3" json:"zitadel_org_id,omitempty"`
+	ZitadelOrgId  string `protobuf:"bytes,2,opt,name=zitadel_org_id,json=zitadelOrgId,proto3" json:"zitadel_org_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -708,13 +706,6 @@ func (x *GetTenantSettingsResponse) GetSettings() *TenantSettings {
 	return nil
 }
 
-func (x *GetTenantSettingsResponse) GetDcrRedirectUriAllowlist() []string {
-	if x != nil {
-		return x.DcrRedirectUriAllowlist
-	}
-	return nil
-}
-
 func (x *GetTenantSettingsResponse) GetZitadelOrgId() string {
 	if x != nil {
 		return x.ZitadelOrgId
@@ -732,14 +723,8 @@ type UpdateTenantSettingsRequest struct {
 	// One-shot toggle: same semantics as invited_team_at_now but for
 	// tenant_settings.configured_at.
 	ConfiguredAtNow bool `protobuf:"varint,3,opt,name=configured_at_now,json=configuredAtNow,proto3" json:"configured_at_now,omitempty"`
-	// DCR redirect-URI allowlist. Sentinel pattern: only honoured when
-	// dcr_redirect_uri_allowlist_set is true; otherwise the existing
-	// value is preserved (an empty repeated field is indistinguishable
-	// from "leave it alone" without an explicit sentinel).
-	DcrRedirectUriAllowlist    []string `protobuf:"bytes,4,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
-	DcrRedirectUriAllowlistSet bool     `protobuf:"varint,5,opt,name=dcr_redirect_uri_allowlist_set,json=dcrRedirectUriAllowlistSet,proto3" json:"dcr_redirect_uri_allowlist_set,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdateTenantSettingsRequest) Reset() {
@@ -793,20 +778,6 @@ func (x *UpdateTenantSettingsRequest) GetConfiguredAtNow() bool {
 	return false
 }
 
-func (x *UpdateTenantSettingsRequest) GetDcrRedirectUriAllowlist() []string {
-	if x != nil {
-		return x.DcrRedirectUriAllowlist
-	}
-	return nil
-}
-
-func (x *UpdateTenantSettingsRequest) GetDcrRedirectUriAllowlistSet() bool {
-	if x != nil {
-		return x.DcrRedirectUriAllowlistSet
-	}
-	return false
-}
-
 type TenantSettings struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -814,6 +785,7 @@ type TenantSettings struct {
 	// RFC3339; empty when unset.
 	InvitedTeamAt string `protobuf:"bytes,3,opt,name=invited_team_at,json=invitedTeamAt,proto3" json:"invited_team_at,omitempty"`
 	ConfiguredAt  string `protobuf:"bytes,4,opt,name=configured_at,json=configuredAt,proto3" json:"configured_at,omitempty"`
+	ChoseIdeAt    string `protobuf:"bytes,5,opt,name=chose_ide_at,json=choseIdeAt,proto3" json:"chose_ide_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -876,12 +848,18 @@ func (x *TenantSettings) GetConfiguredAt() string {
 	return ""
 }
 
+func (x *TenantSettings) GetChoseIdeAt() string {
+	if x != nil {
+		return x.ChoseIdeAt
+	}
+	return ""
+}
+
 type UpdateTenantSettingsResponse struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	Settings                *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
-	DcrRedirectUriAllowlist []string               `protobuf:"bytes,2,rep,name=dcr_redirect_uri_allowlist,json=dcrRedirectUriAllowlist,proto3" json:"dcr_redirect_uri_allowlist,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateTenantSettingsResponse) Reset() {
@@ -921,9 +899,877 @@ func (x *UpdateTenantSettingsResponse) GetSettings() *TenantSettings {
 	return nil
 }
 
-func (x *UpdateTenantSettingsResponse) GetDcrRedirectUriAllowlist() []string {
+type IDEPreset struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Stable key: "cursor", "vscode", "claude_code", ...
+	Key         string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	// Lucide icon name shown on the quick-setup tile.
+	Icon string `protobuf:"bytes,3,opt,name=icon,proto3" json:"icon,omitempty"`
+	// Raw glob patterns the preset declares. Every pattern passes
+	// oauthproxy.CompilePattern at seed time.
+	Patterns      []string `protobuf:"bytes,4,rep,name=patterns,proto3" json:"patterns,omitempty"`
+	SortOrder     int32    `protobuf:"varint,5,opt,name=sort_order,json=sortOrder,proto3" json:"sort_order,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IDEPreset) Reset() {
+	*x = IDEPreset{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IDEPreset) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IDEPreset) ProtoMessage() {}
+
+func (x *IDEPreset) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
 	if x != nil {
-		return x.DcrRedirectUriAllowlist
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IDEPreset.ProtoReflect.Descriptor instead.
+func (*IDEPreset) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *IDEPreset) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *IDEPreset) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *IDEPreset) GetIcon() string {
+	if x != nil {
+		return x.Icon
+	}
+	return ""
+}
+
+func (x *IDEPreset) GetPatterns() []string {
+	if x != nil {
+		return x.Patterns
+	}
+	return nil
+}
+
+func (x *IDEPreset) GetSortOrder() int32 {
+	if x != nil {
+		return x.SortOrder
+	}
+	return 0
+}
+
+type AllowlistEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "ral_<ULID>" — opaque to the SPA, only used as the addressable id
+	// on Update/Remove.
+	PublicId string `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	// "" when the entry is a free-form admin entry (no preset link).
+	IdeKey  string `protobuf:"bytes,2,opt,name=ide_key,json=ideKey,proto3" json:"ide_key,omitempty"`
+	Label   string `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	Pattern string `protobuf:"bytes,4,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	// RFC3339.
+	CreatedAt     string `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AllowlistEntry) Reset() {
+	*x = AllowlistEntry{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AllowlistEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AllowlistEntry) ProtoMessage() {}
+
+func (x *AllowlistEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AllowlistEntry.ProtoReflect.Descriptor instead.
+func (*AllowlistEntry) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AllowlistEntry) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+func (x *AllowlistEntry) GetIdeKey() string {
+	if x != nil {
+		return x.IdeKey
+	}
+	return ""
+}
+
+func (x *AllowlistEntry) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *AllowlistEntry) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+func (x *AllowlistEntry) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type ListIDEPresetsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListIDEPresetsRequest) Reset() {
+	*x = ListIDEPresetsRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListIDEPresetsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListIDEPresetsRequest) ProtoMessage() {}
+
+func (x *ListIDEPresetsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListIDEPresetsRequest.ProtoReflect.Descriptor instead.
+func (*ListIDEPresetsRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{18}
+}
+
+type ListIDEPresetsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Presets       []*IDEPreset           `protobuf:"bytes,1,rep,name=presets,proto3" json:"presets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListIDEPresetsResponse) Reset() {
+	*x = ListIDEPresetsResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListIDEPresetsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListIDEPresetsResponse) ProtoMessage() {}
+
+func (x *ListIDEPresetsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListIDEPresetsResponse.ProtoReflect.Descriptor instead.
+func (*ListIDEPresetsResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListIDEPresetsResponse) GetPresets() []*IDEPreset {
+	if x != nil {
+		return x.Presets
+	}
+	return nil
+}
+
+type ListAllowlistEntriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAllowlistEntriesRequest) Reset() {
+	*x = ListAllowlistEntriesRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAllowlistEntriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAllowlistEntriesRequest) ProtoMessage() {}
+
+func (x *ListAllowlistEntriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAllowlistEntriesRequest.ProtoReflect.Descriptor instead.
+func (*ListAllowlistEntriesRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{20}
+}
+
+type ListAllowlistEntriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*AllowlistEntry      `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAllowlistEntriesResponse) Reset() {
+	*x = ListAllowlistEntriesResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAllowlistEntriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAllowlistEntriesResponse) ProtoMessage() {}
+
+func (x *ListAllowlistEntriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAllowlistEntriesResponse.ProtoReflect.Descriptor instead.
+func (*ListAllowlistEntriesResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListAllowlistEntriesResponse) GetEntries() []*AllowlistEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type AddAllowlistEntryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty for custom entries.
+	IdeKey        string `protobuf:"bytes,1,opt,name=ide_key,json=ideKey,proto3" json:"ide_key,omitempty"`
+	Label         string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Pattern       string `protobuf:"bytes,3,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddAllowlistEntryRequest) Reset() {
+	*x = AddAllowlistEntryRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddAllowlistEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddAllowlistEntryRequest) ProtoMessage() {}
+
+func (x *AddAllowlistEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddAllowlistEntryRequest.ProtoReflect.Descriptor instead.
+func (*AddAllowlistEntryRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *AddAllowlistEntryRequest) GetIdeKey() string {
+	if x != nil {
+		return x.IdeKey
+	}
+	return ""
+}
+
+func (x *AddAllowlistEntryRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *AddAllowlistEntryRequest) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+type AddAllowlistEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entry         *AllowlistEntry        `protobuf:"bytes,1,opt,name=entry,proto3" json:"entry,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddAllowlistEntryResponse) Reset() {
+	*x = AddAllowlistEntryResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddAllowlistEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddAllowlistEntryResponse) ProtoMessage() {}
+
+func (x *AddAllowlistEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddAllowlistEntryResponse.ProtoReflect.Descriptor instead.
+func (*AddAllowlistEntryResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *AddAllowlistEntryResponse) GetEntry() *AllowlistEntry {
+	if x != nil {
+		return x.Entry
+	}
+	return nil
+}
+
+type UpdateAllowlistEntryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublicId      string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Pattern       string                 `protobuf:"bytes,3,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAllowlistEntryRequest) Reset() {
+	*x = UpdateAllowlistEntryRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAllowlistEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAllowlistEntryRequest) ProtoMessage() {}
+
+func (x *UpdateAllowlistEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAllowlistEntryRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAllowlistEntryRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *UpdateAllowlistEntryRequest) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+func (x *UpdateAllowlistEntryRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *UpdateAllowlistEntryRequest) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+type UpdateAllowlistEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entry         *AllowlistEntry        `protobuf:"bytes,1,opt,name=entry,proto3" json:"entry,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAllowlistEntryResponse) Reset() {
+	*x = UpdateAllowlistEntryResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAllowlistEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAllowlistEntryResponse) ProtoMessage() {}
+
+func (x *UpdateAllowlistEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAllowlistEntryResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAllowlistEntryResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *UpdateAllowlistEntryResponse) GetEntry() *AllowlistEntry {
+	if x != nil {
+		return x.Entry
+	}
+	return nil
+}
+
+type RemoveAllowlistEntryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublicId      string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveAllowlistEntryRequest) Reset() {
+	*x = RemoveAllowlistEntryRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveAllowlistEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveAllowlistEntryRequest) ProtoMessage() {}
+
+func (x *RemoveAllowlistEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveAllowlistEntryRequest.ProtoReflect.Descriptor instead.
+func (*RemoveAllowlistEntryRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *RemoveAllowlistEntryRequest) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+type RemoveAllowlistEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveAllowlistEntryResponse) Reset() {
+	*x = RemoveAllowlistEntryResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveAllowlistEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveAllowlistEntryResponse) ProtoMessage() {}
+
+func (x *RemoveAllowlistEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveAllowlistEntryResponse.ProtoReflect.Descriptor instead.
+func (*RemoveAllowlistEntryResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{27}
+}
+
+type ApplyIDEPresetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IdeKey        string                 `protobuf:"bytes,1,opt,name=ide_key,json=ideKey,proto3" json:"ide_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyIDEPresetRequest) Reset() {
+	*x = ApplyIDEPresetRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyIDEPresetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyIDEPresetRequest) ProtoMessage() {}
+
+func (x *ApplyIDEPresetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyIDEPresetRequest.ProtoReflect.Descriptor instead.
+func (*ApplyIDEPresetRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ApplyIDEPresetRequest) GetIdeKey() string {
+	if x != nil {
+		return x.IdeKey
+	}
+	return ""
+}
+
+type ApplyIDEPresetResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Rows freshly inserted by this call.
+	Added int32 `protobuf:"varint,1,opt,name=added,proto3" json:"added,omitempty"`
+	// Rows already present (idempotent re-apply).
+	AlreadyPresent int32 `protobuf:"varint,2,opt,name=already_present,json=alreadyPresent,proto3" json:"already_present,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ApplyIDEPresetResponse) Reset() {
+	*x = ApplyIDEPresetResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyIDEPresetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyIDEPresetResponse) ProtoMessage() {}
+
+func (x *ApplyIDEPresetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyIDEPresetResponse.ProtoReflect.Descriptor instead.
+func (*ApplyIDEPresetResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ApplyIDEPresetResponse) GetAdded() int32 {
+	if x != nil {
+		return x.Added
+	}
+	return 0
+}
+
+func (x *ApplyIDEPresetResponse) GetAlreadyPresent() int32 {
+	if x != nil {
+		return x.AlreadyPresent
+	}
+	return 0
+}
+
+type RemoveIDEPresetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IdeKey        string                 `protobuf:"bytes,1,opt,name=ide_key,json=ideKey,proto3" json:"ide_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveIDEPresetRequest) Reset() {
+	*x = RemoveIDEPresetRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveIDEPresetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveIDEPresetRequest) ProtoMessage() {}
+
+func (x *RemoveIDEPresetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveIDEPresetRequest.ProtoReflect.Descriptor instead.
+func (*RemoveIDEPresetRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *RemoveIDEPresetRequest) GetIdeKey() string {
+	if x != nil {
+		return x.IdeKey
+	}
+	return ""
+}
+
+type RemoveIDEPresetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Removed       int32                  `protobuf:"varint,1,opt,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveIDEPresetResponse) Reset() {
+	*x = RemoveIDEPresetResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveIDEPresetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveIDEPresetResponse) ProtoMessage() {}
+
+func (x *RemoveIDEPresetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveIDEPresetResponse.ProtoReflect.Descriptor instead.
+func (*RemoveIDEPresetResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *RemoveIDEPresetResponse) GetRemoved() int32 {
+	if x != nil {
+		return x.Removed
+	}
+	return 0
+}
+
+type MarkIDEChoiceSkippedRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarkIDEChoiceSkippedRequest) Reset() {
+	*x = MarkIDEChoiceSkippedRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkIDEChoiceSkippedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkIDEChoiceSkippedRequest) ProtoMessage() {}
+
+func (x *MarkIDEChoiceSkippedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkIDEChoiceSkippedRequest.ProtoReflect.Descriptor instead.
+func (*MarkIDEChoiceSkippedRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{32}
+}
+
+type MarkIDEChoiceSkippedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *TenantSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarkIDEChoiceSkippedResponse) Reset() {
+	*x = MarkIDEChoiceSkippedResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkIDEChoiceSkippedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkIDEChoiceSkippedResponse) ProtoMessage() {}
+
+func (x *MarkIDEChoiceSkippedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkIDEChoiceSkippedResponse.ProtoReflect.Descriptor instead.
+func (*MarkIDEChoiceSkippedResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *MarkIDEChoiceSkippedResponse) GetSettings() *TenantSettings {
+	if x != nil {
+		return x.Settings
 	}
 	return nil
 }
@@ -939,7 +1785,7 @@ type DeleteTenantRequest struct {
 
 func (x *DeleteTenantRequest) Reset() {
 	*x = DeleteTenantRequest{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -951,7 +1797,7 @@ func (x *DeleteTenantRequest) String() string {
 func (*DeleteTenantRequest) ProtoMessage() {}
 
 func (x *DeleteTenantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[16]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -964,7 +1810,7 @@ func (x *DeleteTenantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTenantRequest.ProtoReflect.Descriptor instead.
 func (*DeleteTenantRequest) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{16}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *DeleteTenantRequest) GetPublicIdConfirmation() string {
@@ -982,7 +1828,7 @@ type DeleteTenantResponse struct {
 
 func (x *DeleteTenantResponse) Reset() {
 	*x = DeleteTenantResponse{}
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -994,7 +1840,7 @@ func (x *DeleteTenantResponse) String() string {
 func (*DeleteTenantResponse) ProtoMessage() {}
 
 func (x *DeleteTenantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_admin_v1_admin_proto_msgTypes[17]
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1007,7 +1853,7 @@ func (x *DeleteTenantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTenantResponse.ProtoReflect.Descriptor instead.
 func (*DeleteTenantResponse) Descriptor() ([]byte, []int) {
-	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{17}
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{35}
 }
 
 var File_limen_admin_v1_admin_proto protoreflect.FileDescriptor
@@ -1056,28 +1902,73 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x1ePreviewUpstreamContextResponse\x12\x1f\n" +
 	"\vmerged_json\x18\x01 \x01(\tR\n" +
 	"mergedJson\"\x1a\n" +
-	"\x18GetTenantSettingsRequest\"\xba\x01\n" +
+	"\x18GetTenantSettingsRequest\"}\n" +
 	"\x19GetTenantSettingsResponse\x12:\n" +
-	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\x12;\n" +
-	"\x1adcr_redirect_uri_allowlist\x18\x02 \x03(\tR\x17dcrRedirectUriAllowlist\x12$\n" +
-	"\x0ezitadel_org_id\x18\x03 \x01(\tR\fzitadelOrgId\"\x8d\x02\n" +
+	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\x12$\n" +
+	"\x0ezitadel_org_id\x18\x02 \x01(\tR\fzitadelOrgId\"\x8c\x01\n" +
 	"\x1bUpdateTenantSettingsRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12-\n" +
 	"\x13invited_team_at_now\x18\x02 \x01(\bR\x10invitedTeamAtNow\x12*\n" +
-	"\x11configured_at_now\x18\x03 \x01(\bR\x0fconfiguredAtNow\x12;\n" +
-	"\x1adcr_redirect_uri_allowlist\x18\x04 \x03(\tR\x17dcrRedirectUriAllowlist\x12B\n" +
-	"\x1edcr_redirect_uri_allowlist_set\x18\x05 \x01(\bR\x1adcrRedirectUriAllowlistSet\"\x8e\x01\n" +
+	"\x11configured_at_now\x18\x03 \x01(\bR\x0fconfiguredAtNow\"\xb0\x01\n" +
 	"\x0eTenantSettings\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tpublic_id\x18\x02 \x01(\tR\bpublicId\x12&\n" +
 	"\x0finvited_team_at\x18\x03 \x01(\tR\rinvitedTeamAt\x12#\n" +
-	"\rconfigured_at\x18\x04 \x01(\tR\fconfiguredAt\"\x97\x01\n" +
+	"\rconfigured_at\x18\x04 \x01(\tR\fconfiguredAt\x12 \n" +
+	"\fchose_ide_at\x18\x05 \x01(\tR\n" +
+	"choseIdeAt\"Z\n" +
 	"\x1cUpdateTenantSettingsResponse\x12:\n" +
-	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\x12;\n" +
-	"\x1adcr_redirect_uri_allowlist\x18\x02 \x03(\tR\x17dcrRedirectUriAllowlist\"K\n" +
+	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\"\x8f\x01\n" +
+	"\tIDEPreset\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04icon\x18\x03 \x01(\tR\x04icon\x12\x1a\n" +
+	"\bpatterns\x18\x04 \x03(\tR\bpatterns\x12\x1d\n" +
+	"\n" +
+	"sort_order\x18\x05 \x01(\x05R\tsortOrder\"\x95\x01\n" +
+	"\x0eAllowlistEntry\x12\x1b\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x17\n" +
+	"\aide_key\x18\x02 \x01(\tR\x06ideKey\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12\x18\n" +
+	"\apattern\x18\x04 \x01(\tR\apattern\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\x17\n" +
+	"\x15ListIDEPresetsRequest\"M\n" +
+	"\x16ListIDEPresetsResponse\x123\n" +
+	"\apresets\x18\x01 \x03(\v2\x19.limen.admin.v1.IDEPresetR\apresets\"\x1d\n" +
+	"\x1bListAllowlistEntriesRequest\"X\n" +
+	"\x1cListAllowlistEntriesResponse\x128\n" +
+	"\aentries\x18\x01 \x03(\v2\x1e.limen.admin.v1.AllowlistEntryR\aentries\"c\n" +
+	"\x18AddAllowlistEntryRequest\x12\x17\n" +
+	"\aide_key\x18\x01 \x01(\tR\x06ideKey\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x18\n" +
+	"\apattern\x18\x03 \x01(\tR\apattern\"Q\n" +
+	"\x19AddAllowlistEntryResponse\x124\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1e.limen.admin.v1.AllowlistEntryR\x05entry\"j\n" +
+	"\x1bUpdateAllowlistEntryRequest\x12\x1b\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x18\n" +
+	"\apattern\x18\x03 \x01(\tR\apattern\"T\n" +
+	"\x1cUpdateAllowlistEntryResponse\x124\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1e.limen.admin.v1.AllowlistEntryR\x05entry\":\n" +
+	"\x1bRemoveAllowlistEntryRequest\x12\x1b\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\"\x1e\n" +
+	"\x1cRemoveAllowlistEntryResponse\"0\n" +
+	"\x15ApplyIDEPresetRequest\x12\x17\n" +
+	"\aide_key\x18\x01 \x01(\tR\x06ideKey\"W\n" +
+	"\x16ApplyIDEPresetResponse\x12\x14\n" +
+	"\x05added\x18\x01 \x01(\x05R\x05added\x12'\n" +
+	"\x0falready_present\x18\x02 \x01(\x05R\x0ealreadyPresent\"1\n" +
+	"\x16RemoveIDEPresetRequest\x12\x17\n" +
+	"\aide_key\x18\x01 \x01(\tR\x06ideKey\"3\n" +
+	"\x17RemoveIDEPresetResponse\x12\x18\n" +
+	"\aremoved\x18\x01 \x01(\x05R\aremoved\"\x1d\n" +
+	"\x1bMarkIDEChoiceSkippedRequest\"Z\n" +
+	"\x1cMarkIDEChoiceSkippedResponse\x12:\n" +
+	"\bsettings\x18\x01 \x01(\v2\x1e.limen.admin.v1.TenantSettingsR\bsettings\"K\n" +
 	"\x13DeleteTenantRequest\x124\n" +
 	"\x16public_id_confirmation\x18\x01 \x01(\tR\x14publicIdConfirmation\"\x16\n" +
-	"\x14DeleteTenantResponse2\xdb\x06\n" +
+	"\x14DeleteTenantResponse2\xb7\r\n" +
 	"\fAdminService\x12_\n" +
 	"\x0eCreateUpstream\x12%.limen.admin.v1.CreateUpstreamRequest\x1a&.limen.admin.v1.CreateUpstreamResponse\x12_\n" +
 	"\x0eUpdateUpstream\x12%.limen.admin.v1.UpdateUpstreamRequest\x1a&.limen.admin.v1.UpdateUpstreamResponse\x12_\n" +
@@ -1085,7 +1976,15 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x16ReindexUpstreamCatalog\x12-.limen.admin.v1.ReindexUpstreamCatalogRequest\x1a..limen.admin.v1.ReindexUpstreamCatalogResponse\x12w\n" +
 	"\x16PreviewUpstreamContext\x12-.limen.admin.v1.PreviewUpstreamContextRequest\x1a..limen.admin.v1.PreviewUpstreamContextResponse\x12h\n" +
 	"\x11GetTenantSettings\x12(.limen.admin.v1.GetTenantSettingsRequest\x1a).limen.admin.v1.GetTenantSettingsResponse\x12q\n" +
-	"\x14UpdateTenantSettings\x12+.limen.admin.v1.UpdateTenantSettingsRequest\x1a,.limen.admin.v1.UpdateTenantSettingsResponse\x12Y\n" +
+	"\x14UpdateTenantSettings\x12+.limen.admin.v1.UpdateTenantSettingsRequest\x1a,.limen.admin.v1.UpdateTenantSettingsResponse\x12_\n" +
+	"\x0eListIDEPresets\x12%.limen.admin.v1.ListIDEPresetsRequest\x1a&.limen.admin.v1.ListIDEPresetsResponse\x12q\n" +
+	"\x14ListAllowlistEntries\x12+.limen.admin.v1.ListAllowlistEntriesRequest\x1a,.limen.admin.v1.ListAllowlistEntriesResponse\x12h\n" +
+	"\x11AddAllowlistEntry\x12(.limen.admin.v1.AddAllowlistEntryRequest\x1a).limen.admin.v1.AddAllowlistEntryResponse\x12q\n" +
+	"\x14UpdateAllowlistEntry\x12+.limen.admin.v1.UpdateAllowlistEntryRequest\x1a,.limen.admin.v1.UpdateAllowlistEntryResponse\x12q\n" +
+	"\x14RemoveAllowlistEntry\x12+.limen.admin.v1.RemoveAllowlistEntryRequest\x1a,.limen.admin.v1.RemoveAllowlistEntryResponse\x12_\n" +
+	"\x0eApplyIDEPreset\x12%.limen.admin.v1.ApplyIDEPresetRequest\x1a&.limen.admin.v1.ApplyIDEPresetResponse\x12b\n" +
+	"\x0fRemoveIDEPreset\x12&.limen.admin.v1.RemoveIDEPresetRequest\x1a'.limen.admin.v1.RemoveIDEPresetResponse\x12q\n" +
+	"\x14MarkIDEChoiceSkipped\x12+.limen.admin.v1.MarkIDEChoiceSkippedRequest\x1a,.limen.admin.v1.MarkIDEChoiceSkippedResponse\x12Y\n" +
 	"\fDeleteTenant\x12#.limen.admin.v1.DeleteTenantRequest\x1a$.limen.admin.v1.DeleteTenantResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
 
 var (
@@ -1100,7 +1999,7 @@ func file_limen_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_limen_admin_v1_admin_proto_rawDescData
 }
 
-var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*OAuthClientOverride)(nil),            // 0: limen.admin.v1.OAuthClientOverride
 	(*CreateUpstreamRequest)(nil),          // 1: limen.admin.v1.CreateUpstreamRequest
@@ -1118,40 +2017,79 @@ var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*UpdateTenantSettingsRequest)(nil),    // 13: limen.admin.v1.UpdateTenantSettingsRequest
 	(*TenantSettings)(nil),                 // 14: limen.admin.v1.TenantSettings
 	(*UpdateTenantSettingsResponse)(nil),   // 15: limen.admin.v1.UpdateTenantSettingsResponse
-	(*DeleteTenantRequest)(nil),            // 16: limen.admin.v1.DeleteTenantRequest
-	(*DeleteTenantResponse)(nil),           // 17: limen.admin.v1.DeleteTenantResponse
-	nil,                                    // 18: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
-	(*portalv1.UpstreamSummary)(nil),       // 19: limen.portal.v1.UpstreamSummary
+	(*IDEPreset)(nil),                      // 16: limen.admin.v1.IDEPreset
+	(*AllowlistEntry)(nil),                 // 17: limen.admin.v1.AllowlistEntry
+	(*ListIDEPresetsRequest)(nil),          // 18: limen.admin.v1.ListIDEPresetsRequest
+	(*ListIDEPresetsResponse)(nil),         // 19: limen.admin.v1.ListIDEPresetsResponse
+	(*ListAllowlistEntriesRequest)(nil),    // 20: limen.admin.v1.ListAllowlistEntriesRequest
+	(*ListAllowlistEntriesResponse)(nil),   // 21: limen.admin.v1.ListAllowlistEntriesResponse
+	(*AddAllowlistEntryRequest)(nil),       // 22: limen.admin.v1.AddAllowlistEntryRequest
+	(*AddAllowlistEntryResponse)(nil),      // 23: limen.admin.v1.AddAllowlistEntryResponse
+	(*UpdateAllowlistEntryRequest)(nil),    // 24: limen.admin.v1.UpdateAllowlistEntryRequest
+	(*UpdateAllowlistEntryResponse)(nil),   // 25: limen.admin.v1.UpdateAllowlistEntryResponse
+	(*RemoveAllowlistEntryRequest)(nil),    // 26: limen.admin.v1.RemoveAllowlistEntryRequest
+	(*RemoveAllowlistEntryResponse)(nil),   // 27: limen.admin.v1.RemoveAllowlistEntryResponse
+	(*ApplyIDEPresetRequest)(nil),          // 28: limen.admin.v1.ApplyIDEPresetRequest
+	(*ApplyIDEPresetResponse)(nil),         // 29: limen.admin.v1.ApplyIDEPresetResponse
+	(*RemoveIDEPresetRequest)(nil),         // 30: limen.admin.v1.RemoveIDEPresetRequest
+	(*RemoveIDEPresetResponse)(nil),        // 31: limen.admin.v1.RemoveIDEPresetResponse
+	(*MarkIDEChoiceSkippedRequest)(nil),    // 32: limen.admin.v1.MarkIDEChoiceSkippedRequest
+	(*MarkIDEChoiceSkippedResponse)(nil),   // 33: limen.admin.v1.MarkIDEChoiceSkippedResponse
+	(*DeleteTenantRequest)(nil),            // 34: limen.admin.v1.DeleteTenantRequest
+	(*DeleteTenantResponse)(nil),           // 35: limen.admin.v1.DeleteTenantResponse
+	nil,                                    // 36: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	(*portalv1.UpstreamSummary)(nil),       // 37: limen.portal.v1.UpstreamSummary
 }
 var file_limen_admin_v1_admin_proto_depIdxs = []int32{
-	18, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	36, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
 	0,  // 1: limen.admin.v1.CreateUpstreamRequest.oauth_client_override:type_name -> limen.admin.v1.OAuthClientOverride
-	19, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	19, // 3: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	19, // 4: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	37, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	37, // 3: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	37, // 4: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
 	14, // 5: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
 	14, // 6: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
-	1,  // 7: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
-	3,  // 8: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
-	5,  // 9: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
-	7,  // 10: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
-	9,  // 11: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
-	11, // 12: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
-	13, // 13: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
-	16, // 14: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
-	2,  // 15: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
-	4,  // 16: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
-	6,  // 17: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
-	8,  // 18: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
-	10, // 19: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
-	12, // 20: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
-	15, // 21: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
-	17, // 22: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
-	15, // [15:23] is the sub-list for method output_type
-	7,  // [7:15] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	16, // 7: limen.admin.v1.ListIDEPresetsResponse.presets:type_name -> limen.admin.v1.IDEPreset
+	17, // 8: limen.admin.v1.ListAllowlistEntriesResponse.entries:type_name -> limen.admin.v1.AllowlistEntry
+	17, // 9: limen.admin.v1.AddAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
+	17, // 10: limen.admin.v1.UpdateAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
+	14, // 11: limen.admin.v1.MarkIDEChoiceSkippedResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	1,  // 12: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
+	3,  // 13: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
+	5,  // 14: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
+	7,  // 15: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
+	9,  // 16: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
+	11, // 17: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
+	13, // 18: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
+	18, // 19: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
+	20, // 20: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
+	22, // 21: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
+	24, // 22: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
+	26, // 23: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
+	28, // 24: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
+	30, // 25: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
+	32, // 26: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
+	34, // 27: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
+	2,  // 28: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
+	4,  // 29: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
+	6,  // 30: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
+	8,  // 31: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
+	10, // 32: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
+	12, // 33: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
+	15, // 34: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
+	19, // 35: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
+	21, // 36: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
+	23, // 37: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
+	25, // 38: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
+	27, // 39: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
+	29, // 40: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
+	31, // 41: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
+	33, // 42: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
+	35, // 43: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
+	28, // [28:44] is the sub-list for method output_type
+	12, // [12:28] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_limen_admin_v1_admin_proto_init() }
@@ -1165,7 +2103,7 @@ func file_limen_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_admin_v1_admin_proto_rawDesc), len(file_limen_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

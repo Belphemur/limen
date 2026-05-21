@@ -16,10 +16,6 @@ type Tenant struct {
 	Name         string `gorm:"type:text;not null"`
 	ZitadelOrgID string `gorm:"type:text;uniqueIndex;not null"`
 	DCREnabled   bool   `gorm:"not null;default:false"`
-	// DCRRedirectURIAllowlist is the per-tenant subtractive glob filter on
-	// redirect_uri values accepted by Limen's DCR proxy. Empty list = floor
-	// only; see internal/oauthproxy/uripolicy.go.
-	DCRRedirectURIAllowlist []string `gorm:"type:jsonb;serializer:json;not null;default:'[]'"`
 }
 
 func (t *Tenant) BeforeCreate(_ *gorm.DB) error {

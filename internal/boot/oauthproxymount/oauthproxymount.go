@@ -11,6 +11,7 @@ import (
 
 	"github.com/belphemur/limen/internal/boot"
 	oauthtransport "github.com/belphemur/limen/internal/oauthproxy/transport"
+	"github.com/belphemur/limen/internal/tenant"
 	"github.com/belphemur/limen/internal/zitadel"
 )
 
@@ -30,6 +31,7 @@ func Mount(r chi.Router, rt *boot.Runtime, z *zitadel.Client) error {
 		Issuer:         rt.Cfg.OIDC.Issuer,
 		MCPRSProjectID: rt.Cfg.Zitadel.MCPResourceAudience,
 		OAuthCfg:       rt.Cfg.OAuthProxy,
+		Allowlist:      tenant.NewService(rt.Store),
 	}); err != nil {
 		return fmt.Errorf("mount oauth proxy: %w", err)
 	}

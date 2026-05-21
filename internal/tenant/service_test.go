@@ -56,7 +56,7 @@ func TestLoadSettings_CreatesRowOnFirstRead(t *testing.T) {
 	_, svc, tnt := setup(t)
 	ctx := context.Background()
 
-	first, allow, org, err := svc.LoadSettings(ctx, tnt)
+	first, org, err := svc.LoadSettings(ctx, tnt)
 	if err != nil {
 		t.Fatalf("first LoadSettings: %v", err)
 	}
@@ -69,11 +69,8 @@ func TestLoadSettings_CreatesRowOnFirstRead(t *testing.T) {
 	if org != "z-tenant-test" {
 		t.Errorf("zitadel org = %q", org)
 	}
-	if len(allow) != 0 {
-		t.Errorf("allowlist non-empty: %v", allow)
-	}
 
-	second, _, _, err := svc.LoadSettings(ctx, tnt)
+	second, _, err := svc.LoadSettings(ctx, tnt)
 	if err != nil {
 		t.Fatalf("second LoadSettings: %v", err)
 	}
@@ -82,64 +79,11 @@ func TestLoadSettings_CreatesRowOnFirstRead(t *testing.T) {
 	}
 }
 
-func TestUpdateSettings_AllowlistSentinel(t *testing.T) {
-	_, svc, tnt := setup(t)
-	ctx := context.Background()
-
-	if _, _, _, err := svc.LoadSettings(ctx, tnt); err != nil {
-		t.Fatalf("seed load: %v", err)
-	}
-
-	_, allow, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{
-		AllowlistSet:            true,
-		DCRRedirectURIAllowlist: []string{"https://acme.example.com/cb"},
-	})
-	if err != nil {
-		t.Fatalf("update allowlist: %v", err)
-	}
-	if len(allow) != 1 || allow[0] != "https://acme.example.com/cb" {
-		t.Fatalf("allow = %v", allow)
-	}
-
-	// AllowlistSet=false leaves the list alone even when an empty
-	// slice is supplied.
-	_, allow2, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{
-		AllowlistSet:            false,
-		DCRRedirectURIAllowlist: nil,
-	})
-	if err != nil {
-		t.Fatalf("update no-op: %v", err)
-	}
-	if len(allow2) != 1 || allow2[0] != "https://acme.example.com/cb" {
-		t.Errorf("allowlist should be preserved, got %v", allow2)
-	}
-}
-
-func TestUpdateSettings_InvalidAllowlistEntry(t *testing.T) {
-	_, svc, tnt := setup(t)
-	ctx := context.Background()
-
-	_, _, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{
-		AllowlistSet:            true,
-		DCRRedirectURIAllowlist: []string{"https://ok.example.com/cb", "no-scheme"},
-	})
-	if err == nil {
-		t.Fatal("want validation error, got nil")
-	}
-	var entryErr *tenant.ErrAllowlistEntryInvalid
-	if !errors.As(err, &entryErr) {
-		t.Fatalf("want *ErrAllowlistEntryInvalid, got %T: %v", err, err)
-	}
-	if entryErr.Index != 1 {
-		t.Errorf("index = %d, want 1", entryErr.Index)
-	}
-}
-
 func TestUpdateSettings_SetInvitedTeamAt_IsOneShot(t *testing.T) {
 	_, svc, tnt := setup(t)
 	ctx := context.Background()
 
-	first, _, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetInvitedTeamAt: true})
+	first, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetInvitedTeamAt: true})
 	if err != nil {
 		t.Fatalf("first flip: %v", err)
 	}
@@ -149,12 +93,35 @@ func TestUpdateSettings_SetInvitedTeamAt_IsOneShot(t *testing.T) {
 	original := *first.InvitedTeamAt
 
 	time.Sleep(5 * time.Millisecond)
-	second, _, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetInvitedTeamAt: true})
+	second, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetInvitedTeamAt: true})
 	if err != nil {
 		t.Fatalf("second flip: %v", err)
 	}
 	if second.InvitedTeamAt == nil || !second.InvitedTeamAt.Equal(original) {
 		t.Errorf("InvitedTeamAt changed across calls: original=%v new=%v", original, second.InvitedTeamAt)
+	}
+}
+
+func TestUpdateSettings_SetChoseIDEAt_IsOneShot(t *testing.T) {
+	_, svc, tnt := setup(t)
+	ctx := context.Background()
+
+	first, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetChoseIDEAt: true})
+	if err != nil {
+		t.Fatalf("first flip: %v", err)
+	}
+	if first.ChoseIDEAt == nil {
+		t.Fatal("ChoseIDEAt not set on first flip")
+	}
+	original := *first.ChoseIDEAt
+
+	time.Sleep(5 * time.Millisecond)
+	second, err := svc.UpdateSettings(ctx, tnt, tenant.UpdateSettingsInput{SetChoseIDEAt: true})
+	if err != nil {
+		t.Fatalf("second flip: %v", err)
+	}
+	if second.ChoseIDEAt == nil || !second.ChoseIDEAt.Equal(original) {
+		t.Errorf("ChoseIDEAt changed across calls: original=%v new=%v", original, second.ChoseIDEAt)
 	}
 }
 
@@ -165,7 +132,7 @@ func TestDelete_ConfirmationMismatch(t *testing.T) {
 		t.Fatalf("err = %v, want ErrConfirmationMismatch", err)
 	}
 	// Tenant still alive.
-	if _, _, _, err := svc.LoadSettings(context.Background(), tnt); err != nil {
+	if _, _, err := svc.LoadSettings(context.Background(), tnt); err != nil {
 		t.Fatalf("settings load after mismatch: %v", err)
 	}
 }
@@ -176,7 +143,7 @@ func TestDelete_CascadesOwnedRowsAndIdempotent(t *testing.T) {
 
 	// Seed owned rows: settings (via LoadSettings) + a user + an
 	// upstream + a strategy config + a link.
-	if _, _, _, err := svc.LoadSettings(ctx, tnt); err != nil {
+	if _, _, err := svc.LoadSettings(ctx, tnt); err != nil {
 		t.Fatalf("seed settings: %v", err)
 	}
 	tx, commit, err := store.Session(storage.WithSuperuser(ctx))

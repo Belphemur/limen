@@ -18,5 +18,13 @@ var requiredRole = map[string]session.Role{
 	"PreviewUpstreamContext": session.RoleAdmin,
 	"GetTenantSettings":      session.RoleAdmin,
 	"UpdateTenantSettings":   session.RoleAdmin,
+	"MarkIDEChoiceSkipped":   session.RoleAdmin,
+	"ListIDEPresets":         session.RoleAdmin,
+	"ListAllowlistEntries":   session.RoleAdmin,
+	"AddAllowlistEntry":      session.RoleAdmin,
+	"UpdateAllowlistEntry":   session.RoleAdmin,
+	"RemoveAllowlistEntry":   session.RoleAdmin,
+	"ApplyIDEPreset":         session.RoleAdmin,
+	"RemoveIDEPreset":        session.RoleAdmin,
 	"DeleteTenant":           session.RoleOwner,
 }

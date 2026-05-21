@@ -42,5 +42,8 @@ func AllModels() []any {
 		&UpstreamLink{},
 		&UpstreamTool{},
 		&ZitadelApp{},
+		&IDEPreset{},
+		&IDEPresetPattern{},
+		&TenantRedirectURIAllowlist{},
 	}
 }

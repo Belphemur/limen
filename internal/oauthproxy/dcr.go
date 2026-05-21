@@ -38,6 +38,15 @@ type appManager interface {
 	EnsureProject(ctx context.Context, orgID, name string) (string, error)
 }
 
+// AllowlistPatternsLoader is the consumer-side ISP slice the DCR
+// handler uses to read the tenant's redirect-URI allowlist patterns.
+// *tenant.Service satisfies it; defining the interface here keeps
+// oauthproxy free of an internal/tenant import (which would cycle
+// via oauthproxy.ValidateRedirectURIPattern).
+type AllowlistPatternsLoader interface {
+	ListAllowlistPatterns(ctx context.Context, tenant *storage.Tenant) ([]string, error)
+}
+
 // DCRConfig configures the DCR proxy handler.
 type DCRConfig struct {
 	// DCREnabled is the global kill-switch (config-level). Per-tenant
@@ -56,20 +65,24 @@ type DCRConfig struct {
 // (GET/PUT/DELETE /register/{client_id}). The handler must run behind
 // tenancy.RequireTenant.
 type DCRHandler struct {
-	cfg     DCRConfig
-	store   *storage.Store
-	apps    appManager
-	logger  *zap.Logger
-	baseURL string
+	cfg       DCRConfig
+	store     *storage.Store
+	apps      appManager
+	allowlist AllowlistPatternsLoader
+	logger    *zap.Logger
+	baseURL   string
 }
 
 // NewDCRHandler validates the config and returns a ready-to-mount handler.
-func NewDCRHandler(cfg DCRConfig, store *storage.Store, apps appManager, logger *zap.Logger) (*DCRHandler, error) {
+func NewDCRHandler(cfg DCRConfig, store *storage.Store, apps appManager, allowlist AllowlistPatternsLoader, logger *zap.Logger) (*DCRHandler, error) {
 	if store == nil {
 		return nil, errors.New("oauthproxy: store is required")
 	}
 	if apps == nil {
 		return nil, errors.New("oauthproxy: appManager is required")
+	}
+	if allowlist == nil {
+		return nil, errors.New("oauthproxy: AllowlistPatternsLoader is required")
 	}
 	if logger == nil {
 		logger = zap.NewNop()
@@ -78,11 +91,12 @@ func NewDCRHandler(cfg DCRConfig, store *storage.Store, apps appManager, logger 
 		return nil, errors.New("oauthproxy: BaseURL is required")
 	}
 	return &DCRHandler{
-		cfg:     cfg,
-		store:   store,
-		apps:    apps,
-		logger:  logger,
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
+		cfg:       cfg,
+		store:     store,
+		apps:      apps,
+		allowlist: allowlist,
+		logger:    logger,
+		baseURL:   strings.TrimRight(cfg.BaseURL, "/"),
 	}, nil
 }
 
@@ -165,7 +179,7 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "decode"))
 		return
 	}
-	normalized, zitadelInput, err := h.normalize(tenant, req)
+	normalized, zitadelInput, err := h.normalize(r.Context(), tenant, req)
 	if err != nil {
 		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "normalize"))
 		return
@@ -262,7 +276,7 @@ func (h *DCRHandler) Put(w http.ResponseWriter, r *http.Request) {
 		h.dcrFail(w, r, "put", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "decode"), zap.String("client_id", row.ClientID))
 		return
 	}
-	normalized, _, err := h.normalize(tenant, req)
+	normalized, _, err := h.normalize(r.Context(), tenant, req)
 	if err != nil {
 		h.dcrFail(w, r, "put", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "normalize"), zap.String("client_id", row.ClientID))
 		return
@@ -363,12 +377,16 @@ func (h *DCRHandler) authManagement(w http.ResponseWriter, r *http.Request) (*st
 // the tenant's redirect-URI allowlist, applies defaults, and returns both
 // the normalized DCR form (for response + persistence) and the
 // Zitadel-shaped input for the create / update call.
-func (h *DCRHandler) normalize(tenant *storage.Tenant, req dcrRequest) (dcrRequest, zitadel.AddOIDCAppInput, error) {
+func (h *DCRHandler) normalize(ctx context.Context, tenant *storage.Tenant, req dcrRequest) (dcrRequest, zitadel.AddOIDCAppInput, error) {
 	if len(req.RedirectURIs) == 0 {
 		return dcrRequest{}, zitadel.AddOIDCAppInput{}, errors.New("redirect_uris is required")
 	}
 
-	allow, err := CompilePatternSet(tenant.DCRRedirectURIAllowlist)
+	patterns, err := h.allowlist.ListAllowlistPatterns(ctx, tenant)
+	if err != nil {
+		return dcrRequest{}, zitadel.AddOIDCAppInput{}, fmt.Errorf("load tenant allowlist: %w", err)
+	}
+	allow, err := CompilePatternSet(patterns)
 	if err != nil {
 		return dcrRequest{}, zitadel.AddOIDCAppInput{}, fmt.Errorf("tenant allowlist invalid: %w", err)
 	}
@@ -377,7 +395,7 @@ func (h *DCRHandler) normalize(tenant *storage.Tenant, req dcrRequest) (dcrReque
 			h.logger.Warn("DCR redirect_uri rejected",
 				zap.String("tenant_id", tenant.PublicID),
 				zap.String("redirect_uri", u),
-				zap.Strings("patterns", tenant.DCRRedirectURIAllowlist),
+				zap.Strings("patterns", patterns),
 				zap.Error(err),
 			)
 			return dcrRequest{}, zitadel.AddOIDCAppInput{}, fmt.Errorf("redirect_uri %q: %w", u, err)

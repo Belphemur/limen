@@ -1,17 +1,13 @@
 <script setup lang="ts">
-// Organization Settings — phase 9c slice 3.
+// Organization Settings — phase 9c slice 3, updated in phase 9f.
 //
-// Four sections, each backed by a single round-trip:
+// Four sections:
 //
 //  1. Organization     → UpdateTenantSettings({ name })
 //  2. Zitadel identity → readonly; deep-links into Console via the
 //                        shared zitadelConsoleUrl helper
-//  3. DCR allowlist    → UpdateTenantSettings({ dcrRedirectUriAllowlist,
-//                                                 dcrRedirectUriAllowlistSet: true })
+//  3. IDE allowlist    → IDEAllowlistManager (own RPCs)
 //  4. Danger Zone      → DeleteTenant({ publicIdConfirmation })
-//
-// Initial state is hydrated from a single GetTenantSettings call plus
-// the cached /auth/discovery fetch.
 
 import { computed, onMounted, ref } from 'vue'
 import { ConnectError } from '@connectrpc/connect'
@@ -20,10 +16,10 @@ import { AlertTriangle, Copy, ExternalLink, Loader2, Save, Trash2 } from '@lucid
 import {
     ErrorModal,
     SuccessModal,
-    RedirectURIAllowlistEditor,
     fetchDiscovery,
     zitadelConsoleUrl,
 } from '@limen/shared'
+import IDEAllowlistManager from '@/components/IDEAllowlistManager.vue'
 import { adminClient } from '@/transport/adminClient'
 import {
     DeleteTenantRequestSchema,
@@ -34,7 +30,6 @@ interface Loaded {
     name: string
     publicId: string
     zitadelOrgId: string
-    allowlist: string[]
 }
 
 const loading = ref(true)
@@ -42,14 +37,8 @@ const loadError = ref<string | null>(null)
 const loaded = ref<Loaded | null>(null)
 const issuer = ref('')
 
-// Editable buffers; reset to the freshly-loaded values whenever a save
-// succeeds (or the page loads).
 const nameDraft = ref('')
-const allowlistDraft = ref<string[]>([])
-const allowlistValid = ref(true)
-
 const savingName = ref(false)
-const savingAllowlist = ref(false)
 const deleteOpen = ref(false)
 const deleting = ref(false)
 const deleteConfirmation = ref('')
@@ -74,23 +63,15 @@ const nameDirty = computed(
         nameDraft.value.trim() !== loaded.value.name &&
         nameDraft.value.trim() !== '',
 )
-const allowlistDirty = computed(() => {
-    if (!loaded.value) return false
-    const a = loaded.value.allowlist
-    const b = allowlistDraft.value
-    if (a.length !== b.length) return true
-    return a.some((v, i) => v !== b[i])
-})
 
 const deleteConfirmed = computed(
     () =>
         loaded.value !== null && deleteConfirmation.value === loaded.value.publicId,
 )
 
-function hydrate(name: string, publicId: string, zitadelOrgId: string, allowlist: string[]) {
-    loaded.value = { name, publicId, zitadelOrgId, allowlist: [...allowlist] }
+function hydrate(name: string, publicId: string, zitadelOrgId: string) {
+    loaded.value = { name, publicId, zitadelOrgId }
     nameDraft.value = name
-    allowlistDraft.value = [...allowlist]
 }
 
 onMounted(async () => {
@@ -104,7 +85,6 @@ onMounted(async () => {
             settings.settings?.name ?? '',
             settings.settings?.publicId ?? '',
             settings.zitadelOrgId,
-            settings.dcrRedirectUriAllowlist,
         )
     } catch (err) {
         loadError.value = err instanceof Error ? err.message : String(err)
@@ -139,7 +119,6 @@ async function saveName() {
             resp.settings?.name ?? nameDraft.value.trim(),
             loaded.value.publicId,
             loaded.value.zitadelOrgId,
-            resp.dcrRedirectUriAllowlist,
         )
         successMessage.value = 'Organization name updated.'
         successOpen.value = true
@@ -147,31 +126,6 @@ async function saveName() {
         showError('Failed to update organization name', err)
     } finally {
         savingName.value = false
-    }
-}
-
-async function saveAllowlist() {
-    if (!loaded.value || !allowlistDirty.value || !allowlistValid.value) return
-    savingAllowlist.value = true
-    try {
-        const resp = await adminClient().updateTenantSettings(
-            create(UpdateTenantSettingsRequestSchema, {
-                dcrRedirectUriAllowlist: allowlistDraft.value,
-                dcrRedirectUriAllowlistSet: true,
-            }),
-        )
-        hydrate(
-            resp.settings?.name ?? loaded.value.name,
-            loaded.value.publicId,
-            loaded.value.zitadelOrgId,
-            resp.dcrRedirectUriAllowlist,
-        )
-        successMessage.value = 'DCR redirect-URI allowlist updated.'
-        successOpen.value = true
-    } catch (err) {
-        showError('Failed to update allowlist', err)
-    } finally {
-        savingAllowlist.value = false
     }
 }
 
@@ -213,9 +167,9 @@ async function confirmDelete() {
                 Organization Settings
             </h1>
             <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-                Configure your organization name, the DCR redirect-URI allowlist, and
-                cross-reference your Zitadel identity. Destructive actions live in the
-                Danger Zone at the bottom.
+                Configure your organization name, the IDE redirect-URI allowlist,
+                and cross-reference your Zitadel identity. Destructive actions live in
+                the Danger Zone at the bottom.
             </p>
         </header>
 
@@ -295,30 +249,19 @@ async function confirmDelete() {
                 </p>
             </section>
 
-            <!-- 3. DCR allowlist -->
+            <!-- 3. IDE allowlist -->
             <section aria-labelledby="allowlist-heading"
                 class="space-y-3 rounded-lg border border-outline-variant bg-surface p-6"
                 data-testid="section-allowlist">
                 <h2 id="allowlist-heading" class="text-lg font-semibold text-on-surface">
-                    DCR redirect-URI allowlist
+                    IDE redirect-URI allowlist
                 </h2>
                 <p class="text-sm text-on-surface-variant">
-                    Glob patterns narrowing what redirect URIs may be registered via DCR.
-                    The global HTTPS / loopback floor always applies; an empty list means
-                    "floor only".
+                    Pick the AI IDEs your users will connect from. Each preset adds
+                    the official redirect URIs the IDE will register via DCR. The
+                    global HTTPS / loopback floor always applies.
                 </p>
-                <RedirectURIAllowlistEditor v-model="allowlistDraft" :disabled="savingAllowlist"
-                    @validity-change="allowlistValid = $event" />
-                <div class="pt-2">
-                    <button type="button"
-                        class="inline-flex items-center gap-1 rounded bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-                        :disabled="!allowlistDirty || !allowlistValid || savingAllowlist" data-testid="allowlist-save"
-                        @click="saveAllowlist">
-                        <Save v-if="!savingAllowlist" class="h-4 w-4" />
-                        <Loader2 v-else class="h-4 w-4 animate-spin" />
-                        Save allowlist
-                    </button>
-                </div>
+                <IDEAllowlistManager />
             </section>
 
             <!-- 4. Danger zone -->

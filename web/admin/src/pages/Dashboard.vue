@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, Cog, ArrowRight, ExternalLink } from '@lucide/vue'
+import { Server, Users, Cog, Code2, ArrowRight, ExternalLink } from '@lucide/vue'
 import { fetchDiscovery, useSessionStore, zitadelConsoleUrl } from '@limen/shared'
 import { create } from '@bufbuild/protobuf'
 import { adminClient, portalClient } from '@/transport/adminClient'
-import { UpdateTenantSettingsRequestSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
+import {
+  MarkIDEChoiceSkippedRequestSchema,
+  UpdateTenantSettingsRequestSchema,
+} from '@/gen/limen/admin/v1/admin_pb.ts'
 import { LinkState, type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
 import SetupProgress from '@/components/SetupProgress.vue'
@@ -22,10 +25,11 @@ const session = useSessionStore()
 interface DashboardSettings {
   invitedTeam: boolean
   configured: boolean
+  choseIde: boolean
 }
 
 const upstreams = ref<UpstreamSummary[]>([])
-const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
+const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false, choseIde: false })
 const zitadelOrgId = ref('')
 const issuer = ref('')
 
@@ -41,6 +45,7 @@ onMounted(async () => {
         settings.value = {
           invitedTeam: (r.settings?.invitedTeamAt ?? '') !== '',
           configured: (r.settings?.configuredAt ?? '') !== '',
+          choseIde: (r.settings?.choseIdeAt ?? '') !== '',
         }
         zitadelOrgId.value = r.zitadelOrgId
       }),
@@ -51,15 +56,13 @@ onMounted(async () => {
 })
 
 interface Step {
-  key: 'connect' | 'invite' | 'configure'
+  key: 'connect' | 'invite' | 'configure' | 'ide'
   done: boolean
 }
 
 const steps = computed<Step[]>(() => [
   {
     key: 'connect',
-    // An upstream counts as "ready" once it has cached tools AND
-    // either does not need linking or has been linked.
     done: upstreams.value.some(
       (u) =>
         u.tools.length > 0 &&
@@ -68,6 +71,7 @@ const steps = computed<Step[]>(() => [
   },
   { key: 'invite', done: settings.value.invitedTeam },
   { key: 'configure', done: settings.value.configured },
+  { key: 'ide', done: settings.value.choseIde },
 ])
 
 const completed = computed(() => steps.value.filter((s) => s.done).length)
@@ -77,8 +81,6 @@ const isDone = (key: Step['key']) => steps.value.find((s) => s.key === key)?.don
 const firstName = computed(() => session.user?.firstName ?? 'there')
 
 async function openZitadelConsole() {
-  // The Console URL comes from /auth/discovery + the tenant's
-  // Zitadel org id; we never hard-code the issuer hostname.
   const url = zitadelConsoleUrl(issuer.value, zitadelOrgId.value, 'users')
   try {
     const resp = await adminClient().updateTenantSettings(
@@ -86,12 +88,21 @@ async function openZitadelConsole() {
     )
     settings.value.invitedTeam = (resp.settings?.invitedTeamAt ?? '') !== ''
   } catch {
-    // Best-effort tick; falling back to local flip keeps the bento
-    // responsive even if the RPC failed transiently.
     settings.value.invitedTeam = true
   }
   if (url) {
     window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+async function skipIDEChoice() {
+  try {
+    const resp = await adminClient().markIDEChoiceSkipped(
+      create(MarkIDEChoiceSkippedRequestSchema, {}),
+    )
+    settings.value.choseIde = (resp.settings?.choseIdeAt ?? '') !== ''
+  } catch {
+    settings.value.choseIde = true
   }
 }
 </script>
@@ -148,6 +159,25 @@ async function openZitadelConsole() {
           data-step="configure"
           @activate="router.push(ROUTES.settings)"
         />
+        <TaskBentoCard
+          variant="secondary"
+          :icon="Code2"
+          title="Choose Your IDE"
+          body="Pre-load the official redirect URIs for the AI IDE your users will connect from."
+          cta-label="Pick IDEs"
+          :done="isDone('ide')"
+          data-step="ide"
+          @activate="router.push(ROUTES.settings)"
+        />
+        <button
+          v-if="!isDone('ide')"
+          type="button"
+          class="self-start text-xs text-on-surface-variant underline hover:text-on-surface"
+          data-testid="ide-skip"
+          @click="skipIDEChoice"
+        >
+          Skip for now
+        </button>
       </div>
     </section>
 

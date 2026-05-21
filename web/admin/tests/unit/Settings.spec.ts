@@ -37,7 +37,6 @@ function buildTransport(stub: AdminStub) {
               invitedTeamAt: '',
               configuredAt: '',
             }),
-            dcrRedirectUriAllowlist: ['https://app.acme.com/cb'],
             zitadelOrgId: 'z-org',
           })),
       updateTenantSettings:
@@ -50,9 +49,6 @@ function buildTransport(stub: AdminStub) {
               invitedTeamAt: '',
               configuredAt: '',
             }),
-            dcrRedirectUriAllowlist: req.dcrRedirectUriAllowlistSet
-              ? req.dcrRedirectUriAllowlist
-              : ['https://app.acme.com/cb'],
           })),
       deleteTenant: stub.deleteTenant ?? (() => create(DeleteTenantResponseSchema, {})),
     })
@@ -88,12 +84,14 @@ describe('Settings', () => {
     stubDiscovery()
     // jsdom does not implement <dialog>; stub the modal methods.
     if (!('showModal' in HTMLDialogElement.prototype)) {
-      // @ts-expect-error jsdom shim
-      HTMLDialogElement.prototype.showModal = function () {
+      const proto = HTMLDialogElement.prototype as unknown as {
+        showModal: () => void
+        close: () => void
+      }
+      proto.showModal = function (this: HTMLDialogElement) {
         this.open = true
       }
-      // @ts-expect-error jsdom shim
-      HTMLDialogElement.prototype.close = function () {
+      proto.close = function (this: HTMLDialogElement) {
         this.open = false
         this.dispatchEvent(new Event('close'))
       }
@@ -129,48 +127,6 @@ describe('Settings', () => {
     expect((save.element as HTMLButtonElement).disabled).toBe(true)
     await w.find('[data-testid="org-name-input"]').setValue('New Co')
     expect((save.element as HTMLButtonElement).disabled).toBe(false)
-  })
-
-  it('saves the allowlist via UpdateTenantSettings with the sentinel flag set', async () => {
-    const calls: UpdateTenantSettingsRequest[] = []
-    const w = await mountPage({
-      updateTenantSettings: (req) => {
-        calls.push(req)
-        return create(UpdateTenantSettingsResponseSchema, {
-          settings: create(TenantSettingsSchema, {
-            name: 'Acme',
-            publicId: 'tnt_t',
-            invitedTeamAt: '',
-            configuredAt: '',
-          }),
-          dcrRedirectUriAllowlist: ['https://app.acme.com/cb', 'https://*.acme.com/cb'],
-        })
-      },
-    })
-    await w.find('[data-testid="allowlist-add"]').trigger('click')
-    await flushPromises()
-    const inputs = w.findAll('[data-testid="section-allowlist"] input[type=text]')
-    await inputs[1].setValue('https://*.acme.com/cb')
-    await flushPromises()
-    await w.find('[data-testid="allowlist-save"]').trigger('click')
-    await flushPromises()
-
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({
-      dcrRedirectUriAllowlistSet: true,
-      dcrRedirectUriAllowlist: ['https://app.acme.com/cb', 'https://*.acme.com/cb'],
-    })
-  })
-
-  it('disables Save allowlist when a row is invalid', async () => {
-    const w = await mountPage()
-    await w.find('[data-testid="allowlist-add"]').trigger('click')
-    await flushPromises()
-    const inputs = w.findAll('[data-testid="section-allowlist"] input[type=text]')
-    await inputs[1].setValue('no-scheme')
-    await flushPromises()
-    const save = w.find('[data-testid="allowlist-save"]').element as HTMLButtonElement
-    expect(save.disabled).toBe(true)
   })
 
   it('keeps the delete confirm button disabled until the public ID is typed exactly', async () => {

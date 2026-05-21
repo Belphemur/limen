@@ -36,6 +36,9 @@ type Deps struct {
 	// carry the MCP RS audience (phase 7b).
 	MCPRSProjectID string
 	OAuthCfg       config.OAuthProxyConfig
+	// Allowlist provides per-tenant redirect-URI patterns to the DCR
+	// handler. *tenant.Service satisfies oauthproxy.AllowlistPatternsLoader.
+	Allowlist oauthproxy.AllowlistPatternsLoader
 }
 
 // Mount attaches the AS-metadata, redirector, DCR, and RFC 7592
@@ -60,7 +63,7 @@ func Mount(r chi.Router, deps Deps) error {
 		DCREnabled:         deps.OAuthCfg.DCREnabled,
 		InitialAccessToken: deps.OAuthCfg.DCRInitialAccessToken,
 		BaseURL:            deps.BaseURL,
-	}, deps.Store, deps.Zitadel, logger)
+	}, deps.Store, deps.Zitadel, deps.Allowlist, logger)
 	if err != nil {
 		return err
 	}

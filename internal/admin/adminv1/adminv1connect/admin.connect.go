@@ -54,6 +54,30 @@ const (
 	// AdminServiceUpdateTenantSettingsProcedure is the fully-qualified name of the AdminService's
 	// UpdateTenantSettings RPC.
 	AdminServiceUpdateTenantSettingsProcedure = "/limen.admin.v1.AdminService/UpdateTenantSettings"
+	// AdminServiceListIDEPresetsProcedure is the fully-qualified name of the AdminService's
+	// ListIDEPresets RPC.
+	AdminServiceListIDEPresetsProcedure = "/limen.admin.v1.AdminService/ListIDEPresets"
+	// AdminServiceListAllowlistEntriesProcedure is the fully-qualified name of the AdminService's
+	// ListAllowlistEntries RPC.
+	AdminServiceListAllowlistEntriesProcedure = "/limen.admin.v1.AdminService/ListAllowlistEntries"
+	// AdminServiceAddAllowlistEntryProcedure is the fully-qualified name of the AdminService's
+	// AddAllowlistEntry RPC.
+	AdminServiceAddAllowlistEntryProcedure = "/limen.admin.v1.AdminService/AddAllowlistEntry"
+	// AdminServiceUpdateAllowlistEntryProcedure is the fully-qualified name of the AdminService's
+	// UpdateAllowlistEntry RPC.
+	AdminServiceUpdateAllowlistEntryProcedure = "/limen.admin.v1.AdminService/UpdateAllowlistEntry"
+	// AdminServiceRemoveAllowlistEntryProcedure is the fully-qualified name of the AdminService's
+	// RemoveAllowlistEntry RPC.
+	AdminServiceRemoveAllowlistEntryProcedure = "/limen.admin.v1.AdminService/RemoveAllowlistEntry"
+	// AdminServiceApplyIDEPresetProcedure is the fully-qualified name of the AdminService's
+	// ApplyIDEPreset RPC.
+	AdminServiceApplyIDEPresetProcedure = "/limen.admin.v1.AdminService/ApplyIDEPreset"
+	// AdminServiceRemoveIDEPresetProcedure is the fully-qualified name of the AdminService's
+	// RemoveIDEPreset RPC.
+	AdminServiceRemoveIDEPresetProcedure = "/limen.admin.v1.AdminService/RemoveIDEPreset"
+	// AdminServiceMarkIDEChoiceSkippedProcedure is the fully-qualified name of the AdminService's
+	// MarkIDEChoiceSkipped RPC.
+	AdminServiceMarkIDEChoiceSkippedProcedure = "/limen.admin.v1.AdminService/MarkIDEChoiceSkipped"
 	// AdminServiceDeleteTenantProcedure is the fully-qualified name of the AdminService's DeleteTenant
 	// RPC.
 	AdminServiceDeleteTenantProcedure = "/limen.admin.v1.AdminService/DeleteTenant"
@@ -70,6 +94,16 @@ type AdminServiceClient interface {
 	// Tenant settings + dashboard step-completion toggles. Admin floor.
 	GetTenantSettings(context.Context, *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error)
 	UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error)
+	// IDE presets + per-tenant redirect-URI allowlist. Admin floor.
+	// See docs/phases/phase-09f-ide-presets-and-allowlist.md.
+	ListIDEPresets(context.Context, *connect.Request[adminv1.ListIDEPresetsRequest]) (*connect.Response[adminv1.ListIDEPresetsResponse], error)
+	ListAllowlistEntries(context.Context, *connect.Request[adminv1.ListAllowlistEntriesRequest]) (*connect.Response[adminv1.ListAllowlistEntriesResponse], error)
+	AddAllowlistEntry(context.Context, *connect.Request[adminv1.AddAllowlistEntryRequest]) (*connect.Response[adminv1.AddAllowlistEntryResponse], error)
+	UpdateAllowlistEntry(context.Context, *connect.Request[adminv1.UpdateAllowlistEntryRequest]) (*connect.Response[adminv1.UpdateAllowlistEntryResponse], error)
+	RemoveAllowlistEntry(context.Context, *connect.Request[adminv1.RemoveAllowlistEntryRequest]) (*connect.Response[adminv1.RemoveAllowlistEntryResponse], error)
+	ApplyIDEPreset(context.Context, *connect.Request[adminv1.ApplyIDEPresetRequest]) (*connect.Response[adminv1.ApplyIDEPresetResponse], error)
+	RemoveIDEPreset(context.Context, *connect.Request[adminv1.RemoveIDEPresetRequest]) (*connect.Response[adminv1.RemoveIDEPresetResponse], error)
+	MarkIDEChoiceSkipped(context.Context, *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
 }
@@ -127,6 +161,54 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("UpdateTenantSettings")),
 			connect.WithClientOptions(opts...),
 		),
+		listIDEPresets: connect.NewClient[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse](
+			httpClient,
+			baseURL+AdminServiceListIDEPresetsProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListIDEPresets")),
+			connect.WithClientOptions(opts...),
+		),
+		listAllowlistEntries: connect.NewClient[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse](
+			httpClient,
+			baseURL+AdminServiceListAllowlistEntriesProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListAllowlistEntries")),
+			connect.WithClientOptions(opts...),
+		),
+		addAllowlistEntry: connect.NewClient[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse](
+			httpClient,
+			baseURL+AdminServiceAddAllowlistEntryProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("AddAllowlistEntry")),
+			connect.WithClientOptions(opts...),
+		),
+		updateAllowlistEntry: connect.NewClient[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse](
+			httpClient,
+			baseURL+AdminServiceUpdateAllowlistEntryProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("UpdateAllowlistEntry")),
+			connect.WithClientOptions(opts...),
+		),
+		removeAllowlistEntry: connect.NewClient[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse](
+			httpClient,
+			baseURL+AdminServiceRemoveAllowlistEntryProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveAllowlistEntry")),
+			connect.WithClientOptions(opts...),
+		),
+		applyIDEPreset: connect.NewClient[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse](
+			httpClient,
+			baseURL+AdminServiceApplyIDEPresetProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ApplyIDEPreset")),
+			connect.WithClientOptions(opts...),
+		),
+		removeIDEPreset: connect.NewClient[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse](
+			httpClient,
+			baseURL+AdminServiceRemoveIDEPresetProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("RemoveIDEPreset")),
+			connect.WithClientOptions(opts...),
+		),
+		markIDEChoiceSkipped: connect.NewClient[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse](
+			httpClient,
+			baseURL+AdminServiceMarkIDEChoiceSkippedProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("MarkIDEChoiceSkipped")),
+			connect.WithClientOptions(opts...),
+		),
 		deleteTenant: connect.NewClient[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse](
 			httpClient,
 			baseURL+AdminServiceDeleteTenantProcedure,
@@ -145,6 +227,14 @@ type adminServiceClient struct {
 	previewUpstreamContext *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
 	getTenantSettings      *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
 	updateTenantSettings   *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
+	listIDEPresets         *connect.Client[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse]
+	listAllowlistEntries   *connect.Client[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse]
+	addAllowlistEntry      *connect.Client[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse]
+	updateAllowlistEntry   *connect.Client[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse]
+	removeAllowlistEntry   *connect.Client[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse]
+	applyIDEPreset         *connect.Client[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse]
+	removeIDEPreset        *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
+	markIDEChoiceSkipped   *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
 	deleteTenant           *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
 }
 
@@ -183,6 +273,46 @@ func (c *adminServiceClient) UpdateTenantSettings(ctx context.Context, req *conn
 	return c.updateTenantSettings.CallUnary(ctx, req)
 }
 
+// ListIDEPresets calls limen.admin.v1.AdminService.ListIDEPresets.
+func (c *adminServiceClient) ListIDEPresets(ctx context.Context, req *connect.Request[adminv1.ListIDEPresetsRequest]) (*connect.Response[adminv1.ListIDEPresetsResponse], error) {
+	return c.listIDEPresets.CallUnary(ctx, req)
+}
+
+// ListAllowlistEntries calls limen.admin.v1.AdminService.ListAllowlistEntries.
+func (c *adminServiceClient) ListAllowlistEntries(ctx context.Context, req *connect.Request[adminv1.ListAllowlistEntriesRequest]) (*connect.Response[adminv1.ListAllowlistEntriesResponse], error) {
+	return c.listAllowlistEntries.CallUnary(ctx, req)
+}
+
+// AddAllowlistEntry calls limen.admin.v1.AdminService.AddAllowlistEntry.
+func (c *adminServiceClient) AddAllowlistEntry(ctx context.Context, req *connect.Request[adminv1.AddAllowlistEntryRequest]) (*connect.Response[adminv1.AddAllowlistEntryResponse], error) {
+	return c.addAllowlistEntry.CallUnary(ctx, req)
+}
+
+// UpdateAllowlistEntry calls limen.admin.v1.AdminService.UpdateAllowlistEntry.
+func (c *adminServiceClient) UpdateAllowlistEntry(ctx context.Context, req *connect.Request[adminv1.UpdateAllowlistEntryRequest]) (*connect.Response[adminv1.UpdateAllowlistEntryResponse], error) {
+	return c.updateAllowlistEntry.CallUnary(ctx, req)
+}
+
+// RemoveAllowlistEntry calls limen.admin.v1.AdminService.RemoveAllowlistEntry.
+func (c *adminServiceClient) RemoveAllowlistEntry(ctx context.Context, req *connect.Request[adminv1.RemoveAllowlistEntryRequest]) (*connect.Response[adminv1.RemoveAllowlistEntryResponse], error) {
+	return c.removeAllowlistEntry.CallUnary(ctx, req)
+}
+
+// ApplyIDEPreset calls limen.admin.v1.AdminService.ApplyIDEPreset.
+func (c *adminServiceClient) ApplyIDEPreset(ctx context.Context, req *connect.Request[adminv1.ApplyIDEPresetRequest]) (*connect.Response[adminv1.ApplyIDEPresetResponse], error) {
+	return c.applyIDEPreset.CallUnary(ctx, req)
+}
+
+// RemoveIDEPreset calls limen.admin.v1.AdminService.RemoveIDEPreset.
+func (c *adminServiceClient) RemoveIDEPreset(ctx context.Context, req *connect.Request[adminv1.RemoveIDEPresetRequest]) (*connect.Response[adminv1.RemoveIDEPresetResponse], error) {
+	return c.removeIDEPreset.CallUnary(ctx, req)
+}
+
+// MarkIDEChoiceSkipped calls limen.admin.v1.AdminService.MarkIDEChoiceSkipped.
+func (c *adminServiceClient) MarkIDEChoiceSkipped(ctx context.Context, req *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error) {
+	return c.markIDEChoiceSkipped.CallUnary(ctx, req)
+}
+
 // DeleteTenant calls limen.admin.v1.AdminService.DeleteTenant.
 func (c *adminServiceClient) DeleteTenant(ctx context.Context, req *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error) {
 	return c.deleteTenant.CallUnary(ctx, req)
@@ -199,6 +329,16 @@ type AdminServiceHandler interface {
 	// Tenant settings + dashboard step-completion toggles. Admin floor.
 	GetTenantSettings(context.Context, *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error)
 	UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error)
+	// IDE presets + per-tenant redirect-URI allowlist. Admin floor.
+	// See docs/phases/phase-09f-ide-presets-and-allowlist.md.
+	ListIDEPresets(context.Context, *connect.Request[adminv1.ListIDEPresetsRequest]) (*connect.Response[adminv1.ListIDEPresetsResponse], error)
+	ListAllowlistEntries(context.Context, *connect.Request[adminv1.ListAllowlistEntriesRequest]) (*connect.Response[adminv1.ListAllowlistEntriesResponse], error)
+	AddAllowlistEntry(context.Context, *connect.Request[adminv1.AddAllowlistEntryRequest]) (*connect.Response[adminv1.AddAllowlistEntryResponse], error)
+	UpdateAllowlistEntry(context.Context, *connect.Request[adminv1.UpdateAllowlistEntryRequest]) (*connect.Response[adminv1.UpdateAllowlistEntryResponse], error)
+	RemoveAllowlistEntry(context.Context, *connect.Request[adminv1.RemoveAllowlistEntryRequest]) (*connect.Response[adminv1.RemoveAllowlistEntryResponse], error)
+	ApplyIDEPreset(context.Context, *connect.Request[adminv1.ApplyIDEPresetRequest]) (*connect.Response[adminv1.ApplyIDEPresetResponse], error)
+	RemoveIDEPreset(context.Context, *connect.Request[adminv1.RemoveIDEPresetRequest]) (*connect.Response[adminv1.RemoveIDEPresetResponse], error)
+	MarkIDEChoiceSkipped(context.Context, *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error)
 	// Owner-only. Limen-side soft-delete; Zitadel org cleanup is manual.
 	DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error)
 }
@@ -252,6 +392,54 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("UpdateTenantSettings")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceListIDEPresetsHandler := connect.NewUnaryHandler(
+		AdminServiceListIDEPresetsProcedure,
+		svc.ListIDEPresets,
+		connect.WithSchema(adminServiceMethods.ByName("ListIDEPresets")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceListAllowlistEntriesHandler := connect.NewUnaryHandler(
+		AdminServiceListAllowlistEntriesProcedure,
+		svc.ListAllowlistEntries,
+		connect.WithSchema(adminServiceMethods.ByName("ListAllowlistEntries")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceAddAllowlistEntryHandler := connect.NewUnaryHandler(
+		AdminServiceAddAllowlistEntryProcedure,
+		svc.AddAllowlistEntry,
+		connect.WithSchema(adminServiceMethods.ByName("AddAllowlistEntry")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceUpdateAllowlistEntryHandler := connect.NewUnaryHandler(
+		AdminServiceUpdateAllowlistEntryProcedure,
+		svc.UpdateAllowlistEntry,
+		connect.WithSchema(adminServiceMethods.ByName("UpdateAllowlistEntry")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveAllowlistEntryHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveAllowlistEntryProcedure,
+		svc.RemoveAllowlistEntry,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveAllowlistEntry")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceApplyIDEPresetHandler := connect.NewUnaryHandler(
+		AdminServiceApplyIDEPresetProcedure,
+		svc.ApplyIDEPreset,
+		connect.WithSchema(adminServiceMethods.ByName("ApplyIDEPreset")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceRemoveIDEPresetHandler := connect.NewUnaryHandler(
+		AdminServiceRemoveIDEPresetProcedure,
+		svc.RemoveIDEPreset,
+		connect.WithSchema(adminServiceMethods.ByName("RemoveIDEPreset")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceMarkIDEChoiceSkippedHandler := connect.NewUnaryHandler(
+		AdminServiceMarkIDEChoiceSkippedProcedure,
+		svc.MarkIDEChoiceSkipped,
+		connect.WithSchema(adminServiceMethods.ByName("MarkIDEChoiceSkipped")),
+		connect.WithHandlerOptions(opts...),
+	)
 	adminServiceDeleteTenantHandler := connect.NewUnaryHandler(
 		AdminServiceDeleteTenantProcedure,
 		svc.DeleteTenant,
@@ -274,6 +462,22 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceGetTenantSettingsHandler.ServeHTTP(w, r)
 		case AdminServiceUpdateTenantSettingsProcedure:
 			adminServiceUpdateTenantSettingsHandler.ServeHTTP(w, r)
+		case AdminServiceListIDEPresetsProcedure:
+			adminServiceListIDEPresetsHandler.ServeHTTP(w, r)
+		case AdminServiceListAllowlistEntriesProcedure:
+			adminServiceListAllowlistEntriesHandler.ServeHTTP(w, r)
+		case AdminServiceAddAllowlistEntryProcedure:
+			adminServiceAddAllowlistEntryHandler.ServeHTTP(w, r)
+		case AdminServiceUpdateAllowlistEntryProcedure:
+			adminServiceUpdateAllowlistEntryHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveAllowlistEntryProcedure:
+			adminServiceRemoveAllowlistEntryHandler.ServeHTTP(w, r)
+		case AdminServiceApplyIDEPresetProcedure:
+			adminServiceApplyIDEPresetHandler.ServeHTTP(w, r)
+		case AdminServiceRemoveIDEPresetProcedure:
+			adminServiceRemoveIDEPresetHandler.ServeHTTP(w, r)
+		case AdminServiceMarkIDEChoiceSkippedProcedure:
+			adminServiceMarkIDEChoiceSkippedHandler.ServeHTTP(w, r)
 		case AdminServiceDeleteTenantProcedure:
 			adminServiceDeleteTenantHandler.ServeHTTP(w, r)
 		default:
@@ -311,6 +515,38 @@ func (UnimplementedAdminServiceHandler) GetTenantSettings(context.Context, *conn
 
 func (UnimplementedAdminServiceHandler) UpdateTenantSettings(context.Context, *connect.Request[adminv1.UpdateTenantSettingsRequest]) (*connect.Response[adminv1.UpdateTenantSettingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.UpdateTenantSettings is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListIDEPresets(context.Context, *connect.Request[adminv1.ListIDEPresetsRequest]) (*connect.Response[adminv1.ListIDEPresetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ListIDEPresets is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListAllowlistEntries(context.Context, *connect.Request[adminv1.ListAllowlistEntriesRequest]) (*connect.Response[adminv1.ListAllowlistEntriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ListAllowlistEntries is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) AddAllowlistEntry(context.Context, *connect.Request[adminv1.AddAllowlistEntryRequest]) (*connect.Response[adminv1.AddAllowlistEntryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.AddAllowlistEntry is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) UpdateAllowlistEntry(context.Context, *connect.Request[adminv1.UpdateAllowlistEntryRequest]) (*connect.Response[adminv1.UpdateAllowlistEntryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.UpdateAllowlistEntry is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveAllowlistEntry(context.Context, *connect.Request[adminv1.RemoveAllowlistEntryRequest]) (*connect.Response[adminv1.RemoveAllowlistEntryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.RemoveAllowlistEntry is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ApplyIDEPreset(context.Context, *connect.Request[adminv1.ApplyIDEPresetRequest]) (*connect.Response[adminv1.ApplyIDEPresetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ApplyIDEPreset is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) RemoveIDEPreset(context.Context, *connect.Request[adminv1.RemoveIDEPresetRequest]) (*connect.Response[adminv1.RemoveIDEPresetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.RemoveIDEPreset is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) MarkIDEChoiceSkipped(context.Context, *connect.Request[adminv1.MarkIDEChoiceSkippedRequest]) (*connect.Response[adminv1.MarkIDEChoiceSkippedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.MarkIDEChoiceSkipped is not implemented"))
 }
 
 func (UnimplementedAdminServiceHandler) DeleteTenant(context.Context, *connect.Request[adminv1.DeleteTenantRequest]) (*connect.Response[adminv1.DeleteTenantResponse], error) {

@@ -12,4 +12,5 @@ const (
 	PrefixUpstreamTool           Prefix = "utl"
 	PrefixCodemodeInvocation     Prefix = "cmi"
 	PrefixZitadelApp             Prefix = "zapp"
+	PrefixAllowlistEntry         Prefix = "ral"
 )

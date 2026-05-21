@@ -19,7 +19,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/belphemur/limen/internal/oauthproxy"
 	"github.com/belphemur/limen/internal/storage"
 )
 
@@ -31,22 +30,6 @@ var ErrTenantNotFound = errors.New("tenant: tenant not found")
 // public_id confirmation does not match the tenant's PublicID.
 var ErrConfirmationMismatch = errors.New("tenant: confirmation does not match tenant public_id")
 
-// ErrAllowlistEntryInvalid wraps a per-entry validation failure from
-// oauthproxy.ValidateRedirectURIPattern with the entry's index in the
-// originally submitted slice so callers can pin SPA errors to the
-// offending row.
-type ErrAllowlistEntryInvalid struct {
-	Index int
-	Entry string
-	Err   error
-}
-
-func (e *ErrAllowlistEntryInvalid) Error() string {
-	return fmt.Sprintf("tenant: dcr_redirect_uri_allowlist[%d] %q: %v", e.Index, e.Entry, e.Err)
-}
-
-func (e *ErrAllowlistEntryInvalid) Unwrap() error { return e.Err }
-
 // Service is the per-tenant lifecycle + settings coordinator.
 type Service struct {
 	store *storage.Store
@@ -57,24 +40,23 @@ func NewService(store *storage.Store) *Service {
 	return &Service{store: store}
 }
 
-// LoadSettings returns (settings, dcrAllowlist, zitadelOrgID). The
-// settings row is created on first read so every later code path can
-// assume the row exists.
-func (s *Service) LoadSettings(ctx context.Context, tenant *storage.Tenant) (*storage.TenantSettings, []string, string, error) {
+// LoadSettings returns (settings, zitadelOrgID). The settings row is
+// created on first read so every later code path can assume the row
+// exists. Allowlist entries live in their own table (Phase 9f); see
+// Service.ListAllowlistEntries.
+func (s *Service) LoadSettings(ctx context.Context, tenant *storage.Tenant) (*storage.TenantSettings, string, error) {
 	if tenant == nil {
-		return nil, nil, "", errors.New("tenant: nil tenant")
+		return nil, "", errors.New("tenant: nil tenant")
 	}
 	settings, err := s.loadOrCreateSettings(ctx, tenant.ID)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
-	return settings, append([]string(nil), tenant.DCRRedirectURIAllowlist...), tenant.ZitadelOrgID, nil
+	return settings, tenant.ZitadelOrgID, nil
 }
 
 // UpdateSettingsInput drives Service.UpdateSettings. Every field
 // follows the convention "absent = leave alone, present = apply".
-// AllowlistSet is the explicit sentinel that distinguishes "clear the
-// list" (empty slice + true) from "no change" (nil slice + false).
 type UpdateSettingsInput struct {
 	// Name nil = leave; non-nil empty rejected as invalid_argument.
 	Name *string
@@ -82,86 +64,52 @@ type UpdateSettingsInput struct {
 	// once. Subsequent true values are no-ops.
 	SetInvitedTeamAt bool
 	SetConfiguredAt  bool
-
-	// DCRRedirectURIAllowlist is honoured only when AllowlistSet
-	// is true. The slice is replaced wholesale; the writer is the only
-	// path that touches Tenant.DCRRedirectURIAllowlist via this RPC.
-	DCRRedirectURIAllowlist []string
-	AllowlistSet            bool
+	SetChoseIDEAt    bool
 }
 
 // UpdateSettings applies in to (Tenant, TenantSettings) inside a
-// single transaction. Returns the post-update (settings, allowlist).
+// single transaction. Returns the post-update settings row.
 //
 // Validation: empty Name (when set) → fmt.Errorf wrapping
 // gorm.ErrInvalidValue (admin handler maps to invalid_argument).
-// Each allowlist entry passes through
-// oauthproxy.ValidateRedirectURIPattern; a failure is wrapped in
-// *ErrAllowlistEntryInvalid so the handler can build the field path
-// detail.
-func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in UpdateSettingsInput) (*storage.TenantSettings, []string, error) {
+func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in UpdateSettingsInput) (*storage.TenantSettings, error) {
 	if tenant == nil {
-		return nil, nil, errors.New("tenant: nil tenant")
+		return nil, errors.New("tenant: nil tenant")
 	}
 	if in.Name != nil {
 		trimmed := strings.TrimSpace(*in.Name)
 		if trimmed == "" {
-			return nil, nil, fmt.Errorf("tenant: name must not be empty: %w", gorm.ErrInvalidValue)
+			return nil, fmt.Errorf("tenant: name must not be empty: %w", gorm.ErrInvalidValue)
 		}
 		in.Name = &trimmed
-	}
-	if in.AllowlistSet {
-		for i, raw := range in.DCRRedirectURIAllowlist {
-			entry := strings.TrimSpace(raw)
-			if entry == "" {
-				return nil, nil, &ErrAllowlistEntryInvalid{Index: i, Entry: raw, Err: errors.New("entry is empty")}
-			}
-			if err := oauthproxy.ValidateRedirectURIPattern(entry); err != nil {
-				return nil, nil, &ErrAllowlistEntryInvalid{Index: i, Entry: entry, Err: err}
-			}
-			in.DCRRedirectURIAllowlist[i] = entry
-		}
 	}
 
 	// Ensure the settings row exists before opening the write tx; the
 	// lazy-create path needs its own commit semantics.
 	if _, err := s.loadOrCreateSettings(ctx, tenant.ID); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	now := time.Now().UTC()
 
-	// Load the live Tenant row so we can mutate scalar fields and let
-	// GORM's serializer:json handle the allowlist column on Save.
-	// (Map-based Updates() bypass per-field serializers, which is why
-	// we don't go that route here.)
-	var refreshed storage.Tenant
-	if err := tx.Where("id = ?", tenant.ID).First(&refreshed).Error; err != nil {
-		_ = commit()
-		return nil, nil, fmt.Errorf("tenant: load tenant: %w", err)
-	}
-	tenantDirty := false
-	if in.Name != nil && refreshed.Name != *in.Name {
-		refreshed.Name = *in.Name
-		tenantDirty = true
-	}
-	if in.AllowlistSet {
-		list := in.DCRRedirectURIAllowlist
-		if list == nil {
-			list = []string{}
-		}
-		refreshed.DCRRedirectURIAllowlist = list
-		tenantDirty = true
-	}
-	if tenantDirty {
-		if err := tx.Save(&refreshed).Error; err != nil {
+	if in.Name != nil {
+		var refreshed storage.Tenant
+		if err := tx.Where("id = ?", tenant.ID).First(&refreshed).Error; err != nil {
 			_ = commit()
-			return nil, nil, fmt.Errorf("tenant: update tenant: %w", err)
+			return nil, fmt.Errorf("tenant: load tenant: %w", err)
+		}
+		if refreshed.Name != *in.Name {
+			refreshed.Name = *in.Name
+			if err := tx.Save(&refreshed).Error; err != nil {
+				_ = commit()
+				return nil, fmt.Errorf("tenant: update tenant: %w", err)
+			}
+			tenant.Name = refreshed.Name
 		}
 	}
 
@@ -169,7 +117,7 @@ func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in
 	var settings storage.TenantSettings
 	if err := tx.First(&settings).Error; err != nil {
 		_ = commit()
-		return nil, nil, fmt.Errorf("tenant: load settings: %w", err)
+		return nil, fmt.Errorf("tenant: load settings: %w", err)
 	}
 	if in.SetInvitedTeamAt && settings.InvitedTeamAt == nil {
 		settingsUpdates["invited_team_at"] = now
@@ -177,28 +125,25 @@ func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in
 	if in.SetConfiguredAt && settings.ConfiguredAt == nil {
 		settingsUpdates["configured_at"] = now
 	}
+	if in.SetChoseIDEAt && settings.ChoseIDEAt == nil {
+		settingsUpdates["chose_ide_at"] = now
+	}
 	if len(settingsUpdates) > 0 {
 		if err := tx.Model(&storage.TenantSettings{}).Where("id = ?", settings.ID).
 			Updates(settingsUpdates).Error; err != nil {
 			_ = commit()
-			return nil, nil, fmt.Errorf("tenant: update settings: %w", err)
+			return nil, fmt.Errorf("tenant: update settings: %w", err)
 		}
 	}
 
-	// Reload settings to get final state from a single source.
 	if err := tx.First(&settings).Error; err != nil {
 		_ = commit()
-		return nil, nil, fmt.Errorf("tenant: reload settings: %w", err)
+		return nil, fmt.Errorf("tenant: reload settings: %w", err)
 	}
 	if err := commit(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	// Mirror the freshly-written name/allowlist onto the caller's
-	// pointer so any downstream consumer sees the same state.
-	tenant.Name = refreshed.Name
-	tenant.DCRRedirectURIAllowlist = append([]string(nil), refreshed.DCRRedirectURIAllowlist...)
-	return &settings, append([]string(nil), refreshed.DCRRedirectURIAllowlist...), nil
+	return &settings, nil
 }
 
 // Delete soft-deletes the tenant and every owned row inside a single
@@ -213,8 +158,9 @@ func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in
 //  3. upstreams
 //  4. zitadel_apps
 //  5. users
-//  6. tenant_settings
-//  7. tenants                                  (last; FK from above)
+//  6. tenant_redirect_uri_allowlist
+//  7. tenant_settings
+//  8. tenants                                  (last; FK from above)
 //
 // We do not touch the Zitadel org — Limen does not own its lifecycle.
 func (s *Service) Delete(ctx context.Context, tenant *storage.Tenant, confirmationPublicID string) error {
@@ -257,6 +203,9 @@ func (s *Service) Delete(ctx context.Context, tenant *storage.Tenant, confirmati
 		},
 		func() error {
 			return tx.Where("tenant_id = ?", tenant.ID).Delete(&storage.User{}).Error
+		},
+		func() error {
+			return tx.Where("tenant_id = ?", tenant.ID).Delete(&storage.TenantRedirectURIAllowlist{}).Error
 		},
 		func() error {
 			return tx.Where("tenant_id = ?", tenant.ID).Delete(&storage.TenantSettings{}).Error

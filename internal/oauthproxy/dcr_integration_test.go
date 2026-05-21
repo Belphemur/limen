@@ -18,6 +18,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/storage/storagetest"
 	"github.com/belphemur/limen/internal/tenancy"
+	"github.com/belphemur/limen/internal/tenant"
 	"github.com/belphemur/limen/internal/zitadel"
 )
 
@@ -117,7 +118,8 @@ func mountDCR(t *testing.T, store *storage.Store, cfg oauthproxy.DCRConfig) (chi
 		cfg.BaseURL = "https://limen.test"
 	}
 	apps := &fakeZitadel{}
-	h, err := oauthproxy.NewDCRHandler(cfg, store, apps, zap.NewNop())
+	tenantSvc := tenant.NewService(store)
+	h, err := oauthproxy.NewDCRHandler(cfg, store, apps, tenantSvc, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewDCRHandler: %v", err)
 	}
