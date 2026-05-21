@@ -14,6 +14,7 @@
 //                                           may carry a human message.
 
 export const OAUTH_POPUP_MESSAGE_TYPE = "limen-upstream-oauth-result" as const;
+export const OAUTH_POPUP_BROADCAST_CHANNEL = "limen-upstream-oauth" as const;
 
 export interface OAuthPopupResultMessage {
   type: typeof OAUTH_POPUP_MESSAGE_TYPE;
@@ -80,16 +81,29 @@ export function openOAuthPopup(
   return new Promise<OAuthPopupResult>((resolve) => {
     let settled = false;
     const origin = window.location.origin;
+    // BroadcastChannel survives the popup having `window.opener`
+    // severed by cross-origin redirects; postMessage covers the
+    // happy path and older browsers without BroadcastChannel.
+    const channel =
+      typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(OAUTH_POPUP_BROADCAST_CHANNEL)
+        : null;
 
-    const onMessage = (ev: MessageEvent) => {
-      if (ev.origin !== origin) return;
-      const data = ev.data as Partial<OAuthPopupResultMessage> | undefined;
+    const handle = (data: Partial<OAuthPopupResultMessage> | undefined) => {
       if (!data || data.type !== OAUTH_POPUP_MESSAGE_TYPE) return;
       finish({
         ok: data.ok === true,
         error: data.error,
         errorDescription: data.errorDescription,
       });
+    };
+
+    const onMessage = (ev: MessageEvent) => {
+      if (ev.origin !== origin) return;
+      handle(ev.data as Partial<OAuthPopupResultMessage> | undefined);
+    };
+    const onChannel = (ev: MessageEvent) => {
+      handle(ev.data as Partial<OAuthPopupResultMessage> | undefined);
     };
 
     const poll = window.setInterval(() => {
@@ -108,6 +122,14 @@ export function openOAuthPopup(
       settled = true;
       window.clearInterval(poll);
       window.removeEventListener("message", onMessage);
+      if (channel) {
+        channel.removeEventListener("message", onChannel);
+        try {
+          channel.close();
+        } catch {
+          // Ignore — channel may already be closed.
+        }
+      }
       if (!opened.closed) {
         try {
           opened.close();
@@ -119,6 +141,7 @@ export function openOAuthPopup(
     }
 
     window.addEventListener("message", onMessage);
+    if (channel) channel.addEventListener("message", onChannel);
   });
 }
 
@@ -137,18 +160,29 @@ export function postOAuthPopupResultAndClose(): OAuthPopupResult {
       }
     : { ok: true };
 
+  const msg: OAuthPopupResultMessage = {
+    type: OAUTH_POPUP_MESSAGE_TYPE,
+    ok: result.ok,
+    error: result.error,
+    errorDescription: result.errorDescription,
+  };
   try {
     if (window.opener && !window.opener.closed) {
-      const msg: OAuthPopupResultMessage = {
-        type: OAUTH_POPUP_MESSAGE_TYPE,
-        ok: result.ok,
-        error: result.error,
-        errorDescription: result.errorDescription,
-      };
       window.opener.postMessage(msg, window.location.origin);
     }
   } catch {
-    // Ignore — opener may already be gone.
+    // Ignore — opener may already be gone or severed by COOP.
+  }
+  // BroadcastChannel is the reliable fallback when the popup
+  // navigated cross-origin and the browser severed `window.opener`.
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(OAUTH_POPUP_BROADCAST_CHANNEL);
+      ch.postMessage(msg);
+      ch.close();
+    }
+  } catch {
+    // Ignore — BroadcastChannel may be unavailable.
   }
   // Schedule close after the message has had a chance to flush.
   window.setTimeout(() => {
