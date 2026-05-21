@@ -81,9 +81,6 @@ export function openOAuthPopup(
   return new Promise<OAuthPopupResult>((resolve) => {
     let settled = false;
     const origin = window.location.origin;
-    // BroadcastChannel survives the popup having `window.opener`
-    // severed by cross-origin redirects; postMessage covers the
-    // happy path and older browsers without BroadcastChannel.
     const channel =
       typeof BroadcastChannel !== "undefined"
         ? new BroadcastChannel(OAUTH_POPUP_BROADCAST_CHANNEL)
@@ -171,10 +168,8 @@ export function postOAuthPopupResultAndClose(): OAuthPopupResult {
       window.opener.postMessage(msg, window.location.origin);
     }
   } catch {
-    // Ignore — opener may already be gone or severed by COOP.
+    // Ignore — cross-origin opener may reject postMessage.
   }
-  // BroadcastChannel is the reliable fallback when the popup
-  // navigated cross-origin and the browser severed `window.opener`.
   try {
     if (typeof BroadcastChannel !== "undefined") {
       const ch = new BroadcastChannel(OAUTH_POPUP_BROADCAST_CHANNEL);
@@ -182,7 +177,7 @@ export function postOAuthPopupResultAndClose(): OAuthPopupResult {
       ch.close();
     }
   } catch {
-    // Ignore — BroadcastChannel may be unavailable.
+    // Ignore — BroadcastChannel may be unavailable in some browsers.
   }
   // Schedule close after the message has had a chance to flush.
   window.setTimeout(() => {
