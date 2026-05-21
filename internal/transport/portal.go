@@ -3,8 +3,10 @@
 //
 // Layout:
 //
-//	GET  /auth/callback                          (root — tenant public id rides in signed state)
-//	GET  /auth/discovery                         (root — exposes the configured Zitadel issuer URL)
+//	  GET  /auth/callback                          (root — tenant public id rides in signed state)
+//	  GET  /auth/discovery                         (root — exposes the configured Zitadel issuer URL)
+//	  GET  /portal[/]                              (root — sends the browser to login, returns to /t/{tenant}/portal/)
+//	  GET  /admin[/]                               (root — sends the browser to login, returns to /t/{tenant}/admin/)
 //	/api/limen.signup.v1.SignupService/*         (root — tenant-agnostic SignupService)
 //	/t/{tenant}                                  (subrouter behind tenancy.RequireTenant; {tenant} is a tnt_<ULID> public id)
 //	  GET  /auth/login
@@ -20,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -81,6 +84,18 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 	// the root SPA shell without knowing their tenant slug. The
 	// callback resolves the tenant from the token's home-org claim.
 	r.Get("/auth/login", deps.OIDC.LoginHandler())
+	// Root-level SPA entry points. Hitting /portal or /admin without
+	// knowing your tenant slug funnels through /auth/login; the
+	// callback resolves the tenant from the Zitadel home-org claim and
+	// lands the browser at /t/{publicID}/portal/ (or /admin/). When an
+	// SSO session is already active at Zitadel the round trip is
+	// invisible to the user — prompt=none semantics.
+	portalEntry := rootAppRedirect("/portal/")
+	adminEntry := rootAppRedirect("/admin/")
+	r.Get("/portal", portalEntry)
+	r.Get("/portal/", portalEntry)
+	r.Get("/admin", adminEntry)
+	r.Get("/admin/", adminEntry)
 	if deps.OIDCIssuer != "" {
 		r.Get("/auth/discovery", DiscoveryHandler(deps.OIDCIssuer))
 	}
@@ -104,6 +119,17 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 			tr.Mount("/api", connectMountAdapter(deps.ConnectAPI))
 		}
 	})
+}
+
+// rootAppRedirect bounces the browser through /auth/login with the
+// given return_to so the OIDC callback lands them at
+// /t/{publicID}{returnTo} after the tenant is resolved from the user's
+// Zitadel home-org claim.
+func rootAppRedirect(returnTo string) http.HandlerFunc {
+	target := "/auth/login?return_to=" + url.QueryEscape(returnTo)
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target, http.StatusFound)
+	}
 }
 
 // connectMountAdapter rewrites r.URL.Path to the chi-tracked path
