@@ -20,7 +20,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ConnectError } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import { Loader2, Plus, Pencil, Trash2 } from '@lucide/vue'
+import { ChevronDown, Loader2, Plus, Pencil, Trash2 } from '@lucide/vue'
 import { ErrorModal, SuccessModal, validateRedirectURIPattern } from '@limen/shared'
 import { adminClient } from '@/transport/adminClient'
 import {
@@ -102,8 +102,6 @@ async function applyPreset(view: PresetView) {
             create(ApplyIDEPresetRequestSchema, { ideKey: view.preset.key }),
         )
         await reload()
-        successMessage.value = `${view.preset.displayName} preset applied.`
-        successOpen.value = true
     } catch (err) {
         showError(`Failed to apply ${view.preset.displayName}`, err)
     } finally {
@@ -118,8 +116,6 @@ async function removePreset(view: PresetView) {
             create(RemoveIDEPresetRequestSchema, { ideKey: view.preset.key }),
         )
         await reload()
-        successMessage.value = `${view.preset.displayName} preset removed.`
-        successOpen.value = true
     } catch (err) {
         showError(`Failed to remove ${view.preset.displayName}`, err)
     } finally {
@@ -246,6 +242,18 @@ async function deleteEntry(e: AllowlistEntry) {
                         <p class="mt-1 text-xs text-on-surface-variant">
                             {{ v.matched }} / {{ v.preset.patterns.length }} patterns active
                         </p>
+                        <details class="mt-2 group" :data-testid="`patterns-${v.preset.key}`">
+                            <summary class="flex cursor-pointer items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface select-none">
+                                <ChevronDown class="h-3 w-3 transition-transform group-open:rotate-180" />
+                                Show redirect URIs
+                            </summary>
+                            <ul class="mt-2 space-y-1 pl-4">
+                                <li v-for="pat in v.preset.patterns" :key="pat"
+                                    class="font-mono text-[11px] leading-tight text-on-surface-variant break-all">
+                                    {{ pat }}
+                                </li>
+                            </ul>
+                        </details>
                         <div class="mt-3 flex flex-wrap gap-2">
                             <button v-if="v.status !== 'active'" type="button"
                                 class="rounded bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary/90 disabled:opacity-50"

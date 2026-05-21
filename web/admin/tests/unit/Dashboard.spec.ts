@@ -139,7 +139,7 @@ describe('Dashboard', () => {
     const wrapper = await mountDashboard(adminAndPortalTransport([]))
     const cards = wrapper.findAll('[data-step]')
     expect(cards).toHaveLength(4)
-    expect(cards.map((c) => c.attributes('data-step'))).toEqual(['connect', 'invite', 'configure', 'ide'])
+    expect(cards.map((c) => c.attributes('data-step'))).toEqual(['connect', 'ide', 'invite', 'configure'])
     expect(wrapper.text()).toContain('Waiting for data')
   })
 

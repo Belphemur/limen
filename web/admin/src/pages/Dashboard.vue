@@ -69,9 +69,9 @@ const steps = computed<Step[]>(() => [
         (!u.requiresLink || u.linkState === LinkState.CONNECTED),
     ),
   },
+  { key: 'ide', done: settings.value.choseIde },
   { key: 'invite', done: settings.value.invitedTeam },
   { key: 'configure', done: settings.value.configured },
-  { key: 'ide', done: settings.value.choseIde },
 ])
 
 const completed = computed(() => steps.value.filter((s) => s.done).length)
@@ -140,6 +140,25 @@ async function skipIDEChoice() {
       <div class="flex flex-col gap-gutter">
         <TaskBentoCard
           variant="secondary"
+          :icon="Code2"
+          title="Choose Your IDE"
+          body="Pre-load the official redirect URIs for the AI IDE your users will connect from."
+          cta-label="Pick IDEs"
+          :done="isDone('ide')"
+          data-step="ide"
+          @activate="router.push(ROUTES.settings)"
+        />
+        <button
+          v-if="!isDone('ide')"
+          type="button"
+          class="self-start text-xs text-on-surface-variant underline hover:text-on-surface"
+          data-testid="ide-skip"
+          @click="skipIDEChoice"
+        >
+          Skip for now
+        </button>
+        <TaskBentoCard
+          variant="secondary"
           :icon="Users"
           title="Invite Your Team"
           body="Add collaborators to your organization to manage resources."
@@ -159,25 +178,6 @@ async function skipIDEChoice() {
           data-step="configure"
           @activate="router.push(ROUTES.settings)"
         />
-        <TaskBentoCard
-          variant="secondary"
-          :icon="Code2"
-          title="Choose Your IDE"
-          body="Pre-load the official redirect URIs for the AI IDE your users will connect from."
-          cta-label="Pick IDEs"
-          :done="isDone('ide')"
-          data-step="ide"
-          @activate="router.push(ROUTES.settings)"
-        />
-        <button
-          v-if="!isDone('ide')"
-          type="button"
-          class="self-start text-xs text-on-surface-variant underline hover:text-on-surface"
-          data-testid="ide-skip"
-          @click="skipIDEChoice"
-        >
-          Skip for now
-        </button>
       </div>
     </section>
 

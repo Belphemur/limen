@@ -115,7 +115,8 @@ func (s *Service) ListAllowlistPatterns(ctx context.Context, tenant *storage.Ten
 
 	var patterns []string
 	if err := tx.Model(&storage.TenantRedirectURIAllowlist{}).
-		Order("id ASC").
+		Distinct("pattern").
+		Order("pattern ASC").
 		Pluck("pattern", &patterns).Error; err != nil {
 		return nil, fmt.Errorf("tenant: list allowlist patterns: %w", err)
 	}
@@ -288,9 +289,15 @@ func (s *Service) ApplyIDEPreset(ctx context.Context, tenant *storage.Tenant, id
 		return ApplyPresetResult{}, ErrPresetEmpty
 	}
 
-	// Pull existing patterns so we can split into added vs. already-present.
+	// Pull existing patterns under THIS preset so we re-apply
+	// idempotently. Patterns owned by other presets (or by custom
+	// rows) don't block us: the partial unique index is keyed on
+	// (tenant_id, ide_key, pattern), so the same URI may legitimately
+	// appear under several IDEs (Claude Code / Windsurf / Kiro all
+	// declare http://localhost:*/callback).
 	var existing []string
 	if err := tx.Model(&storage.TenantRedirectURIAllowlist{}).
+		Where("ide_key = ?", preset.Key).
 		Pluck("pattern", &existing).Error; err != nil {
 		_ = commit()
 		return ApplyPresetResult{}, fmt.Errorf("tenant: load existing patterns: %w", err)
