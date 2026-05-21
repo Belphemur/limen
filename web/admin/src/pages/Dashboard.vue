@@ -2,8 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Server, Users, Cog, ArrowRight, ExternalLink } from '@lucide/vue'
-import { useSessionStore } from '@limen/shared/session'
-import { ConnectError, Code } from '@connectrpc/connect'
+import { fetchDiscovery, useSessionStore, zitadelConsoleUrl } from '@limen/shared'
 import { create } from '@bufbuild/protobuf'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import { UpdateTenantSettingsRequestSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
@@ -18,10 +17,8 @@ const router = useRouter()
 const session = useSessionStore()
 
 // Local mirror of the tenant-settings shape we actually render. The
-// generated admin TenantSettings carries protobuf Timestamp fields;
-// we only need the "was it ever set?" signal here, so we collapse
-// each timestamp to a boolean. Slice 3 will replace this with a real
-// GetTenantSettings RPC.
+// dashboard only needs the "was it ever set?" signal for each
+// onboarding timestamp.
 interface DashboardSettings {
   invitedTeam: boolean
   configured: boolean
@@ -29,22 +26,27 @@ interface DashboardSettings {
 
 const upstreams = ref<UpstreamSummary[]>([])
 const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
-
-function ignoreUnimplemented(err: unknown): void {
-  // Slice 1 ships every admin RPC as Unimplemented. Treat that as
-  // "no data yet" so the dashboard still renders. Anything else is
-  // a real error and should bubble.
-  if (err instanceof ConnectError && err.code === Code.Unimplemented) return
-  throw err
-}
+const zitadelOrgId = ref('')
+const issuer = ref('')
 
 onMounted(async () => {
   await Promise.all([
     session.refresh(),
     portalClient()
       .listUpstreams({})
-      .then((r) => (upstreams.value = r.upstreams))
-      .catch(ignoreUnimplemented),
+      .then((r) => (upstreams.value = r.upstreams)),
+    adminClient()
+      .getTenantSettings({})
+      .then((r) => {
+        settings.value = {
+          invitedTeam: (r.settings?.invitedTeamAt ?? '') !== '',
+          configured: (r.settings?.configuredAt ?? '') !== '',
+        }
+        zitadelOrgId.value = r.zitadelOrgId
+      }),
+    fetchDiscovery()
+      .then((d) => (issuer.value = d.zitadelIssuer))
+      .catch(() => (issuer.value = '')),
   ])
 })
 
@@ -75,20 +77,22 @@ const isDone = (key: Step['key']) => steps.value.find((s) => s.key === key)?.don
 const firstName = computed(() => session.user?.firstName ?? 'there')
 
 async function openZitadelConsole() {
-  // Optimistically tick the local "invited" flag so the step flips
-  // even when slice 3's UpdateTenantSettings backend is still
-  // Unimplemented. Once slice 3 lands the RPC response replaces this.
-  settings.value.invitedTeam = true
+  // The Console URL comes from /auth/discovery + the tenant's
+  // Zitadel org id; we never hard-code the issuer hostname.
+  const url = zitadelConsoleUrl(issuer.value, zitadelOrgId.value, 'users')
   try {
-    await adminClient().updateTenantSettings(
+    const resp = await adminClient().updateTenantSettings(
       create(UpdateTenantSettingsRequestSchema, { invitedTeamAtNow: true }),
     )
-  } catch (err) {
-    ignoreUnimplemented(err)
+    settings.value.invitedTeam = (resp.settings?.invitedTeamAt ?? '') !== ''
+  } catch {
+    // Best-effort tick; falling back to local flip keeps the bento
+    // responsive even if the RPC failed transiently.
+    settings.value.invitedTeam = true
   }
-  // TODO(phase-9c-slice-3): replace the hard-coded link with the
-  // Zitadel issuer returned by GET /auth/discovery.
-  window.open('https://zitadel.example/ui/console/users', '_blank', 'noopener,noreferrer')
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 }
 </script>
 

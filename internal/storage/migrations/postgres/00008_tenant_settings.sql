@@ -7,11 +7,18 @@
 -- This migration only owns the RLS posture + runtime grants, mirroring
 -- 00001_rls.sql one-for-one.
 ALTER TABLE tenant_settings ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE tenant_settings FORCE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS tenant_isolation ON tenant_settings;
-CREATE POLICY tenant_isolation ON tenant_settings
-    USING (tenant_id = current_setting('app.current_tenant', true)::bigint)
-    WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::bigint);
+
+CREATE POLICY tenant_isolation ON tenant_settings USING (
+    tenant_id = current_setting('app.current_tenant', true)::bigint
+)
+WITH
+    CHECK (
+        tenant_id = current_setting('app.current_tenant', true)::bigint
+    );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -28,5 +35,6 @@ $$;
 -- +goose StatementBegin
 DROP POLICY IF EXISTS tenant_isolation ON tenant_settings;
 ALTER TABLE IF EXISTS tenant_settings NO FORCE ROW LEVEL SECURITY;
+
 ALTER TABLE IF EXISTS tenant_settings DISABLE ROW LEVEL SECURITY;
 -- +goose StatementEnd

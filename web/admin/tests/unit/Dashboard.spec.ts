@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createRouterTransport, type Transport } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
 import { setSessionTransport, resetSessionTransport } from '@limen/shared/session'
+import { resetDiscoveryCache } from '@limen/shared'
 import {
   SessionService,
   GetSessionResponseSchema,
@@ -16,12 +17,27 @@ import {
   LinkState,
   type UpstreamSummary,
 } from '@/gen/limen/portal/v1/portal_pb.ts'
-import { AdminService } from '@/gen/limen/admin/v1/admin_pb.ts'
-import Dashboard from '@/pages/Dashboard.vue'
 import {
-  setAdminTransport,
-  resetAdminTransport,
-} from '@/transport/adminClient'
+  AdminService,
+  GetTenantSettingsResponseSchema,
+  TenantSettingsSchema,
+} from '@/gen/limen/admin/v1/admin_pb.ts'
+import Dashboard from '@/pages/Dashboard.vue'
+import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
+
+function stubDiscovery() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    if (url.includes('/auth/discovery')) {
+      return new Response(JSON.stringify({ zitadelIssuer: 'https://idp.example' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    throw new Error(`unexpected fetch in test: ${url}`)
+  })
+}
 
 function buildRouter(): Router {
   return createRouter({
@@ -72,10 +88,19 @@ function adminAndPortalTransport(upstreams: Partial<UpstreamSummary>[]): Transpo
           })),
         }),
     })
-    // AdminService methods stay unimplemented in slice 1; the router
-    // transport returns Unimplemented for unstubbed methods, which
-    // Dashboard's ignoreUnimplemented swallows.
-    service(AdminService, {})
+    service(AdminService, {
+      getTenantSettings: () =>
+        create(GetTenantSettingsResponseSchema, {
+          settings: create(TenantSettingsSchema, {
+            name: 'Acme',
+            publicId: 'tnt_t',
+            invitedTeamAt: '',
+            configuredAt: '',
+          }),
+          dcrRedirectUriAllowlist: [],
+          zitadelOrgId: 'z-org',
+        }),
+    })
   })
 }
 
@@ -95,9 +120,12 @@ describe('Dashboard', () => {
     setActivePinia(createPinia())
     resetAdminTransport()
     resetSessionTransport()
+    resetDiscoveryCache()
+    stubDiscovery()
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     resetSessionTransport()
     resetAdminTransport()
   })
