@@ -7,15 +7,21 @@ package main
 // and MCP RS (API) apps, the project roles (member/admin/owner/super_admin),
 // a sample tenant org, and the staff org with a super_admin user. The
 // Zitadel instance default organization is intentionally left untouched so
-// it stays clean. All work is done through the official zitadel-go/v3 SDK
-// using v2 services exclusively — no v1 management endpoints, no
-// hand-rolled HTTP.
+// it stays clean. All work is done through the official zitadel-go/v3 SDK,
+// preferring v2 services. The only v1 endpoint we touch is
+// ManagementService.AddOrgMember — see the "API surface" note below.
 //
 // Connection topology (dev):
 //   - gRPC dial address: zitadel-api:8080 (internal docker DNS)
 //   - gRPC :authority   : localhost (Zitadel rejects mismatched hosts)
 //   - Issuer / Origin   : http://localhost:8081 (only used by JWT-profile
 //     auth, not by PAT — irrelevant here)
+//
+// API surface: v2 services exclusively for everything Zitadel has shipped
+// in v2. The single exception is ManagementService.AddOrgMember (v1) —
+// Zitadel has not migrated org-member CRUD to v2 yet, and Console deep-
+// links from Limen require the seed user to be ORG_OWNER to self-serve
+// invites / roles / IdP / branding from `<issuer>/ui/console`.
 
 import (
 	"context"
@@ -29,6 +35,7 @@ import (
 	applicationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
 	authorizationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authorization/v2"
 	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	projectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
@@ -36,6 +43,7 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -420,6 +428,25 @@ func (b *bootstrap) ensureProjectGrant(ctx context.Context, projectID, grantedOr
 	return nil
 }
 
+// ensureOrgOwnerMembership makes userID an ORG_OWNER of orgID via the
+// v1 ManagementService.AddOrgMember RPC. Zitadel has not exposed
+// org-member CRUD on the v2 surface yet; the org context is selected by
+// the x-zitadel-orgid header rather than a request field. ORG_OWNER is
+// the Zitadel-side role that lets the user self-serve invites, role
+// changes, IdP federation, and branding from `<issuer>/ui/console` —
+// the deep-link targets the admin SPA renders.
+func (b *bootstrap) ensureOrgOwnerMembership(ctx context.Context, orgID, userID string) error {
+	ctx = metadata.AppendToOutgoingContext(ctx, zsdk.OrgHeader, orgID)
+	_, err := b.api.ManagementService().AddOrgMember(ctx, &management.AddOrgMemberRequest{
+		UserId: userID,
+		Roles:  []string{"ORG_OWNER"},
+	})
+	if err != nil && !alreadyExists(err) {
+		return fmt.Errorf("add ORG_OWNER membership (user=%s org=%s): %w", userID, orgID, err)
+	}
+	return nil
+}
+
 func ptr[T any](v T) *T { return &v }
 
 func main() {
@@ -538,6 +565,14 @@ func main() {
 		log.Fatalf("ensure sample owner authorization: %v", err)
 	}
 	log.Printf("granted owner to %s in sample org", sampleOwnerEmail)
+
+	// ORG_OWNER (Zitadel side) lets the seed user self-serve invites,
+	// roles, IdP federation, and branding from Console — the surface
+	// the admin SPA's Members page deep-links into.
+	if err := b.ensureOrgOwnerMembership(ctx, orgID, sampleOwnerUserID); err != nil {
+		log.Fatalf("ensure sample owner ORG_OWNER membership: %v", err)
+	}
+	log.Printf("granted ORG_OWNER to %s in sample org", sampleOwnerEmail)
 
 	// Staff (operator) org — see docs/phases/phase-12-staff-backoffice.md.
 	staffOrgName := getenvDefault("LIMEN_STAFF_ORG_NAME", "limen-staff")
