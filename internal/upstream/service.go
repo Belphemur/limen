@@ -105,7 +105,7 @@ func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *
 	if err != nil {
 		return err
 	}
-	if err := tx.Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", tenant.ID, user.ID, up.ID).
+	if err := tx.Where("user_id = ? AND upstream_id = ?", user.ID, up.ID).
 		Delete(&storage.UpstreamLink{}).Error; err != nil {
 		_ = commit()
 		return fmt.Errorf("upstream: delete link: %w", err)
@@ -131,7 +131,7 @@ func (s *Service) ListUpstreams(ctx context.Context, tenantID int64) ([]storage.
 	defer func() { _ = commit() }()
 
 	var ups []storage.Upstream
-	if err := tx.Where("tenant_id = ?", tenantID).Order("identifier ASC").Find(&ups).Error; err != nil {
+	if err := tx.Order("identifier ASC").Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("upstream: list: %w", err)
 	}
 	return ups, nil
@@ -196,7 +196,7 @@ func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier s
 	defer func() { _ = commit() }()
 
 	var up storage.Upstream
-	if err := tx.Where("tenant_id = ? AND identifier = ?", tenantID, identifier).First(&up).Error; err != nil {
+	if err := tx.Where("identifier = ?", identifier).First(&up).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUpstreamNotFound
 		}
@@ -214,7 +214,7 @@ func (s *Service) loadLink(ctx context.Context, tenantID, userID, upstreamID int
 
 	var link storage.UpstreamLink
 	if err := tx.Preload("User").
-		Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", tenantID, userID, upstreamID).
+		Where("user_id = ? AND upstream_id = ?", userID, upstreamID).
 		First(&link).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrLinkNotFound

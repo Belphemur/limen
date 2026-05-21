@@ -47,6 +47,30 @@ defer commit() // idempotent
 | `WithSuperuser` | Cross-tenant refreshers and admin migrations. Routes to the admin pool and skips the tenant pin.    |
 | `Unscoped()`    | Hard deletes / restoring soft-deleted rows. Always pair with audit logging. Inside a tenant `Session`, RLS still filters — `Unscoped` only disables GORM's soft-delete clause. |
 
+## Do not filter by `tenant_id` in `WHERE`
+
+Once `Session(ctx)` has pinned `app.current_tenant`, the RLS policy on
+every tenant-scoped table rewrites your query for you. **Writing
+`tenant_id = ?` explicitly is redundant and discouraged**:
+
+- It adds no safety — the GUC is the real fence; without it the policy
+  matches zero rows (fail-closed).
+- It hides the few queries that legitimately bypass RLS via
+  `WithSuperuser`, where the explicit filter is **mandatory** (the
+  admin pool has `BYPASSRLS`).
+- It encourages cargo-culting the pattern into superuser code paths
+  where you might forget the filter and silently leak across tenants.
+
+| Context                            | `WHERE tenant_id = ?` …          |
+| ---------------------------------- | -------------------------------- |
+| `Session(WithTenant(ctx, id))`     | omit — RLS handles it            |
+| `Session(WithSuperuser(ctx))`      | **required** on every statement  |
+| `Session(ctx)` (no marker)         | n/a — returns `ErrNoTenant`      |
+
+Inserts and upserts on RLS-scoped tables still need `tenant_id`
+populated on the row — the policy's `WITH CHECK` rejects mismatches and
+`NULL`.
+
 ## Models — invariants
 
 - Every model embeds `Base` (`ID`, `PublicID`, `CreatedAt`, `UpdatedAt`,

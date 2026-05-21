@@ -229,9 +229,9 @@ func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkCont
 	if err != nil {
 		return fmt.Errorf("statichdr: open session: %w", err)
 	}
-	// Upsert: one link per (tenant, user, upstream).
+	// Upsert: one link per (tenant, user, upstream); tenant scoped by RLS.
 	var existing storage.UpstreamLink
-	err = tx.Where("tenant_id = ? AND user_id = ? AND upstream_id = ?", lctx.Tenant.ID, lctx.User.ID, lctx.Upstream.ID).
+	err = tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
 		First(&existing).Error
 	if err != nil {
 		// Create new link.

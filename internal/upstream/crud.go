@@ -95,7 +95,7 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 		return nil, fmt.Errorf("upstream: open session: %w", err)
 	}
 	var existing storage.Upstream
-	err = tx.Where("tenant_id = ? AND identifier = ?", tenant.ID, identifier).First(&existing).Error
+	err = tx.Where("identifier = ?", identifier).First(&existing).Error
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		// continue
@@ -264,7 +264,7 @@ func (s *Service) loadUpstreamByPublicID(ctx context.Context, tenantID int64, pu
 	defer func() { _ = commit() }()
 
 	var up storage.Upstream
-	if err := tx.Where("tenant_id = ? AND public_id = ?", tenantID, publicID).First(&up).Error; err != nil {
+	if err := tx.Where("public_id = ?", publicID).First(&up).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUpstreamNotFound
 		}
@@ -285,7 +285,7 @@ func (s *Service) loadUserByPublicID(ctx context.Context, tenantID int64, public
 	defer func() { _ = commit() }()
 
 	var u storage.User
-	if err := tx.Where("tenant_id = ? AND public_id = ?", tenantID, publicID).First(&u).Error; err != nil {
+	if err := tx.Where("public_id = ?", publicID).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}

@@ -51,6 +51,71 @@ codemode:
 
 When the timeout fires, the Goja runtime raises an interrupt that immediately halts script execution. The gateway returns an error to the client -- the loop never completes.
 
+## Tenant Isolation (Row-Level Security)
+
+Every tenant-scoped table (`users`, `upstreams`, `upstream_strategy_configs`,
+`upstream_registrations`, `upstream_links`, `upstream_tools`, `zitadel_apps`,
+`tenant_settings`) carries `FORCE ROW LEVEL SECURITY` with a single policy:
+
+```sql
+USING      (tenant_id = current_setting('app.current_tenant', true)::bigint)
+WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::bigint)
+```
+
+The GUC is set once per transaction by `storage.Session(ctx)`:
+
+```go
+SELECT set_config('app.current_tenant', <tenantID>, true);
+```
+
+### What this means for application code
+
+| Path                              | Pool         | Tenant pin?         | Must filter by `tenant_id` in `WHERE`? |
+| --------------------------------- | ------------ | ------------------- | -------------------------------------- |
+| `Session(WithTenant(ctx, id))`    | `limen_app`  | yes (`SET LOCAL`)   | **No.** RLS rewrites every query.      |
+| `Session(WithSuperuser(ctx))`     | `limen_admin` (`BYPASSRLS`) | none | **Yes — required.** Without an explicit predicate the query touches every tenant. |
+| `Session(ctx)` with no marker     | —            | —                   | Returns `ErrNoTenant`; fail-closed.    |
+
+The default app role `limen_app` has **no `BYPASSRLS`** privilege. An
+unset GUC makes the policy predicate `tenant_id = NULL::bigint` (the
+`true` second arg to `current_setting` is the NULL-safe form), which
+matches zero rows — so a forgotten tenant pin fails closed.
+
+### Rule of thumb
+
+- **Never** sprinkle `WHERE tenant_id = ?` into queries that run under
+  `WithTenant(ctx, …)`. It's redundant with RLS, gives a false sense of
+  safety (the GUC is the real fence), and obscures the few places that
+  legitimately bypass RLS.
+- **Always** include `tenant_id` (and the right column predicates) on
+  queries that run under `WithSuperuser(ctx)`. The bypass is purely a
+  transactional convenience for cross-tenant work; without an explicit
+  filter you will read or wipe other tenants' rows.
+
+The canonical superuser users in tree today are:
+
+- `internal/tenant/service.go` — `Delete()` cascade across every
+  tenant-owned table.
+- `internal/transport/portal.go` — `upsertPortalUser()` during the OIDC
+  callback (the tenant pin from the URL has been validated, but the
+  callback runs before the user-row exists, so we route through the
+  admin pool by convention).
+- `internal/tenancy/resolver.go` — `Resolve()` / `ResolveByZitadelOrg()`
+  read the non-RLS `tenants` table.
+- `internal/cli/create_tenant.go` — bootstrap.
+- `internal/upstream/health.go`, `internal/upstream/mcpspec/refresh.go`
+  — cross-tenant background refreshers.
+
+Inserts on RLS-scoped tables must still populate `tenant_id` on the row
+itself — the `WITH CHECK` clause rejects mismatched or `NULL` values.
+
+### What is NOT RLS-protected
+
+The `tenants` table is intentionally **not** under RLS — the resolver
+needs to look up a tenant by `public_id` before any tenant is bound to
+ctx. Queries against `tenants` always run on the admin pool and key off
+`id` or `public_id`, never `tenant_id`.
+
 ## Authentication
 
 Limen validates inbound MCP requests as a standards-compliant OAuth 2.0

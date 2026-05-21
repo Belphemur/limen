@@ -154,9 +154,9 @@ func hasCatalogIndexerRole(claims *oidc.IDTokenClaims) bool {
 	return false
 }
 
-// loadUserBySubject reads the local User row by (tenant_id, zitadel_subject).
-// Runs on the tenant-scoped pool; RLS guards us if the middleware chain
-// is misconfigured.
+// loadUserBySubject reads the local User row by zitadel_subject within
+// the tenant pinned on ctx. Runs on the tenant-scoped pool; RLS scopes
+// the SELECT to the current tenant via app.current_tenant.
 func loadUserBySubject(ctx context.Context, store *storage.Store, tenantID int64, sub string) (*storage.User, error) {
 	if sub == "" {
 		return nil, errors.New("upstream callback: empty zitadel subject")
@@ -168,7 +168,7 @@ func loadUserBySubject(ctx context.Context, store *storage.Store, tenantID int64
 	defer func() { _ = commit() }()
 
 	var u storage.User
-	if err := tx.Where("tenant_id = ? AND zitadel_subject = ?", tenantID, sub).First(&u).Error; err != nil {
+	if err := tx.Where("zitadel_subject = ?", sub).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("upstream callback: user not found")
 		}

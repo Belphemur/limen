@@ -167,7 +167,7 @@ func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in
 
 	settingsUpdates := map[string]any{}
 	var settings storage.TenantSettings
-	if err := tx.Where("tenant_id = ?", tenant.ID).First(&settings).Error; err != nil {
+	if err := tx.First(&settings).Error; err != nil {
 		_ = commit()
 		return nil, nil, fmt.Errorf("tenant: load settings: %w", err)
 	}
@@ -186,7 +186,7 @@ func (s *Service) UpdateSettings(ctx context.Context, tenant *storage.Tenant, in
 	}
 
 	// Reload settings to get final state from a single source.
-	if err := tx.Where("tenant_id = ?", tenant.ID).First(&settings).Error; err != nil {
+	if err := tx.First(&settings).Error; err != nil {
 		_ = commit()
 		return nil, nil, fmt.Errorf("tenant: reload settings: %w", err)
 	}
@@ -275,15 +275,16 @@ func (s *Service) Delete(ctx context.Context, tenant *storage.Tenant, confirmati
 }
 
 // loadOrCreateSettings returns the tenant_settings row, creating an
-// empty row on first read. Uses the tenant-scoped pool so RLS gives
-// belt-and-braces isolation alongside the explicit tenant_id filter.
+// empty row on first read. Uses the tenant-scoped pool; RLS on
+// tenant_settings scopes the SELECT to the current tenant via the
+// app.current_tenant GUC, so no explicit tenant_id predicate is needed.
 func (s *Service) loadOrCreateSettings(ctx context.Context, tenantID int64) (*storage.TenantSettings, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
 		return nil, err
 	}
 	var row storage.TenantSettings
-	err = tx.Where("tenant_id = ?", tenantID).First(&row).Error
+	err = tx.First(&row).Error
 	if err == nil {
 		if cErr := commit(); cErr != nil {
 			return nil, cErr

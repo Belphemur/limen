@@ -237,6 +237,14 @@ go test -race ./...                 # race detector — run before pushing
 - **Secrets:** Config uses `${ENV_VAR}` substitution for secrets. Never commit real tokens to the repo.
 - **Auth middleware:** JWT/JWKS validation is currently stubbed — implement before production use.
 - **Config files:** Treat config as sensitive. Use `.gitignore` for any config with embedded secrets.
+- **Tenant isolation is RLS, not `WHERE`.** `storage.Session(ctx)` pins
+  `app.current_tenant` and Postgres rewrites every query against
+  tenant-scoped tables. Do **not** add `WHERE tenant_id = ?` to queries
+  on the app pool — it's redundant and obscures the few queries that
+  legitimately bypass RLS via `storage.WithSuperuser(ctx)`, where an
+  explicit `tenant_id` predicate is **mandatory**. See
+  [docs/security.md](docs/security.md#tenant-isolation-row-level-security)
+  and [internal/storage/AGENTS.md](internal/storage/AGENTS.md).
 
 ## Pull Requests & Commits
 

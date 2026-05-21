@@ -190,12 +190,13 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 }
 
 func (m *MCPAuth) lookupUser(ctx context.Context, tenantID int64, subject string) (*storage.User, error) {
+	_ = tenantID // tenant pinned on ctx by tenancy middleware; RLS scopes the SELECT.
 	tx, commit, err := m.store.Session(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var u storage.User
-	qerr := tx.Where("tenant_id = ? AND zitadel_subject = ?", tenantID, subject).First(&u).Error
+	qerr := tx.Where("zitadel_subject = ?", subject).First(&u).Error
 	if cerr := commit(); cerr != nil && qerr == nil {
 		return nil, cerr
 	}

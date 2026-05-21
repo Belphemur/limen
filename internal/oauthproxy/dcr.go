@@ -506,12 +506,13 @@ func (h *DCRHandler) softDelete(ctx context.Context, row *storage.ZitadelApp) er
 }
 
 func (h *DCRHandler) loadByClientID(ctx context.Context, tenantID int64, clientID string) (*storage.ZitadelApp, error) {
+	_ = tenantID // tenant pinned on ctx by tenancy middleware; RLS scopes the SELECT
 	tx, commit, err := h.store.Session(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var row storage.ZitadelApp
-	err = tx.Where("tenant_id = ? AND client_id = ?", tenantID, clientID).First(&row).Error
+	err = tx.Where("client_id = ?", clientID).First(&row).Error
 	commitErr := commit()
 	if err != nil {
 		return nil, err

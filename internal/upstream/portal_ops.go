@@ -72,7 +72,7 @@ func (s *Service) LoadUserBySubject(ctx context.Context, tenantID int64, subject
 	defer func() { _ = commit() }()
 
 	var u storage.User
-	if err := tx.Where("tenant_id = ? AND zitadel_subject = ?", tenantID, subject).First(&u).Error; err != nil {
+	if err := tx.Where("zitadel_subject = ?", subject).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("upstream: user not found")
 		}
@@ -92,7 +92,7 @@ func (s *Service) loadToolCatalog(ctx context.Context, tenantID, upstreamID int6
 	defer func() { _ = commit() }()
 
 	var rows []storage.UpstreamTool
-	if err := tx.Where("tenant_id = ? AND upstream_id = ?", tenantID, upstreamID).
+	if err := tx.Where("upstream_id = ?", upstreamID).
 		Order("name ASC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("upstream: load tool catalog: %w", err)

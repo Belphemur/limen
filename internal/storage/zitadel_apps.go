@@ -14,18 +14,17 @@ import (
 var ErrZitadelAppNotFound = errors.New("storage: zitadel_app not found")
 
 // ListZitadelAppsByTenant returns all live (non-soft-deleted) MCP client
-// rows for the tenant pinned on ctx (via WithTenant). RLS enforces
-// isolation in addition to the explicit tenant_id filter — both layers
-// are intentional: belt-and-braces against any future bug that loses
-// the GUC mid-tx.
+// rows for the tenant pinned on ctx (via WithTenant). Tenant isolation
+// is enforced by the RLS policy on zitadel_apps via the app.current_tenant
+// GUC set by Session(ctx); no explicit tenant_id predicate is needed.
 func (s *Store) ListZitadelAppsByTenant(ctx context.Context, tenantID int64) ([]*ZitadelApp, error) {
+	_ = tenantID // tenant is pinned on ctx by Session; RLS enforces isolation.
 	tx, commit, err := s.Session(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open session: %w", err)
 	}
 	var rows []*ZitadelApp
-	if err := tx.Where("tenant_id = ?", tenantID).
-		Order("created_at ASC").
+	if err := tx.Order("created_at ASC").
 		Find(&rows).Error; err != nil {
 		_ = commit()
 		return nil, fmt.Errorf("storage: list zitadel_apps: %w", err)
@@ -44,8 +43,9 @@ func (s *Store) LoadZitadelAppByPublicID(ctx context.Context, tenantID int64, pu
 	if err != nil {
 		return nil, fmt.Errorf("storage: open session: %w", err)
 	}
+	_ = tenantID // tenant pinned on ctx; RLS scopes the SELECT
 	var row ZitadelApp
-	if err := tx.Where("tenant_id = ? AND public_id = ?", tenantID, publicID).
+	if err := tx.Where("public_id = ?", publicID).
 		First(&row).Error; err != nil {
 		_ = commit()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -67,7 +67,8 @@ func (s *Store) SoftDeleteZitadelApp(ctx context.Context, tenantID int64, public
 	if err != nil {
 		return fmt.Errorf("storage: open session: %w", err)
 	}
-	res := tx.Where("tenant_id = ? AND public_id = ?", tenantID, publicID).
+	_ = tenantID // tenant pinned on ctx; RLS scopes the DELETE
+	res := tx.Where("public_id = ?", publicID).
 		Delete(&ZitadelApp{})
 	if res.Error != nil {
 		_ = commit()

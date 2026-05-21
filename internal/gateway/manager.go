@@ -120,9 +120,9 @@ func (m *Manager) ToolsForUser(ctx context.Context) ([]ToolEntry, error) {
 	}
 	defer func() { _ = commit() }()
 
-	// Load every upstream for the tenant.
+	// Load every upstream for the tenant. RLS scopes by app.current_tenant.
 	var ups []storage.Upstream
-	if err := tx.Where("tenant_id = ? AND deleted_at IS NULL", tenant.ID).
+	if err := tx.Where("deleted_at IS NULL").
 		Order("identifier ASC").
 		Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("gateway: tools: list upstreams: %w", err)
@@ -231,7 +231,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 	defer func() { _ = commit() }()
 
 	var ups []storage.Upstream
-	if err := tx.Where("tenant_id = ? AND deleted_at IS NULL", tenant.ID).
+	if err := tx.Where("deleted_at IS NULL").
 		Order("identifier ASC").
 		Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("gateway: upstreams: list: %w", err)

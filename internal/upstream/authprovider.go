@@ -178,8 +178,8 @@ func (p *DBAuthProvider) loadLink(ctx context.Context, userID int64) (*storage.U
 	link.AccessToken.SetAAD(tenantStr, userStr, "upstream.access_token")
 	link.RefreshToken.SetAAD(tenantStr, userStr, "upstream.refresh_token")
 	link.ExtraJSON.SetAAD(tenantStr, userStr, "upstream.extra")
-	err = tx.Where("tenant_id = ? AND user_id = ? AND upstream_id = ?",
-		p.tenant.ID, userID, p.upstream.ID).First(&link).Error
+	err = tx.Where("user_id = ? AND upstream_id = ?",
+		userID, p.upstream.ID).First(&link).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrLinkNotFound
