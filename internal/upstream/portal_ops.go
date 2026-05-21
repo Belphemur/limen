@@ -93,7 +93,7 @@ func (s *Service) loadToolCatalog(ctx context.Context, tenantID, upstreamID int6
 
 	var rows []storage.UpstreamTool
 	if err := tx.Where("tenant_id = ? AND upstream_id = ?", tenantID, upstreamID).
-		Order("identifier ASC").
+		Order("name ASC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("upstream: load tool catalog: %w", err)
 	}
