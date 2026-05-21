@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, Cog, Code2, ArrowRight, ExternalLink } from '@lucide/vue'
+import { Server, Users, Cog, Code2, ArrowRight, ExternalLink, Copy, Share2 } from '@lucide/vue'
 import { fetchDiscovery, useSessionStore, zitadelConsoleUrl } from '@limen/shared'
+import { tenantPrefix } from '@limen/shared/session'
 import { create } from '@bufbuild/protobuf'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -80,6 +81,21 @@ const allDone = computed(() => total.value > 0 && completed.value === total.valu
 const isDone = (key: Step['key']) => steps.value.find((s) => s.key === key)?.done ?? false
 
 const firstName = computed(() => session.user?.firstName ?? 'there')
+
+const portalUrl = computed(() => {
+  const prefix = tenantPrefix() ?? ''
+  return `${window.location.origin}${prefix}/portal/`
+})
+const portalCopied = ref(false)
+async function copyPortalUrl() {
+  try {
+    await navigator.clipboard.writeText(portalUrl.value)
+    portalCopied.value = true
+    setTimeout(() => (portalCopied.value = false), 2000)
+  } catch {
+    portalCopied.value = false
+  }
+}
 
 async function openZitadelConsole() {
   const url = zitadelConsoleUrl(issuer.value, zitadelOrgId.value, 'users')
@@ -190,6 +206,49 @@ async function openSettings() {
         data-step="configure"
         @activate="openSettings"
       />
+    </section>
+
+    <!-- Portal URL share card: visible once the first MCP server is
+         connected, since that's the point at which sharing the
+         portal with end-users becomes useful. -->
+    <section
+      v-if="isDone('connect')"
+      class="rounded-xl border border-outline-variant bg-surface-container-lowest p-5"
+      data-testid="dashboard-portal-share"
+    >
+      <div class="flex items-start gap-3">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Share2 :size="18" aria-hidden="true" />
+        </span>
+        <div class="min-w-0 flex-1 space-y-2">
+          <div>
+            <h2 class="text-base font-semibold text-on-surface">Share with your team</h2>
+            <p class="mt-0.5 text-sm text-on-surface-variant">
+              Send this portal URL to your users. They sign in there to link their
+              personal upstream accounts so the gateway can forward tool calls on
+              their behalf.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a
+              :href="portalUrl"
+              target="_blank"
+              rel="noopener"
+              class="flex-1 truncate rounded border border-outline-variant bg-surface-variant px-3 py-2 font-mono text-sm text-primary underline decoration-dotted underline-offset-2 hover:text-primary-container"
+              data-testid="dashboard-portal-url"
+            >{{ portalUrl }}</a>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-variant"
+              data-testid="dashboard-portal-copy"
+              @click="copyPortalUrl"
+            >
+              <Copy :size="14" aria-hidden="true" />
+              {{ portalCopied ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Bottom row -->
