@@ -77,22 +77,12 @@ function onInput(e: Event) {
 
 <template>
   <div class="space-y-1">
-    <textarea
-      :value="modelValue"
-      :rows="rows ?? 6"
-      :placeholder="placeholder ?? '{\n  &quot;cloudId&quot;: &quot;&quot;\n}'"
-      :disabled="disabled"
-      spellcheck="false"
+    <textarea :value="modelValue" :rows="rows ?? 6"
+      :placeholder="placeholder ?? '{\n  &quot;cloudId&quot;: &quot;&quot;\n}'" :disabled="disabled" spellcheck="false"
       class="block w-full rounded-md border bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-      :class="state.ok ? 'border-outline-variant' : 'border-error'"
-      data-testid="context-json-editor"
-      @input="onInput"
-    />
-    <p
-      class="text-xs"
-      :class="state.ok ? 'text-on-surface-variant' : 'text-error'"
-      data-testid="context-json-status"
-    >
+      :class="state.ok ? 'border-outline-variant' : 'border-error'" data-testid="context-json-editor"
+      @input="onInput" />
+    <p class="text-xs" :class="state.ok ? 'text-on-surface-variant' : 'text-error'" data-testid="context-json-status">
       {{ state.message }}
     </p>
     <p v-if="caption" class="text-xs text-on-surface-variant">{{ caption }}</p>

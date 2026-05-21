@@ -70,7 +70,7 @@ describe('McpServerNew', () => {
       transport(captured as { req?: unknown }),
     )
 
-    await wrapper.get('[data-testid="field-name"]').setValue('demo')
+    await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
     await wrapper.get('[data-testid="field-mcp-url"]').setValue('https://example.com/mcp')
     await wrapper.get('[data-testid="upstream-new-form"]').trigger('submit.prevent')
     await flushPromises()
@@ -91,7 +91,7 @@ describe('McpServerNew', () => {
 
   it('disables submit when the JSON editor is invalid', async () => {
     const { wrapper } = await mountPage(transport({}))
-    await wrapper.get('[data-testid="field-name"]').setValue('demo')
+    await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
     await wrapper.get('[data-testid="field-mcp-url"]').setValue('https://example.com/mcp')
     await wrapper.get('[data-testid="context-json-editor"]').setValue('{bad')
     await flushPromises()

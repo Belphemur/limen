@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
@@ -20,6 +22,23 @@ import (
 	"github.com/belphemur/limen/internal/upstream/none"
 	"github.com/belphemur/limen/internal/upstream/statichdr"
 )
+
+// fakeMCPURL starts an httptest server speaking the MCP streamable
+// HTTP transport with a single `echo` tool. Callers get the base URL
+// suitable for `mcp_url`. The server is torn down on test cleanup.
+func fakeMCPURL(t *testing.T) string {
+	t.Helper()
+	srv := mcpserver.NewMCPServer("fake", "0.0.1", mcpserver.WithToolCapabilities(true))
+	srv.AddTool(
+		mcp.NewTool("echo", mcp.WithDescription("echoes args")),
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText("ok"), nil
+		},
+	)
+	httpSrv := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv, mcpserver.WithStateLess(true)))
+	t.Cleanup(httpSrv.Close)
+	return httpSrv.URL
+}
 
 func newAdminCipher(t *testing.T) *crypto.Cipher {
 	t.Helper()
@@ -86,10 +105,11 @@ func TestAdmin_CreateUpstream_Succeeds(t *testing.T) {
 		t.Skip("requires postgres")
 	}
 	c, _, _ := mountReal(t, []string{"admin"})
+	mcpURL := fakeMCPURL(t)
 	resp, err := c.CreateUpstream(context.Background(), connect.NewRequest(&adminv1.CreateUpstreamRequest{
 		Name:         "u1",
 		DisplayName:  "U1",
-		McpUrl:       "https://example.com/mcp",
+		McpUrl:       mcpURL,
 		StrategyType: string(upstream.StrategyNone),
 	}))
 	if err != nil {
@@ -110,7 +130,7 @@ func TestAdmin_CreateUpstream_DuplicateName_AlreadyExists(t *testing.T) {
 	c, _, _ := mountReal(t, []string{"admin"})
 	req := &adminv1.CreateUpstreamRequest{
 		Name:         "dup",
-		McpUrl:       "https://example.com/mcp",
+		McpUrl:       fakeMCPURL(t),
 		StrategyType: string(upstream.StrategyNone),
 	}
 	if _, err := c.CreateUpstream(context.Background(), connect.NewRequest(req)); err != nil {
@@ -169,7 +189,7 @@ func TestAdmin_UpdateUpstream_Patches(t *testing.T) {
 	created, err := c.CreateUpstream(context.Background(), connect.NewRequest(&adminv1.CreateUpstreamRequest{
 		Name:         "u2",
 		DisplayName:  "Old",
-		McpUrl:       "https://example.com/mcp",
+		McpUrl:       fakeMCPURL(t),
 		StrategyType: string(upstream.StrategyNone),
 	}))
 	if err != nil {
@@ -216,6 +236,51 @@ func TestAdmin_ReindexCatalog_UnknownUpstream_NotFound(t *testing.T) {
 	}
 	if got := connect.CodeOf(err); got != connect.CodeNotFound {
 		t.Fatalf("code = %v, want NotFound", got)
+	}
+}
+
+func TestAdmin_CreateUpstream_UnreachableUpstream_RollsBack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires postgres")
+	}
+	c, _, _ := mountReal(t, []string{"admin"})
+	// Stand up a server that closes the connection on every request —
+	// IndexUpstream will fail and CreateUpstream must roll the row back.
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}))
+	t.Cleanup(bad.Close)
+
+	req := &adminv1.CreateUpstreamRequest{
+		Name:         "rollback",
+		McpUrl:       bad.URL,
+		StrategyType: string(upstream.StrategyNone),
+	}
+	_, err := c.CreateUpstream(context.Background(), connect.NewRequest(req))
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition", got)
+	}
+
+	// The row must have been rolled back: re-creating the same name
+	// against a working URL should now succeed (no AlreadyExists).
+	req2 := &adminv1.CreateUpstreamRequest{
+		Name:         "rollback",
+		McpUrl:       fakeMCPURL(t),
+		StrategyType: string(upstream.StrategyNone),
+	}
+	if _, err := c.CreateUpstream(context.Background(), connect.NewRequest(req2)); err != nil {
+		t.Fatalf("re-create after rollback: %v", err)
 	}
 }
 

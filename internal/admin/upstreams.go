@@ -54,11 +54,18 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 
 	// Tenant-mode strategies (`none`, `static_header` tenant-mode)
 	// have their tool catalog populated inline; per-user strategies
-	// will be indexed by the first admin/owner that links.
+	// will be indexed by the first admin/owner that links. A
+	// provision failure here means we could not reach the upstream
+	// (or the strategy rejected the supplied config) — roll the row
+	// back so the admin's next attempt sees a clean slate.
 	if provErr := s.upstream.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
-		s.logger.Warn("admin: provision after create failed; refresher will retry",
-			zap.String("upstream", up.Name),
-			zap.Error(provErr))
+		if delErr := s.upstream.DeleteUpstream(ctx, tenant, up.PublicID); delErr != nil {
+			s.logger.Error("admin: rollback after failed provision",
+				zap.String("upstream", up.Name),
+				zap.Error(delErr))
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("admin: could not reach upstream: %w", provErr))
 	}
 
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
