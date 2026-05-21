@@ -24,10 +24,10 @@ type StrategyType = 'none' | 'mcp_spec' | 'static_header'
 
 interface Form {
   displayName: string
-  name: string
+  identifier: string
   // True until the admin manually edits the identifier — after that
   // we stop overwriting it from the display name.
-  nameAutoDerived: boolean
+  identifierAutoDerived: boolean
   mcpUrl: string
   strategyType: StrategyType
   strategySubMode: 'tenant' | 'user' | ''
@@ -42,8 +42,8 @@ interface Form {
 const router = useRouter()
 const form = reactive<Form>({
   displayName: '',
-  name: '',
-  nameAutoDerived: true,
+  identifier: '',
+  identifierAutoDerived: true,
   mcpUrl: '',
   strategyType: 'mcp_spec',
   strategySubMode: '',
@@ -87,25 +87,25 @@ function slugify(input: string): string {
 watch(
   () => form.displayName,
   (dn) => {
-    if (!form.nameAutoDerived) return
-    form.name = slugify(dn)
+    if (!form.identifierAutoDerived) return
+    form.identifier = slugify(dn)
   },
 )
 
 function onNameInput(ev: Event) {
-  form.name = (ev.target as HTMLInputElement).value
-  form.nameAutoDerived = false
+  form.identifier = (ev.target as HTMLInputElement).value
+  form.identifierAutoDerived = false
 }
 
 function resetNameDerivation() {
-  form.nameAutoDerived = true
-  form.name = slugify(form.displayName)
+  form.identifierAutoDerived = true
+  form.identifier = slugify(form.displayName)
 }
 
 onMounted(async () => {
   try {
     const resp = await portalClient().listUpstreams({})
-    existingNames.value = new Set(resp.upstreams.map((u) => u.name))
+    existingNames.value = new Set(resp.upstreams.map((u) => u.identifier))
   } catch (err) {
     // Soft-fail: backend create still enforces uniqueness, so the
     // pre-check is purely advisory.
@@ -134,7 +134,7 @@ watch(hint, (h) => {
 })
 
 const nameError = computed<string | null>(() => {
-  const n = form.name.trim()
+  const n = form.identifier.trim()
   if (n === '') return 'Identifier required'
   if (!/^[a-z0-9_]+$/.test(n)) return 'Lowercase letters, digits and underscores only'
   if (existingNames.value.has(n)) return 'Identifier already in use'
@@ -278,7 +278,7 @@ async function rollbackUpstream(publicId: string) {
   }
 }
 
-async function runOAuthPopup(upstreamName: string, publicId: string) {
+async function runOAuthPopup(upstreamIdentifier: string, publicId: string) {
   // Anchor returnTo on the SPA's own origin so the upstream callback
   // (which may live on a different host if base_url is misconfigured
   // or sits behind a separate reverse-proxy) bounces the popup back
@@ -289,7 +289,7 @@ async function runOAuthPopup(upstreamName: string, publicId: string) {
     ? `${prefix}/admin`
     : prefix
   const sc = await portalClient().startConnect({
-    upstreamName,
+    upstreamIdentifier,
     returnTo: `${window.location.origin}${adminBase}${ROUTES.oauthPopupClose}`,
   })
   if (!sc.redirectUrl) {
@@ -326,7 +326,7 @@ async function submit() {
   try {
     const resp = await adminClient().createUpstream(
       create(CreateUpstreamRequestSchema, {
-        name: form.name.trim(),
+        identifier: form.identifier.trim(),
         displayName: form.displayName.trim(),
         mcpUrl: form.mcpUrl.trim(),
         strategyType: form.strategyType,
@@ -346,11 +346,11 @@ async function submit() {
     createdPublicId = resp.upstream?.publicId ?? ''
 
     if (resp.requiresAdminLink) {
-      const ok = await runOAuthPopup(form.name.trim(), createdPublicId)
+      const ok = await runOAuthPopup(form.identifier.trim(), createdPublicId)
       if (!ok) return
     }
     successUpstream.value = {
-      name: form.displayName.trim() || form.name.trim(),
+      name: form.displayName.trim() || form.identifier.trim(),
       publicId: createdPublicId,
     }
     successOpen.value = true
@@ -414,18 +414,18 @@ function goToDetail() {
           <label class="block md:col-span-2">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
               Identifier
-              <button v-if="!form.nameAutoDerived" type="button"
+              <button v-if="!form.identifierAutoDerived" type="button"
                 class="text-xs font-normal text-primary hover:underline" @click="resetNameDerivation">
                 Re-derive from display name
               </button>
             </span>
-            <input :value="form.name" type="text" required pattern="[a-z0-9_]+" placeholder="auto"
+            <input :value="form.identifier" type="text" required pattern="[a-z0-9_]+" placeholder="auto"
               class="mt-1 block w-full rounded-md border bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-1"
-              :class="nameError && form.name !== ''
+              :class="nameError && form.identifier !== ''
                 ? 'border-error focus:border-error focus:ring-error'
                 : 'border-outline-variant focus:border-primary focus:ring-primary'
                 " data-testid="field-name" @input="onNameInput" />
-            <span v-if="nameError && form.name !== ''" class="mt-1 block text-xs text-error"
+            <span v-if="nameError && form.identifier !== ''" class="mt-1 block text-xs text-error"
               data-testid="field-name-error">
               {{ nameError }}
             </span>

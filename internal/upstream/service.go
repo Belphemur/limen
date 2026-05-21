@@ -38,11 +38,11 @@ func NewService(store *storage.Store, registry *Registry) *Service {
 
 // StartConnect resolves the upstream + strategy for (tenant, user) and
 // returns the URL the SPA should redirect the user to.
-func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamName, returnTo string) (string, error) {
+func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, returnTo string) (string, error) {
 	if tenant == nil || user == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamName)
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return "", err
 	}
@@ -70,11 +70,11 @@ func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user
 
 // FinishCallback drives FinishLink on the appropriate strategy. Returns
 // the ReturnTo URL the SPA navigates to after the redirect lands.
-func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamName, callbackQuery string) (string, error) {
+func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, callbackQuery string) (string, error) {
 	if tenant == nil || user == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamName)
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return "", err
 	}
@@ -93,11 +93,11 @@ func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, us
 // Disconnect soft-deletes the (tenant, user, upstream) link row. The
 // strategy registry isn't involved — every strategy treats "delete the
 // link" identically.
-func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamName string) error {
+func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier string) error {
 	if tenant == nil || user == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamName)
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return err
 	}
@@ -113,15 +113,15 @@ func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *
 	return commit()
 }
 
-// LoadUpstream returns the Upstream row for (tenant, name). Public so
+// LoadUpstream returns the Upstream row for (tenant, identifier). Public so
 // the /callback HTTP handler can resolve the route before calling
 // FinishCallback (we need the upstream + link to build LinkContext).
-func (s *Service) LoadUpstream(ctx context.Context, tenantID int64, name string) (*storage.Upstream, error) {
-	return s.loadUpstream(ctx, tenantID, name)
+func (s *Service) LoadUpstream(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
+	return s.loadUpstream(ctx, tenantID, identifier)
 }
 
 // ListUpstreams returns every (non-deleted) Upstream row for the tenant,
-// ordered by name. Used by the portal PoC to render a connect/disconnect
+// ordered by identifier. Used by the portal PoC to render a connect/disconnect
 // table; Phase 9b's Connect-RPC will expose a richer shape.
 func (s *Service) ListUpstreams(ctx context.Context, tenantID int64) ([]storage.Upstream, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
@@ -131,7 +131,7 @@ func (s *Service) ListUpstreams(ctx context.Context, tenantID int64) ([]storage.
 	defer func() { _ = commit() }()
 
 	var ups []storage.Upstream
-	if err := tx.Where("tenant_id = ?", tenantID).Order("name ASC").Find(&ups).Error; err != nil {
+	if err := tx.Where("tenant_id = ?", tenantID).Order("identifier ASC").Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("upstream: list: %w", err)
 	}
 	return ups, nil
@@ -188,7 +188,7 @@ func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenan
 	return nil
 }
 
-func (s *Service) loadUpstream(ctx context.Context, tenantID int64, name string) (*storage.Upstream, error) {
+func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (s *Service) loadUpstream(ctx context.Context, tenantID int64, name string)
 	defer func() { _ = commit() }()
 
 	var up storage.Upstream
-	if err := tx.Where("tenant_id = ? AND name = ?", tenantID, name).First(&up).Error; err != nil {
+	if err := tx.Where("tenant_id = ? AND identifier = ?", tenantID, identifier).First(&up).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUpstreamNotFound
 		}

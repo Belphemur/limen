@@ -64,7 +64,7 @@ func TestCreateUpstream_NoneStrategy_Succeeds(t *testing.T) {
 	ctx := context.Background()
 
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "public-mcp",
+		Identifier:   "public-mcp",
 		DisplayName:  "Public MCP",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
@@ -93,7 +93,7 @@ func TestCreateUpstream_DuplicateName_ReturnsAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 
 	in := upstream.CreateUpstreamInput{
-		Name:         "dup",
+		Identifier:   "dup",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 	}
@@ -119,7 +119,7 @@ func TestCreateUpstream_InvalidDefaultsJSON_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "bad",
+		Identifier:   "bad",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 		DefaultsJSON: []byte(`["not","an","object"]`),
@@ -142,7 +142,7 @@ func TestUpdateUpstream_PatchesDisplayName(t *testing.T) {
 	ctx := context.Background()
 
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "u1",
+		Identifier:   "u1",
 		DisplayName:  "Old",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
@@ -175,7 +175,7 @@ func TestUpdateUpstream_InvalidDefaultsJSON_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "u2",
+		Identifier:   "u2",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 	})
@@ -203,7 +203,7 @@ func TestDeleteUpstream_SoftDeletes(t *testing.T) {
 	ctx := context.Background()
 
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "to-delete",
+		Identifier:   "to-delete",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 	})
@@ -216,7 +216,7 @@ func TestDeleteUpstream_SoftDeletes(t *testing.T) {
 	// Re-create with same name should succeed (soft-delete leaves
 	// the unique index filtered).
 	if _, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "to-delete",
+		Identifier:   "to-delete",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 	}); err != nil {
@@ -239,7 +239,7 @@ func TestReindexCatalog_WithoutLink_PerUserStrategy_ReturnsSentinel(t *testing.T
 
 	// Build a static_header user-mode upstream with its config.
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "gh-user",
+		Identifier:   "gh-user",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyStaticHeader,
 	})
@@ -286,7 +286,7 @@ func TestPreviewContext_MergesDefaultsAndLink(t *testing.T) {
 	ctx := context.Background()
 
 	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Name:         "ctx-up",
+		Identifier:   "ctx-up",
 		MCPServerURL: "https://example.com/mcp",
 		StrategyType: upstream.StrategyNone,
 		DefaultsJSON: []byte(`{"a":1,"b":"from-defaults"}`),

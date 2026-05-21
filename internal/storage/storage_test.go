@@ -178,7 +178,7 @@ func TestPublicID_PrefixAssignedOnCreate(t *testing.T) {
 
 	upstream := &storage.Upstream{
 		TenantID:     tenant.ID,
-		Name:         "github",
+		Identifier:   "github",
 		StrategyType: "mcp_spec",
 		McpServerURL: "https://example.invalid/mcp",
 	}
@@ -299,7 +299,7 @@ func TestUniqueConstraints_TenantEmailAndUpstreamName(t *testing.T) {
 	mkUp := func() *storage.Upstream {
 		return &storage.Upstream{
 			TenantID:     tenant.ID,
-			Name:         "github",
+			Identifier:   "github",
 			StrategyType: "mcp_spec",
 			McpServerURL: "https://x.invalid",
 		}

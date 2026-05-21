@@ -43,7 +43,7 @@ enum LinkState {
 
 message UpstreamSummary {
   string public_id = 1;
-  string name = 2;
+  string identifier = 2;
   string display_name = 3;
   string mcp_url = 4;
   string strategy_type = 5;
@@ -74,7 +74,7 @@ message UpstreamTool {
 // ---- StartConnect ---------------------------------------------------
 
 message StartConnectRequest {
-  string upstream_name = 1;
+  string upstream_identifier = 1;
   // Path the SPA wants the browser to return to after the dance.
   string return_to = 2;
 }
@@ -89,7 +89,7 @@ message StartConnectResponse {
 // ---- SubmitUpstreamAPIKey ------------------------------------------
 
 message SubmitUpstreamAPIKeyRequest {
-  string upstream_name = 1;
+  string upstream_identifier = 1;
   string api_key = 2;
 }
 
@@ -98,7 +98,7 @@ message SubmitUpstreamAPIKeyResponse {}
 // ---- SetUpstreamLinkEnabled ----------------------------------------
 
 message SetUpstreamLinkEnabledRequest {
-  string upstream_name = 1;
+  string upstream_identifier = 1;
   bool enabled = 2;
 }
 
@@ -107,7 +107,7 @@ message SetUpstreamLinkEnabledResponse {}
 // ---- Disconnect -----------------------------------------------------
 
 message DisconnectRequest {
-  string upstream_name = 1;
+  string upstream_identifier = 1;
 }
 
 message DisconnectResponse {}

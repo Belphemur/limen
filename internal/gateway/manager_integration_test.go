@@ -110,7 +110,7 @@ func seedUpstream(t *testing.T, store *storage.Store, tenantID int64, name, url 
 	}
 	up := &storage.Upstream{
 		TenantID:     tenantID,
-		Name:         name,
+		Identifier:   name,
 		StrategyType: string(upstream.StrategyNone),
 		McpServerURL: url,
 	}

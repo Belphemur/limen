@@ -31,11 +31,11 @@ func ToSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSummary {
 	up := r.Upstream
 	displayName := up.DisplayName
 	if displayName == "" {
-		displayName = up.Name
+		displayName = up.Identifier
 	}
 	out := &portalv1.UpstreamSummary{
 		PublicId:        up.PublicID,
-		Name:            up.Name,
+		Identifier:      up.Identifier,
 		DisplayName:     displayName,
 		McpUrl:          up.McpServerURL,
 		StrategyType:    up.StrategyType,

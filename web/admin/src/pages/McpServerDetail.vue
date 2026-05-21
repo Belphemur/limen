@@ -109,8 +109,8 @@ async function reindex() {
 
 async function remove() {
   if (!summary.value) return
-  if (confirmText.value !== summary.value.name) {
-    error.value = `Type "${summary.value.name}" to confirm deletion.`
+  if (confirmText.value !== summary.value.identifier) {
+    error.value = `Type "${summary.value.identifier}" to confirm deletion.`
     return
   }
   deleting.value = true
@@ -140,7 +140,7 @@ async function remove() {
         Back
       </button>
       <h1 class="font-display text-2xl font-bold tracking-tight text-on-surface">
-        {{ summary?.displayName || summary?.name || 'MCP server' }}
+        {{ summary?.displayName || summary?.identifier || 'MCP server' }}
       </h1>
     </header>
 
@@ -160,7 +160,7 @@ async function remove() {
         <dl class="grid gap-stack-sm md:grid-cols-2 text-sm">
           <div>
             <dt class="text-on-surface-variant">Name</dt>
-            <dd class="font-mono text-on-surface">{{ summary.name }}</dd>
+            <dd class="font-mono text-on-surface">{{ summary.identifier }}</dd>
           </div>
           <div>
             <dt class="text-on-surface-variant">MCP URL</dt>
@@ -299,7 +299,7 @@ async function remove() {
       <section class="space-y-stack-md rounded-lg border border-error/40 bg-error/5 p-4">
         <h2 class="font-display text-lg font-semibold text-error">Danger zone</h2>
         <p class="text-sm text-on-surface-variant">
-          Type the upstream name <code class="font-mono text-on-surface">{{ summary.name }}</code> to enable deletion.
+          Type the upstream identifier <code class="font-mono text-on-surface">{{ summary.identifier }}</code> to enable deletion.
         </p>
         <input
           v-model="confirmText"
@@ -309,7 +309,7 @@ async function remove() {
         />
         <button
           type="button"
-          :disabled="deleting || confirmText !== summary.name"
+          :disabled="deleting || confirmText !== summary.identifier"
           class="inline-flex items-center gap-1.5 rounded-md bg-error px-3 py-2 text-sm font-medium text-on-error shadow-sm hover:bg-error/90 disabled:opacity-50"
           data-testid="delete-upstream"
           @click="remove"

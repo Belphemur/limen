@@ -58,7 +58,7 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 	q := url.Values{}
 	q.Set("response_type", "code")
 	q.Set("client_id", reg.ClientID)
-	q.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Name))
+	q.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier))
 	q.Set("state", stateVal)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
@@ -117,7 +117,7 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
-	form.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Name))
+	form.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier))
 	form.Set("code_verifier", env.PKCEVerifier)
 	if reg.ResourceURI != "" {
 		form.Set("resource", reg.ResourceURI)

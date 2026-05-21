@@ -14,8 +14,8 @@ import (
 // recognizes "mcp_spec" (RFC 8707 DCR) and "none" (no auth).
 type Upstream struct {
 	Base
-	TenantID     int64  `gorm:"not null;index;uniqueIndex:idx_upstream_tenant_name,where:deleted_at IS NULL"`
-	Name         string `gorm:"type:text;not null;uniqueIndex:idx_upstream_tenant_name,where:deleted_at IS NULL"`
+	TenantID     int64  `gorm:"not null;index;uniqueIndex:idx_upstream_tenant_identifier,where:deleted_at IS NULL"`
+	Identifier   string `gorm:"column:identifier;type:text;not null;uniqueIndex:idx_upstream_tenant_identifier,where:deleted_at IS NULL"`
 	DisplayName  string `gorm:"type:text;not null;default:''"`
 	StrategyType string `gorm:"type:text;not null"`
 	McpServerURL string `gorm:"type:text;not null"`

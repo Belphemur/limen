@@ -123,7 +123,7 @@ func (m *Manager) ToolsForUser(ctx context.Context) ([]ToolEntry, error) {
 	// Load every upstream for the tenant.
 	var ups []storage.Upstream
 	if err := tx.Where("tenant_id = ? AND deleted_at IS NULL", tenant.ID).
-		Order("name ASC").
+		Order("identifier ASC").
 		Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("gateway: tools: list upstreams: %w", err)
 	}
@@ -151,7 +151,7 @@ func (m *Manager) ToolsForUser(ctx context.Context) ([]ToolEntry, error) {
 		strat, err := m.opts.Registry.Resolve(upstream.StrategyType(up.StrategyType))
 		if err != nil {
 			m.opts.Logger.Warn("tools: skipping upstream with unknown strategy",
-				zap.String("upstream", up.Name),
+				zap.String("upstream", up.Identifier),
 				zap.String("strategy", up.StrategyType),
 				zap.Error(err))
 			continue
@@ -194,7 +194,7 @@ func (m *Manager) ToolsForUser(ctx context.Context) ([]ToolEntry, error) {
 			Name:        r.Name,
 			Description: r.Description,
 			InputSchema: schema,
-			Upstream:    up.Name,
+			Upstream:    up.Identifier,
 		})
 	}
 	return out, nil
@@ -232,7 +232,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 
 	var ups []storage.Upstream
 	if err := tx.Where("tenant_id = ? AND deleted_at IS NULL", tenant.ID).
-		Order("name ASC").
+		Order("identifier ASC").
 		Find(&ups).Error; err != nil {
 		return nil, fmt.Errorf("gateway: upstreams: list: %w", err)
 	}
@@ -262,7 +262,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 		strat, err := m.opts.Registry.Resolve(upstream.StrategyType(up.StrategyType))
 		if err != nil {
 			m.opts.Logger.Warn("upstreams: skipping unknown strategy",
-				zap.String("upstream", up.Name),
+				zap.String("upstream", up.Identifier),
 				zap.String("strategy", up.StrategyType),
 				zap.Error(err))
 			continue
@@ -273,7 +273,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 			}
 		}
 		visible = append(visible, up)
-		aliasesByName[up.Name] = upstream.DecodeAliasesJSON(up.AliasesJSON)
+		aliasesByName[up.Identifier] = upstream.DecodeAliasesJSON(up.AliasesJSON)
 	}
 
 	resolved, collisions := upstream.ResolveAliasCollisions(aliasesByName)
@@ -289,7 +289,7 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 		if !ok {
 			m.opts.Logger.Warn("gateway.context.invalid_json",
 				zap.Int64("tenant_id", tenant.ID),
-				zap.String("upstream", up.Name),
+				zap.String("upstream", up.Identifier),
 				zap.String("source", "upstream.defaults_json"))
 		}
 		var linkCtx map[string]any
@@ -299,13 +299,13 @@ func (m *Manager) UpstreamsForUser(ctx context.Context) ([]UpstreamView, error) 
 			if !lok {
 				m.opts.Logger.Warn("gateway.context.invalid_json",
 					zap.Int64("tenant_id", tenant.ID),
-					zap.String("upstream", up.Name),
+					zap.String("upstream", up.Identifier),
 					zap.String("source", "upstream_link.context_json"))
 			}
 		}
 		out = append(out, UpstreamView{
-			Name:    up.Name,
-			Aliases: resolved[up.Name],
+			Name:    up.Identifier,
+			Aliases: resolved[up.Identifier],
 			Context: contextblob.MergeContext(defaults, linkCtx),
 		})
 	}
@@ -367,14 +367,14 @@ func (m *Manager) buildBundle(ctx context.Context, tenant *storage.Tenant, upstr
 	}
 
 	// TODO(phase-10): swap http.DefaultTransport for
-	// resilience.Client("upstream."+up.Name+".calls", cfg).Transport.
+	// resilience.Client("upstream."+up.Identifier+".calls", cfg).Transport.
 	// This is the single construction site referenced in
 	// docs/phases/phase-10-wiring-hardening.md.
 	rt := &AuthInjectingTransport{
 		Base:             http.DefaultTransport,
 		Auth:             authProvider,
 		Store:            m.opts.Store,
-		UpstreamName:     up.Name,
+		UpstreamName:     up.Identifier,
 		HealthThresholds: m.opts.HealthThresholds,
 		Logger:           m.opts.Logger,
 	}

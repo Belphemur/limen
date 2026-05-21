@@ -42,9 +42,9 @@ func (s *Service) ListUpstreams(ctx context.Context, _ *connect.Request[portalv1
 // redirect_url is either an external authorize URL (mcp_spec) or a
 // relative SPA path (static_header user mode).
 func (s *Service) StartConnect(ctx context.Context, req *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error) {
-	name := strings.TrimSpace(req.Msg.UpstreamName)
-	if name == "" {
-		return nil, errInvalidArgument("upstream_name required")
+	identifier := strings.TrimSpace(req.Msg.UpstreamIdentifier)
+	if identifier == "" {
+		return nil, errInvalidArgument("upstream_identifier required")
 	}
 	tenant, user, err := s.callerContext(ctx)
 	if err != nil {
@@ -54,9 +54,9 @@ func (s *Service) StartConnect(ctx context.Context, req *connect.Request[portalv
 	if returnTo == "" {
 		returnTo = "/t/" + tenant.PublicID + "/"
 	}
-	redirect, err := s.upstream.StartConnect(ctx, tenant, user, name, returnTo)
+	redirect, err := s.upstream.StartConnect(ctx, tenant, user, identifier, returnTo)
 	if err != nil {
-		return nil, mapUpstreamError(err, "start connect", name, s.logger)
+		return nil, mapUpstreamError(err, "start connect", identifier, s.logger)
 	}
 	return connect.NewResponse(&portalv1.StartConnectResponse{RedirectUrl: redirect}), nil
 }
@@ -66,9 +66,9 @@ func (s *Service) StartConnect(ctx context.Context, req *connect.Request[portalv
 // logs cannot leak a customer credential. Errors from this path are
 // also generic to avoid surfacing whether a key looked valid.
 func (s *Service) SubmitUpstreamAPIKey(ctx context.Context, req *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error) {
-	name := strings.TrimSpace(req.Msg.UpstreamName)
-	if name == "" {
-		return nil, errInvalidArgument("upstream_name required")
+	identifier := strings.TrimSpace(req.Msg.UpstreamIdentifier)
+	if identifier == "" {
+		return nil, errInvalidArgument("upstream_identifier required")
 	}
 	key := req.Msg.ApiKey
 	if strings.TrimSpace(key) == "" {
@@ -78,13 +78,13 @@ func (s *Service) SubmitUpstreamAPIKey(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	if err := s.upstream.PersistUserStaticHeaderSecret(ctx, tenant, user, name, key); err != nil {
+	if err := s.upstream.PersistUserStaticHeaderSecret(ctx, tenant, user, identifier, key); err != nil {
 		s.logger.Info("portal: persist api key failed",
 			zap.String("tenant", tenant.PublicID),
-			zap.String("upstream", name),
+			zap.String("upstream", identifier),
 			zap.Int("api_key_len", len(key)),
 			zap.Error(err))
-		return nil, mapUpstreamError(err, "submit api key", name, s.logger)
+		return nil, mapUpstreamError(err, "submit api key", identifier, s.logger)
 	}
 	return connect.NewResponse(&portalv1.SubmitUpstreamAPIKeyResponse{}), nil
 }
@@ -93,32 +93,32 @@ func (s *Service) SubmitUpstreamAPIKey(ctx context.Context, req *connect.Request
 // an auto_disabled link transparently clears the failure counters
 // inside upstream.Service.SetLinkEnabled.
 func (s *Service) SetUpstreamLinkEnabled(ctx context.Context, req *connect.Request[portalv1.SetUpstreamLinkEnabledRequest]) (*connect.Response[portalv1.SetUpstreamLinkEnabledResponse], error) {
-	name := strings.TrimSpace(req.Msg.UpstreamName)
-	if name == "" {
-		return nil, errInvalidArgument("upstream_name required")
+	identifier := strings.TrimSpace(req.Msg.UpstreamIdentifier)
+	if identifier == "" {
+		return nil, errInvalidArgument("upstream_identifier required")
 	}
 	tenant, user, err := s.callerContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.upstream.SetLinkEnabled(ctx, tenant, user, name, req.Msg.Enabled); err != nil {
-		return nil, mapUpstreamError(err, "set link enabled", name, s.logger)
+	if err := s.upstream.SetLinkEnabled(ctx, tenant, user, identifier, req.Msg.Enabled); err != nil {
+		return nil, mapUpstreamError(err, "set link enabled", identifier, s.logger)
 	}
 	return connect.NewResponse(&portalv1.SetUpstreamLinkEnabledResponse{}), nil
 }
 
 // Disconnect soft-deletes the (user, upstream) link.
 func (s *Service) Disconnect(ctx context.Context, req *connect.Request[portalv1.DisconnectRequest]) (*connect.Response[portalv1.DisconnectResponse], error) {
-	name := strings.TrimSpace(req.Msg.UpstreamName)
-	if name == "" {
-		return nil, errInvalidArgument("upstream_name required")
+	identifier := strings.TrimSpace(req.Msg.UpstreamIdentifier)
+	if identifier == "" {
+		return nil, errInvalidArgument("upstream_identifier required")
 	}
 	tenant, user, err := s.callerContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.upstream.Disconnect(ctx, tenant, user, name); err != nil {
-		return nil, mapUpstreamError(err, "disconnect", name, s.logger)
+	if err := s.upstream.Disconnect(ctx, tenant, user, identifier); err != nil {
+		return nil, mapUpstreamError(err, "disconnect", identifier, s.logger)
 	}
 	return connect.NewResponse(&portalv1.DisconnectResponse{}), nil
 }
@@ -149,7 +149,7 @@ func (s *Service) callerContext(ctx context.Context) (*storage.Tenant, *storage.
 // mapUpstreamError maps the upstream package's sentinel errors onto
 // Connect status codes. Anything we don't recognise is wrapped as
 // CodeInternal with the cause logged.
-func mapUpstreamError(err error, op, upstreamName string, logger *zap.Logger) error {
+func mapUpstreamError(err error, op, upstreamIdentifier string, logger *zap.Logger) error {
 	switch {
 	case errors.Is(err, upstream.ErrUpstreamNotFound):
 		return errNotFound("upstream not found")
@@ -162,7 +162,7 @@ func mapUpstreamError(err error, op, upstreamName string, logger *zap.Logger) er
 	default:
 		logger.Warn("portal: upstream op failed",
 			zap.String("op", op),
-			zap.String("upstream", upstreamName),
+			zap.String("upstream", upstreamIdentifier),
 			zap.Error(err))
 		return errInternal(err)
 	}

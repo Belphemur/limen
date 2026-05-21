@@ -79,7 +79,7 @@ func (x *OAuthClientOverride) GetClientSecret() string {
 
 type CreateUpstreamRequest struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
-	Name         string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Identifier   string                 `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
 	DisplayName  string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	McpUrl       string                 `protobuf:"bytes,3,opt,name=mcp_url,json=mcpUrl,proto3" json:"mcp_url,omitempty"`
 	StrategyType string                 `protobuf:"bytes,4,opt,name=strategy_type,json=strategyType,proto3" json:"strategy_type,omitempty"`
@@ -127,9 +127,9 @@ func (*CreateUpstreamRequest) Descriptor() ([]byte, []int) {
 	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CreateUpstreamRequest) GetName() string {
+func (x *CreateUpstreamRequest) GetIdentifier() string {
 	if x != nil {
-		return x.Name
+		return x.Identifier
 	}
 	return ""
 }
@@ -890,9 +890,11 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x1alimen/admin/v1/admin.proto\x12\x0elimen.admin.v1\x1a\x1climen/portal/v1/portal.proto\"W\n" +
 	"\x13OAuthClientOverride\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12#\n" +
-	"\rclient_secret\x18\x02 \x01(\tR\fclientSecret\"\xdd\x03\n" +
-	"\x15CreateUpstreamRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
+	"\rclient_secret\x18\x02 \x01(\tR\fclientSecret\"\xe9\x03\n" +
+	"\x15CreateUpstreamRequest\x12\x1e\n" +
+	"\n" +
+	"identifier\x18\x01 \x01(\tR\n" +
+	"identifier\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x17\n" +
 	"\amcp_url\x18\x03 \x01(\tR\x06mcpUrl\x12#\n" +
 	"\rstrategy_type\x18\x04 \x01(\tR\fstrategyType\x12*\n" +

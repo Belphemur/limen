@@ -10,7 +10,7 @@ import { upstreamCTAs } from './upstream-cta'
 function summary(overrides: MessageInitShape<typeof UpstreamSummarySchema>): UpstreamSummary {
   return create(UpstreamSummarySchema, {
     publicId: 'up_test',
-    name: 'test',
+    identifier: 'test',
     displayName: 'Test',
     mcpUrl: 'https://example.com/mcp',
     strategyType: 'mcp_spec',

@@ -33,7 +33,7 @@ function transport(captured: { req?: unknown }): Transport {
         return create(CreateUpstreamResponseSchema, {
           upstream: create(UpstreamSummarySchema, {
             publicId: 'up_new',
-            name: req.name,
+            identifier: req.identifier,
             displayName: req.displayName,
             mcpUrl: req.mcpUrl,
             strategyType: req.strategyType,
@@ -65,7 +65,7 @@ describe('McpServerNew', () => {
   afterEach(() => resetAdminTransport())
 
   it('submits a none-strategy upstream and navigates back to the list', async () => {
-    const captured: { req?: { name: string; strategyType: string; mcpUrl: string } } = {}
+    const captured: { req?: { identifier: string; strategyType: string; mcpUrl: string } } = {}
     const { wrapper, router } = await mountPage(transport(captured as { req?: unknown }))
 
     await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
@@ -75,7 +75,7 @@ describe('McpServerNew', () => {
     await flushPromises()
 
     expect(captured.req).toBeTruthy()
-    expect(captured.req!.name).toBe('demo')
+    expect(captured.req!.identifier).toBe('demo')
     expect(captured.req!.strategyType).toBe('none')
     // Success modal is teleported to document.body.
     const primary = document.querySelector<HTMLButtonElement>(

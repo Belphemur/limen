@@ -107,7 +107,7 @@ func TestAdmin_CreateUpstream_Succeeds(t *testing.T) {
 	c, _, _ := mountReal(t, []string{"admin"})
 	mcpURL := fakeMCPURL(t)
 	resp, err := c.CreateUpstream(context.Background(), connect.NewRequest(&adminv1.CreateUpstreamRequest{
-		Name:         "u1",
+		Identifier:   "u1",
 		DisplayName:  "U1",
 		McpUrl:       mcpURL,
 		StrategyType: string(upstream.StrategyNone),
@@ -115,8 +115,8 @@ func TestAdmin_CreateUpstream_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUpstream: %v", err)
 	}
-	if got := resp.Msg.GetUpstream().GetName(); got != "u1" {
-		t.Errorf("name = %q, want u1", got)
+	if got := resp.Msg.GetUpstream().GetIdentifier(); got != "u1" {
+		t.Errorf("identifier = %q, want u1", got)
 	}
 	if resp.Msg.GetRequiresAdminLink() {
 		t.Errorf("requires_admin_link = true, want false for none strategy")
@@ -129,7 +129,7 @@ func TestAdmin_CreateUpstream_DuplicateName_AlreadyExists(t *testing.T) {
 	}
 	c, _, _ := mountReal(t, []string{"admin"})
 	req := &adminv1.CreateUpstreamRequest{
-		Name:         "dup",
+		Identifier:   "dup",
 		McpUrl:       fakeMCPURL(t),
 		StrategyType: string(upstream.StrategyNone),
 	}
@@ -151,7 +151,7 @@ func TestAdmin_CreateUpstream_BadDefaults_InvalidArgumentWithFieldPath(t *testin
 	}
 	c, _, _ := mountReal(t, []string{"admin"})
 	_, err := c.CreateUpstream(context.Background(), connect.NewRequest(&adminv1.CreateUpstreamRequest{
-		Name:         "bad",
+		Identifier:   "bad",
 		McpUrl:       "https://example.com/mcp",
 		StrategyType: string(upstream.StrategyNone),
 		DefaultsJson: `["nope"]`,
@@ -187,7 +187,7 @@ func TestAdmin_UpdateUpstream_Patches(t *testing.T) {
 	}
 	c, _, _ := mountReal(t, []string{"admin"})
 	created, err := c.CreateUpstream(context.Background(), connect.NewRequest(&adminv1.CreateUpstreamRequest{
-		Name:         "u2",
+		Identifier:   "u2",
 		DisplayName:  "Old",
 		McpUrl:       fakeMCPURL(t),
 		StrategyType: string(upstream.StrategyNone),
@@ -260,7 +260,7 @@ func TestAdmin_CreateUpstream_UnreachableUpstream_RollsBack(t *testing.T) {
 	t.Cleanup(bad.Close)
 
 	req := &adminv1.CreateUpstreamRequest{
-		Name:         "rollback",
+		Identifier:   "rollback",
 		McpUrl:       bad.URL,
 		StrategyType: string(upstream.StrategyNone),
 	}
@@ -275,7 +275,7 @@ func TestAdmin_CreateUpstream_UnreachableUpstream_RollsBack(t *testing.T) {
 	// The row must have been rolled back: re-creating the same name
 	// against a working URL should now succeed (no AlreadyExists).
 	req2 := &adminv1.CreateUpstreamRequest{
-		Name:         "rollback",
+		Identifier:   "rollback",
 		McpUrl:       fakeMCPURL(t),
 		StrategyType: string(upstream.StrategyNone),
 	}

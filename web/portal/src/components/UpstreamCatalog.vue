@@ -21,7 +21,7 @@ const summary = computed(() => {
 <template>
     <details v-if="tools.length > 0 || aliases.length > 0"
         class="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-        :data-upstream-catalog="upstream.name">
+        :data-upstream-catalog="upstream.identifier">
         <summary class="cursor-pointer select-none text-slate-600 dark:text-slate-300">
             {{ summary }}
         </summary>

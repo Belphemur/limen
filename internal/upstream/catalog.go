@@ -61,12 +61,12 @@ func IndexUpstream(
 	}
 	strat, err := registry.Resolve(StrategyType(up.StrategyType))
 	if err != nil {
-		return fmt.Errorf("index upstream %q: %w", up.Name, err)
+		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
 
 	tools, err := listUpstreamTools(ctx, strat, tenant, up, link)
 	if err != nil {
-		return fmt.Errorf("index upstream %q: %w", up.Name, err)
+		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
 
 	// reconcileCatalog opens a storage session; bind the tenant so RLS
@@ -75,7 +75,7 @@ func IndexUpstream(
 	// this upstream's tenant.
 	reconcileCtx := storage.WithTenant(ctx, tenant.ID)
 	if err := reconcileCatalog(reconcileCtx, store, tenant.ID, up.ID, tools); err != nil {
-		return fmt.Errorf("index upstream %q: %w", up.Name, err)
+		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
 	return nil
 }

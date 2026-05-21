@@ -22,7 +22,7 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	tenant := tenancy.MustTenant(ctx)
 	msg := req.Msg
 	in := upstream.CreateUpstreamInput{
-		Name:            msg.GetName(),
+		Identifier:      msg.GetIdentifier(),
 		DisplayName:     msg.GetDisplayName(),
 		MCPServerURL:    msg.GetMcpUrl(),
 		StrategyType:    upstream.StrategyType(msg.GetStrategyType()),
@@ -62,7 +62,7 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	if provErr := s.upstream.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
 		if delErr := s.upstream.DeleteUpstream(ctx, tenant, up.PublicID); delErr != nil {
 			s.logger.Error("admin: rollback after failed provision",
-				zap.String("upstream", up.Name),
+				zap.String("upstream", up.Identifier),
 				zap.Error(delErr))
 		}
 		return nil, s.mapProvisionError(in.StrategyType, provErr)

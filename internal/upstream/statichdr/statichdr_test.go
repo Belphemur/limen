@@ -90,7 +90,7 @@ func TestStrategy_PersistUserSecret_RoundTrip(t *testing.T) {
 	if err := adminTx.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	up := &storage.Upstream{TenantID: tenant.ID, Name: "github", StrategyType: string(upstream.StrategyStaticHeader), McpServerURL: "https://example.com/mcp"}
+	up := &storage.Upstream{TenantID: tenant.ID, Identifier: "github", StrategyType: string(upstream.StrategyStaticHeader), McpServerURL: "https://example.com/mcp"}
 	if err := adminTx.Create(up).Error; err != nil {
 		t.Fatalf("create upstream: %v", err)
 	}

@@ -15,8 +15,8 @@ import (
 )
 
 // ErrUpstreamAlreadyExists is returned by CreateUpstream when an
-// upstream with the same name already exists for the tenant.
-var ErrUpstreamAlreadyExists = errors.New("upstream: name already exists")
+// upstream with the same identifier already exists for the tenant.
+var ErrUpstreamAlreadyExists = errors.New("upstream: identifier already exists")
 
 // ErrCannotReindexWithoutLink is returned by ReindexCatalog when the
 // upstream's strategy needs per-user credentials but the calling user
@@ -37,7 +37,7 @@ var ErrUserNotFound = errors.New("upstream: user not found")
 // EncodeConfig helper and pass the resulting crypto.SecretField as
 // EncodedStrategyConfig — keeps this package strategy-agnostic.
 type CreateUpstreamInput struct {
-	Name                  string
+	Identifier            string
 	DisplayName           string
 	MCPServerURL          string
 	StrategyType          StrategyType
@@ -65,10 +65,10 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 	if tenant == nil {
 		return nil, errors.New("upstream: tenant required")
 	}
-	name := strings.TrimSpace(in.Name)
+	identifier := strings.TrimSpace(in.Identifier)
 	url := strings.TrimSpace(in.MCPServerURL)
-	if name == "" {
-		return nil, errors.New("upstream: name required")
+	if identifier == "" {
+		return nil, errors.New("upstream: identifier required")
 	}
 	if url == "" {
 		return nil, errors.New("upstream: mcp_url required")
@@ -83,7 +83,7 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 
 	up := &storage.Upstream{
 		TenantID:     tenant.ID,
-		Name:         name,
+		Identifier:   identifier,
 		DisplayName:  strings.TrimSpace(in.DisplayName),
 		StrategyType: string(in.StrategyType),
 		McpServerURL: url,
@@ -95,7 +95,7 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 		return nil, fmt.Errorf("upstream: open session: %w", err)
 	}
 	var existing storage.Upstream
-	err = tx.Where("tenant_id = ? AND name = ?", tenant.ID, name).First(&existing).Error
+	err = tx.Where("tenant_id = ? AND identifier = ?", tenant.ID, identifier).First(&existing).Error
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		// continue

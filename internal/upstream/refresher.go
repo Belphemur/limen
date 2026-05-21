@@ -235,7 +235,7 @@ func (r *Refresher) sweepCatalog(ctx context.Context) {
 			failed++
 			r.logger.Warn("upstream refresher: catalog index failed",
 				zap.Int64("upstream_id", up.ID),
-				zap.String("upstream", up.Name),
+				zap.String("upstream", up.Identifier),
 				zap.Error(err))
 			continue
 		}

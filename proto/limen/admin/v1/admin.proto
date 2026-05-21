@@ -39,7 +39,7 @@ message OAuthClientOverride {
 }
 
 message CreateUpstreamRequest {
-  string name = 1;
+  string identifier = 1;
   string display_name = 2;
   string mcp_url = 3;
   string strategy_type = 4;

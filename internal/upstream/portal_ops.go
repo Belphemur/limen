@@ -93,7 +93,7 @@ func (s *Service) loadToolCatalog(ctx context.Context, tenantID, upstreamID int6
 
 	var rows []storage.UpstreamTool
 	if err := tx.Where("tenant_id = ? AND upstream_id = ?", tenantID, upstreamID).
-		Order("name ASC").
+		Order("identifier ASC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("upstream: load tool catalog: %w", err)
 	}
@@ -164,11 +164,11 @@ func (s *Service) summariseUpstream(ctx context.Context, tenant *storage.Tenant,
 // auto_disabled link ALSO clears the failure counters (treat the
 // explicit re-enable as an intentional reset signal — otherwise the
 // next request would re-trip auto-disable on the stale counter).
-func (s *Service) SetLinkEnabled(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamName string, enabled bool) error {
+func (s *Service) SetLinkEnabled(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier string, enabled bool) error {
 	if tenant == nil || user == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamName)
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return err
 	}
@@ -202,11 +202,11 @@ func (s *Service) SetLinkEnabled(ctx context.Context, tenant *storage.Tenant, us
 // user-mode secret persistence. Returns ErrUnsupported if the upstream
 // is not user-mode static_header. The secret is NEVER logged — callers
 // should log only its length.
-func (s *Service) PersistUserStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamName, secret string) error {
+func (s *Service) PersistUserStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, secret string) error {
 	if tenant == nil || user == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamName)
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return err
 	}

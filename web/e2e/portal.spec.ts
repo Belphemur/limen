@@ -65,7 +65,7 @@ test.describe("portal happy path (stubbed OIDC + RPC)", () => {
               upstreams: [
                 {
                   publicId: "up_atlassian",
-                  name: "atlassian",
+                  identifier: "atlassian",
                   displayName: "Atlassian (mock)",
                   mcpUrl: "https://example.test/mcp",
                   strategyType: "mcp_spec",

@@ -57,7 +57,7 @@ function adminAndPortalTransport(upstreams: Partial<UpstreamSummary>[]): Transpo
         create(ListUpstreamsResponseSchema, {
           upstreams: upstreams.map((u) => ({
             publicId: '',
-            name: '',
+            identifier: '',
             displayName: '',
             mcpUrl: '',
             strategyType: '',
@@ -121,7 +121,7 @@ describe('Dashboard', () => {
       adminAndPortalTransport([
         {
           publicId: 'up_1',
-          name: 'a',
+          identifier: 'a',
           requiresLink: true,
           linkState: LinkState.CONNECTED,
           tools: [

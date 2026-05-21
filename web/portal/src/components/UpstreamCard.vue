@@ -37,12 +37,12 @@ function variantClass(variant: 'primary' | 'secondary' | 'danger'): string {
 <template>
   <article
     class="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800"
-    :data-upstream-name="upstream.name"
+    :data-upstream-name="upstream.identifier"
   >
     <header class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <h2 class="truncate text-base font-medium">
-          {{ upstream.displayName || upstream.name }}
+          {{ upstream.displayName || upstream.identifier }}
         </h2>
         <p class="mt-0.5 text-xs text-slate-500">
           {{ upstream.strategyType }}{{ subModeSuffix }} · {{ upstream.mcpUrl }}

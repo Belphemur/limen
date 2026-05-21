@@ -41,7 +41,7 @@ function withUpstreams(
         create(ListUpstreamsResponseSchema, {
           upstreams: upstreams.map((u) => ({
             publicId: 'up_x',
-            name: 'x',
+            identifier: 'x',
             displayName: '',
             mcpUrl: '',
             strategyType: 'none',
@@ -90,8 +90,8 @@ describe('McpServers', () => {
   it('renders one row per upstream', async () => {
     const { wrapper } = await mountPage(
       withUpstreams([
-        { publicId: 'up_a', name: 'github', displayName: 'GitHub', mcpUrl: 'https://github.com/mcp' },
-        { publicId: 'up_b', name: 'jira', mcpUrl: 'https://acme.atlassian.com/mcp' },
+        { publicId: 'up_a', identifier: 'github', displayName: 'GitHub', mcpUrl: 'https://github.com/mcp' },
+        { publicId: 'up_b', identifier: 'jira', mcpUrl: 'https://acme.atlassian.com/mcp' },
       ]),
     )
     expect(wrapper.find('[data-testid="upstream-row-github"]').exists()).toBe(true)
@@ -106,7 +106,7 @@ describe('McpServers', () => {
     try {
       const { wrapper } = await mountPage(
         withUpstreams(
-          [{ publicId: 'up_a', name: 'github', displayName: 'GitHub' }],
+          [{ publicId: 'up_a', identifier: 'github', displayName: 'GitHub' }],
           { onDelete: () => (called = true) },
         ),
       )

@@ -81,7 +81,7 @@ async function reindex(u: UpstreamSummary) {
   } catch (err) {
     const code = err instanceof ConnectError ? err.code : null
     if (code === Code.FailedPrecondition) {
-      error.value = `Reindex requires a link. Connect "${u.displayName || u.name}" first.`
+      error.value = `Reindex requires a link. Connect "${u.displayName || u.identifier}" first.`
     } else {
       error.value = err instanceof Error ? err.message : String(err)
     }
@@ -91,7 +91,7 @@ async function reindex(u: UpstreamSummary) {
 }
 
 async function remove(u: UpstreamSummary) {
-  const label = u.displayName || u.name
+  const label = u.displayName || u.identifier
   if (!window.confirm(`Delete upstream "${label}"? This cannot be undone.`)) return
   busy.value = { ...busy.value, [u.publicId]: 'delete' }
   try {
@@ -109,7 +109,7 @@ async function remove(u: UpstreamSummary) {
 async function connect(u: UpstreamSummary) {
   try {
     const resp = await portalClient().startConnect({
-      upstreamName: u.name,
+      upstreamIdentifier: u.identifier,
       returnTo: window.location.pathname,
     })
     if (resp.redirectUrl) {
@@ -135,42 +135,31 @@ const empty = computed(() => !loading.value && upstreams.value.length === 0)
           catalog is indexed.
         </p>
       </div>
-      <button
-        type="button"
+      <button type="button"
         class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container"
-        data-testid="add-upstream"
-        @click="router.push(ROUTES.mcpServerNew)"
-      >
+        data-testid="add-upstream" @click="router.push(ROUTES.mcpServerNew)">
         <Plus :size="16" aria-hidden="true" />
         Add server
       </button>
     </header>
 
-    <div
-      v-if="error"
-      role="alert"
-      class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
-      data-testid="upstreams-error"
-    >
+    <div v-if="error" role="alert" class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
+      data-testid="upstreams-error">
       {{ error }}
     </div>
 
     <section v-if="loading" class="text-sm text-on-surface-variant">Loading…</section>
 
-    <section
-      v-else-if="empty"
+    <section v-else-if="empty"
       class="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border-subtle bg-surface p-12 text-center"
-      data-testid="upstreams-empty"
-    >
+      data-testid="upstreams-empty">
       <h2 class="font-display text-xl font-semibold text-on-surface">No MCP servers yet</h2>
       <p class="mt-2 max-w-md text-sm text-on-surface-variant">
         Add your first upstream to start aggregating tools through Limen.
       </p>
-      <button
-        type="button"
+      <button type="button"
         class="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container"
-        @click="router.push(ROUTES.mcpServerNew)"
-      >
+        @click="router.push(ROUTES.mcpServerNew)">
         <Plus :size="16" aria-hidden="true" />
         Add first server
       </button>
@@ -188,18 +177,11 @@ const empty = computed(() => !loading.value && upstreams.value.length === 0)
           </tr>
         </thead>
         <tbody class="divide-y divide-border-subtle bg-surface">
-          <tr
-            v-for="u in upstreams"
-            :key="u.publicId"
-            :data-testid="`upstream-row-${u.name}`"
-            class="hover:bg-surface-container-low"
-          >
+          <tr v-for="u in upstreams" :key="u.publicId" :data-testid="`upstream-row-${u.identifier}`"
+            class="hover:bg-surface-container-low">
             <td class="px-4 py-3">
-              <RouterLink
-                :to="detailPath(u.publicId)"
-                class="font-medium text-on-surface hover:text-primary"
-              >
-                {{ u.displayName || u.name }}
+              <RouterLink :to="detailPath(u.publicId)" class="font-medium text-on-surface hover:text-primary">
+                {{ u.displayName || u.identifier }}
               </RouterLink>
               <div class="text-xs text-on-surface-variant">{{ u.mcpUrl }}</div>
             </td>
@@ -210,33 +192,23 @@ const empty = computed(() => !loading.value && upstreams.value.length === 0)
             <td class="px-4 py-3 text-on-surface-variant">{{ u.tools.length }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center justify-end gap-1">
-                <button
-                  v-if="u.requiresLink && u.linkState !== LinkState.CONNECTED"
-                  type="button"
+                <button v-if="u.requiresLink && u.linkState !== LinkState.CONNECTED" type="button"
                   class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10"
-                  :data-testid="`upstream-connect-${u.name}`"
-                  @click="connect(u)"
-                >
+                  :data-testid="`upstream-connect-${u.identifier}`" @click="connect(u)">
                   <ExternalLink :size="14" aria-hidden="true" />
                   Connect
                 </button>
-                <button
-                  type="button"
+                <button type="button"
                   class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface disabled:opacity-50"
-                  :disabled="busy[u.publicId] === 'reindex'"
-                  :data-testid="`upstream-reindex-${u.name}`"
-                  @click="reindex(u)"
-                >
+                  :disabled="busy[u.publicId] === 'reindex'" :data-testid="`upstream-reindex-${u.identifier}`"
+                  @click="reindex(u)">
                   <RefreshCw :size="14" aria-hidden="true" />
                   Reindex
                 </button>
-                <button
-                  type="button"
+                <button type="button"
                   class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-error hover:bg-error/10 disabled:opacity-50"
-                  :disabled="busy[u.publicId] === 'delete'"
-                  :data-testid="`upstream-delete-${u.name}`"
-                  @click="remove(u)"
-                >
+                  :disabled="busy[u.publicId] === 'delete'" :data-testid="`upstream-delete-${u.identifier}`"
+                  @click="remove(u)">
                   <Trash2 :size="14" aria-hidden="true" />
                   Delete
                 </button>

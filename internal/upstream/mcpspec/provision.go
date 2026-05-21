@@ -58,7 +58,7 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 			return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
 		}
 		if !cfg.HasStaticClient() {
-			return fmt.Errorf("%w: AS %s, upstream %q", ErrStaticClientRequired, as.Issuer, lctx.Upstream.Name)
+			return fmt.Errorf("%w: AS %s, upstream %q", ErrStaticClientRequired, as.Issuer, lctx.Upstream.Identifier)
 		}
 		clientID = cfg.ClientID
 		clientSecret = cfg.ClientSecret
@@ -98,7 +98,7 @@ type dcrResult struct {
 // dynamicallyRegister performs the RFC 7591 POST to the AS's
 // registration_endpoint and returns the issued credentials.
 func (s *Strategy) dynamicallyRegister(ctx context.Context, lctx upstream.LinkContext, endpoint string) (*dcrResult, error) {
-	redirect := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Name)
+	redirect := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier)
 	dcrReq := map[string]any{
 		"redirect_uris":              []string{redirect},
 		"grant_types":                []string{"authorization_code", "refresh_token"},

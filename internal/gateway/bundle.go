@@ -40,7 +40,7 @@ func (b *Bundle) CallTool(ctx context.Context, toolName string, args map[string]
 
 	c, err := upstream.DialAndInitialize(cctx, b.Upstream.McpServerURL, nil, b.HTTPClient, b.Timeout, "limen", "0.1.0")
 	if err != nil {
-		return nil, fmt.Errorf("gateway: dial %q: %w", b.Upstream.Name, err)
+		return nil, fmt.Errorf("gateway: dial %q: %w", b.Upstream.Identifier, err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -49,7 +49,7 @@ func (b *Bundle) CallTool(ctx context.Context, toolName string, args map[string]
 	req.Params.Arguments = args
 	resp, err := c.CallTool(cctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("gateway: call %q.%q: %w", b.Upstream.Name, toolName, err)
+		return nil, fmt.Errorf("gateway: call %q.%q: %w", b.Upstream.Identifier, toolName, err)
 	}
 	return resp, nil
 }

@@ -10,7 +10,7 @@ function rpc(body: unknown): Parameters<Route['fulfill']>[0] {
 
 interface Upstream {
   publicId: string
-  name: string
+  identifier: string
   displayName: string
   mcpUrl: string
   strategyType: string
@@ -24,7 +24,7 @@ interface Upstream {
 function sample(): Upstream {
   return {
     publicId: 'up_demo',
-    name: 'demo',
+    identifier: 'demo',
     displayName: 'Demo',
     mcpUrl: 'https://example.com/mcp',
     strategyType: 'none',
@@ -116,7 +116,7 @@ test.describe('admin upstreams (mocked services)', () => {
       if (path === 'limen.admin.v1.AdminService/CreateUpstream') {
         const body = (await route.request().postDataJSON()) as Record<string, unknown>
         state.created = body
-        const created = { ...sample(), name: String(body.name) }
+        const created = { ...sample(), identifier: String(body.identifier) }
         state.upstreams = [created]
         await route.fulfill(
           rpc({
@@ -137,6 +137,6 @@ test.describe('admin upstreams (mocked services)', () => {
 
     await expect(page).toHaveURL(/\/mcp-servers$/)
     expect(state.created).toBeTruthy()
-    expect(state.created!.name).toBe('demo')
+    expect(state.created!.identifier).toBe('demo')
   })
 })

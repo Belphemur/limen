@@ -2,7 +2,7 @@
 //
 // Phase 7 only owns one HTTP route: the OAuth redirect URI that upstream
 // Authorization Servers redirect the user to after they authorize. The
-// route lives under /t/{tenant}<CallbackPath>/{name}/callback behind the
+// route lives under /t/{tenant}<CallbackPath>/{identifier}/callback behind the
 // usual tenancy.RequireTenant + OIDC.RequireSession middlewares; the
 // path segment is configurable (default "/mcp-servers") via
 // server.upstream_callback_path so deployments can rename it without
@@ -36,7 +36,7 @@ type UpstreamDeps struct {
 	Service *upstream.Service
 	Logger  *zap.Logger
 	// CallbackPath is the single path segment between /t/{tenant} and
-	// /{name}/callback, e.g. "/mcp-servers". Required; must start with
+	// /{identifier}/callback, e.g. "/mcp-servers". Required; must start with
 	// "/" and contain no trailing slash.
 	CallbackPath string
 }
@@ -51,7 +51,7 @@ func MountUpstream(r chi.Router, deps UpstreamDeps) {
 		logger.Error("transport.MountUpstream: CallbackPath is empty; refusing to mount")
 		return
 	}
-	r.Route("/t/{tenant}"+deps.CallbackPath+"/{name}/callback", func(cr chi.Router) {
+	r.Route("/t/{tenant}"+deps.CallbackPath+"/{identifier}/callback", func(cr chi.Router) {
 		cr.Use(tenancy.RequireTenant(deps.Store, logger))
 		cr.Use(deps.OIDC.RequireSession())
 		cr.Get("/", upstreamCallbackHandler(deps, logger))
@@ -71,23 +71,23 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 			http.Error(w, "auth required", http.StatusUnauthorized)
 			return
 		}
-		upstreamName := chi.URLParam(r, "name")
+		upstreamIdentifier := chi.URLParam(r, "identifier")
 
 		user, err := loadUserBySubject(ctx, deps.Store, tenant.ID, claims.GetSubject())
 		if err != nil {
 			logger.Warn("upstream callback: user lookup failed",
 				zap.String("tenant", tenant.PublicID),
-				zap.String("upstream", upstreamName),
+				zap.String("upstream", upstreamIdentifier),
 				zap.Error(err))
 			http.Error(w, "user not found", http.StatusForbidden)
 			return
 		}
 
-		returnTo, err := deps.Service.FinishCallback(ctx, tenant, user, upstreamName, r.URL.RawQuery)
+		returnTo, err := deps.Service.FinishCallback(ctx, tenant, user, upstreamIdentifier, r.URL.RawQuery)
 		if err != nil {
 			logger.Warn("upstream callback: finish failed",
 				zap.String("tenant", tenant.PublicID),
-				zap.String("upstream", upstreamName),
+				zap.String("upstream", upstreamIdentifier),
 				zap.Error(err))
 			http.Error(w, "callback failed", http.StatusBadRequest)
 			return
@@ -99,11 +99,11 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 		// Best-effort: indexing failure logs but does not fail the
 		// redirect back to the SPA \u2014 the periodic sweep will retry.
 		if hasCatalogIndexerRole(claims) {
-			up, lerr := deps.Service.LoadUpstream(ctx, tenant.ID, upstreamName)
+			up, lerr := deps.Service.LoadUpstream(ctx, tenant.ID, upstreamIdentifier)
 			if lerr != nil {
 				logger.Warn("upstream callback: load upstream for catalog index failed",
 					zap.String("tenant", tenant.PublicID),
-					zap.String("upstream", upstreamName),
+					zap.String("upstream", upstreamIdentifier),
 					zap.Error(lerr))
 			} else {
 				link, lerr := deps.Service.LoadLink(ctx, tenant.ID, user.ID, up.ID)
@@ -111,22 +111,22 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 				case lerr != nil && !errors.Is(lerr, upstream.ErrLinkNotFound):
 					logger.Warn("upstream callback: load link for catalog index failed",
 						zap.String("tenant", tenant.PublicID),
-						zap.String("upstream", upstreamName),
+						zap.String("upstream", upstreamIdentifier),
 						zap.Error(lerr))
 				case link == nil:
 					logger.Debug("upstream callback: no link yet, skipping catalog index",
 						zap.String("tenant", tenant.PublicID),
-						zap.String("upstream", upstreamName))
+						zap.String("upstream", upstreamIdentifier))
 				default:
 					if ierr := deps.Service.IndexCatalog(ctx, tenant, up, link); ierr != nil {
 						logger.Warn("upstream callback: catalog index failed",
 							zap.String("tenant", tenant.PublicID),
-							zap.String("upstream", upstreamName),
+							zap.String("upstream", upstreamIdentifier),
 							zap.Error(ierr))
 					} else {
 						logger.Info("upstream callback: catalog indexed",
 							zap.String("tenant", tenant.PublicID),
-							zap.String("upstream", upstreamName))
+							zap.String("upstream", upstreamIdentifier))
 					}
 				}
 			}

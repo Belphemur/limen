@@ -19,7 +19,7 @@ import (
 
 type createUpstreamFlags struct {
 	tenantPublicID string
-	name           string
+	identifier     string
 	strategy       string
 	mcpURL         string
 
@@ -47,7 +47,7 @@ discovery flow) and the none strategy (no auth, public upstream).
 The static_header strategy requires per-tenant secret material and is
 plumbed through the admin SPA (Phase 9b), not this CLI.
 
-The command rejects re-creates: pick a fresh --name or delete the
+The command rejects re-creates: pick a fresh --identifier or delete the
 existing upstream first. For the 'none' strategy the tool catalog
 is indexed synchronously after the row is written, so the upstream
 is usable end-to-end as soon as the command exits.`,
@@ -63,8 +63,8 @@ is usable end-to-end as soon as the command exits.`,
 			if strings.TrimSpace(f.tenantPublicID) == "" {
 				return errors.New("--tenant is required (a tnt_<ULID> public id)")
 			}
-			if strings.TrimSpace(f.name) == "" {
-				return errors.New("--name is required")
+			if strings.TrimSpace(f.identifier) == "" {
+				return errors.New("--identifier is required")
 			}
 			if strings.TrimSpace(f.mcpURL) == "" {
 				return errors.New("--url is required")
@@ -110,7 +110,7 @@ is usable end-to-end as soon as the command exits.`,
 				svc := upstream.NewService(store, registry)
 				if provErr := svc.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
 					logger.Warn("sync provision/index failed; refresher will retry",
-						zap.String("upstream", up.Name),
+						zap.String("upstream", up.Identifier),
 						zap.Error(provErr))
 				}
 			}
@@ -118,14 +118,14 @@ is usable end-to-end as soon as the command exits.`,
 			logger.Info("upstream registered",
 				zap.String("public_id", up.PublicID),
 				zap.String("tenant", tenant.PublicID),
-				zap.String("name", up.Name),
+				zap.String("identifier", up.Identifier),
 				zap.String("strategy", up.StrategyType),
 				zap.String("mcp_server_url", up.McpServerURL),
 				zap.Bool("static_client", staticCfg.HasStaticClient()))
 
 			fmt.Printf("Upstream %s ready.\n", up.PublicID)
 			fmt.Printf("  Tenant     : %s (%d)\n", tenant.PublicID, tenant.ID)
-			fmt.Printf("  Name       : %s\n", up.Name)
+			fmt.Printf("  Identifier : %s\n", up.Identifier)
 			fmt.Printf("  Strategy   : %s\n", up.StrategyType)
 			fmt.Printf("  MCP URL    : %s\n", up.McpServerURL)
 			if staticCfg.HasStaticClient() {
@@ -138,7 +138,7 @@ is usable end-to-end as soon as the command exits.`,
 	}
 
 	cmd.Flags().StringVar(&f.tenantPublicID, "tenant", "", "tenant public id (tnt_<ULID>)")
-	cmd.Flags().StringVar(&f.name, "name", "", "upstream name (per-tenant unique; appears in URLs)")
+	cmd.Flags().StringVar(&f.identifier, "identifier", "", "upstream identifier (per-tenant unique slug; appears in URLs)")
 	cmd.Flags().StringVar(&f.strategy, "strategy", string(upstream.StrategyMCPSpec), "linking strategy (only mcp_spec supported in v1)")
 	cmd.Flags().StringVar(&f.mcpURL, "url", "", "MCP server URL (the resource the OAuth flow will discover)")
 	cmd.Flags().StringVar(&f.clientID, "client-id", "", "pre-provisioned OAuth client_id (use when the AS doesn't support DCR, e.g. GitHub)")
@@ -149,11 +149,11 @@ is usable end-to-end as soon as the command exits.`,
 	cmd.Flags().StringSliceVar(&f.scopes, "scope", nil, "OAuth scope to request (repeatable)")
 
 	_ = cmd.MarkFlagRequired("tenant")
-	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("identifier")
 	_ = cmd.MarkFlagRequired("url")
 
 	bindFlag(v, "tenant")
-	bindFlag(v, "name")
+	bindFlag(v, "identifier")
 	bindFlag(v, "strategy")
 	bindFlag(v, "url")
 	bindFlag(v, "client-id")
@@ -179,7 +179,7 @@ func createUpstreamViaService(ctx context.Context, store *storage.Store, tenant 
 		Scopes:                f.scopes,
 	}
 	in := upstream.CreateUpstreamInput{
-		Name:         f.name,
+		Identifier:   f.identifier,
 		MCPServerURL: f.mcpURL,
 		StrategyType: upstream.StrategyType(f.strategy),
 	}

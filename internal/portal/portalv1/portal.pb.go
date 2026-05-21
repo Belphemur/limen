@@ -163,7 +163,7 @@ func (x *ListUpstreamsResponse) GetUpstreams() []*UpstreamSummary {
 type UpstreamSummary struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	PublicId     string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
-	Name         string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Identifier   string                 `protobuf:"bytes,2,opt,name=identifier,proto3" json:"identifier,omitempty"`
 	DisplayName  string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	McpUrl       string                 `protobuf:"bytes,4,opt,name=mcp_url,json=mcpUrl,proto3" json:"mcp_url,omitempty"`
 	StrategyType string                 `protobuf:"bytes,5,opt,name=strategy_type,json=strategyType,proto3" json:"strategy_type,omitempty"`
@@ -223,9 +223,9 @@ func (x *UpstreamSummary) GetPublicId() string {
 	return ""
 }
 
-func (x *UpstreamSummary) GetName() string {
+func (x *UpstreamSummary) GetIdentifier() string {
 	if x != nil {
-		return x.Name
+		return x.Identifier
 	}
 	return ""
 }
@@ -353,8 +353,8 @@ func (x *UpstreamTool) GetDescription() string {
 }
 
 type StartConnectRequest struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamName string                 `protobuf:"bytes,1,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
 	// Path the SPA wants the browser to return to after the dance.
 	ReturnTo      string `protobuf:"bytes,2,opt,name=return_to,json=returnTo,proto3" json:"return_to,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -391,9 +391,9 @@ func (*StartConnectRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *StartConnectRequest) GetUpstreamName() string {
+func (x *StartConnectRequest) GetUpstreamIdentifier() string {
 	if x != nil {
-		return x.UpstreamName
+		return x.UpstreamIdentifier
 	}
 	return ""
 }
@@ -453,11 +453,11 @@ func (x *StartConnectResponse) GetRedirectUrl() string {
 }
 
 type SubmitUpstreamAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamName  string                 `protobuf:"bytes,1,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
-	ApiKey        string                 `protobuf:"bytes,2,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
+	ApiKey             string                 `protobuf:"bytes,2,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SubmitUpstreamAPIKeyRequest) Reset() {
@@ -490,9 +490,9 @@ func (*SubmitUpstreamAPIKeyRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *SubmitUpstreamAPIKeyRequest) GetUpstreamName() string {
+func (x *SubmitUpstreamAPIKeyRequest) GetUpstreamIdentifier() string {
 	if x != nil {
-		return x.UpstreamName
+		return x.UpstreamIdentifier
 	}
 	return ""
 }
@@ -541,11 +541,11 @@ func (*SubmitUpstreamAPIKeyResponse) Descriptor() ([]byte, []int) {
 }
 
 type SetUpstreamLinkEnabledRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamName  string                 `protobuf:"bytes,1,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
-	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
+	Enabled            bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SetUpstreamLinkEnabledRequest) Reset() {
@@ -578,9 +578,9 @@ func (*SetUpstreamLinkEnabledRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *SetUpstreamLinkEnabledRequest) GetUpstreamName() string {
+func (x *SetUpstreamLinkEnabledRequest) GetUpstreamIdentifier() string {
 	if x != nil {
-		return x.UpstreamName
+		return x.UpstreamIdentifier
 	}
 	return ""
 }
@@ -629,10 +629,10 @@ func (*SetUpstreamLinkEnabledResponse) Descriptor() ([]byte, []int) {
 }
 
 type DisconnectRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamName  string                 `protobuf:"bytes,1,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DisconnectRequest) Reset() {
@@ -665,9 +665,9 @@ func (*DisconnectRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *DisconnectRequest) GetUpstreamName() string {
+func (x *DisconnectRequest) GetUpstreamIdentifier() string {
 	if x != nil {
-		return x.UpstreamName
+		return x.UpstreamIdentifier
 	}
 	return ""
 }
@@ -960,10 +960,12 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"\x1climen/portal/v1/portal.proto\x12\x0flimen.portal.v1\"\x16\n" +
 	"\x14ListUpstreamsRequest\"W\n" +
 	"\x15ListUpstreamsResponse\x12>\n" +
-	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xce\x03\n" +
+	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xda\x03\n" +
 	"\x0fUpstreamSummary\x12\x1b\n" +
-	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x1e\n" +
+	"\n" +
+	"identifier\x18\x02 \x01(\tR\n" +
+	"identifier\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x17\n" +
 	"\amcp_url\x18\x04 \x01(\tR\x06mcpUrl\x12#\n" +
 	"\rstrategy_type\x18\x05 \x01(\tR\fstrategyType\x12*\n" +
@@ -978,22 +980,22 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"\aaliases\x18\f \x03(\tR\aaliases\"D\n" +
 	"\fUpstreamTool\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\"W\n" +
-	"\x13StartConnectRequest\x12#\n" +
-	"\rupstream_name\x18\x01 \x01(\tR\fupstreamName\x12\x1b\n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"c\n" +
+	"\x13StartConnectRequest\x12/\n" +
+	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x1b\n" +
 	"\treturn_to\x18\x02 \x01(\tR\breturnTo\"9\n" +
 	"\x14StartConnectResponse\x12!\n" +
-	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl\"[\n" +
-	"\x1bSubmitUpstreamAPIKeyRequest\x12#\n" +
-	"\rupstream_name\x18\x01 \x01(\tR\fupstreamName\x12\x17\n" +
+	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl\"g\n" +
+	"\x1bSubmitUpstreamAPIKeyRequest\x12/\n" +
+	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x17\n" +
 	"\aapi_key\x18\x02 \x01(\tR\x06apiKey\"\x1e\n" +
-	"\x1cSubmitUpstreamAPIKeyResponse\"^\n" +
-	"\x1dSetUpstreamLinkEnabledRequest\x12#\n" +
-	"\rupstream_name\x18\x01 \x01(\tR\fupstreamName\x12\x18\n" +
+	"\x1cSubmitUpstreamAPIKeyResponse\"j\n" +
+	"\x1dSetUpstreamLinkEnabledRequest\x12/\n" +
+	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\" \n" +
-	"\x1eSetUpstreamLinkEnabledResponse\"8\n" +
-	"\x11DisconnectRequest\x12#\n" +
-	"\rupstream_name\x18\x01 \x01(\tR\fupstreamName\"\x14\n" +
+	"\x1eSetUpstreamLinkEnabledResponse\"D\n" +
+	"\x11DisconnectRequest\x12/\n" +
+	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\"\x14\n" +
 	"\x12DisconnectResponse\"\x17\n" +
 	"\x15ListMCPClientsRequest\"N\n" +
 	"\x16ListMCPClientsResponse\x124\n" +

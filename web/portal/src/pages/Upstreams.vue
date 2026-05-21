@@ -24,7 +24,7 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
   try {
     switch (kind) {
       case 'connect': {
-        const url = await upstreams.startConnect(up.name, window.location.pathname)
+        const url = await upstreams.startConnect(up.identifier, window.location.pathname)
         window.location.assign(url)
         return
       }
@@ -33,20 +33,20 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
         modal.value = { open: true, upstream: up }
         return
       case 'enable':
-        await upstreams.setEnabled(up.name, true)
+        await upstreams.setEnabled(up.identifier, true)
         return
       case 'disable':
-        await upstreams.setEnabled(up.name, false)
+        await upstreams.setEnabled(up.identifier, false)
         return
       case 'disconnect':
         if (
           !window.confirm(
-            `Disconnect ${up.displayName || up.name}? This removes stored credentials.`,
+            `Disconnect ${up.displayName || up.identifier}? This removes stored credentials.`,
           )
         ) {
           return
         }
-        await upstreams.disconnect(up.name)
+        await upstreams.disconnect(up.identifier)
         return
     }
   } finally {
@@ -59,7 +59,7 @@ async function submitApiKey(apiKey: string) {
   if (!up) return
   busyRow.value = up.publicId
   try {
-    await upstreams.submitApiKey(up.name, apiKey)
+    await upstreams.submitApiKey(up.identifier, apiKey)
     modal.value = { open: false, upstream: null }
   } finally {
     busyRow.value = null
@@ -94,7 +94,7 @@ function cancelModal() {
         @action="(kind) => handleAction(up, kind)" />
     </div>
 
-    <ApiKeyModal :open="modal.open" :upstream-label="modal.upstream?.displayName || modal.upstream?.name || ''"
+    <ApiKeyModal :open="modal.open" :upstream-label="modal.upstream?.displayName || modal.upstream?.identifier || ''"
       :busy="busyRow !== null" @submit="submitApiKey" @cancel="cancelModal" />
   </section>
 </template>
