@@ -70,6 +70,24 @@ services:
     networks:
       - zitadel
 
+  # Phase 9c — single dev origin in front of everything. Mirrors the
+  # production topology: one Caddy terminating http://localhost:8000
+  # that reverse-proxies the Connect-RPC / OIDC / OAuth / MCP routes
+  # to the Limen binary on the host and serves the two SPA bundles
+  # from their Vite dev servers under /t/<tenant>/portal and
+  # /t/<tenant>/admin. See deploy/caddy/Caddyfile.dev for the route
+  # table.
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./deploy/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - zitadel
+
   # One-shot. Provisions the Limen project, Portal/MCP RS apps, project roles,
   # sample tenant org, and staff org via the Zitadel Management API.
   # Idempotent. Run via `make dev-bootstrap`.
@@ -93,15 +111,11 @@ services:
       ZITADEL_API_PORT: "8080"
       ZITADEL_HOST: "localhost"
       ZITADEL_PAT_FILE: "/zitadel/bootstrap/admin-sa.pat"
-      LIMEN_PORTAL_REDIRECT: "http://localhost:5173/auth/callback"
-      LIMEN_PORTAL_POST_LOGOUT: "http://localhost:5173/signed-out"
-      # Admin SPA dev origin — registered alongside the portal callback so
-      # the backend can pick the matching RP per-request and Zitadel will
-      # accept both. Comma-separated; override via the environment to add
-      # more dev origins.
-      LIMEN_EXTRA_REDIRECTS: "http://localhost:5174/auth/callback"
-      LIMEN_EXTRA_POST_LOGOUTS: "http://localhost:5174/signed-out"
-      LIMEN_MCP_RESOURCE_URI: "http://localhost:8080/t/{tenant}/mcp"
+      # Single dev origin behind Caddy. Both SPAs and the backend share
+      # http://localhost:8000 — no more per-port redirect_uris.
+      LIMEN_PORTAL_REDIRECT: "http://localhost:8000/auth/callback"
+      LIMEN_PORTAL_POST_LOGOUT: "http://localhost:8000/signed-out"
+      LIMEN_MCP_RESOURCE_URI: "http://localhost:8000/t/{tenant}/mcp"
       LIMEN_SAMPLE_TENANT_NAME: "acme"
       LIMEN_BOOTSTRAP_OUT: "/work/.bootstrap-out.env"
     networks:

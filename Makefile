@@ -31,13 +31,13 @@ test -f scripts/zitadel-bootstrap/.bootstrap-out.env || { \
 set -a
 source scripts/zitadel-bootstrap/.bootstrap-out.env
 source .env.dev
-export LIMEN_BASE_URL=http://localhost:5173
+export LIMEN_BASE_URL=http://localhost:8000
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_DB_ADMIN_DSN='postgres://limen_admin:limen_admin_dev@localhost:5432/limen?sslmode=disable'
 export LIMEN_OIDC_ISSUER=http://localhost:8081
 export LIMEN_OIDC_CLIENT_ID="$$LIMEN_OIDC_PORTAL_CLIENT_ID"
-export LIMEN_OIDC_REDIRECT_URI=http://localhost:5173/auth/callback
-export LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:5173/signed-out
+export LIMEN_OIDC_REDIRECT_URI=http://localhost:8000/auth/callback
+export LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:8000/signed-out
 export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
 export LIMEN_ZITADEL_AUTH_MODE=pat
 export LIMEN_ZITADEL_PAT="$$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)"
@@ -105,12 +105,13 @@ dev-down:
 # end-users; the admin SPA (Phase 9c) targets tenant administrators.
 # Both share the same Go backend on :8080.
 #
-# `make dev-portal` → portal on http://localhost:5173
-# `make dev-admin`  → admin  on http://localhost:5174
-#
-# Vite's dev-proxy in each SPA forwards /t/*/api, /auth, /oauth, /mcp,
-# /healthz to the locally-running Limen binary on :8080 (started by
-# `make dev` or `make dev-run`).
+# Both bundles are reached through Caddy on http://localhost:8000:
+#   /t/<tenant>/portal/  → vite (host :5173)
+#   /t/<tenant>/admin/   → vite (host :5174)
+# Caddy also reverse-proxies /t/<tenant>/api, /auth, /oauth, /mcp,
+# /healthz, /.well-known and /signup to the Limen binary on :8080
+# (started by `make dev` or `make dev-run`). Hitting :5173/:5174
+# directly skips the unified origin and will break OIDC/cookie flows.
 PORTAL_DIR := web/portal
 ADMIN_DIR  := web/admin
 

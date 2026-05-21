@@ -1,0 +1,85 @@
+# Dev-only Caddyfile.
+#
+# Production parity in one process: every request the browser makes in
+# dev now hits a single origin (http://localhost:8000), matching the
+# prod topology where Caddy fronts Limen and serves the SPA bundles.
+#
+# Targets:
+#   - /t/<tenant>/portal/*  -> Vite portal dev server (host :5173)
+#   - /t/<tenant>/admin/*   -> Vite admin  dev server (host :5174)
+#   - /t/<tenant>/api/*     -> Limen backend (host :8080) [Connect-RPC]
+#   - /t/<tenant>/auth|oauth|mcp*, /auth/*, /.well-known/*, /healthz,
+#     /signup*, /api/limen.signup*  -> Limen backend
+#
+# Vite + the Limen binary run on the host (`make dev-portal`,
+# `make dev-admin`, `make dev-run`); Caddy runs in compose and reaches
+# them via host.docker.internal.
+#
+# Keep the @api matcher in lockstep with the production Caddyfile
+# outline in docs/phases/phase-11-production-deployment.md.
+{
+	auto_https off
+	admin off
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+}
+
+:8000 {
+	encode zstd gzip
+
+	# Backend routes — Connect-RPC, OIDC RP, OAuth proxy, MCP RS,
+	# upstream-OAuth callback, discovery, health.
+	@api {
+		path /t/*/api/*
+		path /t/*/auth/*
+		path /t/*/oauth/*
+		path /t/*/mcp
+		path /t/*/mcp/*
+		path /t/*/mcp-servers/*/callback
+		path /auth/login
+		path /auth/callback
+		path /auth/discovery
+		path /auth/signup*
+		path /signup
+		path /signup/*
+		path /api/limen.signup*
+		path /.well-known/*
+		path /healthz
+	}
+	reverse_proxy @api host.docker.internal:8080 {
+		header_up X-Forwarded-Proto http
+	}
+
+	# Admin SPA — strip /t/<tenant>/admin/ before forwarding so the
+	# Vite dev server (which serves at "/") finds its assets, /@vite
+	# client, and HMR socket. The SPA reads the tenant slug from
+	# window.location at boot, so the browser still sees the prefixed
+	# URL.
+	@admin path_regexp adminroute ^/t/[^/]+/admin(/.*)?$
+	handle @admin {
+		rewrite * /{re.adminroute.1}
+		reverse_proxy host.docker.internal:5174
+	}
+
+	# Portal SPA — same shape.
+	@portal path_regexp portalroute ^/t/[^/]+/portal(/.*)?$
+	handle @portal {
+		rewrite * /{re.portalroute.1}
+		reverse_proxy host.docker.internal:5173
+	}
+
+	# Bare tenant root: send to the portal SPA shell.
+	@tenantRoot path_regexp tenantonly ^/t/[^/]+/?$
+	handle @tenantRoot {
+		redir /auth/login 302
+	}
+
+	# Anything else (root, signed-out, etc.) goes to the backend so the
+	# unauthenticated-entry handler (Phase 4) can pick the right page.
+	reverse_proxy host.docker.internal:8080 {
+		header_up X-Forwarded-Proto http
+	}
+}
