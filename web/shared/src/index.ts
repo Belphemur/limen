@@ -3,6 +3,8 @@ export { default as ContextJsonEditor } from "./components/ContextJsonEditor.vue
 export { default as ErrorModal } from "./components/ErrorModal.vue";
 export { default as IDEExamples } from "./components/IDEExamples.vue";
 export { default as SuccessModal } from "./components/SuccessModal.vue";
+export { default as ZitadelDirectory } from "./components/ZitadelDirectory.vue";
+export type { ZitadelDirectoryCard } from "./components/ZitadelDirectory.vue";
 export * from "./lib/upstreamContextHints.ts";
 export * from "./lib/upstreamOAuthPopup.ts";
 export * from "./lib/zitadelConsole.ts";

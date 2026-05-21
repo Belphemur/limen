@@ -381,16 +381,16 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [x] `web/shared/src/components/ContextJsonEditor.vue` and `web/shared/src/lib/upstreamContextHints.ts` are reusable from the customer portal (Phase 9b) for the per-link `context_json` editor
 - [ ] `Dashboard.vue` renders the onboarding bento (welcome + setup-progress + 3 task cards + system-health empty state + quick-resources) and computes step completion from `ListUpstreams` + `tenant_settings.invited_team_at` + `tenant_settings.configured_at`
 - [ ] `ContextualSearch.vue` honours `route.meta.search` for `filter` vs `palette` vs hidden modes; placeholder text is route-driven
-- [ ] `Members.vue` (v1) wraps `ZitadelDirectory.vue` and renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
+- [x] `Members.vue` (v1) wraps `ZitadelDirectory.vue` and renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
 - [ ] `Settings.vue` covers tenant name + read-only `PublicID` + read-only Zitadel identity panel + DCR redirect-URI allowlist editor + Danger Zone (`DeleteTenant`)
-- [ ] `internal/admin/` contains **no** `members.go` and **no** `idp.go` at v1; reviewers may approve `members.go` at v1.5+ but never `idp.go`
-- [ ] No `tenant_idp_configurations` migration ever; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.
+- [x] `internal/admin/` contains **no** `members.go` and **no** `idp.go` at v1; reviewers may approve `members.go` at v1.5+ but never `idp.go`
+- [x] No `tenant_idp_configurations` migration ever; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
 - [ ] Signup completes a full round-trip: name + email → MailHog → password set → admin SPA
 - [ ] Admin SPA routes lazy-loaded; all v1 pages above implemented
 - [x] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
-- [ ] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
+- [x] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
 - [ ] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
 - [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen
 - [ ] Bundle-separation test: a clean-cache `member` browsing `/portal/` does not fetch the admin bundle
