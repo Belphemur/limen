@@ -20,12 +20,21 @@ import (
 // AdminService. The caller composes it onto /t/{tenant}/api/ via an
 // http.ServeMux alongside PortalService and SessionService.
 //
+// projectGrants resolves the Zitadel project-grant ID for Console
+// deep-links (Members → role assignment). Pass nil + empty projectID
+// to disable that single deep-link without affecting the rest of the
+// admin surface.
+//
+// members is the Zitadel directory pass-through used by the
+// Members tab (List/Invite/UpdateRole/Remove). Pass nil to leave
+// those RPCs returning CodeUnimplemented.
+//
 // tenant.Service lives here (rather than on boot.Runtime) so the MCP
 // gateway hot-path binary does not transitively pull in
 // internal/oauthproxy via internal/tenant's redirect-URI validator —
 // see cmd/gateway/import_graph_test.go.
-func NewHandler(rt *boot.Runtime, resolver session.Resolver) (string, http.Handler) {
+func NewHandler(rt *boot.Runtime, resolver session.Resolver, projectGrants admin.ProjectGrantLookup, projectID string, members admin.MemberDirectory) (string, http.Handler) {
 	tenantSvc := tenant.NewService(rt.Store)
-	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, rt.Logger)
+	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, projectGrants, projectID, members, rt.Logger)
 	return svc.Handler()
 }

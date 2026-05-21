@@ -1,24 +1,35 @@
 // Zitadel Console deep-link builder.
 //
 // Mirrors the URL layout Zitadel renders at <issuer>/ui/console/*. All
-// callers (admin Dashboard, admin Settings) build links through this
-// helper so the issuer hostname comes from /auth/discovery (see
-// ./discovery.ts) and is never hard-coded in components.
+// callers (admin Dashboard, admin Settings, admin Members) build links
+// through these helpers so the issuer hostname comes from
+// /auth/discovery (see ./discovery.ts) and is never hard-coded in
+// components.
+//
+// v2 console layout notes:
+//   - Org-level policy / IdP / branding tabs all live under a single
+//     `/ui/console/org-settings` page with `?id=<tab>` selecting the
+//     sidenav entry. Tab ids match the constants in
+//     console/src/app/modules/settings-list/settings.ts (`login`,
+//     `idp`, `branding`, `lockout`, …).
+//   - Project-grant role assignment lives at
+//     `/ui/console/granted-projects/<projectId>/grant/<grantId>` — both
+//     ids are required; the page has no fallback at the project level.
 
 export type ZitadelView =
   | "users"
-  | "project"
   | "idp"
   | "branding"
-  | "login-policy"
+  | "login"
+  | "lockout"
   | "profile";
 
 const VIEW_PATH: Record<ZitadelView, string> = {
   users: "/ui/console/users",
-  project: "/ui/console/projects",
-  idp: "/ui/console/instance/idp",
-  branding: "/ui/console/org/branding",
-  "login-policy": "/ui/console/org/policy/login",
+  idp: "/ui/console/org-settings?id=idp",
+  branding: "/ui/console/org-settings?id=branding",
+  login: "/ui/console/org-settings?id=login",
+  lockout: "/ui/console/org-settings?id=lockout",
   profile: "/ui/console/users/me",
 };
 
@@ -33,6 +44,24 @@ export function zitadelConsoleUrl(
   if (!issuer) return "";
   const base = issuer.replace(/\/+$/, "");
   const path = VIEW_PATH[view];
+  if (!orgId) return `${base}${path}`;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${base}${path}${sep}org=${encodeURIComponent(orgId)}`;
+}
+
+// zitadelRoleAssignmentUrl returns the Console deep-link for managing
+// the role assignments of a single project grant. All four arguments
+// are required — return "" otherwise so callers can render a disabled
+// link.
+export function zitadelRoleAssignmentUrl(
+  issuer: string,
+  orgId: string,
+  projectId: string,
+  grantId: string,
+): string {
+  if (!issuer || !projectId || !grantId) return "";
+  const base = issuer.replace(/\/+$/, "");
+  const path = `/ui/console/granted-projects/${encodeURIComponent(projectId)}/grant/${encodeURIComponent(grantId)}`;
   if (!orgId) return `${base}${path}`;
   return `${base}${path}?org=${encodeURIComponent(orgId)}`;
 }

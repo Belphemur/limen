@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/belphemur/limen/internal/admin"
 	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/adminmount"
@@ -24,20 +25,26 @@ import (
 // plus the tenant-agnostic SignupService + /auth/discovery at the
 // root. apps is the Zitadel client used by the MCP client management
 // RPCs (Phase 9b slice 4); pass nil only in non-portal binaries that
-// should never see those routes.
+// should never see those routes. projectGrants resolves the Zitadel
+// project-grant ID for the Members → role assignment Console
+// deep-link; the same *zitadel.Client typically satisfies both. The
+// Limen project ID comes from rt.Cfg.Zitadel.ProjectID. members is
+// the Zitadel directory pass-through used by the Members tab
+// (List/Invite/UpdateRole/Remove); the same *zitadel.Client also
+// satisfies admin.MemberDirectory.
 //
 // PortalService, SessionService, and AdminService share the same
 // /t/{tenant}/api/ mount point — they're multiplexed via an
 // http.ServeMux keyed on the Connect procedure prefix. SignupService
 // is tenant-agnostic and lives at /api/limen.signup.v1.SignupService/*.
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager) {
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, projectGrants admin.ProjectGrantLookup, members admin.MemberDirectory) {
 	resolver := session.OIDCResolver(oidc)
 
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
 	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, projectGrants, rt.Cfg.Zitadel.ProjectID, members)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect

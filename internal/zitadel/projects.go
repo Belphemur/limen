@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	zsdk "github.com/zitadel/zitadel-go/v3/pkg/client"
 	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	projectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
+	"google.golang.org/grpc/metadata"
 )
 
 // EnsureProject returns the projectID of a project named `name` inside
@@ -58,4 +61,31 @@ func (c *Client) EnsureProject(ctx context.Context, orgID, name string) (string,
 		return "", fmt.Errorf("zitadel: create project (org=%q name=%q): %w", orgID, name, err)
 	}
 	return resp.GetProjectId(), nil
+}
+
+// FindProjectGrantID returns the GrantId of the project grant that
+// grants projectID to grantedOrgID, or "" if no such grant exists.
+//
+// Project grants are identified by (projectID, grantID) tuples in
+// Zitadel Console URLs (/ui/console/granted-projects/<projectId>/grant/<grantId>),
+// and v2 ProjectService does not expose the grant ID — only v1
+// ManagementService.ListGrantedProjects returns GrantedProject.GrantId.
+// The org context is selected by the x-zitadel-orgid header (the
+// granted org), matching how the rest of the v1 mgmt surface scopes
+// per-org reads.
+func (c *Client) FindProjectGrantID(ctx context.Context, projectID, grantedOrgID string) (string, error) {
+	if projectID == "" || grantedOrgID == "" {
+		return "", nil
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, zsdk.OrgHeader, grantedOrgID)
+	resp, err := c.api.ManagementService().ListGrantedProjects(ctx, &management.ListGrantedProjectsRequest{})
+	if err != nil {
+		return "", fmt.Errorf("zitadel: list granted projects (org=%q): %w", grantedOrgID, err)
+	}
+	for _, gp := range resp.GetResult() {
+		if gp.GetProjectId() == projectID {
+			return gp.GetGrantId(), nil
+		}
+	}
+	return "", nil
 }

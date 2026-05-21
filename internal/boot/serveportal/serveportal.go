@@ -39,7 +39,7 @@ func Run(configPath string) error {
 	r.Use(boot.PermissiveCORS)
 	boot.MountHealth(r)
 
-	portalmount.Mount(r, rt, oidc, zclient)
+	portalmount.Mount(r, rt, oidc, zclient, zclient, zclient)
 	if err := oauthproxymount.Mount(r, rt, zclient); err != nil {
 		return err
 	}

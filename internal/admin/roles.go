@@ -26,5 +26,9 @@ var requiredRole = map[string]session.Role{
 	"RemoveAllowlistEntry":   session.RoleAdmin,
 	"ApplyIDEPreset":         session.RoleAdmin,
 	"RemoveIDEPreset":        session.RoleAdmin,
+	"ListMembers":            session.RoleAdmin,
+	"InviteMember":           session.RoleAdmin,
+	"UpdateMemberRole":       session.RoleAdmin,
+	"RemoveMember":           session.RoleAdmin,
 	"DeleteTenant":           session.RoleOwner,
 }

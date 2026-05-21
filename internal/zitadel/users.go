@@ -3,11 +3,36 @@ package zitadel
 import (
 	"context"
 	"fmt"
+	"time"
 
 	authorizationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authorization/v2"
 	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
+
+// textContainsCI is the Zitadel text-query method Limen uses for
+// admin-side substring search (e.g. ListOrgUsers).
+const textContainsCI = objectV2.TextQueryMethod_TEXT_QUERY_METHOD_CONTAINS_IGNORE_CASE
+
+// OrgUser is the Limen-shaped projection of a Zitadel User in an org.
+type OrgUser struct {
+	ID                 string
+	Email              string
+	GivenName          string
+	FamilyName         string
+	DisplayName        string
+	Username           string
+	PreferredLoginName string
+	// State is the lowercased Zitadel UserState short form:
+	// "active" / "inactive" / "locked" / "initial". Empty when Zitadel
+	// returns USER_STATE_UNSPECIFIED.
+	State string
+	// LastLogin is best-effort: Zitadel reports the user's most recent
+	// change date (which covers logins) via Details.ChangeDate. Zero
+	// when unavailable.
+	LastLogin time.Time
+}
 
 // HumanUser is the input for AddHumanUser.
 type HumanUser struct {
@@ -148,4 +173,138 @@ func (c *Client) ListUserGrants(ctx context.Context, orgID, userID string) ([]Us
 		})
 	}
 	return out, nil
+}
+
+// ListOrgUsers returns every human user in orgID. When search is
+// non-empty it adds an OR filter across display name + email
+// (case-insensitive contains). Machine users are not returned.
+func (c *Client) ListOrgUsers(ctx context.Context, orgID, search string) ([]OrgUser, error) {
+	if orgID == "" {
+		return nil, fmt.Errorf("zitadel: ListOrgUsers: orgID is required")
+	}
+
+	queries := []*userV2.SearchQuery{
+		{Query: &userV2.SearchQuery_OrganizationIdQuery{
+			OrganizationIdQuery: &userV2.OrganizationIdQuery{OrganizationId: orgID},
+		}},
+	}
+	if search != "" {
+		queries = append(queries, &userV2.SearchQuery{
+			Query: &userV2.SearchQuery_OrQuery{
+				OrQuery: &userV2.OrQuery{
+					Queries: []*userV2.SearchQuery{
+						{Query: &userV2.SearchQuery_DisplayNameQuery{
+							DisplayNameQuery: &userV2.DisplayNameQuery{
+								DisplayName: search,
+								Method:      textContainsCI,
+							},
+						}},
+						{Query: &userV2.SearchQuery_EmailQuery{
+							EmailQuery: &userV2.EmailQuery{
+								EmailAddress: search,
+								Method:       textContainsCI,
+							},
+						}},
+					},
+				},
+			},
+		})
+	}
+
+	resp, err := c.api.UserServiceV2().ListUsers(ctx, &userV2.ListUsersRequest{Queries: queries})
+	if err != nil {
+		return nil, fmt.Errorf("zitadel: list users (org=%q): %w", orgID, err)
+	}
+	users := resp.GetResult()
+	out := make([]OrgUser, 0, len(users))
+	for _, u := range users {
+		human := u.GetHuman()
+		if human == nil {
+			continue
+		}
+		profile := human.GetProfile()
+		email := ""
+		if e := human.GetEmail(); e != nil {
+			email = e.GetEmail()
+		}
+		last := time.Time{}
+		if d := u.GetDetails(); d != nil {
+			if ts := d.GetChangeDate(); ts != nil {
+				last = ts.AsTime()
+			}
+		}
+		out = append(out, OrgUser{
+			ID:                 u.GetUserId(),
+			Email:              email,
+			GivenName:          profile.GetGivenName(),
+			FamilyName:         profile.GetFamilyName(),
+			DisplayName:        profile.GetDisplayName(),
+			Username:           u.GetUsername(),
+			PreferredLoginName: u.GetPreferredLoginName(),
+			State:              userStateShort(u.GetState()),
+			LastLogin:          last,
+		})
+	}
+	return out, nil
+}
+
+// UpdateUserGrant replaces the role keys on the existing
+// authorization (grant) identified by grantID. Zitadel treats RoleKeys
+// as a full replacement set.
+func (c *Client) UpdateUserGrant(ctx context.Context, grantID string, roleKeys []string) error {
+	if grantID == "" {
+		return fmt.Errorf("zitadel: UpdateUserGrant: grantID is required")
+	}
+	if _, err := c.api.AuthorizationServiceV2().UpdateAuthorization(ctx, &authorizationV2.UpdateAuthorizationRequest{
+		Id:       grantID,
+		RoleKeys: roleKeys,
+	}); err != nil {
+		return fmt.Errorf("zitadel: update authorization %q: %w", grantID, err)
+	}
+	return nil
+}
+
+// DeleteUserGrant removes the authorization (grant) identified by
+// grantID. The underlying user is untouched.
+func (c *Client) DeleteUserGrant(ctx context.Context, grantID string) error {
+	if grantID == "" {
+		return fmt.Errorf("zitadel: DeleteUserGrant: grantID is required")
+	}
+	if _, err := c.api.AuthorizationServiceV2().DeleteAuthorization(ctx, &authorizationV2.DeleteAuthorizationRequest{
+		Id: grantID,
+	}); err != nil {
+		return fmt.Errorf("zitadel: delete authorization %q: %w", grantID, err)
+	}
+	return nil
+}
+
+// DeleteUser hard-deletes userID from Zitadel. All authorizations on
+// that user cascade.
+func (c *Client) DeleteUser(ctx context.Context, userID string) error {
+	if userID == "" {
+		return fmt.Errorf("zitadel: DeleteUser: userID is required")
+	}
+	if _, err := c.api.UserServiceV2().DeleteUser(ctx, &userV2.DeleteUserRequest{UserId: userID}); err != nil {
+		return fmt.Errorf("zitadel: delete user %q: %w", userID, err)
+	}
+	return nil
+}
+
+// userStateShort lowercases the Zitadel UserState enum to the Limen
+// wire form. USER_STATE_DELETED collapses to "inactive" because Limen
+// only sees deleted-state users transiently between RemoveMember and
+// the next ListMembers.
+func userStateShort(s userV2.UserState) string {
+	switch s {
+	case userV2.UserState_USER_STATE_ACTIVE:
+		return "active"
+	case userV2.UserState_USER_STATE_INACTIVE, userV2.UserState_USER_STATE_DELETED:
+		return "inactive"
+	case userV2.UserState_USER_STATE_LOCKED:
+		return "locked"
+	case userV2.UserState_USER_STATE_INITIAL:
+		return "initial"
+	default:
+		return ""
+	}
 }

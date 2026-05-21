@@ -23,12 +23,12 @@ describe('ZitadelDirectory', () => {
     expect(anchors[0].attributes('href')).toBe(
       'https://idp.example/ui/console/users?org=org_1',
     )
-    expect(anchors[1].attributes('href')).toBe(
-      'https://idp.example/ui/console/instance/idp?org=org_1',
-    )
-    expect(anchors[2].attributes('href')).toBe(
-      'https://idp.example/ui/console/org/branding?org=org_1',
-    )
+    expect(anchors[1].attributes("href")).toBe(
+      "https://idp.example/ui/console/org-settings?id=idp&org=org_1",
+    );
+    expect(anchors[2].attributes("href")).toBe(
+      "https://idp.example/ui/console/org-settings?id=branding&org=org_1",
+    );
     for (const a of anchors) {
       expect(a.attributes('target')).toBe('_blank')
       expect(a.attributes('rel')).toBe('noopener noreferrer')
