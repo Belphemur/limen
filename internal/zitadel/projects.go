@@ -3,13 +3,41 @@ package zitadel
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	zsdk "github.com/zitadel/zitadel-go/v3/pkg/client"
 	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	projectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
+
+// IsAlreadyExists reports whether err is an idempotent "already exists"
+// / "duplicate" condition from Zitadel. Some Zitadel handlers return
+// FailedPrecondition or Internal with an "already exists" message
+// rather than the canonical AlreadyExists code. Exported so callers
+// outside this package (e.g. signup's slug-collision retry loop) can
+// classify CreateOrganization errors uniformly.
+func IsAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.AlreadyExists:
+			return true
+		case codes.FailedPrecondition, codes.Internal:
+			low := strings.ToLower(s.Message())
+			if strings.Contains(low, "already exists") || strings.Contains(low, "duplicate") {
+				return true
+			}
+		}
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "already exists") || strings.Contains(low, "alreadyexists")
+}
 
 // EnsureProject returns the projectID of a project named `name` inside
 // orgID. If no such project exists it is created. The lookup uses an
@@ -93,4 +121,27 @@ func (c *Client) FindProjectGrantID(ctx context.Context, projectID, grantedOrgID
 		}
 	}
 	return "", nil
+}
+
+// EnsureProjectGrant grants the configured Limen project to grantedOrgID
+// with the given roleKeys, idempotently. Required before any user
+// authorization can be created for users in a non-owning organization
+// (every tenant org self-served through signup).
+//
+// v2-only: uses ProjectServiceV2.CreateProjectGrant and tolerates the
+// idempotent "already exists" condition that Zitadel returns when the
+// grant is re-created.
+func (c *Client) EnsureProjectGrant(ctx context.Context, grantedOrgID string, roleKeys []string) error {
+	if grantedOrgID == "" {
+		return fmt.Errorf("zitadel: EnsureProjectGrant: grantedOrgID is required")
+	}
+	_, err := c.api.ProjectServiceV2().CreateProjectGrant(ctx, &projectV2.CreateProjectGrantRequest{
+		ProjectId:             c.projectID,
+		GrantedOrganizationId: grantedOrgID,
+		RoleKeys:              roleKeys,
+	})
+	if err != nil && !IsAlreadyExists(err) {
+		return fmt.Errorf("zitadel: create project grant (project=%q org=%q): %w", c.projectID, grantedOrgID, err)
+	}
+	return nil
 }

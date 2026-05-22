@@ -13,7 +13,24 @@ const (
 	RoleMember Role = "member"
 	RoleAdmin  Role = "admin"
 	RoleOwner  Role = "owner"
+	// RoleSuperAdmin is the staff-org tier. It is not part of the
+	// tenant role rank (staff do not satisfy tenant roles by escalation)
+	// — it appears only in project-grant capability sets and on staff
+	// users created by the Zitadel bootstrap / Phase 12 backoffice.
+	RoleSuperAdmin Role = "super_admin"
 )
+
+// AllProjectRoleKeys is the full set of role keys defined on the
+// Limen Gateway Zitadel project, in tier order. Used whenever a
+// caller needs to grant a tenant org the full role surface so its
+// owner can later promote members to any tier without a follow-up
+// admin call (Phase 0 dev bootstrap, Phase 9h self-serve signup).
+var AllProjectRoleKeys = []string{
+	string(RoleMember),
+	string(RoleAdmin),
+	string(RoleOwner),
+	string(RoleSuperAdmin),
+}
 
 // roleRank orders the tiers so the same table satisfies "needs member,
 // user is owner" without enumerating the cartesian product.

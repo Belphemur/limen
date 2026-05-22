@@ -148,6 +148,9 @@ func (c *Client) AddUserGrant(ctx context.Context, orgID, userID string, roleKey
 		RoleKeys:       roleKeys,
 	})
 	if err != nil {
+		if IsAlreadyExists(err) {
+			return "", nil
+		}
 		return "", fmt.Errorf("zitadel: create authorization (user=%q org=%q): %w", userID, orgID, err)
 	}
 	return resp.GetId(), nil

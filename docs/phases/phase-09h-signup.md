@@ -15,7 +15,7 @@ Three design tenets distinguish this slice from a naïve "create-the-org-then-
 email-the-user" wizard:
 
 1. **Limen owns email verification.** The `StartSignup` RPC sends a
-   Limen-minted verification email via SMTP (MailHog in dev, real relay in
+   Limen-minted verification email via SMTP (Mailpit in dev, real relay in
    prod). Zitadel is **not** touched in `StartSignup`.
 2. **Zitadel is touched only at `CompleteSignup`.** Org + user + grant are
    created in one atomic step after the email is verified. No orphaned
@@ -67,7 +67,17 @@ POST CompleteSignup(completion_token)
   ├─ require email_verified_at IS NOT NULL → else FailedPrecondition
   ├─ idempotency: if completed_at IS NOT NULL → return cached response
   ├─ Zitadel calls (first time we touch it):
-  │    ├─ OrganizationService.CreateOrganization(name)            → zitadel_org_id
+  │    ├─ derive base slug from tenant_name (NFKD-fold, lowercase ASCII,
+  │    │  collapse non-alphanumerics to '-', cap at 120 chars)
+  │    ├─ OrganizationService.CreateOrganization(slug)            → zitadel_org_id
+  │    │  ├─ on AlreadyExists: retry with slug-<safeword>-<safeword>,
+  │    │  │  cap 5 safe-word attempts then fall back to slug-<8 hex>
+  │    │  │  to guarantee termination. tenants.name keeps the user's
+  │    │  │  display string verbatim — only the Zitadel slug carries
+  │    │  │  the suffix.
+  │    │  └─ safe-word list is a curated ~96-entry pool of neutral
+  │    │     English words (e.g. "velvet", "otter", "willow") with
+  │    │     crypto/rand selection
   │    ├─ UserService.AddHumanUser(email, given/family,           → zitadel_user_id
   │    │                           email_verified=true, no password)
   │    ├─ AddUserGrant(user_id, project_id, role="owner")
@@ -145,6 +155,8 @@ internal/signup/
 ├── ratelimit_test.go
 ├── tokens.go           // verify-token mint + hash + parse helpers
 ├── tokens_test.go
+├── orgslug.go          // Zitadel-org-name slugifier + safe-word suffix retry helper
+├── orgslug_test.go
 ├── sweeper.go          // periodic delete of stale pending_signups rows
 └── sweeper_test.go
 
@@ -155,6 +167,50 @@ internal/mailer/
     ├── signup_verify.html.tmpl
     └── signup_verify.txt.tmpl
 ```
+
+### Tenant display name vs Zitadel org slug
+
+Limen treats `tenants.name` as a **freely-renameable cosmetic label**
+owned by the user, and the Zitadel organisation name as an **internal
+slug** that exists only to satisfy Zitadel's instance-wide uniqueness
+constraint on `organization.name`. The two strings are intentionally
+decoupled:
+
+| Concern                             | `tenants.name` (Limen)            | Zitadel `organization.name`         |
+| ----------------------------------- | --------------------------------- | ----------------------------------- |
+| Storage                             | `tenants.name` (TEXT)             | Zitadel instance, opaque to Limen   |
+| Mutability                          | Owner can rename via `UpdateTenantSettings` | Set once at signup, never updated   |
+| Uniqueness                          | Not enforced — collisions allowed | Enforced by Zitadel instance-wide   |
+| Visible to end users                | Yes — every UI surface            | No — internal identifier            |
+| Stable identity for cross-reference | `PublicID` (`tnt_<ULID>`)         | `zitadel_org_id` on the tenants row |
+
+The slug is derived in `internal/signup/orgslug.go`:
+
+1. NFKD-fold the display name and drop combining marks.
+2. Lowercase, replace any non `[a-z0-9]` run with a single `-`, trim
+   leading/trailing hyphens.
+3. Empty result → `"tenant"`. Cap at 120 characters.
+4. On `CreateOrganization` returning `AlreadyExists`, append
+   `"-<safeword>-<safeword>"` drawn from a curated ~96-word neutral
+   English wordlist (e.g. `"velvet"`, `"otter"`, `"willow"`) with
+   `crypto/rand` selection. Cap at 5 safe-word attempts.
+5. Final fallback after the safe-word retries: `"-<8 hex chars>"`
+   to guarantee statistical termination even under adversarial
+   collisions.
+
+Implications for the rest of the system:
+
+- **`UpdateTenantSettings` rename is local-only.** No Zitadel call,
+  no uniqueness pre-check. Two tenants can carry the same display
+  name; the audit + members + invite surfaces must always show the
+  `PublicID` alongside the name as the durable tiebreaker.
+- **`tenants.name` is the user's input verbatim.** It is the only
+  string the SPA renders; the slug never appears in the product UI.
+  Support staff can recover the slug via Zitadel Console or
+  `tenants.zitadel_org_id`.
+- **Bootstrap and other administrative seeders are unaffected.**
+  They keep using the explicit org name they choose; the slug
+  derivation is exclusive to `internal/signup`.
 
 ### Captcha provider abstraction
 
@@ -402,6 +458,11 @@ self-hosted single-tenant deploys.
   the cached tenant + a freshly-minted password-init code.
 - **Sweeper**: deletes stale pre-completion rows after 24 h. No Zitadel
   cleanup needed (deferred-creation design).
+- **Org-name uniqueness is not a security boundary.** Tenants are
+  identified by `PublicID`, isolation is enforced by Postgres RLS, and
+  the Zitadel org slug is opaque to end users. Two tenants can hold
+  identical display names without weakening any auth or tenancy
+  invariant. See *Tenant display name vs Zitadel org slug* above.
 
 ## Telemetry
 
@@ -443,6 +504,14 @@ fake `Mailer`. Cover at minimum:
    (Limen-side `tenants` row not created on Zitadel error).
 10. Sweeper deletes a >24 h-old pre-completion row; leaves a completed
     row alone.
+11. `CompleteSignup` retries with a safe-word suffix when the first
+    `CreateOrganization` call returns `AlreadyExists`, and succeeds on
+    the second attempt. `tenants.name` keeps the original display
+    string verbatim; `zitadel_org_id` references the suffix-disambig
+    Zitadel org.
+12. `orgslug.slugify` round-trips Unicode-heavy display names
+    (`"Société Générale"` → `"societe-generale"`) and falls back to
+    `"tenant"` for empty/punctuation-only inputs.
 
 ### Frontend unit tests (Vitest)
 
@@ -520,6 +589,9 @@ chunk-name prefix. This closes the last v1 bullet that isn't signup-scoped.
       bucket with config-overridable defaults
 - [ ] `internal/signup/sweeper.go` runs in `serveportal` + `serveall`
       only (not gateway, not staff); deletes stale pre-completion rows
+- [ ] `internal/signup/orgslug.go` implements `slugify` + safe-word
+      suffix retry helper; `CompleteSignup` retries `CreateOrganization`
+      on `AlreadyExists` using `zitadel.IsAlreadyExists`
 - [ ] `internal/mailer/` ships an SMTP-backed `Mailer` with HTML + text
       templates for the verify email
 - [ ] `GET /auth/discovery` returns the captcha site key alongside the

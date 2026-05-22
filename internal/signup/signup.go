@@ -48,6 +48,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/mailer"
+	"github.com/belphemur/limen/internal/session"
 	signupv1 "github.com/belphemur/limen/internal/signup/signupv1"
 	"github.com/belphemur/limen/internal/signup/signupv1/signupv1connect"
 	"github.com/belphemur/limen/internal/storage"
@@ -120,6 +121,7 @@ type Deps struct {
 type ZitadelClient interface {
 	CreateOrganization(ctx context.Context, name string, seed *zitadel.SeedAdmin) (*zitadel.Organization, error)
 	AddHumanUser(ctx context.Context, u zitadel.HumanUser) (string, error)
+	EnsureProjectGrant(ctx context.Context, grantedOrgID string, roleKeys []string) error
 	AddUserGrant(ctx context.Context, orgID, userID string, roleKeys []string) (string, error)
 	SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error
 	PasswordReset(ctx context.Context, userID string) (string, error)
@@ -372,7 +374,12 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 	}
 
 	// First-time provisioning path.
-	org, err := s.deps.Zitadel.CreateOrganization(ctx, row.TenantName, nil)
+	// Zitadel org names must be unique instance-wide, but the user's
+	// chosen tenant_name is a freely-renameable display label stored
+	// only in tenants.name. Derive a deterministic base slug from
+	// the display name and, on collision, retry with a fresh
+	// safe-word suffix. tenants.name keeps the user's input verbatim.
+	org, err := s.provisionOrg(ctx, row.TenantName)
 	if err != nil {
 		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("create org: %w", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
@@ -389,12 +396,13 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add human user: %w", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
 	}
-	if _, err := s.deps.Zitadel.AddUserGrant(ctx, org.ID, userID, []string{"owner"}); err != nil {
-		// Treat ALREADY_EXISTS as success (Zitadel grant is idempotent).
-		if !strings.Contains(err.Error(), "ALREADY_EXISTS") && !strings.Contains(err.Error(), "AlreadyExists") {
-			s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add user grant: %w", err))
-			return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
-		}
+	if err := s.deps.Zitadel.EnsureProjectGrant(ctx, org.ID, session.AllProjectRoleKeys); err != nil {
+		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("ensure project grant: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
+	}
+	if _, err := s.deps.Zitadel.AddUserGrant(ctx, org.ID, userID, []string{string(session.RoleOwner)}); err != nil {
+		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add user grant: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
 	}
 
 	tenant := &storage.Tenant{
@@ -468,6 +476,31 @@ func (s *Service) replayCompletion(ctx context.Context, db *gorm.DB, row *storag
 	})
 	s.log(req, row.PublicID, outcomeAlreadyCompleted, nil)
 	return resp, nil
+}
+
+// provisionOrg creates a fresh Zitadel organisation for displayName,
+// retrying with safe-word suffixes when the slug collides instance-
+// wide. Zitadel org names live in a flat namespace, so the slug is
+// disambiguated rather than the user's display name — the display
+// name stays in tenants.name verbatim and remains freely renameable.
+func (s *Service) provisionOrg(ctx context.Context, displayName string) (*zitadel.Organization, error) {
+	base := slugify(displayName)
+	var lastErr error
+	for attempt := 0; attempt <= slugMaxCollisionRetries+1; attempt++ {
+		candidate, err := orgSlugCandidate(base, attempt)
+		if err != nil {
+			return nil, err
+		}
+		org, err := s.deps.Zitadel.CreateOrganization(ctx, candidate, nil)
+		if err == nil {
+			return org, nil
+		}
+		if !zitadel.IsAlreadyExists(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("zitadel org slug %q: exhausted collision retries: %w", base, lastErr)
 }
 
 // buildVerifyURL composes the absolute URL the user clicks in the
