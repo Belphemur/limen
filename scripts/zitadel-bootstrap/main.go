@@ -264,6 +264,24 @@ func mergeUnique(base, extras []string) []string {
 	return out
 }
 
+// postSignupURIs derives the /auth/post-signup return-URL for each
+// /auth/callback origin in cbURIs. Zitadel validates the password-
+// init UI's returnURL against the OIDC app's redirect-URI allowlist,
+// so the signup landing endpoint has to appear there alongside the
+// regular callback. Origins that don't end in "/auth/callback" are
+// skipped.
+func postSignupURIs(cbURIs []string) []string {
+	out := make([]string, 0, len(cbURIs))
+	for _, u := range cbURIs {
+		const suffix = "/auth/callback"
+		if !strings.HasSuffix(u, suffix) {
+			continue
+		}
+		out = append(out, u[:len(u)-len(suffix)]+"/auth/post-signup")
+	}
+	return out
+}
+
 // postLogoutURIVariants returns both the with-trailing-slash and
 // without-trailing-slash forms of u, so Zitadel's exact-match check
 // accepts either form from the relying party. Empty input → nil.
@@ -338,7 +356,7 @@ func (b *bootstrap) ensureHumanUser(ctx context.Context, orgID, email, given, fa
 // ensureHumanUserWithPassword is the password-bearing variant. When
 // password is non-empty the user is created with a pre-set, already-
 // verified credential so dev seed users (e.g. test@test.com) can log in
-// without waiting on the MailHog invite link. When password is empty
+// without waiting on the Mailpit invite link. When password is empty
 // behaviour is identical to ensureHumanUser — Zitadel emails an init
 // link.
 func (b *bootstrap) ensureHumanUserWithPassword(ctx context.Context, orgID, email, given, family, password string) (string, error) {
@@ -510,6 +528,12 @@ func main() {
 	extraRedirects := splitCSV(getenvDefault("LIMEN_EXTRA_REDIRECTS", "http://localhost:5174/auth/callback"))
 	extraPostLogouts := splitCSV(getenvDefault("LIMEN_EXTRA_POST_LOGOUTS", "http://localhost:5174/signed-out"))
 	redirectURIs := mergeUnique([]string{portalRedirect}, extraRedirects)
+	// The signup wizard hands Zitadel a returnURL of
+	// <origin>/auth/post-signup for its password-init UI. Zitadel
+	// validates returnURL against the OIDC app's redirect-URI
+	// allowlist, so derive one /auth/post-signup entry per /auth/
+	// callback origin and merge it into the same list.
+	redirectURIs = mergeUnique(redirectURIs, postSignupURIs(redirectURIs))
 	postLogoutURIs := mergeUnique([]string{portalPostLogout}, extraPostLogouts)
 	portalClientID, err := b.ensureOIDCApp(ctx, projectID, "Limen Portal", redirectURIs, postLogoutURIs)
 	if err != nil {
@@ -550,7 +574,7 @@ func main() {
 
 	// Seed owner for the sample tenant. The credential is fixed so dev
 	// flows (Playwright e2e, manual smoke tests) can log straight in
-	// without waiting on the MailHog invite link. Override via
+	// without waiting on the Mailpit invite link. Override via
 	// LIMEN_SAMPLE_OWNER_{EMAIL,PASSWORD} when you want a different
 	// identity (e.g. CI's per-run unique email).
 	sampleOwnerEmail := getenvDefault("LIMEN_SAMPLE_OWNER_EMAIL", "test@test.com")

@@ -531,12 +531,19 @@ func (s *Service) buildVerifyURL(plainToken string) string {
 
 // buildPasswordInitURL composes the Zitadel-hosted password-init URL
 // the browser navigates to after CompleteSignup succeeds. The
-// returnURL drops the user at /auth/login?tenant=<pid>&return_to=...
-// so the OIDC RP completes the sign-in flow against the new org.
+// returnURL drops the user at <base>/auth/post-signup?tenant=<pid>,
+// a Limen-controlled landing endpoint (registered as an allowed
+// OIDC redirect URI on the Zitadel project) that 302s into the
+// standard /auth/login OIDC flow with return_to=/t/<pid>/admin/.
+//
+// We can't put /auth/login directly here: Zitadel's password-init
+// UI silently drops returnURL values that don't match a project
+// redirect-URI allowlist, leaving the user stranded on Zitadel's
+// success page. /auth/post-signup is the stable, allowlistable
+// indirection.
 func (s *Service) buildPasswordInitURL(userID, code, tenantPublicID string) string {
 	base := strings.TrimRight(s.deps.BaseURL, "/")
-	returnURL := base + "/auth/login?tenant=" + url.QueryEscape(tenantPublicID) +
-		"&return_to=" + url.QueryEscape("/t/"+tenantPublicID+"/admin/")
+	returnURL := base + "/auth/post-signup?tenant=" + url.QueryEscape(tenantPublicID)
 	issuer := strings.TrimRight(s.deps.ZitadelIssuer, "/")
 	q := url.Values{}
 	q.Set("userID", userID)
