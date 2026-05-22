@@ -199,7 +199,7 @@ const noMatches = computed(
         </p>
       </div>
       <button type="button"
-        class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary-container active:scale-95"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary/90 active:scale-95"
         data-testid="add-upstream" @click="router.push(ROUTES.mcpServerNew)">
         <Plus :size="20" aria-hidden="true" />
         Add New Server
@@ -222,7 +222,7 @@ const noMatches = computed(
         Add your first upstream to start aggregating tools through Limen.
       </p>
       <button type="button"
-        class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary-container active:scale-95"
+        class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary/90 active:scale-95"
         @click="router.push(ROUTES.mcpServerNew)">
         <Plus :size="20" aria-hidden="true" />
         Add first server

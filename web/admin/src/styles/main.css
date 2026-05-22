@@ -1,8 +1,10 @@
-/* Limen portal — global styles.
+/* Limen admin — global styles.
  *
  * Tokens, light + dark theme, and base layer all live in this file. See
- * docs/frontend-design.md for the normative spec; this file is the
- * concrete implementation of §§2–3 (tokens + theming) for the portal SPA.
+ * docs/admin-design.md for the normative spec (admin brand, palette,
+ * typography) and docs/frontend-design.md for the cross-SPA theming model
+ * and accessibility floor. This file is the concrete implementation for
+ * the tenant-admin SPA.
  */
 
 @import 'tailwindcss';
@@ -16,22 +18,26 @@
 @source "../../../shared/src/**/*.{vue,ts}";
 
 /* Tailwind v4 dark variant — class-based, not media-based. The `.dark` class
- * is toggled on <html> by web/portal/src/stores/theme.ts (or the no-flash
- * boot script in index.html) so we can support explicit light/dark overrides
- * in addition to the user's OS preference. */
+ * is toggled on <html> by ./stores/theme.ts (or the no-flash boot script in
+ * index.html) so we can support explicit light/dark overrides in addition to
+ * the user's OS preference. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* ───── Type families ───── */
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* ───── Type families ─────
+   * Admin uses Outfit exclusively (see docs/admin-design.md §Typography). */
+  --font-sans: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
-  /* ───── Spacing aliases (Stitch parity) ───── */
+  /* ───── Spacing aliases ───── */
   --spacing-sidebar-width: 280px;
+  --spacing-container-max: 1440px;
   --spacing-header-height: 48px;
   --spacing-portal-header: 48px;
   --spacing-container-padding: 2rem;
+  --spacing-margin-desktop: 2rem;
+  --spacing-margin-mobile: 1rem;
   --spacing-gutter: 1.5rem;
   --spacing-stack-sm: 0.5rem;
   --spacing-stack-md: 1rem;
@@ -46,40 +52,77 @@
   --radius-full: 9999px;
 
   /* ───── Colour — light defaults ─────
-   * Dark overrides live under .dark below; both sets follow the same naming
-   * so any utility like `bg-surface` / `text-on-surface` flips automatically. */
+   * Material role-token palette per docs/admin-design.md. Dark overrides live
+   * under .dark below; both sets follow the same naming so any utility like
+   * `bg-surface` / `text-on-surface` flips automatically. */
 
-  --color-bg-main: #f1f5f9;
-  --color-surface: #ffffff;
-  --color-surface-container: #e5eeff;
-  --color-surface-container-low: #eff4ff;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-high: #dce9ff;
-  --color-surface-variant: #d3e4fe;
+  /* bg-main is the canvas behind cards. Tinted blue so white cards read as
+   * raised layers against a soft surface, not as floating white-on-white. */
+  --color-bg-main: #f0f3ff;
+  --color-background: #f9f9ff;
+  --color-background-alt: #f9fafb;
+  --color-on-background: #151c27;
 
-  --color-on-surface: #0b1c30;
-  --color-on-surface-variant: #454655;
-  --color-secondary: #64748b;
+  --color-surface: #fbfcff;
+  --color-surface-white: #ffffff;
+  --color-surface-dim: #d3daea;
+  --color-surface-bright: #f9f9ff;
+  --color-surface-container-lowest: #fbfcff;
+  --color-surface-container-low: #eef2ff;
+  --color-surface-container: #e3ebfd;
+  --color-surface-container-high: #d9e1f7;
+  --color-surface-container-highest: #d0d9f0;
+  --color-surface-variant: #dce2f3;
+  --color-surface-tint: #2e48eb;
 
-  --color-border-subtle: #e2e8f0;
-  --color-outline-variant: #c5c5d7;
+  --color-on-surface: #151c27;
+  --color-on-surface-variant: #5a6478;
+  --color-secondary: #6b7286;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d9dff5;
+  --color-on-secondary-container: #5c6274;
 
-  --color-primary: #3c50e0;
-  --color-primary-container: #465fff;
+  --color-outline: #757687;
+  --color-outline-variant: #c5c5d8;
+  --color-border-subtle: #dbe2f1;
+
+  --color-primary: #2642e6;
   --color-on-primary: #ffffff;
+  --color-primary-container: #465fff;
+  --color-on-primary-container: #f9f7ff;
+  --color-inverse-primary: #bbc3ff;
 
-  --color-inverse-surface: #213145;
-  --color-inverse-on-surface: #eaf1ff;
+  --color-tertiary: #993c00;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #c14d00;
+  --color-on-tertiary-container: #fff6f3;
+
+  --color-inverse-surface: #2a313d;
+  --color-inverse-on-surface: #ebf1ff;
+
+  --color-primary-fixed: #dfe0ff;
+  --color-primary-fixed-dim: #bbc3ff;
+  --color-on-primary-fixed: #000d5f;
+  --color-on-primary-fixed-variant: #0029d2;
+  --color-secondary-fixed: #dce2f7;
+  --color-secondary-fixed-dim: #c0c6db;
+  --color-on-secondary-fixed: #141b2b;
+  --color-on-secondary-fixed-variant: #404758;
+  --color-tertiary-fixed: #ffdbcc;
+  --color-tertiary-fixed-dim: #ffb695;
+  --color-on-tertiary-fixed: #351000;
+  --color-on-tertiary-fixed-variant: #7b2f00;
 
   --color-success: #10b981;
   --color-warning: #ffa70b;
   --color-danger: #fb5454;
   --color-error: #ba1a1a;
-  --color-error-container: #ffdad6;
   --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
 
-  /* Sidebar palette — structurally dark in both themes. */
-  --color-sidebar-bg: #1c2434;
+  /* Sidebar palette — constant across themes (admin-design.md §Components). */
+  --color-sidebar-bg: #111827;
   --color-sidebar-fg: #ffffff;
   --color-sidebar-fg-muted: #bec6dc;
   --color-sidebar-divider: rgba(255, 255, 255, 0.1);
@@ -89,7 +132,7 @@
   /* ───── Shadows ───── */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.05);
 
   /* ───── Z-index ladder ───── */
   --z-sticky: 10;
@@ -100,37 +143,64 @@
   --z-toast: 70;
 }
 
-/* Dark mode — same token names, dark values. The `.dark` class on <html>
- * scopes these via the @custom-variant declared above. */
+/* Dark mode — same token names, dark values derived from the light palette's
+ * inverse-* / *-fixed tokens. Neutrals are blue-shifted (not pure gray) so
+ * the brand carries into dark mode and surfaces feel like deep indigo paper
+ * rather than a flat gray slab. The `.dark` class on <html> scopes these
+ * via the @custom-variant declared above. */
 .dark {
-  --color-bg-main: #0f1117;
-  --color-surface: #171a22;
-  --color-surface-container: #1e222d;
-  --color-surface-container-low: #1a1e27;
-  --color-surface-container-lowest: #171a22;
-  --color-surface-container-high: #232836;
-  --color-surface-variant: #222732;
+  --color-bg-main: #0e1424;
+  --color-background: #0e1424;
+  --color-background-alt: #0a1020;
+  --color-on-background: #e3e7f5;
 
-  --color-on-surface: #e6eaf3;
-  --color-on-surface-variant: #a2a8b8;
-  --color-secondary: #94a3b8;
+  --color-surface: #161c2e;
+  --color-surface-white: #161c2e;
+  --color-surface-dim: #0e1424;
+  --color-surface-bright: #2e3957;
+  --color-surface-container-lowest: #0a1020;
+  --color-surface-container-low: #131929;
+  --color-surface-container: #1a2236;
+  --color-surface-container-high: #202942;
+  --color-surface-container-highest: #27314e;
+  --color-surface-variant: #3a4262;
+  --color-surface-tint: #bbc3ff;
 
-  --color-border-subtle: #2a2f3b;
-  --color-outline-variant: #3a3f4d;
+  /* Soften peak-white text on near-black surfaces so dark mode doesn't feel
+   * piercing. Body text targets ~85% L* for comfortable long reading; the
+   * variant drops another ~15% so labels read as muted, not as body. */
+  --color-on-surface: #d8def0;
+  --color-on-surface-variant: #8b91a6;
+  --color-secondary: #8b91a6;
+  --color-on-secondary: #293041;
+  --color-secondary-container: #404758;
+  --color-on-secondary-container: #dce2f7;
 
-  --color-primary: #6b7eff;
-  --color-primary-container: #3c50e0;
-  --color-on-primary: #ffffff;
+  --color-outline: #8e8fa0;
+  --color-outline-variant: #3a4262;
+  --color-border-subtle: #272f48;
 
-  --color-inverse-surface: #e5e9f2;
-  --color-inverse-on-surface: #0b1c30;
+  --color-primary: #bbc3ff;
+  --color-on-primary: #0029d2;
+  --color-primary-container: #0029d2;
+  --color-on-primary-container: #dfe0ff;
+  --color-inverse-primary: #2642e6;
+
+  --color-tertiary: #ffb695;
+  --color-on-tertiary: #561e00;
+  --color-tertiary-container: #7b2f00;
+  --color-on-tertiary-container: #ffdbcc;
+
+  --color-inverse-surface: #dce2f3;
+  --color-inverse-on-surface: #151c27;
 
   --color-success: #34d399;
   --color-warning: #fbbf24;
   --color-danger: #f87171;
-  --color-error: #f87171;
-  --color-error-container: #3c1a1a;
-  --color-on-error: #ffe4e1;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
@@ -157,4 +227,21 @@ body {
 /* Tabular numerics utility — used in data tables for digit alignment. */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Definition lists — labels (dt) read as muted captions and values (dd) carry
+ * the emphasis. Applied globally so any <dl> across the admin SPA gets the
+ * same hierarchy without per-component class wrangling. Components can still
+ * override via utility classes when a row needs a different rhythm. */
+dl dt {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-on-surface-variant);
+}
+
+dl dd {
+  color: var(--color-on-surface);
 }

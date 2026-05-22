@@ -4,7 +4,6 @@ import { createPinia } from 'pinia'
 import { createConnectTransport } from '@connectrpc/connect-web'
 import { setSessionTransport } from '@limen/shared/session'
 
-import '@fontsource-variable/inter'
 import '@fontsource-variable/outfit'
 
 import App from './App.vue'

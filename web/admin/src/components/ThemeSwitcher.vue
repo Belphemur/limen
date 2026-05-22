@@ -35,10 +35,12 @@ function onKey(event: KeyboardEvent, index: number) {
       :aria-checked="theme.mode === opt.value"
       :aria-label="opt.label"
       :title="opt.label"
-      class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded text-on-surface-variant transition-colors hover:text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-      :class="{
-        'bg-primary text-on-primary hover:text-on-primary': theme.mode === opt.value,
-      }"
+      class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      :class="
+        theme.mode === opt.value
+          ? 'bg-primary text-on-primary'
+          : 'text-on-surface-variant hover:text-on-surface'
+      "
       :tabindex="theme.mode === opt.value ? 0 : -1"
       @click="theme.set(opt.value)"
       @keydown="onKey($event, index)"

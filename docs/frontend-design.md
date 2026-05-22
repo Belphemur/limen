@@ -1,6 +1,8 @@
 # Frontend Design — Limen
 
-> **Status**: design spec. Authoritative for the **portal SPA** ([Phase 9b](phases/phase-09b-portal-spa.md)) and the **tenant-admin SPA** ([Phase 9c](phases/phase-09c-tenant-admin-spa.md)). The staff backoffice ([Phase 12](phases/phase-12-staff-backoffice.md)) inherits the same tokens with a distinct shell.
+> **Status**: design spec. Authoritative for the **portal SPA** ([Phase 9b](phases/phase-09b-portal-spa.md)) and for cross-SPA concerns on the **tenant-admin SPA** ([Phase 9c](phases/phase-09c-tenant-admin-spa.md)) — theming, accessibility, icons, routing, file layout. The staff backoffice ([Phase 12](phases/phase-12-staff-backoffice.md)) inherits the same tokens with a distinct shell.
+>
+> **Admin-specific brand, palette, typography, and component vocabulary** live in [`admin-design.md`](admin-design.md) and override this file for `web/admin/`.
 
 This document is the **single source of truth** for Limen's visual language. It captures the design tokens, the layout shells, the component vocabulary, the icon library, the theming model (light + dark, day-one), and the accessibility floor. Anything in this file is **normative** for any Vue, CSS, or component PR.
 

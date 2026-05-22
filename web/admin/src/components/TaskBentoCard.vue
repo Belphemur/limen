@@ -51,7 +51,7 @@ defineEmits<{
         done
           ? 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
           : variant === 'primary'
-            ? 'bg-primary text-on-primary shadow-sm hover:bg-primary-container'
+            ? 'bg-primary text-on-primary shadow-sm hover:bg-primary/90'
             : 'border border-border-subtle bg-surface text-on-surface hover:bg-surface-container-low'
       "
       @click="$emit('activate')"

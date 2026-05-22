@@ -397,7 +397,7 @@ function goToDetail() {
 
     <form class="space-y-stack-lg" data-testid="upstream-new-form" @submit.prevent="submit">
       <section class="rounded-xl border border-outline-variant bg-surface-container-lowest">
-        <header class="border-b border-outline-variant px-4 py-3">
+        <header class="rounded-t-xl border-b border-outline-variant bg-surface-container px-4 py-3">
           <h2 class="text-base font-semibold text-on-surface">Basic information</h2>
         </header>
         <div class="grid gap-stack-md p-4 md:grid-cols-2">
@@ -456,7 +456,7 @@ function goToDetail() {
             <input v-model="form.strategyType" type="radio" :value="opt.value" class="sr-only"
               :data-testid="opt.testid" />
             <span class="flex h-9 w-9 items-center justify-center rounded-full" :class="form.strategyType === opt.value
-              ? 'bg-primary-container text-primary'
+              ? 'bg-primary-container text-on-primary-container'
               : 'bg-surface-container text-on-surface-variant'
               ">
               <component :is="strategyIconComponent(opt.value)" :size="18" aria-hidden="true" />
@@ -471,7 +471,7 @@ function goToDetail() {
 
       <section v-if="form.strategyType === 'static_header'"
         class="space-y-stack-md rounded-xl border border-primary/30 bg-surface-container-lowest ring-1 ring-primary/10">
-        <header class="border-b border-outline-variant px-4 py-3">
+        <header class="rounded-t-xl border-b border-outline-variant bg-surface-container px-4 py-3">
           <h2 class="text-base font-semibold text-on-surface">Header configuration</h2>
         </header>
         <div class="space-y-stack-md p-4">
@@ -598,7 +598,7 @@ function goToDetail() {
           Cancel
         </button>
         <button type="submit" :disabled="!canSubmit"
-          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
           data-testid="submit-upstream">
           <Save :size="16" aria-hidden="true" />
           {{ submitting ? 'Testing & saving…' : 'Test & save server' }}

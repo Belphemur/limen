@@ -269,7 +269,7 @@ async function remove() {
         <button
           type="button"
           :disabled="!canSave"
-          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
           data-testid="save-upstream"
           @click="save"
         >
