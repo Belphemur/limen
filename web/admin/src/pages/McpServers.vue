@@ -79,8 +79,8 @@ function statusPill(u: UpstreamSummary): StatusPill {
   if (!u.requiresLink) {
     return {
       label: 'Tenant-mode',
-      dotClass: 'bg-secondary',
-      pillClass: 'bg-surface-container-high text-on-surface-variant',
+      dotClass: 'bg-success',
+      pillClass: 'bg-success/10 text-success',
     }
   }
   switch (u.linkState) {
