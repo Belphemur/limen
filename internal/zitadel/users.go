@@ -208,6 +208,36 @@ func (c *Client) ListUserGrants(ctx context.Context, orgID, userID string) ([]Us
 	return out, nil
 }
 
+// UserExistsByEmail returns true when at least one human user in the
+// Zitadel instance has the given email address (case-insensitive
+// exact match, no organisation filter). Used by the signup wizard to
+// reject duplicate emails at the first form, before sending a
+// verification email that the user could never complete.
+func (c *Client) UserExistsByEmail(ctx context.Context, email string) (bool, error) {
+	if email == "" {
+		return false, fmt.Errorf("zitadel: UserExistsByEmail: email is required")
+	}
+	resp, err := c.api.UserServiceV2().ListUsers(ctx, &userV2.ListUsersRequest{
+		Queries: []*userV2.SearchQuery{
+			{Query: &userV2.SearchQuery_EmailQuery{
+				EmailQuery: &userV2.EmailQuery{
+					EmailAddress: email,
+					Method:       objectV2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE,
+				},
+			}},
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("zitadel: user exists by email %q: %w", email, err)
+	}
+	for _, u := range resp.GetResult() {
+		if u.GetHuman() != nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ListOrgUsers returns every human user in orgID. When search is
 // non-empty it adds an OR filter across display name + email
 // (case-insensitive contains). Machine users are not returned.

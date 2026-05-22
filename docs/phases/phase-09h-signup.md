@@ -388,9 +388,14 @@ Anti-friction choices the page deliberately makes:
 - **No social login on the start page.** Social sign-up is
   [Phase 18](phase-18-social-signup.md); shipping the form alone keeps
   the conversion path linear in v1.
-- **Email enumeration resistance is wrapped in user-facing copy** — the
-  success message hedges with _"If \<email\> can sign up…"_ so the
-  generic-success backend behaviour reads as deliberate, not as a bug.
+- **Email enumeration resistance is partial by design** — `StartSignup`
+  rejects an email that already maps to a Zitadel user with
+  `CodeAlreadyExists` and a user-visible message, because the
+  alternative (sending a verification mail to an address whose owner
+  could never complete signup, then failing at `CompleteSignup` with
+  "User already exists") was strictly worse UX. The probe surface is
+  bounded by mandatory captcha + per-IP rate limit, which are the same
+  controls a login form uses against the same enumeration vector.
 
 ## Routing
 
@@ -437,9 +442,11 @@ self-hosted single-tenant deploys.
   requesting host. Failures return a generic error.
 - **Rate limit**: per-IP token bucket on `StartSignup`. Failures return
   `CodeResourceExhausted` with a generic message.
-- **Email enumeration**: `StartSignup` returns the same response shape
-  whether the email is new or already-known. Internal-only Debug log on
-  the dedup branch.
+- **Email enumeration**: `StartSignup` calls
+  `ZitadelClient.UserExistsByEmail` after captcha + rate-limit and
+  returns `CodeAlreadyExists` when the address is already registered.
+  This is an intentional trade: see the *Anti-enumeration trade-off*
+  bullet above.
 - **Verify token**: 32-byte cryptographically-random plaintext (in the
   email link only) hashed with HMAC-SHA256 before storage. Single-use:
   the row's hash is rotated on successful verification.

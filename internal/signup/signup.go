@@ -73,6 +73,7 @@ const (
 	outcomeProvisionFailed  outcomeTag = "provision_failed"
 	outcomeInternal         outcomeTag = "internal_error"
 	outcomeFeatureDisabled  outcomeTag = "feature_disabled"
+	outcomeEmailInUse       outcomeTag = "email_in_use"
 )
 
 // passwordInitPath is appended to the configured Zitadel issuer to
@@ -120,6 +121,7 @@ type Deps struct {
 // lets tests stub it without spinning up a real Zitadel.
 type ZitadelClient interface {
 	CreateOrganization(ctx context.Context, name string, seed *zitadel.SeedAdmin) (*zitadel.Organization, error)
+	UserExistsByEmail(ctx context.Context, email string) (bool, error)
 	AddHumanUser(ctx context.Context, u zitadel.HumanUser) (string, error)
 	EnsureProjectGrant(ctx context.Context, grantedOrgID string, roleKeys []string) error
 	AddUserGrant(ctx context.Context, orgID, userID string, roleKeys []string) (string, error)
@@ -190,6 +192,23 @@ func (s *Service) StartSignup(ctx context.Context, req *connect.Request[signupv1
 	if err := s.deps.Captcha.Verify(ctx, captchaToken, ip); err != nil {
 		s.log(req, "", outcomeCaptchaFailed, err)
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("captcha verification failed"))
+	}
+
+	// Check Zitadel up-front so a stale or already-used email fails
+	// the first form instead of after the verification round-trip.
+	// This intentionally trades the anti-enumeration property of
+	// StartSignup for a meaningful UX error: a stranger could probe
+	// /signup to learn whether an email is registered, but captcha +
+	// per-IP rate limit gate the probe rate, and the alternative is
+	// sending verification emails that can never complete.
+	exists, err := s.deps.Zitadel.UserExistsByEmail(ctx, email)
+	if err != nil {
+		s.log(req, "", outcomeInternal, fmt.Errorf("check email exists: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("internal error"))
+	}
+	if exists {
+		s.log(req, "", outcomeEmailInUse, nil)
+		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("an account with email %q already exists", email))
 	}
 
 	emailLower := strings.ToLower(email)
