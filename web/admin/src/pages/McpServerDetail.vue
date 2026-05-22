@@ -133,11 +133,9 @@ async function remove() {
 <template>
   <div class="space-y-stack-lg">
     <header class="flex items-center gap-3">
-      <button
-        type="button"
+      <button type="button"
         class="inline-flex items-center gap-1 rounded px-2 py-1 text-sm text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
-        @click="router.push(ROUTES.mcpServers)"
-      >
+        @click="router.push(ROUTES.mcpServers)">
         <ArrowLeft :size="16" aria-hidden="true" />
         Back
       </button>
@@ -146,12 +144,8 @@ async function remove() {
       </h1>
     </header>
 
-    <div
-      v-if="error"
-      role="alert"
-      class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
-      data-testid="upstream-detail-error"
-    >
+    <div v-if="error" role="alert" class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
+      data-testid="upstream-detail-error">
       {{ error }}
     </div>
 
@@ -172,8 +166,7 @@ async function remove() {
             <dt class="text-on-surface-variant">Strategy</dt>
             <dd class="text-on-surface">
               {{ summary.strategyType }}<span v-if="summary.strategySubMode">
-                · {{ summary.strategySubMode }}</span
-              >
+                · {{ summary.strategySubMode }}</span>
             </dd>
           </div>
           <div>
@@ -183,11 +176,8 @@ async function remove() {
           <div class="md:col-span-2">
             <dt class="text-on-surface-variant">Aliases</dt>
             <dd class="mt-1 flex flex-wrap gap-1" data-testid="upstream-aliases">
-              <span
-                v-for="alias in summary.aliases"
-                :key="alias"
-                class="inline-flex items-center rounded-full border border-surface-dim bg-surface-container-low px-2 py-0.5 font-mono text-xs text-primary"
-              >
+              <span v-for="alias in summary.aliases" :key="alias"
+                class="inline-flex items-center rounded-full border border-surface-dim bg-surface-container-low px-2 py-0.5 font-mono text-xs text-primary">
                 {{ alias }}
               </span>
               <span v-if="summary.aliases.length === 0" class="text-on-surface-variant">
@@ -199,25 +189,16 @@ async function remove() {
       </section>
 
       <section class="rounded-lg border border-border-subtle bg-surface">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-          :aria-expanded="toolsOpen"
-          data-testid="tools-disclosure"
-          @click="toolsOpen = !toolsOpen"
-        >
+        <button type="button" class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+          :aria-expanded="toolsOpen" data-testid="tools-disclosure" @click="toolsOpen = !toolsOpen">
           <span class="font-display text-lg font-semibold text-on-surface">
             Tools
             <span class="ml-1 text-sm font-normal text-on-surface-variant">
               ({{ summary.tools.length }})
             </span>
           </span>
-          <ChevronDown
-            :size="18"
-            class="text-on-surface-variant transition-transform"
-            :class="toolsOpen ? 'rotate-180' : ''"
-            aria-hidden="true"
-          />
+          <ChevronDown :size="18" class="text-on-surface-variant transition-transform"
+            :class="toolsOpen ? 'rotate-180' : ''" aria-hidden="true" />
         </button>
         <div v-if="toolsOpen" class="border-t border-border-subtle px-4 py-3">
           <p v-if="summary.tools.length === 0" class="text-sm text-on-surface-variant">
@@ -226,10 +207,7 @@ async function remove() {
           <ul v-else class="divide-y divide-border-subtle" data-testid="tools-list">
             <li v-for="tool in summary.tools" :key="tool.name" class="py-2">
               <div class="font-mono text-sm text-on-surface">{{ tool.name }}</div>
-              <div
-                v-if="tool.description"
-                class="mt-0.5 text-sm text-on-surface-variant"
-              >
+              <div v-if="tool.description" class="mt-0.5 text-sm text-on-surface-variant">
                 {{ tool.description }}
               </div>
             </li>
@@ -241,12 +219,9 @@ async function remove() {
         <h2 class="font-display text-lg font-semibold text-on-surface">Edit</h2>
         <label class="block">
           <span class="text-sm font-medium text-on-surface">Display name</span>
-          <input
-            v-model="displayName"
-            type="text"
+          <input v-model="displayName" type="text"
             class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            data-testid="field-display-name"
-          />
+            data-testid="field-display-name" />
         </label>
         <div>
           <label class="mb-1 block text-sm font-medium text-on-surface">
@@ -260,19 +235,11 @@ async function remove() {
             object whose keys are merged into every tool call's arguments as defaults; tool calls
             may still override any field. Leave blank to keep the current value.
           </p>
-          <ContextJsonEditor
-            v-model="defaultsJson"
-            :caption="defaultsHint?.caption"
-            @update:valid="onDefaultsValid"
-          />
+          <ContextJsonEditor v-model="defaultsJson" :caption="defaultsHint?.caption" @update:valid="onDefaultsValid" />
         </div>
-        <button
-          type="button"
-          :disabled="!canSave"
+        <button type="button" :disabled="!canSave"
           class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
-          data-testid="save-upstream"
-          @click="save"
-        >
+          data-testid="save-upstream" @click="save">
           <Save :size="16" aria-hidden="true" />
           {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
@@ -283,13 +250,9 @@ async function remove() {
         <p class="text-sm text-on-surface-variant">
           Re-fetch the tool list from the upstream. Required after upstream-side changes.
         </p>
-        <button
-          type="button"
-          :disabled="reindexing"
+        <button type="button" :disabled="reindexing"
           class="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low disabled:opacity-50"
-          data-testid="reindex-upstream"
-          @click="reindex"
-        >
+          data-testid="reindex-upstream" @click="reindex">
           <RefreshCw :size="16" aria-hidden="true" />
           {{ reindexing ? 'Reindexing…' : 'Reindex catalog' }}
         </button>
@@ -297,11 +260,8 @@ async function remove() {
           <h3 class="text-sm font-medium text-on-surface-variant">
             Preview merged context (coming soon)
           </h3>
-          <button
-            type="button"
-            disabled
-            class="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface-variant opacity-50"
-          >
+          <button type="button" disabled
+            class="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface-variant opacity-50">
             Preview
           </button>
         </div>
@@ -310,21 +270,15 @@ async function remove() {
       <section class="space-y-stack-md rounded-lg border border-error/40 bg-error/5 p-4">
         <h2 class="font-display text-lg font-semibold text-error">Danger zone</h2>
         <p class="text-sm text-on-surface-variant">
-          Type the upstream identifier <code class="font-mono text-on-surface">{{ summary.identifier }}</code> to enable deletion.
+          Type the upstream identifier <code class="font-mono text-on-surface">{{ summary.identifier }}</code> to enable
+          deletion.
         </p>
-        <input
-          v-model="confirmText"
-          type="text"
+        <input v-model="confirmText" type="text"
           class="block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          data-testid="delete-confirm"
-        />
-        <button
-          type="button"
-          :disabled="deleting || confirmText !== summary.identifier"
+          data-testid="delete-confirm" />
+        <button type="button" :disabled="deleting || confirmText !== summary.identifier"
           class="inline-flex items-center gap-1.5 rounded-md bg-error px-3 py-2 text-sm font-medium text-on-error shadow-sm hover:bg-error/90 disabled:opacity-50"
-          data-testid="delete-upstream"
-          @click="remove"
-        >
+          data-testid="delete-upstream" @click="remove">
           <Trash2 :size="16" aria-hidden="true" />
           {{ deleting ? 'Deleting…' : 'Delete upstream' }}
         </button>
