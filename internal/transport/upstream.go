@@ -17,6 +17,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -89,35 +91,74 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 				zap.String("tenant", tenant.PublicID),
 				zap.String("upstream", upstreamIdentifier),
 				zap.Error(err))
+			// Structured AS error (RFC 6749 §4.1.2.1): redirect back
+			// to the SPA-supplied return_to with the error code +
+			// description so the popup-close handshake can surface
+			// the real reason (e.g. "Consent denied") instead of the
+			// generic "you closed the popup" cancelled fallback.
+			var authErr *upstream.AuthorizationError
+			if errors.As(err, &authErr) && authErr.ReturnTo != "" {
+				redirectWithOAuthError(w, r, authErr.ReturnTo, authErr.Code, authErr.Description)
+				return
+			}
 			http.Error(w, "callback failed", http.StatusBadRequest)
 			return
 		}
 
-		// Phase 8 \u2014 the first tenant owner/admin to complete the link
+		// Phase 8 — the first tenant owner/admin to complete the link
 		// bootstraps the shared upstream tool catalog. Member links never
 		// refresh the catalog; the role check is the canonical gate.
 		// Best-effort: indexing failure logs but does not fail the
-		// redirect back to the SPA \u2014 the periodic sweep will retry.
-		if hasCatalogIndexerRole(claims) {
-			up, lerr := deps.Service.LoadUpstream(ctx, tenant.ID, upstreamIdentifier)
-			if lerr != nil {
-				logger.Warn("upstream callback: load upstream for catalog index failed",
+		// redirect back to the SPA — the periodic sweep will retry.
+		up, lerr := deps.Service.LoadUpstream(ctx, tenant.ID, upstreamIdentifier)
+		if lerr != nil {
+			logger.Warn("upstream callback: load upstream for verification failed",
+				zap.String("tenant", tenant.PublicID),
+				zap.String("upstream", upstreamIdentifier),
+				zap.Error(lerr))
+		} else {
+			link, llerr := deps.Service.LoadLink(ctx, tenant.ID, user.ID, up.ID)
+			switch {
+			case llerr != nil && !errors.Is(llerr, upstream.ErrLinkNotFound):
+				logger.Warn("upstream callback: load link for verification failed",
 					zap.String("tenant", tenant.PublicID),
 					zap.String("upstream", upstreamIdentifier),
-					zap.Error(lerr))
-			} else {
-				link, lerr := deps.Service.LoadLink(ctx, tenant.ID, user.ID, up.ID)
-				switch {
-				case lerr != nil && !errors.Is(lerr, upstream.ErrLinkNotFound):
-					logger.Warn("upstream callback: load link for catalog index failed",
+					zap.Error(llerr))
+			case link == nil:
+				logger.Debug("upstream callback: no link yet, skipping verification",
+					zap.String("tenant", tenant.PublicID),
+					zap.String("upstream", upstreamIdentifier))
+			default:
+				// Verify the upstream actually accepts the freshly
+				// issued credentials. Some authorization servers
+				// (PayPal, observed) hand back a token even when the
+				// user refused consent — the AS round-trip looks
+				// successful but the resource server then rejects
+				// every call (401, or 404 when the MCP endpoint is
+				// scope-gated). Any verification failure here means
+				// the link does not currently work, so we undo it
+				// rather than persist a green-checked but broken
+				// upstream. The admin can retry the consent flow.
+				if verr := deps.Service.VerifyLink(ctx, tenant, up, link); verr != nil {
+					logger.Warn("upstream callback: link verification failed",
 						zap.String("tenant", tenant.PublicID),
 						zap.String("upstream", upstreamIdentifier),
-						zap.Error(lerr))
-				case link == nil:
-					logger.Debug("upstream callback: no link yet, skipping catalog index",
-						zap.String("tenant", tenant.PublicID),
-						zap.String("upstream", upstreamIdentifier))
-				default:
+						zap.Error(verr))
+					if derr := deps.Service.Disconnect(ctx, tenant, user, upstreamIdentifier); derr != nil {
+						logger.Warn("upstream callback: rollback after verification failure",
+							zap.String("tenant", tenant.PublicID),
+							zap.String("upstream", upstreamIdentifier),
+							zap.Error(derr))
+					}
+					if returnTo == "" {
+						http.Error(w, "upstream rejected the issued credentials", http.StatusBadGateway)
+						return
+					}
+					redirectWithOAuthError(w, r, returnTo, "access_denied",
+						"The MCP server rejected the issued credentials. The consent flow may have been refused or the granted scopes are insufficient.")
+					return
+				}
+				if hasCatalogIndexerRole(claims) {
 					if ierr := deps.Service.IndexCatalog(ctx, tenant, up, link); ierr != nil {
 						logger.Warn("upstream callback: catalog index failed",
 							zap.String("tenant", tenant.PublicID),
@@ -175,4 +216,21 @@ func loadUserBySubject(ctx context.Context, store *storage.Store, tenantID int64
 		return nil, err
 	}
 	return &u, nil
+}
+
+// redirectWithOAuthError appends Limen's popup-close error params to
+// the SPA-supplied returnTo and issues a 303. Mirrors the contract in
+// web/shared/src/lib/upstreamOAuthPopup.ts (postOAuthPopupResultAndClose),
+// which reads upstream_oauth_error{,_description} from the URL.
+func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, returnTo, code, description string) {
+	q := url.Values{}
+	q.Set("upstream_oauth_error", code)
+	if description != "" {
+		q.Set("upstream_oauth_error_description", description)
+	}
+	sep := "?"
+	if strings.Contains(returnTo, "?") {
+		sep = "&"
+	}
+	http.Redirect(w, r, returnTo+sep+q.Encode(), http.StatusSeeOther)
 }

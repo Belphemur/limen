@@ -89,11 +89,26 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	if err != nil {
 		return "", fmt.Errorf("mcpspec: parse callback query: %w", err)
 	}
-	if errCode := vals.Get("error"); errCode != "" {
-		return "", fmt.Errorf("mcpspec: AS returned error: %s: %s", errCode, vals.Get("error_description"))
-	}
-	code := vals.Get("code")
 	stateVal := vals.Get("state")
+
+	// RFC 6749 §4.1.2.1 — when the AS reports an error it still echoes
+	// the original state. Consume the envelope first so we can recover
+	// the SPA's return_to and bounce back to the popup-close page with
+	// the structured error, instead of dead-ending on an HTTP 400.
+	if errCode := vals.Get("error"); errCode != "" {
+		authErr := &upstream.AuthorizationError{
+			Code:        errCode,
+			Description: vals.Get("error_description"),
+		}
+		if stateVal != "" {
+			if env, cerr := s.state.Consume(ctx, stateVal, lctx.Tenant.ID, lctx.User.ID); cerr == nil && env.UpstreamID == lctx.Upstream.ID {
+				authErr.ReturnTo = env.ReturnTo
+			}
+		}
+		return "", authErr
+	}
+
+	code := vals.Get("code")
 	if code == "" || stateVal == "" {
 		return "", errors.New("mcpspec: callback missing code or state")
 	}

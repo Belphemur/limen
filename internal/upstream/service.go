@@ -153,6 +153,49 @@ func (s *Service) IndexCatalog(ctx context.Context, tenant *storage.Tenant, up *
 	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link)
 }
 
+// VerifyLink confirms the credentials this link produces are accepted
+// by the upstream MCP server by performing a single `initialize`
+// round-trip. Returns nil on success, the raw transport error on any
+// failure (401, 404, 5xx, network). Callers treat any non-nil return
+// as "this link does not currently work" — the admin can retry.
+//
+// Some authorization servers (PayPal, observed) hand back a token
+// even when the user refused consent; the AS round-trip looks
+// successful but the resource server then rejects every call. This
+// probe is the only reliable way to distinguish a real link from a
+// consent-refused stub.
+//
+// For strategies that don't carry per-user links (`none`,
+// `static_header` tenant-wide) this is a no-op returning nil.
+func (s *Service) VerifyLink(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, link *storage.UpstreamLink) error {
+	if tenant == nil || up == nil {
+		return errors.New("upstream: tenant/upstream required")
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+	if !strat.RequiresLink() {
+		return nil
+	}
+	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link}
+	if link != nil {
+		lctx.User = link.User
+	}
+	headers, err := strat.Headers(ctx, lctx)
+	if err != nil {
+		return err
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, indexTimeout)
+	defer cancel()
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, nil, indexTimeout, "limen-link-verify", "0.1.0")
+	if err != nil {
+		return err
+	}
+	_ = c.Close()
+	return nil
+}
+
 // ProvisionTenantMode runs the strategy's Provision step and then
 // attempts a synchronous catalog index without a user link. It's safe
 // to call for any strategy:

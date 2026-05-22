@@ -135,6 +135,34 @@ type Strategy interface {
 // the Service layer can return a clean 400.
 var ErrUnsupported = errors.New("upstream: operation not supported by this strategy")
 
+// AuthorizationError is returned by Strategy.FinishLink when the
+// authorization server reported a structured failure (RFC 6749 §4.1.2.1
+// error response, e.g. access_denied, server_error, invalid_scope) in
+// the callback. The transport layer surfaces Code+Description back to
+// the popup-close page so the SPA can render the real reason instead
+// of the generic "you closed the popup" fallback.
+//
+// ReturnTo is the SPA URL captured by StartLink — populated when the
+// state envelope could still be consumed (the common case, since the
+// AS echoes ?state= on errors too). Empty when the state was missing,
+// already consumed, or undecryptable.
+type AuthorizationError struct {
+	Code        string
+	Description string
+	ReturnTo    string
+}
+
+// Error implements error.
+func (e *AuthorizationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Description != "" {
+		return fmt.Sprintf("upstream: authorization server returned %q: %s", e.Code, e.Description)
+	}
+	return fmt.Sprintf("upstream: authorization server returned %q", e.Code)
+}
+
 // Registry maps strategy types to Strategy implementations.
 type Registry struct {
 	mu  sync.RWMutex
