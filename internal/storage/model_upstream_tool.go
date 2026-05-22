@@ -26,6 +26,7 @@ type UpstreamTool struct {
 	InputSchemaJSON []byte    `gorm:"type:jsonb;not null;default:'{}'"`
 	LastIndexedAt   time.Time `gorm:"type:timestamptz;not null;default:now()"`
 
+	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
 

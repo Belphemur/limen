@@ -51,6 +51,7 @@ type UpstreamStrategyConfig struct {
 	Type       string             `gorm:"type:text;not null"`
 	ConfigJSON crypto.SecretField `gorm:"type:bytea"`
 
+	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
 
@@ -74,6 +75,7 @@ type UpstreamRegistration struct {
 	RegistrationClientURI   string             `gorm:"type:text"`
 	ResourceURI             string             `gorm:"type:text;not null"`
 
+	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
 
@@ -119,6 +121,7 @@ type UpstreamLink struct {
 	// gateway.ValidateContextBlob on write.
 	ContextJSON []byte `gorm:"column:context_json;type:jsonb;not null;default:'{}'::jsonb"`
 
+	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	User     *User     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
