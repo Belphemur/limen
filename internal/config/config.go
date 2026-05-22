@@ -78,7 +78,7 @@ type CaptchaConfig struct {
 //
 // Host:Port is required when Signup.Enabled is true. From is the
 // envelope sender + From header. TLS selects the transport: "none"
-// (plain SMTP, dev/MailHog only), "starttls" (opportunistic
+// (plain SMTP, dev/Mailpit only), "starttls" (opportunistic
 // upgrade), or "tls" (implicit TLS / SMTPS).
 type MailerConfig struct {
 	SMTP SMTPConfig `yaml:"smtp"`

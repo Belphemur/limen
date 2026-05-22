@@ -20,7 +20,7 @@ make dev
 That single command brings the whole environment up. It:
 
 1. Starts the merged docker stack (Zitadel + login UI + Traefik + Zitadel
-   Postgres + Limen Postgres + MailHog + Valkey) via three layered compose
+   Postgres + Limen Postgres + Mailpit + Valkey) via three layered compose
    files — see the `COMPOSE :=` block in [Makefile](../Makefile).
 2. Waits for Zitadel to be ready (`scripts/wait-for-zitadel.sh`).
 3. Runs the idempotent Zitadel bootstrap (`make dev-bootstrap`), which
@@ -123,7 +123,7 @@ After `make dev` is up:
    make dev-create-tenant ARGS='--name Acme --zitadel-org-id '"$LIMEN_SAMPLE_TENANT_ORG_ID"
 
    # Or: full flow — create the Zitadel org + seed owner. Owner gets an
-   # "initial password" email at http://localhost:8025 (MailHog).
+   # "initial password" email at http://localhost:8025 (Mailpit).
    make dev-create-tenant ARGS='--name "Demo Tenant" --owner-email you@example.com --owner-given-name You --owner-family-name Example'
    ```
 
@@ -241,7 +241,7 @@ any interactive shell.
 | http://localhost:5174                                  | Vite admin  dev server (do not load directly)       |
 | http://localhost:8081                                  | Zitadel console (`root` / `RootPassword1!`)         |
 | http://localhost:8081/.well-known/openid-configuration | OIDC discovery (Limen validates `iss` against this) |
-| http://localhost:8025                                  | MailHog inbox                                       |
+| http://localhost:8025                                  | Mailpit inbox                                       |
 | localhost:5432                                         | Limen Postgres (user `limen`, db `limen`)           |
 | localhost:6380                                         | Limen Valkey                                        |
 

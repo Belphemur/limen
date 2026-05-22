@@ -185,7 +185,7 @@ func (m *smtpMailer) Send(ctx context.Context, to, subject, htmlBody, textBody s
 		return fmt.Errorf("mailer: close DATA: %w", err)
 	}
 	if err := client.Quit(); err != nil {
-		// MailHog frequently closes the connection mid-QUIT — treat
+		// Some dev SMTP sinks close the connection mid-QUIT — treat
 		// that as success since the message body is already accepted.
 		return nil
 	}

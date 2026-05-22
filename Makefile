@@ -51,7 +51,7 @@ endef
 export DEV_ENV
 
 # Bring up the full dependency stack (Zitadel + login UI + Traefik + Postgres,
-# plus Limen's own Postgres, MailHog, Valkey), wait for it, run bootstrap,
+# plus Limen's own Postgres, Mailpit, Valkey), wait for it, run bootstrap,
 # then migrate + serve Limen on the host with the dev env auto-loaded.
 dev:
 	$(COMPOSE) up -d --wait

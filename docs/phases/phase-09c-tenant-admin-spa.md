@@ -178,7 +178,7 @@ CLI-driven tenant creation in Phase 4 stays for ops / dev / self-hosted installs
 2. **`AdminService.StartSignup`** validates inputs (name length, email shape), checks the captcha, and returns a signed signup token `{name, owner_email, owner_name, exp}` HMACed with the Phase 2 encryption key under domain tag `"signup"`. **No Zitadel calls happen yet** — we want abandonment to leave zero side effects.
 3. The browser is sent to `/auth/signup?token=<...>`. That handler validates the token, calls Zitadel:
    - `OrganizationService.CreateOrganization` for the new org,
-   - `UserService.AddHumanUser` for the owner (Zitadel emails the password-setup link via SMTP / MailHog),
+   - `UserService.AddHumanUser` for the owner (Zitadel emails the password-setup link via SMTP / Mailpit),
    - `UserService.AddUserGrant(userId, projectId, orgId, ["owner"])`,
    - persists the Limen `Tenant` row (minting a fresh `PublicID = tnt_<ULID>`) with `zitadel_org_id`,
    - mirrors the freshly-minted `PublicID` into the Zitadel org metadata under `limen_tenant_id` (same call as the CLI in Phase 4),
@@ -475,7 +475,7 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 ## Verification
 
 - Captcha-rejected paths return identical generic errors.
-- Signup happy path: `StartSignup` → email lands in MailHog → `/auth/callback` → `CompleteSignup` → new owner lands at `/t/<tenant>/admin/` with `owner` role in their cookie.
+- Signup happy path: `StartSignup` → email lands in Mailpit → `/auth/callback` → `CompleteSignup` → new owner lands at `/t/<tenant>/admin/` with `owner` role in their cookie.
 - Signup abandonment (token expires unused): zero rows in `tenants`, zero Zitadel orgs created.
 - Role isolation: `member` calling any `AdminService` RPC returns `permission_denied`. Admin SPA route guard mirrors this on the client.
 - Bundle separation: a `member` user navigating `/t/<tenant>/portal/` from a clean cache pulls the portal bundle only — DevTools network log shows the admin bundle is not fetched.
@@ -485,7 +485,7 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 ## Risks
 
 - **Captcha vendor lock-in**: hCaptcha vs reCAPTCHA vs Cloudflare Turnstile is a config knob; the SPA reads the chosen provider's site key from `window.__LIMEN_CONFIG__` injected by the static host. Document the matrix in [Phase 11](phase-11-production-deployment.md).
-- **Signup → email delivery**: hostile networks may block Zitadel's outbound SMTP. Dev uses MailHog; prod must verify SMTP relay health via the resilience breaker (Phase 10).
+- **Signup → email delivery**: hostile networks may block Zitadel's outbound SMTP. Dev uses Mailpit; prod must verify SMTP relay health via the resilience breaker (Phase 10).
 - **Two SPAs, one cookie**: a future redesign that needs different idle-timeout policies for admin vs portal would have to split the cookie. Out of scope; flagged here so we don't accidentally hard-code "admin has the same timeout as portal" as an invariant.
 - **Zitadel Console URL shape changes** between major versions could break the deep-links in `ZitadelDirectory.vue`. Mitigation: keep the path templates in one Vue constants file, smoke-test them in CI against the dev Zitadel container, and pin a known-good Zitadel image tag in [Phase 0](phase-00-dev-environment.md).
 
@@ -510,7 +510,7 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [x] No `tenant_idp_configurations` migration ever; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
-- [ ] Signup completes a full round-trip: name + email → MailHog → password set → admin SPA
+- [ ] Signup completes a full round-trip: name + email → Mailpit → password set → admin SPA
 - [ ] Admin SPA routes lazy-loaded; all v1 pages above implemented
 - [x] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [x] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`

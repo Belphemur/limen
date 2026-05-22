@@ -32,7 +32,7 @@ The stack is composed from three files merged into one project:
 | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `scripts/zitadel/docker-compose.yml`          | Vendored verbatim from the upstream Zitadel repo. Defines `proxy` (Traefik v3.6.8), `zitadel-api`, `zitadel-login`, `postgres` (Zitadel's DB), and optional `redis` / `otel-collector` services. |
 | `scripts/zitadel/docker-compose.limen.yaml`   | Overlay that seeds a Limen admin service-account PAT via `ZITADEL_FIRSTINSTANCE_*` on first init. |
-| `compose.dev.yaml`                            | Limen-side services: `limen-postgres` (Postgres 18.2), `mailhog`, and the `zitadel-bootstrap` runner. |
+| `compose.dev.yaml`                            | Limen-side services: `limen-postgres` (Postgres 18.2), `mailpit`, and the `zitadel-bootstrap` runner. |
 
 Environment defaults (port, masterkey, image tags) live in `scripts/zitadel/.env`. The dev-friendly values bind Zitadel's Traefik on host port **8081** so host port 8080 stays free for the Limen Go binary.
 
@@ -49,7 +49,7 @@ Key version pins (kept in `scripts/zitadel/.env`):
 - **Two Postgres instances** is deliberate: keeps Limen's data lifecycle independent from Zitadel's. Production (Phase 11) does the same. Both pin Postgres **18.2-alpine**.
 - **Zitadel v4 Login UI** runs in a separate Next.js container (`zitadel-login`) reachable at `http://localhost:8081/ui/v2/login/`. Traefik routes `/ui/v2/login/*` and `/` to the login UI and everything else to `zitadel-api`. `ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED=true` is set so the API knows to redirect there.
 - **TLS disabled in dev**: controlled via `ZITADEL_TLS_ENABLED=false` env; the issuer is `http://localhost:8081`.
-- **MailHog** captures emails Zitadel sends for password resets, email verification, invitations. Web UI at `http://localhost:8025`.
+- **Mailpit** captures emails Zitadel sends for password resets, email verification, invitations. Web UI at `http://localhost:8025`.
 - **Login Client PAT**: Zitadel writes a PAT for the bundled Login UI to `/zitadel/bootstrap/login-client.pat` inside a named volume (`zitadel-bootstrap`).
 - **Limen admin PAT**: the `docker-compose.limen.yaml` overlay sets `ZITADEL_FIRSTINSTANCE_PATPATH=/zitadel/bootstrap/admin-sa.pat` and creates an additional `limen-admin-sa` machine user with `openid` scope. The `zitadel-bootstrap` container mounts the same volume read-only and authenticates against the Management API with that PAT.
 
@@ -68,7 +68,7 @@ A small Go program (kept in the repo) that uses Zitadel's Management API to ensu
 | Project role `owner`                     | Tenant owners                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Project role `super_admin`               | SaaS-operator role; honored only inside the staff tenant (see [Phase 12](phase-12-staff-backoffice.md))                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Sample org `acme` + owner user           | For first-run testing; the script also calls `UserService.AddUserGrant(user, project, acme-org, ["owner"])`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Staff org `limen-staff` + staff user     | SaaS-operator org. The script creates one human user from `LIMEN_STAFF_BOOTSTRAP_EMAIL` (default `staff@limen.dev`), grants it `super_admin` against the Limen project, and emits `LIMEN_STAFF_ZITADEL_ORG_ID` in the bootstrap output — consumed by `limen-migrate` to ensure the `_staff` tenant row exists (see [Phase 12](phase-12-staff-backoffice.md) and [Phase 11](phase-11-production-deployment.md)). Zitadel sends an initialization email through SMTP (MailHog in dev) so the operator can set their own password and enroll MFA. |
+| Staff org `limen-staff` + staff user     | SaaS-operator org. The script creates one human user from `LIMEN_STAFF_BOOTSTRAP_EMAIL` (default `staff@limen.dev`), grants it `super_admin` against the Limen project, and emits `LIMEN_STAFF_ZITADEL_ORG_ID` in the bootstrap output — consumed by `limen-migrate` to ensure the `_staff` tenant row exists (see [Phase 12](phase-12-staff-backoffice.md) and [Phase 11](phase-11-production-deployment.md)). Zitadel sends an initialization email through SMTP (Mailpit in dev) so the operator can set their own password and enroll MFA. |
 | Allow `org.id` claim in token + userinfo | So Limen can extract `urn:zitadel:iam:user:resourceowner:id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Enable project-roles claim               | Project setting `assertRolesOnAuthentication=true` so the `urn:zitadel:iam:org:project:roles` claim is present in ID/access tokens — Limen reads roles from this claim                                                                                                                                                                                                                                                                                                                                                                         |
 
@@ -90,7 +90,7 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
   # LIMEN_STAFF_ZITADEL_ORG_ID is consumed by limen-migrate to ensure the
   # _staff tenant row exists. Override LIMEN_STAFF_BOOTSTRAP_EMAIL before the
   # first `make dev` if you want a personal address (Zitadel will mail an
-  # init link to it via MailHog).
+  # init link to it via Mailpit).
   LIMEN_STAFF_BOOTSTRAP_EMAIL=staff@limen.dev
   LIMEN_STAFF_ZITADEL_ORG_ID=<from bootstrap output>
   ```
@@ -130,14 +130,14 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 - `curl http://localhost:8081/.well-known/openid-configuration` returns valid metadata.
 - `curl http://localhost:8081/ui/v2/login/healthy` returns 200 from the Login UI container.
 - The bootstrap output prints `client_id`, project id, sample org id, and **staff org id**.
-- The `limen-staff` org exists in the Zitadel console with one human user (`LIMEN_STAFF_BOOTSTRAP_EMAIL`) carrying the `super_admin` user grant against the `Limen Gateway` project. MailHog (`http://localhost:8025`) shows the Zitadel init-mail for that user.
+- The `limen-staff` org exists in the Zitadel console with one human user (`LIMEN_STAFF_BOOTSTRAP_EMAIL`) carrying the `super_admin` user grant against the `Limen Gateway` project. Mailpit (`http://localhost:8025`) shows the Zitadel init-mail for that user.
 - After populating `.env` and running `go run ./cmd/gateway`, visiting `http://localhost:8080/t/acme/portal/` redirects to Zitadel login, authenticating returns to Limen with a portal session.
 
 ## Risks
 
 - **Zitadel image version**: pinned to `v4.15.0` in `scripts/zitadel/.env`. Track upstream's `.env.example` when bumping — v4 introduces breaking changes from v2 (TLS env, mandatory Login UI container, Traefik routing).
 - **Bootstrap PAT lifecycle**: the upstream Login UI PAT is at `/zitadel/bootstrap/login-client.pat` and the Limen admin PAT (seeded by our overlay) is at `/zitadel/bootstrap/admin-sa.pat`. Both live in the `zitadel-bootstrap` named volume; `make dev-reset` wipes them along with the rest of the state.
-- **Port collisions**: 5432 (Limen pg), 8080 (Limen gateway), 8081 (Traefik in front of Zitadel), 1025/8025 (MailHog) are all standard — document overrides via `scripts/zitadel/.env`.
+- **Port collisions**: 5432 (Limen pg), 8080 (Limen gateway), 8081 (Traefik in front of Zitadel), 1025/8025 (Mailpit) are all standard — document overrides via `scripts/zitadel/.env`.
 
 ## Checklist
 
@@ -156,5 +156,5 @@ Bootstrap is **idempotent**: re-running it is safe. It exits early if the projec
 - [x] `.env.example` documents every Limen env var the dev workflow needs
 - [x] `make dev` brings the stack up and runs Limen against it
 - [x] `make dev-reset` cleanly wipes volumes
-- [x] `docs/development.md` explains the first-run flow (incl. MailHog UI URL)
+- [x] `docs/development.md` explains the first-run flow (incl. Mailpit UI URL)
 - [x] CI smoke job runs `make dev` (without the `go run`) and a basic OIDC discovery probe against `http://localhost:8081/.well-known/openid-configuration`

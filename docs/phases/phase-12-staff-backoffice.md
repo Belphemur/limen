@@ -109,7 +109,7 @@ Both halves use the same `@connectrpc/connect-web` transport (same-origin), the 
 
 ### Bootstrap
 
-1. **[Phase 0](phase-00-dev-environment.md)** Zitadel bootstrap script gains an additional step: create the `limen-staff` org, add the `super_admin` project role to the shared Limen project, and create one staff user from `LIMEN_STAFF_BOOTSTRAP_EMAIL` (env var, sent to MailHog for password setup in dev). Idempotent on repeat runs.
+1. **[Phase 0](phase-00-dev-environment.md)** Zitadel bootstrap script gains an additional step: create the `limen-staff` org, add the `super_admin` project role to the shared Limen project, and create one staff user from `LIMEN_STAFF_BOOTSTRAP_EMAIL` (env var, sent to Mailpit for password setup in dev). Idempotent on repeat runs.
 2. **[Phase 11](phase-11-production-deployment.md)** `limen-migrate` runs the staff-tenant ensure step after schema migration: `INSERT ... ON CONFLICT DO NOTHING` for the staff tenant row (kind `staff`, well-known URL segment `_staff`), linked to the Zitadel org id captured from the bootstrap output (passed via env var `LIMEN_STAFF_ZITADEL_ORG_ID`). Refuses to start if the env var is missing in prod — the deploy script verifies it from `secrets/`.
 3. CLI: `limen staff bootstrap --email <addr>` for self-host operators running outside the standard Compose stack.
 

@@ -187,7 +187,7 @@ Subcommand contracts:
   1. Validates inputs (`--name` required, owner email or `--owner-user-id` / `--zitadel-org-id` required).
   2. Calls Zitadel Management API to create an organization named after the tenant.
   3. Persists the `Tenant` row with `zitadel_org_id`. The tenant's `PublicID` (a `tnt_<ULID>`) is minted automatically and is the only externally visible identifier.
-  4. Creates a Zitadel "human user" with the owner email; Zitadel emails the initial password setup link via SMTP (MailHog in dev — see [Phase 0](phase-00-dev-environment.md)). The new owner uses Zitadel's hosted UI to set the password and (optionally) enroll MFA — Limen is not involved.
+  4. Creates a Zitadel "human user" with the owner email; Zitadel emails the initial password setup link via SMTP (Mailpit in dev — see [Phase 0](phase-00-dev-environment.md)). The new owner uses Zitadel's hosted UI to set the password and (optionally) enroll MFA — Limen is not involved.
   5. Calls `UserService.AddUserGrant(userId, projectId, orgId, ["owner"])` so the seed user is granted the `owner` project role for this tenant org.
   6. Persists the `User` row in Limen with `zitadel_subject` pre-populated from the Zitadel API response. **No role column** — Limen never stores it.
   7. Calls `ManagementService.SetOrgMetadata(org_id, key="limen_tenant_id", value=tenant.PublicID)` so the Zitadel side mirrors the Limen-side identifier; failures here are logged but non-fatal (the tenant row is already committed).
@@ -242,7 +242,7 @@ OAuth + MCP routes (Phases 5, 6) attach under the same `/t/{tenant}/...` subrout
 
 The Phase 4 surface intentionally stops at the minimum needed for the portal to log a user in. The following workflows are explicitly **out of scope for this phase**:
 
-1. **Self-serve SaaS signup** (creating a brand-new tenant from a public web form rather than the CLI) — delivered by [Phase 9c](phase-09c-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, MailHog round-trip in dev). Both the CLI and the signup wizard share the same `zitadel.CreateOrg` + `AddHumanUser` + `AddUserGrant(owner)` primitives.
+1. **Self-serve SaaS signup** (creating a brand-new tenant from a public web form rather than the CLI) — delivered by [Phase 9c](phase-09c-tenant-admin-spa.md) (`AdminService.StartSignup` + `CompleteSignup`, captcha-gated, signed signup token, Mailpit round-trip in dev). Both the CLI and the signup wizard share the same `zitadel.CreateOrg` + `AddHumanUser` + `AddUserGrant(owner)` primitives.
 
 User invitations, role changes, member removal, and tenant-level external IdP federation (OIDC / SAML / social) are **not deferred work** — they are explicitly out of Limen's scope and live in [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice). The Limen admin SPA ([Phase 9c](phase-09c-tenant-admin-spa.md)) renders a deep-link card pointing operators at Console for these operations.
 

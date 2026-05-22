@@ -125,7 +125,7 @@ upstream_refresh:
   needs_relink_window: "24h" # NeedsRelink=true for this long → auto-disable
 
 # Phase 9h — self-serve signup wizard.
-# Disabled by default; enable per-deployment when MailHog/Postmark/etc.
+# Disabled by default; enable per-deployment when Mailpit/Postmark/etc.
 # is wired and the SPA exposes /signup.
 signup:
   enabled: ${LIMEN_SIGNUP_ENABLED:-true}
@@ -141,7 +141,7 @@ captcha:
   site_key: "${LIMEN_CAPTCHA_SITE_KEY:-}"
   secret_key: "${LIMEN_CAPTCHA_SECRET_KEY:-}"
 
-# Phase 9h — SMTP mailer. In dev this points at the MailHog container
+# Phase 9h — SMTP mailer. In dev this points at the Mailpit container
 # wired into compose.dev.yaml (smtp 1025, http 8025).
 mailer:
   smtp:

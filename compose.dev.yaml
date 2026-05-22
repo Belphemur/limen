@@ -1,4 +1,4 @@
-# Limen dev stack — Postgres for Limen, MailHog, and the Limen bootstrap runner.
+# Limen dev stack — Postgres for Limen, Mailpit, and the Limen bootstrap runner.
 #
 # The Zitadel half of the stack lives in scripts/zitadel/docker-compose.yml
 # (vendored verbatim from https://github.com/zitadel/zitadel/tree/main/deploy/compose).
@@ -50,8 +50,11 @@ services:
     networks:
       - zitadel
 
-  mailhog:
-    image: mailhog/mailhog:latest
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
     ports:
       - "1025:1025"
       - "8025:8025"

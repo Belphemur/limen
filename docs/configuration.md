@@ -150,7 +150,7 @@ SMTP settings used to send the signup verification email. Required when
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `smtp.host` | `string` | `localhost` | SMTP host. |
-| `smtp.port` | `int` | `1025` | SMTP port (MailHog default in dev). |
+| `smtp.port` | `int` | `1025` | SMTP port (Mailpit default in dev). |
 | `smtp.from` | `string` | `Limen <noreply@limen.local>` | RFC 5322 `From:` header. |
 | `smtp.username` | `string` | `""` | PLAIN auth username (empty disables auth). |
 | `smtp.password` | `string` | `""` | PLAIN auth password. |
