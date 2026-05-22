@@ -116,6 +116,46 @@ token whose `aud` claim does not contain `mcp_resource_audience`.
 | `mcp_resource_audience` | `string` | Yes | -- | Expected `aud` claim on inbound MCP access tokens. Typically equals `project_id` or a configured Zitadel audience. |
 | `http_timeout` | `duration` | No | `15s` | Timeout for outbound Zitadel Management API calls. |
 
+### `signup`
+
+Controls the self-serve tenant signup wizard exposed at `/signup` and the
+`SignupService` Connect-RPC endpoints. Set `enabled: false` for closed
+deployments — `StartSignup` then returns `Unavailable` and the SPA route
+404s.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Master switch for the wizard + Connect handlers. |
+| `rate_limit.per_hour` | `int` | `5` | Per-IP token-bucket refill rate for `StartSignup`. |
+| `rate_limit.burst` | `int` | `3` | Per-IP token-bucket burst size. |
+| `verify_token_ttl` | `duration` | `24h` | Lifetime of the single-use email-verification token. |
+
+### `captcha`
+
+Captcha provider used by `StartSignup`. The server-side `secret_key`
+verifies tokens with the provider; the SPA reads `provider` + `site_key`
+from `/auth/discovery` to lazy-load the matching widget.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `string` | `none` | One of `none` (dev sentinel `dev-captcha-bypass`), `hcaptcha`, `turnstile`. |
+| `site_key` | `string` | `""` | Public site key surfaced to the SPA. |
+| `secret_key` | `string` | `""` | Provider secret. Required when `provider` is not `none`. |
+
+### `mailer`
+
+SMTP settings used to send the signup verification email. Required when
+`signup.enabled: true`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `smtp.host` | `string` | `localhost` | SMTP host. |
+| `smtp.port` | `int` | `1025` | SMTP port (MailHog default in dev). |
+| `smtp.from` | `string` | `Limen <noreply@limen.local>` | RFC 5322 `From:` header. |
+| `smtp.username` | `string` | `""` | PLAIN auth username (empty disables auth). |
+| `smtp.password` | `string` | `""` | PLAIN auth password. |
+| `smtp.tls` | `string` | `starttls` | One of `none`, `starttls`, `tls`. |
+
 ## Environment Variable Substitution
 
 All string scalars in the YAML config support `${VAR_NAME}` expansion. The

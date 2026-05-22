@@ -35,6 +35,65 @@ type Config struct {
 	OIDC            OIDCConfig            `yaml:"oidc"`
 	Zitadel         ZitadelConfig         `yaml:"zitadel"`
 	Valkey          ValkeyConfig          `yaml:"valkey"`
+	Signup          SignupConfig          `yaml:"signup"`
+	Captcha         CaptchaConfig         `yaml:"captcha"`
+	Mailer          MailerConfig          `yaml:"mailer"`
+}
+
+// SignupConfig governs the Phase 9h self-serve signup wizard.
+//
+// Enabled is the master kill-switch: when false the SignupService
+// returns CodeUnimplemented and the SPA hides the /signup route.
+// VerifyTokenTTL bounds how long the email-link is valid; defaults
+// to 24h.
+type SignupConfig struct {
+	Enabled        bool                  `yaml:"enabled"`
+	RateLimit      SignupRateLimitConfig `yaml:"rate_limit"`
+	VerifyTokenTTL time.Duration         `yaml:"verify_token_ttl,omitempty"`
+}
+
+// SignupRateLimitConfig sizes the per-IP token bucket on StartSignup.
+// Defaults: 5 per hour / burst 3. Returns ResourceExhausted when
+// exceeded.
+type SignupRateLimitConfig struct {
+	PerHour int `yaml:"per_hour,omitempty"`
+	Burst   int `yaml:"burst,omitempty"`
+}
+
+// CaptchaConfig selects the captcha provider for StartSignup. Provider
+// values:
+//   - "none": dev/test only — accepts the sentinel "dev-captcha-bypass".
+//   - "hcaptcha": hCaptcha siteverify endpoint.
+//   - "turnstile": Cloudflare Turnstile siteverify endpoint.
+//
+// SiteKey is the public key sent to the browser via /auth/discovery;
+// SecretKey is server-side. Both are required for non-"none" providers.
+type CaptchaConfig struct {
+	Provider  string `yaml:"provider"`
+	SiteKey   string `yaml:"site_key,omitempty"`
+	SecretKey string `yaml:"secret_key,omitempty"`
+}
+
+// MailerConfig wires the SMTP client used by the signup wizard.
+//
+// Host:Port is required when Signup.Enabled is true. From is the
+// envelope sender + From header. TLS selects the transport: "none"
+// (plain SMTP, dev/MailHog only), "starttls" (opportunistic
+// upgrade), or "tls" (implicit TLS / SMTPS).
+type MailerConfig struct {
+	SMTP SMTPConfig `yaml:"smtp"`
+}
+
+// SMTPConfig is the dialled SMTP server.
+type SMTPConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	From     string `yaml:"from"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
+	// TLS selects the transport: "none" | "starttls" | "tls".
+	// Defaults to "starttls".
+	TLS string `yaml:"tls,omitempty"`
 }
 
 // LoggingConfig controls the zap logger built in cmd/limen serve. Level
@@ -338,6 +397,21 @@ func (c *Config) applyDefaults() {
 	if c.UpstreamRefresh.CatalogInterval == 0 {
 		c.UpstreamRefresh.CatalogInterval = 6 * time.Hour
 	}
+	if c.Signup.RateLimit.PerHour == 0 {
+		c.Signup.RateLimit.PerHour = 5
+	}
+	if c.Signup.RateLimit.Burst == 0 {
+		c.Signup.RateLimit.Burst = 3
+	}
+	if c.Signup.VerifyTokenTTL == 0 {
+		c.Signup.VerifyTokenTTL = 24 * time.Hour
+	}
+	if c.Captcha.Provider == "" {
+		c.Captcha.Provider = "none"
+	}
+	if c.Mailer.SMTP.TLS == "" {
+		c.Mailer.SMTP.TLS = "starttls"
+	}
 	if c.OIDC.Issuer == "" && c.Zitadel.Domain != "" {
 		c.OIDC.Issuer = c.Zitadel.Domain
 	}
@@ -388,6 +462,71 @@ func (c *Config) Validate() error {
 	}
 	if err := c.UpstreamRefresh.Validate(); err != nil {
 		return fmt.Errorf("upstream_refresh: %w", err)
+	}
+	if err := c.Captcha.Validate(); err != nil {
+		return fmt.Errorf("captcha: %w", err)
+	}
+	if err := c.Signup.Validate(); err != nil {
+		return fmt.Errorf("signup: %w", err)
+	}
+	if err := c.Mailer.Validate(c.Signup.Enabled); err != nil {
+		return fmt.Errorf("mailer: %w", err)
+	}
+	return nil
+}
+
+// Validate enforces non-negative rate-limit + sensible TTLs.
+func (s SignupConfig) Validate() error {
+	if s.RateLimit.PerHour < 0 {
+		return errors.New("rate_limit.per_hour must be >= 0")
+	}
+	if s.RateLimit.Burst < 0 {
+		return errors.New("rate_limit.burst must be >= 0")
+	}
+	if s.VerifyTokenTTL < 0 {
+		return errors.New("verify_token_ttl must be >= 0")
+	}
+	return nil
+}
+
+// Validate enforces a known provider + presence of site/secret keys
+// when the provider needs them.
+func (c CaptchaConfig) Validate() error {
+	switch c.Provider {
+	case "none":
+		return nil
+	case "hcaptcha", "turnstile":
+		if strings.TrimSpace(c.SiteKey) == "" {
+			return fmt.Errorf("site_key is required when provider=%q", c.Provider)
+		}
+		if strings.TrimSpace(c.SecretKey) == "" {
+			return fmt.Errorf("secret_key is required when provider=%q", c.Provider)
+		}
+		return nil
+	default:
+		return fmt.Errorf("provider %q is not one of none|hcaptcha|turnstile", c.Provider)
+	}
+}
+
+// Validate enforces SMTP host/port/from when signup is enabled and a
+// known TLS mode regardless.
+func (m MailerConfig) Validate(signupEnabled bool) error {
+	switch m.SMTP.TLS {
+	case "none", "starttls", "tls":
+	default:
+		return fmt.Errorf("smtp.tls %q is not one of none|starttls|tls", m.SMTP.TLS)
+	}
+	if !signupEnabled {
+		return nil
+	}
+	if strings.TrimSpace(m.SMTP.Host) == "" {
+		return errors.New("smtp.host is required when signup.enabled=true")
+	}
+	if m.SMTP.Port <= 0 || m.SMTP.Port > 65535 {
+		return fmt.Errorf("smtp.port %d is out of range", m.SMTP.Port)
+	}
+	if strings.TrimSpace(m.SMTP.From) == "" {
+		return errors.New("smtp.from is required when signup.enabled=true")
 	}
 	return nil
 }

@@ -50,10 +50,10 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestParseConfig(t *testing.T) {
 	cfg, err := ParseConfig(map[string]string{
-		"header_name":          "Authorization",
-		"header_template":      "Bearer {value}",
-		"value":                "shared-1",
-		"allow_user_override":  "true",
+		"header_name":         "Authorization",
+		"header_template":     "Bearer {value}",
+		"value":               "shared-1",
+		"allow_user_override": "true",
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)

@@ -24,6 +24,8 @@ export const ROUTES = {
   ideConfiguration: '/org/ide-configuration',
   forbidden: '/forbidden',
   oauthPopupClose: '/oauth-popup-close',
+  signup: '/signup',
+  signupVerify: '/signup/verify',
 } as const
 
 export type SearchMode = 'filter' | 'palette' | 'hidden'
@@ -101,6 +103,22 @@ export const routeDefs: RouteDef[] = [
     name: 'oauth-popup-close',
     path: ROUTES.oauthPopupClose,
     component: () => import('@/pages/OAuthPopupClose.vue'),
+    search: { mode: 'hidden' },
+    public: true,
+    outsideShell: true,
+  },
+  {
+    name: 'signup',
+    path: ROUTES.signup,
+    component: () => import('@/pages/SignupStart.vue'),
+    search: { mode: 'hidden' },
+    public: true,
+    outsideShell: true,
+  },
+  {
+    name: 'signup-verify',
+    path: ROUTES.signupVerify,
+    component: () => import('@/pages/SignupVerify.vue'),
     search: { mode: 'hidden' },
     public: true,
     outsideShell: true,

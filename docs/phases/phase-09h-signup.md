@@ -58,13 +58,12 @@ StartSignup(name, ownerName, ownerEmail, captchaToken)
 GET /signup/verify?token=…   (SPA route)
   └─ SPA calls SignupService.VerifyEmail(token)
        ├─ hash(token), lookup row, check not expired (24h), check not completed
-       ├─ set email_verified_at = now(), clear/rotate token hash (single-use)
-       ├─ set pending_signup cookie (AES-SIV, Path=/signup, Secure, HttpOnly,
-       │                             SameSite=Lax, TTL 30 min) carrying signup id
-       └─ return ok → SPA navigates to /signup/finish
+       ├─ set email_verified_at = now(), rotate verify_token_hash (single-use)
+       ├─ mint completion_token (32B crypto/rand) + HMAC-SHA256 hash, persist on row
+       └─ return { completion_token } → SPA navigates to /signup/finish
 
-POST CompleteSignup()   (only callable with verified pending_signup cookie)
-  ├─ read pending_signup cookie → load row by id
+POST CompleteSignup(completion_token)
+  ├─ hash(completion_token) → lookup row by completion_token_hash
   ├─ require email_verified_at IS NOT NULL → else FailedPrecondition
   ├─ idempotency: if completed_at IS NOT NULL → return cached response
   ├─ Zitadel calls (first time we touch it):
@@ -77,7 +76,6 @@ POST CompleteSignup()   (only callable with verified pending_signup cookie)
   │    └─ UserService.PasswordReset(user_id, MediumReturnCode)    → init_code
   ├─ INSERT tenants row (PublicID = ids.MustMake(PrefixTenant))
   ├─ UPDATE pending_signups SET completed_at, zitadel_*, tenant_id
-  ├─ clear pending_signup cookie
   └─ return {
        tenant_public_id,
        password_init_url: "<issuer>/ui/login/password/init?userID=<id>&code=<code>
@@ -115,8 +113,9 @@ type PendingSignup struct {
     OwnerFamilyName string     `gorm:"column:owner_family_name;not null"`
     TenantName      string     `gorm:"column:tenant_name;not null"`
     IP              string     `gorm:"column:ip;not null"`                // store as TEXT — INET would need a custom type
-    VerifyTokenHash []byte     `gorm:"column:verify_token_hash;uniqueIndex;not null"`
-    EmailVerifiedAt *time.Time `gorm:"column:email_verified_at"`
+    VerifyTokenHash     []byte     `gorm:"column:verify_token_hash;uniqueIndex;not null"`
+    CompletionTokenHash []byte     `gorm:"column:completion_token_hash;uniqueIndex"`
+    EmailVerifiedAt     *time.Time `gorm:"column:email_verified_at"`
     ZitadelOrgID    string     `gorm:"column:zitadel_org_id"`
     ZitadelUserID   string     `gorm:"column:zitadel_user_id"`
     TenantID        *string    `gorm:"column:tenant_id;type:uuid"`
@@ -252,9 +251,16 @@ message StartSignupResponse {
 }
 
 message VerifyEmailRequest  { string token = 1; }
-message VerifyEmailResponse {}  // success; cookie now carries the verified state
+message VerifyEmailResponse {
+  // Opaque proof-of-verification handed back to the SPA. The SPA passes
+  // it straight into CompleteSignup. Works across browsers/devices —
+  // whichever device opens the email link receives the token.
+  string completion_token = 1;
+}
 
-message CompleteSignupRequest {}  // pending_signup cookie identifies the row
+message CompleteSignupRequest {
+  string completion_token = 1;
+}
 message CompleteSignupResponse {
   string tenant_public_id   = 1;
   string password_init_url  = 2;  // Zitadel hosted /ui/login/password/init with code + returnURL
@@ -290,6 +296,46 @@ because the SignupService is mounted at root-scoped
 `/api/limen.signup.v1.SignupService/*` per
 [Phase 9c § Slice 1](phase-09c-tenant-admin-spa.md).
 
+### UX principles (`SignupStart.vue`)
+
+The page is the first impression Limen makes on a stranger, so it has to
+sell the product **and** convert in one screen. The layout follows the
+common SaaS "marketing left / form right" anatomy
+([reference](https://userpilot.medium.com/14-best-signup-page-examples-understanding-the-anatomy-of-signup-ui-7495af8427a4)):
+
+| Element             | Why                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Brand header        | Logo + wordmark + "Already have an account? Sign in" — returning users have one click out, new users see the brand.   |
+| Eyebrow pill        | `Self-hosted MCP gateway` — categorises the product before the headline so the visitor knows what they're looking at. |
+| Benefit headline    | One sentence, value-first: _"One MCP endpoint for every AI tool your team uses."_                                     |
+| Supporting copy     | 2–3 lines naming the upstreams and IDE clients so visitors self-qualify.                                              |
+| Three-icon benefits | Aggregation, isolation, Code Mode — covers the "what / safe / extensible" axes without a wall of text.                |
+| Form card           | Right column, surface-1, shadow-soft. Only essential fields: tenant name + first/last/email (+ captcha in prod).      |
+| Form microcopy      | One short reassurance line above the fields: _"You'll be the owner. We'll email a verification link to finish."_      |
+| Primary CTA         | `Create my tenant` — first-person, action verb. Full-width, h-11, `bg-primary` for contrast against `surface-1`.      |
+| Trust strip         | Below the CTA: `No credit card` · `We never see your password` with icons. Removes the two most common objections.    |
+| Legal footnote      | Tiny links to Terms + Privacy under the strip — present but not visually competing with the CTA.                      |
+| Page footer         | Repo link, docs, privacy, terms. Confirms Limen is open-source, which is itself a trust signal for an infra product.  |
+| Success state       | Mail icon + headline + paragraph + expiry hint + "try again" link. Mirrors `SignupVerify.vue`'s status-card shape.    |
+
+Anti-friction choices the page deliberately makes:
+
+- **No password field.** Passwords are set in Zitadel's hosted form
+  after email verification (see flow). Visitors never have to invent or
+  evaluate a password to start.
+- **No "confirm email" field.** A typo'd email simply means the verify
+  link never arrives — the success state's "try again" link is the
+  recovery path.
+- **No marketing checkboxes.** Newsletter / product-update opt-ins are
+  out of scope; if added later, they default to off and live below the
+  CTA, never above it.
+- **No social login on the start page.** Social sign-up is
+  [Phase 18](phase-18-social-signup.md); shipping the form alone keeps
+  the conversion path linear in v1.
+- **Email enumeration resistance is wrapped in user-facing copy** — the
+  success message hedges with _"If \<email\> can sign up…"_ so the
+  generic-success backend behaviour reads as deliberate, not as a bug.
+
 ## Routing
 
 **Already wired.** Both [deploy/caddy/Caddyfile.dev](../../deploy/caddy/Caddyfile.dev)
@@ -308,7 +354,6 @@ signup:
     per_hour: 5
     burst: 3
   verify_token_ttl: 24h
-  pending_signup_cookie_ttl: 30m
 
 captcha:
   provider: dev # dev | hcaptcha | turnstile
@@ -342,15 +387,19 @@ self-hosted single-tenant deploys.
 - **Verify token**: 32-byte cryptographically-random plaintext (in the
   email link only) hashed with HMAC-SHA256 before storage. Single-use:
   the row's hash is rotated on successful verification.
-- **`pending_signup` cookie**: AES-SIV-encrypted with the Phase 4
-  `LIMEN_TOKEN_ENCRYPTION_KEY`. `Path=/signup`, `HttpOnly`, `Secure`,
-  `SameSite=Lax`, 30 min TTL.
+- **Completion token**: 32-byte cryptographically-random plaintext
+  returned by `VerifyEmail` and re-submitted to `CompleteSignup`, hashed
+  with HMAC-SHA256 (Phase 2 `LIMEN_TOKEN_ENCRYPTION_KEY`) before storage.
+  Carries email-verification proof end-to-end without binding to a
+  browser session, so the same flow works across devices (desktop
+  start → phone email click → phone completion).
 - **Password handling**: Limen never receives the plaintext. The
   `password_init_url` carries a Zitadel-minted one-time code; the user
   POSTs the password directly to Zitadel's hosted form.
-- **Idempotency**: `CompleteSignup` is keyed off the cookie's signup id
-  and short-circuits if `completed_at IS NOT NULL`. A second click of the
-  same verify-link cannot double-create a tenant.
+- **Idempotency**: `CompleteSignup` is keyed off `completion_token_hash`
+  and short-circuits if `completed_at IS NOT NULL`. The hash is **not**
+  rotated on success, so an accidental refresh after completion replays
+  the cached tenant + a freshly-minted password-init code.
 - **Sweeper**: deletes stale pre-completion rows after 24 h. No Zitadel
   cleanup needed (deferred-creation design).
 
@@ -387,8 +436,9 @@ fake `Mailer`. Cover at minimum:
    token hash so the same link is single-use.
 6. `VerifyEmail` rejects expired tokens with generic error.
 7. `CompleteSignup` requires verified state.
-8. `CompleteSignup` is idempotent: two calls with the same cookie produce
-   the same `tenant_public_id` and one tenant row.
+8. `CompleteSignup` is idempotent: two calls with the same
+   `completion_token` produce the same `tenant_public_id` and one tenant
+   row.
 9. `CompleteSignup` rolls back cleanly if the Zitadel calls fail
    (Limen-side `tenants` row not created on Zitadel error).
 10. Sweeper deletes a >24 h-old pre-completion row; leaves a completed

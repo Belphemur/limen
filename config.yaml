@@ -123,3 +123,31 @@ upstream_refresh:
   fail_threshold: 5 # min consecutive failures to trip auto-disable
   fail_window: "15m" # min streak elapsed time to trip auto-disable
   needs_relink_window: "24h" # NeedsRelink=true for this long → auto-disable
+
+# Phase 9h — self-serve signup wizard.
+# Disabled by default; enable per-deployment when MailHog/Postmark/etc.
+# is wired and the SPA exposes /signup.
+signup:
+  enabled: ${LIMEN_SIGNUP_ENABLED:-true}
+  rate_limit:
+    per_hour: 5
+    burst: 3
+  verify_token_ttl: "24h"
+
+# Phase 9h — captcha provider for StartSignup. "none" accepts the
+# sentinel "dev-captcha-bypass" and is for dev/test only.
+captcha:
+  provider: "${LIMEN_CAPTCHA_PROVIDER:-none}"
+  site_key: "${LIMEN_CAPTCHA_SITE_KEY:-}"
+  secret_key: "${LIMEN_CAPTCHA_SECRET_KEY:-}"
+
+# Phase 9h — SMTP mailer. In dev this points at the MailHog container
+# wired into compose.dev.yaml (smtp 1025, http 8025).
+mailer:
+  smtp:
+    host: "${LIMEN_SMTP_HOST:-localhost}"
+    port: ${LIMEN_SMTP_PORT:-1025}
+    from: "${LIMEN_SMTP_FROM:-noreply@limen.local}"
+    username: "${LIMEN_SMTP_USERNAME:-}"
+    password: "${LIMEN_SMTP_PASSWORD:-}"
+    tls: "${LIMEN_SMTP_TLS:-none}"

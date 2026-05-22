@@ -17,6 +17,7 @@ import (
 	"github.com/belphemur/limen/internal/boot/signupmount"
 	"github.com/belphemur/limen/internal/portal"
 	"github.com/belphemur/limen/internal/session"
+	"github.com/belphemur/limen/internal/signup"
 	"github.com/belphemur/limen/internal/transport"
 )
 
@@ -31,13 +32,20 @@ import (
 // Limen project ID comes from rt.Cfg.Zitadel.ProjectID. members is
 // the Zitadel directory pass-through used by the Members tab
 // (List/Invite/UpdateRole/Remove); the same *zitadel.Client also
-// satisfies admin.MemberDirectory.
+// satisfies admin.MemberDirectory. signupZitadel is the Zitadel
+// client SignupService uses to provision new orgs; the same
+// *zitadel.Client also satisfies signup.ZitadelClient.
 //
 // PortalService, SessionService, and AdminService share the same
 // /t/{tenant}/api/ mount point — they're multiplexed via an
 // http.ServeMux keyed on the Connect procedure prefix. SignupService
 // is tenant-agnostic and lives at /api/limen.signup.v1.SignupService/*.
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, projectGrants admin.ProjectGrantLookup, members admin.MemberDirectory) {
+//
+// Returns the constructed *signup.Service so the binary can launch
+// the background sweeper goroutine on its lifetime. Returns an error
+// when SignupService construction fails (template load, mailer
+// build, captcha provider invalid).
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, projectGrants admin.ProjectGrantLookup, members admin.MemberDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
 	resolver := session.OIDCResolver(oidc)
 
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, rt.Logger)
@@ -54,7 +62,10 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManag
 	api.Handle(sessPrefix, sessHandler)
 	api.Handle(adminPrefix, adminHandler)
 
-	signupPrefix, signupHandler := signupmount.NewHandler(rt)
+	signupPrefix, signupHandler, signupSvc, err := signupmount.NewHandler(rt, signupZitadel)
+	if err != nil {
+		return nil, err
+	}
 	signupAPI := http.NewServeMux()
 	signupAPI.Handle(signupPrefix, signupHandler)
 
@@ -64,7 +75,10 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManag
 		Logger:                rt.Logger,
 		PostLogoutRedirectURI: rt.Cfg.OIDC.PostLogoutRedirectURI,
 		OIDCIssuer:            rt.Cfg.OIDC.Issuer,
+		CaptchaProvider:       rt.Cfg.Captcha.Provider,
+		CaptchaSiteKey:        rt.Cfg.Captcha.SiteKey,
 		ConnectAPI:            api,
 		SignupAPI:             signupAPI,
 	})
+	return signupSvc, nil
 }

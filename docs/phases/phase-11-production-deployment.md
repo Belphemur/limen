@@ -262,8 +262,12 @@ limen.example.com {
     #   /auth/login                             tenant-agnostic entry point
     #   /auth/callback                          OIDC RP callback
     #   /auth/discovery                         IdP issuer discovery for SPAs
-    #   /auth/signup*, /signup*                 self-serve signup wizard
+    #   /auth/signup*                           legacy/back-channel signup endpoints (if any)
     #   /api/limen.signup*                      Connect-RPC SignupService (root-scoped, no tenant)
+    #
+    # /signup and /signup/* are intentionally NOT in @api — they are
+    # admin-SPA routes (SignupStart.vue / SignupVerify.vue) and are
+    # served from /srv/admin by the @signup handler below.
     #   /.well-known/*                          OAuth AS + OIDC + PRM discovery
     #                                           (RFC 8414 well-known-insertion variants)
     #   /healthz                                liveness
@@ -282,19 +286,38 @@ limen.example.com {
         path /auth/callback
         path /auth/discovery
         path /auth/signup*
-        path /signup
-        path /signup/*
         path /api/limen.signup*
         path /.well-known/*
         path /healthz
     }
     reverse_proxy @api limen:8080
 
+    # Self-serve signup wizard — lives in the admin SPA bundle but is
+    # reached at the root (no /t/<tenant>/ prefix; the wizard *creates*
+    # the tenant). The regex captures the suffix without its leading
+    # slash, and the rewrite always re-prepends one, so /signup and
+    # /signup/verify both resolve cleanly inside /srv/admin and Vue
+    # Router takes over from there.
+    @signup path_regexp signuproute ^/signup/?(.*)$
+    handle @signup {
+        rewrite * /{re.signuproute.1}
+        root * /srv/admin
+        @signupAssets path /assets/*
+        header @signupAssets Cache-Control "public, max-age=31536000, immutable"
+        header /index.html Cache-Control "no-store"
+        try_files {path} /index.html
+        file_server
+    }
+
     # Tenant-admin SPA — owner/admin surface. Strip /t/<tenant>/admin/
     # before serving so the bundle's relative asset paths
-    # (Vite `base: "./"`) resolve against /srv/admin. SPA-history
+    # (Vite `base: "./"`) resolve against /srv/admin. The regex
+    # captures the suffix without its leading slash; the rewrite
+    # re-prepends one so the empty case (/t/<tenant>/admin) still
+    # resolves to /index.html via try_files instead of emitting a
+    # bare "/" that some Caddy versions normalize away. SPA-history
     # fallback hands unknown deep links to Vue Router.
-    @admin path_regexp adminroute ^/t/[^/]+/admin(/.*)?$
+    @admin path_regexp adminroute ^/t/[^/]+/admin/?(.*)$
     handle @admin {
         rewrite * /{re.adminroute.1}
         root * /srv/admin
@@ -306,7 +329,7 @@ limen.example.com {
     }
 
     # Customer portal SPA — same shape.
-    @portal path_regexp portalroute ^/t/[^/]+/portal(/.*)?$
+    @portal path_regexp portalroute ^/t/[^/]+/portal/?(.*)$
     handle @portal {
         rewrite * /{re.portalroute.1}
         root * /srv/portal
@@ -317,8 +340,8 @@ limen.example.com {
         file_server
     }
 
-    # Anything else (bare /, signed-out shell, signup landing) is owned
-    # by the backend — it picks the right page for the request.
+    # Anything else (bare /, signed-out shell) is owned by the
+    # backend — it picks the right page for the request.
     reverse_proxy limen:8080
 }
 

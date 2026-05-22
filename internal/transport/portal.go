@@ -42,6 +42,11 @@ type PortalDeps struct {
 	// OIDCIssuer is the configured Zitadel issuer URL surfaced by
 	// GET /auth/discovery. Empty disables the discovery endpoint.
 	OIDCIssuer string
+	// CaptchaProvider + CaptchaSiteKey are surfaced by
+	// GET /auth/discovery so the signup SPA can lazy-load the
+	// matching widget without baking the provider into the bundle.
+	CaptchaProvider string
+	CaptchaSiteKey  string
 	// ConnectAPI, when non-nil, is mounted at /t/{tenant}/api/* — used
 	// to wire per-tenant Connect-RPC handlers (PortalService +
 	// SessionService + AdminService). The handler is expected to
@@ -97,7 +102,7 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 	r.Get("/admin", adminEntry)
 	r.Get("/admin/", adminEntry)
 	if deps.OIDCIssuer != "" {
-		r.Get("/auth/discovery", DiscoveryHandler(deps.OIDCIssuer))
+		r.Get("/auth/discovery", DiscoveryHandler(deps.OIDCIssuer, deps.CaptchaProvider, deps.CaptchaSiteKey))
 	}
 
 	if deps.SignupAPI != nil {

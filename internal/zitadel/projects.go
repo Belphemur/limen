@@ -78,7 +78,12 @@ func (c *Client) FindProjectGrantID(ctx context.Context, projectID, grantedOrgID
 		return "", nil
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, zsdk.OrgHeader, grantedOrgID)
-	resp, err := c.api.ManagementService().ListGrantedProjects(ctx, &management.ListGrantedProjectsRequest{})
+	// v2 ProjectService.ListProjectGrants does not return the grant_id field
+	// required to build /ui/console/granted-projects/<projectId>/grant/<grantId>
+	// deeplinks (grants are keyed by (project_id, granted_org_id) in v2). Until
+	// upstream exposes grant_id on v2 ProjectGrant, the v1 mgmt call is the only
+	// path that yields it.
+	resp, err := c.api.ManagementService().ListGrantedProjects(ctx, &management.ListGrantedProjectsRequest{}) //nolint:staticcheck // SA1019: v2 ProjectService has no grant_id surface; see comment above.
 	if err != nil {
 		return "", fmt.Errorf("zitadel: list granted projects (org=%q): %w", grantedOrgID, err)
 	}

@@ -43,14 +43,21 @@
 		path /auth/callback
 		path /auth/discovery
 		path /auth/signup*
-		path /signup
-		path /signup/*
 		path /api/limen.signup*
 		path /.well-known/*
 		path /healthz
 	}
 	reverse_proxy @api host.docker.internal:8080 {
 		header_up X-Forwarded-Proto http
+	}
+
+	# Signup wizard SPA — part of the admin bundle but reached
+	# without a tenant prefix (the wizard creates the tenant). Rewrite
+	# to the admin Vite dev base, same shape as the @admin handler.
+	@signup path_regexp signuproute ^/signup/?(.*)$
+	handle @signup {
+		rewrite * /__vite/admin/{re.signuproute.1}
+		reverse_proxy host.docker.internal:5174
 	}
 
 	# Admin SPA — rewrite the tenant-scoped path to Vite's dev base

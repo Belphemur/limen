@@ -13,4 +13,5 @@ const (
 	PrefixCodemodeInvocation     Prefix = "cmi"
 	PrefixZitadelApp             Prefix = "zapp"
 	PrefixAllowlistEntry         Prefix = "ral"
+	PrefixPendingSignup          Prefix = "snp"
 )

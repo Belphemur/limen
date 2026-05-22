@@ -412,10 +412,10 @@ func DecodeConfig(tenantID int64, sf crypto.SecretField) (Config, error) {
 // ApplyConfigPatch overlays the wire patch onto an existing Config.
 // Recognised patch keys:
 //
-//   value                empty/absent = keep existing shared secret;
-//                        non-empty = rotate.
-//   allow_user_override  absent = keep existing; "true"/"false" =
-//                        replace.
+//	value                empty/absent = keep existing shared secret;
+//	                     non-empty = rotate.
+//	allow_user_override  absent = keep existing; "true"/"false" =
+//	                     replace.
 //
 // header_name and header_template are intentionally NOT patchable
 // post-creation: changing them constitutes a different upstream and

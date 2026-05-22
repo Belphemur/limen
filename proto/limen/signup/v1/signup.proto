@@ -6,45 +6,86 @@ option go_package = "github.com/belphemur/limen/internal/signup/signupv1;signupv
 
 // SignupService is the public, tenant-agnostic self-serve signup
 // surface mounted at /api/limen.signup.v1.SignupService/* (root, no
-// /t/{tenant} prefix). It is deliberately a sibling of AdminService
-// rather than a skip-list on it: there is no tenant to resolve, no
-// portal cookie to verify, and no role to check — encoding any of
-// those would mis-shape the interceptor stack on AdminService.
+// /t/{tenant} prefix). Three RPCs implement an email-verification
+// wizard:
 //
-// Captcha + per-IP rate limiting are added in phase 9c slice 4.
+//   StartSignup     — validates captcha + form, mints a single-use
+//                     email-verification token, records a
+//                     pending_signups row, sends a verification email.
+//                     Returns an empty success envelope regardless of
+//                     whether the email is new or already used by
+//                     another tenant (anti-enumeration).
+//   VerifyEmail     — consumes ?token= from the verification link,
+//                     marks the pending signup verified, rotates the
+//                     verify token (single-use), returns a fresh
+//                     completion_token that authorises the final
+//                     CompleteSignup call. Cross-device safe: the SPA
+//                     that calls VerifyEmail does not need to be the
+//                     same browser that started the wizard.
+//   CompleteSignup  — finalises the tenant: creates the Zitadel org,
+//                     pre-verifies the owner human user, mints a
+//                     password-init code, writes the local tenant
+//                     row, returns the password-init URL the browser
+//                     navigates to. Idempotent on the
+//                     completion-token-resolved pending signup id;
+//                     replays mint a fresh password-init code.
+//
+// None of these RPCs require a tenant or session cookie. Captcha +
+// per-IP rate limiting fire at StartSignup.
 service SignupService {
-  // StartSignup validates the form + captcha, mints a signed signup
-  // token, and returns the URL the SPA should navigate the browser to
-  // for the next step. No Zitadel calls happen here — abandonment
-  // leaves zero side effects.
   rpc StartSignup(StartSignupRequest) returns (StartSignupResponse);
-  // CompleteSignup is invoked from /auth/callback after the new owner
-  // verifies their email and sets a password in Zitadel. It finalises
-  // the local User row, clears the one-shot pending_signup cookie,
-  // and returns the URL to redirect the browser to (/t/<id>/admin/).
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
   rpc CompleteSignup(CompleteSignupRequest) returns (CompleteSignupResponse);
 }
 
+// StartSignupRequest carries the new-tenant form payload + captcha
+// response. tenant_name is the display name (e.g. "Acme Inc.");
+// owner_email is the address that will receive both the verification
+// link and (later) the Zitadel password-init link.
 message StartSignupRequest {
-  string organization_name = 1;
+  string tenant_name = 1;
   string owner_email = 2;
-  string owner_name = 3;
-  // Captcha provider's response token (Cloudflare Turnstile in dev).
-  string captcha_token = 4;
+  string owner_given_name = 3;
+  string owner_family_name = 4;
+  // Captcha provider's response token. In dev with provider=none the
+  // sentinel "dev-captcha-bypass" is accepted.
+  string captcha_token = 5;
 }
 
-message StartSignupResponse {
-  // HMAC-signed token carrying the signup payload + expiry.
-  string signup_token = 1;
-  // Absolute or SPA-relative URL the SPA should send the browser to
-  // (typically /auth/signup?token=<signup_token>).
-  string signup_url = 2;
+// StartSignupResponse is intentionally empty. Returning anything that
+// distinguishes new-email from already-used-email would leak account
+// existence to an attacker probing the form.
+message StartSignupResponse {}
+
+// VerifyEmailRequest carries the token from the email link's
+// ?token=... query parameter.
+message VerifyEmailRequest {
+  string token = 1;
 }
 
-message CompleteSignupRequest {}
+// VerifyEmailResponse delivers a short-lived completion_token that
+// the SPA must pass to CompleteSignup. The token is opaque,
+// single-use only insofar as the row's hashed copy survives until
+// CompleteSignup runs; idempotent replays accept the same token so
+// a page refresh after success still works.
+message VerifyEmailResponse {
+  string completion_token = 1;
+}
 
+// CompleteSignupRequest carries the completion_token returned by
+// VerifyEmail. No cookie / session is required — the token alone
+// authorises provisioning, so signup works across devices (start on
+// desktop, click the email link on phone, finish on phone).
+message CompleteSignupRequest {
+  string completion_token = 1;
+}
+
+// CompleteSignupResponse delivers the public tenant id and the
+// Zitadel-hosted password-init URL the browser should navigate to.
 message CompleteSignupResponse {
+  // tnt_<ULID> — the public id of the freshly created tenant.
   string tenant_public_id = 1;
-  // Absolute or SPA-relative URL: /t/<tenant_public_id>/admin/.
-  string admin_url = 2;
+  // Absolute URL into Zitadel's hosted password-init page. The link
+  // carries a one-time code generated by the Zitadel user-service.
+  string password_init_url = 2;
 }

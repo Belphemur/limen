@@ -15,6 +15,7 @@ import (
 	"github.com/belphemur/limen/internal/boot/portalmount"
 	"github.com/belphemur/limen/internal/boot/upstreammount"
 	"github.com/belphemur/limen/internal/boot/zitadelboot"
+	"github.com/belphemur/limen/internal/signup"
 )
 
 // Run boots the all-in-one runtime and serves until SIGINT/SIGTERM.
@@ -44,7 +45,13 @@ func Run(configPath string) error {
 	r.Get("/", boot.LandingPage)
 	boot.MountHealth(r)
 
-	portalmount.Mount(r, rt, oidc, zclient, zclient, zclient)
+	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient, zclient)
+	if err != nil {
+		return err
+	}
+	if rt.Cfg.Signup.Enabled && signupSvc != nil {
+		go signup.NewSweeper(rt.Store, rt.Logger.Named("signup-sweeper")).Run(rt.Ctx)
+	}
 	if err := oauthproxymount.Mount(r, rt, zclient); err != nil {
 		return err
 	}

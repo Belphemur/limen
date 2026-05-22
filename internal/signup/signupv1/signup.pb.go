@@ -21,13 +21,19 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// StartSignupRequest carries the new-tenant form payload + captcha
+// response. tenant_name is the display name (e.g. "Acme Inc.");
+// owner_email is the address that will receive both the verification
+// link and (later) the Zitadel password-init link.
 type StartSignupRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	OrganizationName string                 `protobuf:"bytes,1,opt,name=organization_name,json=organizationName,proto3" json:"organization_name,omitempty"`
-	OwnerEmail       string                 `protobuf:"bytes,2,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
-	OwnerName        string                 `protobuf:"bytes,3,opt,name=owner_name,json=ownerName,proto3" json:"owner_name,omitempty"`
-	// Captcha provider's response token (Cloudflare Turnstile in dev).
-	CaptchaToken  string `protobuf:"bytes,4,opt,name=captcha_token,json=captchaToken,proto3" json:"captcha_token,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TenantName      string                 `protobuf:"bytes,1,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
+	OwnerEmail      string                 `protobuf:"bytes,2,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
+	OwnerGivenName  string                 `protobuf:"bytes,3,opt,name=owner_given_name,json=ownerGivenName,proto3" json:"owner_given_name,omitempty"`
+	OwnerFamilyName string                 `protobuf:"bytes,4,opt,name=owner_family_name,json=ownerFamilyName,proto3" json:"owner_family_name,omitempty"`
+	// Captcha provider's response token. In dev with provider=none the
+	// sentinel "dev-captcha-bypass" is accepted.
+	CaptchaToken  string `protobuf:"bytes,5,opt,name=captcha_token,json=captchaToken,proto3" json:"captcha_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -62,9 +68,9 @@ func (*StartSignupRequest) Descriptor() ([]byte, []int) {
 	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StartSignupRequest) GetOrganizationName() string {
+func (x *StartSignupRequest) GetTenantName() string {
 	if x != nil {
-		return x.OrganizationName
+		return x.TenantName
 	}
 	return ""
 }
@@ -76,9 +82,16 @@ func (x *StartSignupRequest) GetOwnerEmail() string {
 	return ""
 }
 
-func (x *StartSignupRequest) GetOwnerName() string {
+func (x *StartSignupRequest) GetOwnerGivenName() string {
 	if x != nil {
-		return x.OwnerName
+		return x.OwnerGivenName
+	}
+	return ""
+}
+
+func (x *StartSignupRequest) GetOwnerFamilyName() string {
+	if x != nil {
+		return x.OwnerFamilyName
 	}
 	return ""
 }
@@ -90,13 +103,11 @@ func (x *StartSignupRequest) GetCaptchaToken() string {
 	return ""
 }
 
+// StartSignupResponse is intentionally empty. Returning anything that
+// distinguishes new-email from already-used-email would leak account
+// existence to an attacker probing the form.
 type StartSignupResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// HMAC-signed token carrying the signup payload + expiry.
-	SignupToken string `protobuf:"bytes,1,opt,name=signup_token,json=signupToken,proto3" json:"signup_token,omitempty"`
-	// Absolute or SPA-relative URL the SPA should send the browser to
-	// (typically /auth/signup?token=<signup_token>).
-	SignupUrl     string `protobuf:"bytes,2,opt,name=signup_url,json=signupUrl,proto3" json:"signup_url,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,29 +142,115 @@ func (*StartSignupResponse) Descriptor() ([]byte, []int) {
 	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *StartSignupResponse) GetSignupToken() string {
-	if x != nil {
-		return x.SignupToken
-	}
-	return ""
-}
-
-func (x *StartSignupResponse) GetSignupUrl() string {
-	if x != nil {
-		return x.SignupUrl
-	}
-	return ""
-}
-
-type CompleteSignupRequest struct {
+// VerifyEmailRequest carries the token from the email link's
+// ?token=... query parameter.
+type VerifyEmailRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *VerifyEmailRequest) Reset() {
+	*x = VerifyEmailRequest{}
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyEmailRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEmailRequest) ProtoMessage() {}
+
+func (x *VerifyEmailRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEmailRequest.ProtoReflect.Descriptor instead.
+func (*VerifyEmailRequest) Descriptor() ([]byte, []int) {
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *VerifyEmailRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+// VerifyEmailResponse delivers a short-lived completion_token that
+// the SPA must pass to CompleteSignup. The token is opaque,
+// single-use only insofar as the row's hashed copy survives until
+// CompleteSignup runs; idempotent replays accept the same token so
+// a page refresh after success still works.
+type VerifyEmailResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CompletionToken string                 `protobuf:"bytes,1,opt,name=completion_token,json=completionToken,proto3" json:"completion_token,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *VerifyEmailResponse) Reset() {
+	*x = VerifyEmailResponse{}
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyEmailResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEmailResponse) ProtoMessage() {}
+
+func (x *VerifyEmailResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEmailResponse.ProtoReflect.Descriptor instead.
+func (*VerifyEmailResponse) Descriptor() ([]byte, []int) {
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *VerifyEmailResponse) GetCompletionToken() string {
+	if x != nil {
+		return x.CompletionToken
+	}
+	return ""
+}
+
+// CompleteSignupRequest carries the completion_token returned by
+// VerifyEmail. No cookie / session is required — the token alone
+// authorises provisioning, so signup works across devices (start on
+// desktop, click the email link on phone, finish on phone).
+type CompleteSignupRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CompletionToken string                 `protobuf:"bytes,1,opt,name=completion_token,json=completionToken,proto3" json:"completion_token,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
 func (x *CompleteSignupRequest) Reset() {
 	*x = CompleteSignupRequest{}
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[2]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -165,7 +262,7 @@ func (x *CompleteSignupRequest) String() string {
 func (*CompleteSignupRequest) ProtoMessage() {}
 
 func (x *CompleteSignupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[2]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -178,21 +275,32 @@ func (x *CompleteSignupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteSignupRequest.ProtoReflect.Descriptor instead.
 func (*CompleteSignupRequest) Descriptor() ([]byte, []int) {
-	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{2}
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{4}
 }
 
+func (x *CompleteSignupRequest) GetCompletionToken() string {
+	if x != nil {
+		return x.CompletionToken
+	}
+	return ""
+}
+
+// CompleteSignupResponse delivers the public tenant id and the
+// Zitadel-hosted password-init URL the browser should navigate to.
 type CompleteSignupResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	TenantPublicId string                 `protobuf:"bytes,1,opt,name=tenant_public_id,json=tenantPublicId,proto3" json:"tenant_public_id,omitempty"`
-	// Absolute or SPA-relative URL: /t/<tenant_public_id>/admin/.
-	AdminUrl      string `protobuf:"bytes,2,opt,name=admin_url,json=adminUrl,proto3" json:"admin_url,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// tnt_<ULID> — the public id of the freshly created tenant.
+	TenantPublicId string `protobuf:"bytes,1,opt,name=tenant_public_id,json=tenantPublicId,proto3" json:"tenant_public_id,omitempty"`
+	// Absolute URL into Zitadel's hosted password-init page. The link
+	// carries a one-time code generated by the Zitadel user-service.
+	PasswordInitUrl string `protobuf:"bytes,2,opt,name=password_init_url,json=passwordInitUrl,proto3" json:"password_init_url,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CompleteSignupResponse) Reset() {
 	*x = CompleteSignupResponse{}
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[3]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -204,7 +312,7 @@ func (x *CompleteSignupResponse) String() string {
 func (*CompleteSignupResponse) ProtoMessage() {}
 
 func (x *CompleteSignupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[3]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -217,7 +325,7 @@ func (x *CompleteSignupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteSignupResponse.ProtoReflect.Descriptor instead.
 func (*CompleteSignupResponse) Descriptor() ([]byte, []int) {
-	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{3}
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CompleteSignupResponse) GetTenantPublicId() string {
@@ -227,9 +335,9 @@ func (x *CompleteSignupResponse) GetTenantPublicId() string {
 	return ""
 }
 
-func (x *CompleteSignupResponse) GetAdminUrl() string {
+func (x *CompleteSignupResponse) GetPasswordInitUrl() string {
 	if x != nil {
-		return x.AdminUrl
+		return x.PasswordInitUrl
 	}
 	return ""
 }
@@ -238,24 +346,28 @@ var File_limen_signup_v1_signup_proto protoreflect.FileDescriptor
 
 const file_limen_signup_v1_signup_proto_rawDesc = "" +
 	"\n" +
-	"\x1climen/signup/v1/signup.proto\x12\x0flimen.signup.v1\"\xa6\x01\n" +
-	"\x12StartSignupRequest\x12+\n" +
-	"\x11organization_name\x18\x01 \x01(\tR\x10organizationName\x12\x1f\n" +
+	"\x1climen/signup/v1/signup.proto\x12\x0flimen.signup.v1\"\xd1\x01\n" +
+	"\x12StartSignupRequest\x12\x1f\n" +
+	"\vtenant_name\x18\x01 \x01(\tR\n" +
+	"tenantName\x12\x1f\n" +
 	"\vowner_email\x18\x02 \x01(\tR\n" +
-	"ownerEmail\x12\x1d\n" +
-	"\n" +
-	"owner_name\x18\x03 \x01(\tR\townerName\x12#\n" +
-	"\rcaptcha_token\x18\x04 \x01(\tR\fcaptchaToken\"W\n" +
-	"\x13StartSignupResponse\x12!\n" +
-	"\fsignup_token\x18\x01 \x01(\tR\vsignupToken\x12\x1d\n" +
-	"\n" +
-	"signup_url\x18\x02 \x01(\tR\tsignupUrl\"\x17\n" +
-	"\x15CompleteSignupRequest\"_\n" +
+	"ownerEmail\x12(\n" +
+	"\x10owner_given_name\x18\x03 \x01(\tR\x0eownerGivenName\x12*\n" +
+	"\x11owner_family_name\x18\x04 \x01(\tR\x0fownerFamilyName\x12#\n" +
+	"\rcaptcha_token\x18\x05 \x01(\tR\fcaptchaToken\"\x15\n" +
+	"\x13StartSignupResponse\"*\n" +
+	"\x12VerifyEmailRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"@\n" +
+	"\x13VerifyEmailResponse\x12)\n" +
+	"\x10completion_token\x18\x01 \x01(\tR\x0fcompletionToken\"B\n" +
+	"\x15CompleteSignupRequest\x12)\n" +
+	"\x10completion_token\x18\x01 \x01(\tR\x0fcompletionToken\"n\n" +
 	"\x16CompleteSignupResponse\x12(\n" +
-	"\x10tenant_public_id\x18\x01 \x01(\tR\x0etenantPublicId\x12\x1b\n" +
-	"\tadmin_url\x18\x02 \x01(\tR\badminUrl2\xcc\x01\n" +
+	"\x10tenant_public_id\x18\x01 \x01(\tR\x0etenantPublicId\x12*\n" +
+	"\x11password_init_url\x18\x02 \x01(\tR\x0fpasswordInitUrl2\xa6\x02\n" +
 	"\rSignupService\x12X\n" +
-	"\vStartSignup\x12#.limen.signup.v1.StartSignupRequest\x1a$.limen.signup.v1.StartSignupResponse\x12a\n" +
+	"\vStartSignup\x12#.limen.signup.v1.StartSignupRequest\x1a$.limen.signup.v1.StartSignupResponse\x12X\n" +
+	"\vVerifyEmail\x12#.limen.signup.v1.VerifyEmailRequest\x1a$.limen.signup.v1.VerifyEmailResponse\x12a\n" +
 	"\x0eCompleteSignup\x12&.limen.signup.v1.CompleteSignupRequest\x1a'.limen.signup.v1.CompleteSignupResponseB>Z<github.com/belphemur/limen/internal/signup/signupv1;signupv1b\x06proto3"
 
 var (
@@ -270,20 +382,24 @@ func file_limen_signup_v1_signup_proto_rawDescGZIP() []byte {
 	return file_limen_signup_v1_signup_proto_rawDescData
 }
 
-var file_limen_signup_v1_signup_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_limen_signup_v1_signup_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_limen_signup_v1_signup_proto_goTypes = []any{
 	(*StartSignupRequest)(nil),     // 0: limen.signup.v1.StartSignupRequest
 	(*StartSignupResponse)(nil),    // 1: limen.signup.v1.StartSignupResponse
-	(*CompleteSignupRequest)(nil),  // 2: limen.signup.v1.CompleteSignupRequest
-	(*CompleteSignupResponse)(nil), // 3: limen.signup.v1.CompleteSignupResponse
+	(*VerifyEmailRequest)(nil),     // 2: limen.signup.v1.VerifyEmailRequest
+	(*VerifyEmailResponse)(nil),    // 3: limen.signup.v1.VerifyEmailResponse
+	(*CompleteSignupRequest)(nil),  // 4: limen.signup.v1.CompleteSignupRequest
+	(*CompleteSignupResponse)(nil), // 5: limen.signup.v1.CompleteSignupResponse
 }
 var file_limen_signup_v1_signup_proto_depIdxs = []int32{
 	0, // 0: limen.signup.v1.SignupService.StartSignup:input_type -> limen.signup.v1.StartSignupRequest
-	2, // 1: limen.signup.v1.SignupService.CompleteSignup:input_type -> limen.signup.v1.CompleteSignupRequest
-	1, // 2: limen.signup.v1.SignupService.StartSignup:output_type -> limen.signup.v1.StartSignupResponse
-	3, // 3: limen.signup.v1.SignupService.CompleteSignup:output_type -> limen.signup.v1.CompleteSignupResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	2, // 1: limen.signup.v1.SignupService.VerifyEmail:input_type -> limen.signup.v1.VerifyEmailRequest
+	4, // 2: limen.signup.v1.SignupService.CompleteSignup:input_type -> limen.signup.v1.CompleteSignupRequest
+	1, // 3: limen.signup.v1.SignupService.StartSignup:output_type -> limen.signup.v1.StartSignupResponse
+	3, // 4: limen.signup.v1.SignupService.VerifyEmail:output_type -> limen.signup.v1.VerifyEmailResponse
+	5, // 5: limen.signup.v1.SignupService.CompleteSignup:output_type -> limen.signup.v1.CompleteSignupResponse
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -300,7 +416,7 @@ func file_limen_signup_v1_signup_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_signup_v1_signup_proto_rawDesc), len(file_limen_signup_v1_signup_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

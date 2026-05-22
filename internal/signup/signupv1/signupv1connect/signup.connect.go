@@ -36,6 +36,9 @@ const (
 	// SignupServiceStartSignupProcedure is the fully-qualified name of the SignupService's StartSignup
 	// RPC.
 	SignupServiceStartSignupProcedure = "/limen.signup.v1.SignupService/StartSignup"
+	// SignupServiceVerifyEmailProcedure is the fully-qualified name of the SignupService's VerifyEmail
+	// RPC.
+	SignupServiceVerifyEmailProcedure = "/limen.signup.v1.SignupService/VerifyEmail"
 	// SignupServiceCompleteSignupProcedure is the fully-qualified name of the SignupService's
 	// CompleteSignup RPC.
 	SignupServiceCompleteSignupProcedure = "/limen.signup.v1.SignupService/CompleteSignup"
@@ -43,15 +46,8 @@ const (
 
 // SignupServiceClient is a client for the limen.signup.v1.SignupService service.
 type SignupServiceClient interface {
-	// StartSignup validates the form + captcha, mints a signed signup
-	// token, and returns the URL the SPA should navigate the browser to
-	// for the next step. No Zitadel calls happen here — abandonment
-	// leaves zero side effects.
 	StartSignup(context.Context, *connect.Request[signupv1.StartSignupRequest]) (*connect.Response[signupv1.StartSignupResponse], error)
-	// CompleteSignup is invoked from /auth/callback after the new owner
-	// verifies their email and sets a password in Zitadel. It finalises
-	// the local User row, clears the one-shot pending_signup cookie,
-	// and returns the URL to redirect the browser to (/t/<id>/admin/).
+	VerifyEmail(context.Context, *connect.Request[signupv1.VerifyEmailRequest]) (*connect.Response[signupv1.VerifyEmailResponse], error)
 	CompleteSignup(context.Context, *connect.Request[signupv1.CompleteSignupRequest]) (*connect.Response[signupv1.CompleteSignupResponse], error)
 }
 
@@ -72,6 +68,12 @@ func NewSignupServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(signupServiceMethods.ByName("StartSignup")),
 			connect.WithClientOptions(opts...),
 		),
+		verifyEmail: connect.NewClient[signupv1.VerifyEmailRequest, signupv1.VerifyEmailResponse](
+			httpClient,
+			baseURL+SignupServiceVerifyEmailProcedure,
+			connect.WithSchema(signupServiceMethods.ByName("VerifyEmail")),
+			connect.WithClientOptions(opts...),
+		),
 		completeSignup: connect.NewClient[signupv1.CompleteSignupRequest, signupv1.CompleteSignupResponse](
 			httpClient,
 			baseURL+SignupServiceCompleteSignupProcedure,
@@ -84,12 +86,18 @@ func NewSignupServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 // signupServiceClient implements SignupServiceClient.
 type signupServiceClient struct {
 	startSignup    *connect.Client[signupv1.StartSignupRequest, signupv1.StartSignupResponse]
+	verifyEmail    *connect.Client[signupv1.VerifyEmailRequest, signupv1.VerifyEmailResponse]
 	completeSignup *connect.Client[signupv1.CompleteSignupRequest, signupv1.CompleteSignupResponse]
 }
 
 // StartSignup calls limen.signup.v1.SignupService.StartSignup.
 func (c *signupServiceClient) StartSignup(ctx context.Context, req *connect.Request[signupv1.StartSignupRequest]) (*connect.Response[signupv1.StartSignupResponse], error) {
 	return c.startSignup.CallUnary(ctx, req)
+}
+
+// VerifyEmail calls limen.signup.v1.SignupService.VerifyEmail.
+func (c *signupServiceClient) VerifyEmail(ctx context.Context, req *connect.Request[signupv1.VerifyEmailRequest]) (*connect.Response[signupv1.VerifyEmailResponse], error) {
+	return c.verifyEmail.CallUnary(ctx, req)
 }
 
 // CompleteSignup calls limen.signup.v1.SignupService.CompleteSignup.
@@ -99,15 +107,8 @@ func (c *signupServiceClient) CompleteSignup(ctx context.Context, req *connect.R
 
 // SignupServiceHandler is an implementation of the limen.signup.v1.SignupService service.
 type SignupServiceHandler interface {
-	// StartSignup validates the form + captcha, mints a signed signup
-	// token, and returns the URL the SPA should navigate the browser to
-	// for the next step. No Zitadel calls happen here — abandonment
-	// leaves zero side effects.
 	StartSignup(context.Context, *connect.Request[signupv1.StartSignupRequest]) (*connect.Response[signupv1.StartSignupResponse], error)
-	// CompleteSignup is invoked from /auth/callback after the new owner
-	// verifies their email and sets a password in Zitadel. It finalises
-	// the local User row, clears the one-shot pending_signup cookie,
-	// and returns the URL to redirect the browser to (/t/<id>/admin/).
+	VerifyEmail(context.Context, *connect.Request[signupv1.VerifyEmailRequest]) (*connect.Response[signupv1.VerifyEmailResponse], error)
 	CompleteSignup(context.Context, *connect.Request[signupv1.CompleteSignupRequest]) (*connect.Response[signupv1.CompleteSignupResponse], error)
 }
 
@@ -124,6 +125,12 @@ func NewSignupServiceHandler(svc SignupServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(signupServiceMethods.ByName("StartSignup")),
 		connect.WithHandlerOptions(opts...),
 	)
+	signupServiceVerifyEmailHandler := connect.NewUnaryHandler(
+		SignupServiceVerifyEmailProcedure,
+		svc.VerifyEmail,
+		connect.WithSchema(signupServiceMethods.ByName("VerifyEmail")),
+		connect.WithHandlerOptions(opts...),
+	)
 	signupServiceCompleteSignupHandler := connect.NewUnaryHandler(
 		SignupServiceCompleteSignupProcedure,
 		svc.CompleteSignup,
@@ -134,6 +141,8 @@ func NewSignupServiceHandler(svc SignupServiceHandler, opts ...connect.HandlerOp
 		switch r.URL.Path {
 		case SignupServiceStartSignupProcedure:
 			signupServiceStartSignupHandler.ServeHTTP(w, r)
+		case SignupServiceVerifyEmailProcedure:
+			signupServiceVerifyEmailHandler.ServeHTTP(w, r)
 		case SignupServiceCompleteSignupProcedure:
 			signupServiceCompleteSignupHandler.ServeHTTP(w, r)
 		default:
@@ -147,6 +156,10 @@ type UnimplementedSignupServiceHandler struct{}
 
 func (UnimplementedSignupServiceHandler) StartSignup(context.Context, *connect.Request[signupv1.StartSignupRequest]) (*connect.Response[signupv1.StartSignupResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.signup.v1.SignupService.StartSignup is not implemented"))
+}
+
+func (UnimplementedSignupServiceHandler) VerifyEmail(context.Context, *connect.Request[signupv1.VerifyEmailRequest]) (*connect.Response[signupv1.VerifyEmailResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.signup.v1.SignupService.VerifyEmail is not implemented"))
 }
 
 func (UnimplementedSignupServiceHandler) CompleteSignup(context.Context, *connect.Request[signupv1.CompleteSignupRequest]) (*connect.Response[signupv1.CompleteSignupResponse], error) {
