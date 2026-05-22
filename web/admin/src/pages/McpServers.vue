@@ -13,6 +13,7 @@ import {
   Server,
   Trash2,
 } from '@lucide/vue'
+import { ConfirmDeleteModal } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
@@ -27,6 +28,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const busy = ref<Record<string, 'reindex' | 'delete' | undefined>>({})
 const filter = ref('')
+const pendingDelete = ref<UpstreamSummary | null>(null)
 
 async function refresh() {
   loading.value = true
@@ -133,15 +135,20 @@ async function reindex(u: UpstreamSummary) {
   }
 }
 
-async function remove(u: UpstreamSummary) {
-  const label = u.displayName || u.identifier
-  if (!window.confirm(`Delete upstream "${label}"? This cannot be undone.`)) return
+function requestDelete(u: UpstreamSummary) {
+  pendingDelete.value = u
+}
+
+async function confirmDelete() {
+  const u = pendingDelete.value
+  if (!u) return
   busy.value = { ...busy.value, [u.publicId]: 'delete' }
   try {
     await adminClient().deleteUpstream(
       create(DeleteUpstreamRequestSchema, { publicId: u.publicId }),
     )
     upstreams.value = upstreams.value.filter((row) => row.publicId !== u.publicId)
+    pendingDelete.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -332,7 +339,7 @@ const noMatches = computed(
                   <button type="button"
                     class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container hover:text-error disabled:opacity-40"
                     :disabled="busy[u.publicId] === 'delete'" :data-testid="`upstream-delete-${u.identifier}`"
-                    title="Delete" @click="remove(u)">
+                    title="Delete" @click="requestDelete(u)">
                     <Trash2 :size="18" aria-hidden="true" />
                   </button>
                 </div>
@@ -348,5 +355,11 @@ const noMatches = computed(
         <span>Showing {{ filtered.length }} of {{ upstreams.length }} entries</span>
       </div>
     </section>
+
+    <ConfirmDeleteModal :open="pendingDelete !== null" title="Delete upstream"
+      :message='`This will permanently remove "${pendingDelete?.displayName || pendingDelete?.identifier}" and revoke its stored credentials. This cannot be undone.`'
+      :confirm-token="pendingDelete?.identifier ?? ''" confirm-label="Delete upstream"
+      :busy="pendingDelete ? busy[pendingDelete.publicId] === 'delete' : false" @confirm="confirmDelete"
+      @cancel="pendingDelete = null" />
   </div>
 </template>
