@@ -386,3 +386,50 @@ func ParseConfig(m map[string]string) (Config, error) {
 	}
 	return cfg, nil
 }
+
+// DecodeConfig decrypts an existing UpstreamStrategyConfig.ConfigJSON
+// payload back into a Config. The caller passes the SecretField loaded
+// from storage and the tenant ID it was bound to. Used by the admin
+// update path to merge a patch into the current config without losing
+// fields the caller didn't touch.
+func DecodeConfig(tenantID int64, sf crypto.SecretField) (Config, error) {
+	if sf.IsZero() {
+		return Config{}, errors.New("statichdr: config row is empty")
+	}
+	if err := sf.Decrypt(fmt.Sprintf("%d", tenantID), "", kindStrategyConfig); err != nil {
+		return Config{}, fmt.Errorf("statichdr: decrypt config: %w", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(sf.Bytes(), &cfg); err != nil {
+		return Config{}, fmt.Errorf("statichdr: parse config: %w", err)
+	}
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// ApplyConfigPatch overlays the wire patch onto an existing Config.
+// Recognised patch keys:
+//
+//   value                empty/absent = keep existing shared secret;
+//                        non-empty = rotate.
+//   allow_user_override  absent = keep existing; "true"/"false" =
+//                        replace.
+//
+// header_name and header_template are intentionally NOT patchable
+// post-creation: changing them constitutes a different upstream and
+// belongs in delete-and-recreate.
+func ApplyConfigPatch(cur Config, patch map[string]string) (Config, error) {
+	out := cur
+	if v, ok := patch["value"]; ok && strings.TrimSpace(v) != "" {
+		out.SharedSecret = v
+	}
+	if v, ok := patch["allow_user_override"]; ok {
+		out.AllowUserOverride = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	if err := out.validate(); err != nil {
+		return Config{}, err
+	}
+	return out, nil
+}

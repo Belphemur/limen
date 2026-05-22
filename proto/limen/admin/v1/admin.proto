@@ -107,6 +107,15 @@ message UpdateUpstreamRequest {
   // Optional. Empty string is interpreted as "no change"; pass "{}"
   // to clear. Validated server-side.
   string defaults_json = 3;
+  // Strategy-specific config patch. Only honoured for strategies that
+  // carry an UpstreamStrategyConfig row (`static_header`).
+  // Recognised keys for static_header:
+  //   value                rotate the shared secret. Empty/absent = keep
+  //                        existing.
+  //   allow_user_override  "true" or "false". Absent = keep existing.
+  // header_name / header_template are intentionally immutable post-
+  // creation (changing them constitutes a different upstream).
+  map<string, string> strategy_config = 4;
 }
 
 message UpdateUpstreamResponse {

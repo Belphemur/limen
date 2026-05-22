@@ -56,6 +56,61 @@ type UpdateUpstreamPatch struct {
 	DefaultsJSON []byte // nil = leave alone; []byte("{}") = clear
 }
 
+// LoadStrategyConfig returns the encrypted UpstreamStrategyConfig.ConfigJSON
+// for an upstream so strategy-specific code can decrypt, merge a patch,
+// and hand back a fresh SecretField via ReplaceStrategyConfig.
+// Returns ErrConfigNotFound when no row exists (e.g. `none` strategy).
+func (s *Service) LoadStrategyConfig(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream) (crypto.SecretField, error) {
+	if tenant == nil || up == nil {
+		return crypto.SecretField{}, errors.New("upstream: tenant/upstream required")
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return crypto.SecretField{}, err
+	}
+	var row storage.UpstreamStrategyConfig
+	if err := tx.Where("upstream_id = ?", up.ID).First(&row).Error; err != nil {
+		_ = commit()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return crypto.SecretField{}, ErrConfigNotFound
+		}
+		return crypto.SecretField{}, fmt.Errorf("upstream: load strategy config: %w", err)
+	}
+	if commitErr := commit(); commitErr != nil {
+		return crypto.SecretField{}, commitErr
+	}
+	return row.ConfigJSON, nil
+}
+
+// ReplaceStrategyConfig swaps the encrypted ConfigJSON on the upstream's
+// existing UpstreamStrategyConfig row. Caller is responsible for
+// decrypting, merging, validating and re-encoding the strategy-specific
+// payload — this package stays strategy-agnostic.
+func (s *Service) ReplaceStrategyConfig(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, encoded crypto.SecretField) error {
+	if tenant == nil || up == nil {
+		return errors.New("upstream: tenant/upstream required")
+	}
+	if encoded.IsZero() {
+		return errors.New("upstream: encoded strategy config required")
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return err
+	}
+	res := tx.Model(&storage.UpstreamStrategyConfig{}).
+		Where("upstream_id = ?", up.ID).
+		Update("config_json", encoded)
+	if res.Error != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: update strategy config: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		_ = commit()
+		return ErrConfigNotFound
+	}
+	return commit()
+}
+
 // CreateUpstream is the canonical upstream-creation path used by both
 // the limenctl CLI and the admin Connect RPC. It writes the Upstream
 // row plus any pre-encoded strategy-specific config; callers are
@@ -273,6 +328,17 @@ func (s *Service) loadUpstreamByPublicID(ctx context.Context, tenantID int64, pu
 	return &up, nil
 }
 
+// LookupUpstream returns the upstream row for a (tenant, public_id)
+// pair. Wraps the unexported tenant-scoped loader so the admin handler
+// can read the upstream before performing strategy-specific operations
+// like a strategy-config patch.
+func (s *Service) LookupUpstream(ctx context.Context, tenant *storage.Tenant, publicID string) (*storage.Upstream, error) {
+	if tenant == nil {
+		return nil, errors.New("upstream: tenant required")
+	}
+	return s.loadUpstreamByPublicID(ctx, tenant.ID, publicID)
+}
+
 func (s *Service) loadUserByPublicID(ctx context.Context, tenantID int64, publicID string) (*storage.User, error) {
 	publicID = strings.TrimSpace(publicID)
 	if publicID == "" {
@@ -310,15 +376,7 @@ func (s *Service) SummariseForAdmin(ctx context.Context, tenant *storage.Tenant,
 	if tools, err := s.loadToolCatalog(ctx, tenant.ID, up.ID); err == nil {
 		row.Tools = tools
 	}
-	if strat, sErr := s.registry.Resolve(StrategyType(up.StrategyType)); sErr == nil {
-		row.RequiresLink = strat.RequiresLink()
-		if smp, ok := strat.(subModeProvider); ok {
-			lctx := LinkContext{Tenant: tenant, Upstream: up}
-			if sub, err := smp.SubMode(ctx, lctx); err == nil {
-				row.StrategySubMode = sub
-			}
-		}
-	}
+	_, _ = s.applyStrategyMeta(ctx, tenant, up, &row)
 	row.LinkState = LinkStateNone
 	return row
 }

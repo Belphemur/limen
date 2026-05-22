@@ -382,9 +382,20 @@ type UpdateUpstreamRequest struct {
 	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	// Optional. Empty string is interpreted as "no change"; pass "{}"
 	// to clear. Validated server-side.
-	DefaultsJson  string `protobuf:"bytes,3,opt,name=defaults_json,json=defaultsJson,proto3" json:"defaults_json,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DefaultsJson string `protobuf:"bytes,3,opt,name=defaults_json,json=defaultsJson,proto3" json:"defaults_json,omitempty"`
+	// Strategy-specific config patch. Only honoured for strategies that
+	// carry an UpstreamStrategyConfig row (`static_header`).
+	// Recognised keys for static_header:
+	//
+	//	value                rotate the shared secret. Empty/absent = keep
+	//	                     existing.
+	//	allow_user_override  "true" or "false". Absent = keep existing.
+	//
+	// header_name / header_template are intentionally immutable post-
+	// creation (changing them constitutes a different upstream).
+	StrategyConfig map[string]string `protobuf:"bytes,4,rep,name=strategy_config,json=strategyConfig,proto3" json:"strategy_config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateUpstreamRequest) Reset() {
@@ -436,6 +447,13 @@ func (x *UpdateUpstreamRequest) GetDefaultsJson() string {
 		return x.DefaultsJson
 	}
 	return ""
+}
+
+func (x *UpdateUpstreamRequest) GetStrategyConfig() map[string]string {
+	if x != nil {
+		return x.StrategyConfig
+	}
+	return nil
 }
 
 type UpdateUpstreamResponse struct {
@@ -2511,11 +2529,15 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\bupstream\x18\x01 \x01(\v2 .limen.portal.v1.UpstreamSummaryR\bupstream\x12.\n" +
 	"\x13requires_admin_link\x18\x02 \x01(\bR\x11requiresAdminLink\x12\x1f\n" +
 	"\vconnect_url\x18\x03 \x01(\tR\n" +
-	"connectUrl\"|\n" +
+	"connectUrl\"\xa3\x02\n" +
 	"\x15UpdateUpstreamRequest\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12#\n" +
-	"\rdefaults_json\x18\x03 \x01(\tR\fdefaultsJson\"V\n" +
+	"\rdefaults_json\x18\x03 \x01(\tR\fdefaultsJson\x12b\n" +
+	"\x0fstrategy_config\x18\x04 \x03(\v29.limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntryR\x0estrategyConfig\x1aA\n" +
+	"\x13StrategyConfigEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"V\n" +
 	"\x16UpdateUpstreamResponse\x12<\n" +
 	"\bupstream\x18\x01 \x01(\v2 .limen.portal.v1.UpstreamSummaryR\bupstream\"4\n" +
 	"\x15DeleteUpstreamRequest\x12\x1b\n" +
@@ -2678,7 +2700,7 @@ func file_limen_admin_v1_admin_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(MemberRole)(0),                        // 0: limen.admin.v1.MemberRole
 	(MemberState)(0),                       // 1: limen.admin.v1.MemberState
@@ -2728,74 +2750,76 @@ var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*RemoveMemberRequest)(nil),            // 45: limen.admin.v1.RemoveMemberRequest
 	(*RemoveMemberResponse)(nil),           // 46: limen.admin.v1.RemoveMemberResponse
 	nil,                                    // 47: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
-	(*portalv1.UpstreamSummary)(nil),       // 48: limen.portal.v1.UpstreamSummary
+	nil,                                    // 48: limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	(*portalv1.UpstreamSummary)(nil),       // 49: limen.portal.v1.UpstreamSummary
 }
 var file_limen_admin_v1_admin_proto_depIdxs = []int32{
 	47, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
 	2,  // 1: limen.admin.v1.CreateUpstreamRequest.oauth_client_override:type_name -> limen.admin.v1.OAuthClientOverride
-	48, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	48, // 3: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	48, // 4: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	16, // 5: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
-	16, // 6: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
-	18, // 7: limen.admin.v1.ListIDEPresetsResponse.presets:type_name -> limen.admin.v1.IDEPreset
-	19, // 8: limen.admin.v1.ListAllowlistEntriesResponse.entries:type_name -> limen.admin.v1.AllowlistEntry
-	19, // 9: limen.admin.v1.AddAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
-	19, // 10: limen.admin.v1.UpdateAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
-	16, // 11: limen.admin.v1.MarkIDEChoiceSkippedResponse.settings:type_name -> limen.admin.v1.TenantSettings
-	0,  // 12: limen.admin.v1.Member.role:type_name -> limen.admin.v1.MemberRole
-	1,  // 13: limen.admin.v1.Member.state:type_name -> limen.admin.v1.MemberState
-	0,  // 14: limen.admin.v1.ListMembersRequest.role_filter:type_name -> limen.admin.v1.MemberRole
-	38, // 15: limen.admin.v1.ListMembersResponse.members:type_name -> limen.admin.v1.Member
-	0,  // 16: limen.admin.v1.InviteMemberRequest.role:type_name -> limen.admin.v1.MemberRole
-	38, // 17: limen.admin.v1.InviteMemberResponse.member:type_name -> limen.admin.v1.Member
-	0,  // 18: limen.admin.v1.UpdateMemberRoleRequest.role:type_name -> limen.admin.v1.MemberRole
-	38, // 19: limen.admin.v1.UpdateMemberRoleResponse.member:type_name -> limen.admin.v1.Member
-	3,  // 20: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
-	5,  // 21: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
-	7,  // 22: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
-	9,  // 23: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
-	11, // 24: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
-	13, // 25: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
-	15, // 26: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
-	20, // 27: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
-	22, // 28: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
-	24, // 29: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
-	26, // 30: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
-	28, // 31: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
-	30, // 32: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
-	32, // 33: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
-	34, // 34: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
-	36, // 35: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
-	39, // 36: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
-	41, // 37: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
-	43, // 38: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
-	45, // 39: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
-	4,  // 40: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
-	6,  // 41: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
-	8,  // 42: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
-	10, // 43: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
-	12, // 44: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
-	14, // 45: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
-	17, // 46: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
-	21, // 47: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
-	23, // 48: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
-	25, // 49: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
-	27, // 50: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
-	29, // 51: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
-	31, // 52: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
-	33, // 53: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
-	35, // 54: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
-	37, // 55: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
-	40, // 56: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
-	42, // 57: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
-	44, // 58: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
-	46, // 59: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
-	40, // [40:60] is the sub-list for method output_type
-	20, // [20:40] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	49, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	48, // 3: limen.admin.v1.UpdateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	49, // 4: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	49, // 5: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	16, // 6: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	16, // 7: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	18, // 8: limen.admin.v1.ListIDEPresetsResponse.presets:type_name -> limen.admin.v1.IDEPreset
+	19, // 9: limen.admin.v1.ListAllowlistEntriesResponse.entries:type_name -> limen.admin.v1.AllowlistEntry
+	19, // 10: limen.admin.v1.AddAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
+	19, // 11: limen.admin.v1.UpdateAllowlistEntryResponse.entry:type_name -> limen.admin.v1.AllowlistEntry
+	16, // 12: limen.admin.v1.MarkIDEChoiceSkippedResponse.settings:type_name -> limen.admin.v1.TenantSettings
+	0,  // 13: limen.admin.v1.Member.role:type_name -> limen.admin.v1.MemberRole
+	1,  // 14: limen.admin.v1.Member.state:type_name -> limen.admin.v1.MemberState
+	0,  // 15: limen.admin.v1.ListMembersRequest.role_filter:type_name -> limen.admin.v1.MemberRole
+	38, // 16: limen.admin.v1.ListMembersResponse.members:type_name -> limen.admin.v1.Member
+	0,  // 17: limen.admin.v1.InviteMemberRequest.role:type_name -> limen.admin.v1.MemberRole
+	38, // 18: limen.admin.v1.InviteMemberResponse.member:type_name -> limen.admin.v1.Member
+	0,  // 19: limen.admin.v1.UpdateMemberRoleRequest.role:type_name -> limen.admin.v1.MemberRole
+	38, // 20: limen.admin.v1.UpdateMemberRoleResponse.member:type_name -> limen.admin.v1.Member
+	3,  // 21: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
+	5,  // 22: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
+	7,  // 23: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
+	9,  // 24: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
+	11, // 25: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
+	13, // 26: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
+	15, // 27: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
+	20, // 28: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
+	22, // 29: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
+	24, // 30: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
+	26, // 31: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
+	28, // 32: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
+	30, // 33: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
+	32, // 34: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
+	34, // 35: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
+	36, // 36: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
+	39, // 37: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
+	41, // 38: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
+	43, // 39: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
+	45, // 40: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
+	4,  // 41: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
+	6,  // 42: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
+	8,  // 43: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
+	10, // 44: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
+	12, // 45: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
+	14, // 46: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
+	17, // 47: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
+	21, // 48: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
+	23, // 49: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
+	25, // 50: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
+	27, // 51: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
+	29, // 52: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
+	31, // 53: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
+	33, // 54: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
+	35, // 55: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
+	37, // 56: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
+	40, // 57: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
+	42, // 58: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
+	44, // 59: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
+	46, // 60: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
+	41, // [41:61] is the sub-list for method output_type
+	21, // [21:41] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_limen_admin_v1_admin_proto_init() }
@@ -2809,7 +2833,7 @@ func file_limen_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_admin_v1_admin_proto_rawDesc), len(file_limen_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   46,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

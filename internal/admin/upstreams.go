@@ -12,6 +12,7 @@ import (
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
 	"github.com/belphemur/limen/internal/session"
+	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
 	"github.com/belphemur/limen/internal/upstream/mcpspec"
@@ -84,7 +85,7 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
 	return connect.NewResponse(&adminv1.CreateUpstreamResponse{
 		Upstream:          protoview.ToSummaryProto(summary),
-		RequiresAdminLink: s.upstream.RequiresLink(in.StrategyType),
+		RequiresAdminLink: in.StrategyType == upstream.StrategyMCPSpec,
 		ConnectUrl:        "",
 	}), nil
 }
@@ -105,10 +106,59 @@ func (s *Service) UpdateUpstream(ctx context.Context, req *connect.Request[admin
 	if err != nil {
 		return nil, s.mapMutationError(err)
 	}
+
+	if cfgPatch := msg.GetStrategyConfig(); len(cfgPatch) > 0 {
+		if err := s.applyStrategyConfigPatch(ctx, tenant, up, cfgPatch); err != nil {
+			return nil, err
+		}
+		// Re-fetch the upstream tool list now that credentials have
+		// rotated. Best-effort: a failure here (e.g. upstream rejects
+		// the new secret) MUST NOT roll back the secret write — the
+		// admin needs the new value persisted so they can retry. Log
+		// and surface the failure via the next refresher sweep.
+		sess := session.MustUser(ctx)
+		callingUser, _ := s.upstream.LoadUserBySubject(ctx, tenant.ID, sess.Subject)
+		if _, err := s.upstream.ReindexCatalog(ctx, tenant, callingUser, msg.GetPublicId()); err != nil {
+			s.logger.Warn("admin: reindex after strategy_config patch failed",
+				zap.String("upstream_public_id", msg.GetPublicId()),
+				zap.Error(err))
+		}
+	}
+
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
 	return connect.NewResponse(&adminv1.UpdateUpstreamResponse{
 		Upstream: protoview.ToSummaryProto(summary),
 	}), nil
+}
+
+// applyStrategyConfigPatch merges a wire patch into the upstream's
+// existing UpstreamStrategyConfig row. Only `static_header` carries
+// a config row in v1; other strategies reject the patch with
+// InvalidArgument to surface a programming mistake.
+func (s *Service) applyStrategyConfigPatch(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, patch map[string]string) error {
+	if upstream.StrategyType(up.StrategyType) != upstream.StrategyStaticHeader {
+		return s.invalidArg("strategy_config", "only static_header upstreams accept a strategy_config patch")
+	}
+	encoded, err := s.upstream.LoadStrategyConfig(ctx, tenant, up)
+	if err != nil {
+		return s.mapMutationError(err)
+	}
+	cur, err := statichdr.DecodeConfig(tenant.ID, encoded)
+	if err != nil {
+		return s.internal("decode statichdr config", err)
+	}
+	next, err := statichdr.ApplyConfigPatch(cur, patch)
+	if err != nil {
+		return s.invalidArg("strategy_config", err.Error())
+	}
+	sf, err := statichdr.EncodeConfig(tenant.ID, next)
+	if err != nil {
+		return s.internal("encode statichdr config", err)
+	}
+	if err := s.upstream.ReplaceStrategyConfig(ctx, tenant, up, sf); err != nil {
+		return s.mapMutationError(err)
+	}
+	return nil
 }
 
 func (s *Service) DeleteUpstream(ctx context.Context, req *connect.Request[adminv1.DeleteUpstreamRequest]) (*connect.Response[adminv1.DeleteUpstreamResponse], error) {

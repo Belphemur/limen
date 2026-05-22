@@ -68,6 +68,35 @@ type secretClearer interface {
 	ClearUserOverride(ctx context.Context, lctx LinkContext) error
 }
 
+// strategySubModeShared mirrors statichdr.SubModeShared without
+// importing the strategy package. A static_header upstream in
+// "shared" mode applies the same secret to every caller, so the
+// summary surfaces it as tenant-mode (RequiresLink=false).
+const strategySubModeShared = "shared"
+
+// applyStrategyMeta fills in RequiresLink + StrategySubMode on a
+// summary row. Centralises the "static_header shared mode is tenant-
+// wide" rule so the admin and portal listings agree. Returns the
+// resolved Strategy so the caller can keep working; returns the
+// resolver error untouched when the strategy type is unknown.
+func (s *Service) applyStrategyMeta(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, row *UserUpstreamSummary) (Strategy, error) {
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return nil, err
+	}
+	row.RequiresLink = strat.RequiresLink()
+	if smp, ok := strat.(subModeProvider); ok {
+		lctx := LinkContext{Tenant: tenant, Upstream: up}
+		if sub, err := smp.SubMode(ctx, lctx); err == nil {
+			row.StrategySubMode = sub
+			if sub == strategySubModeShared {
+				row.RequiresLink = false
+			}
+		}
+	}
+	return strat, nil
+}
+
 // LoadUserBySubject returns the local User row for (tenant, zitadel
 // subject). Used by the portal RPC layer to resolve the OIDC subject
 // against Limen's mirror of Zitadel identities. Runs under the tenant
@@ -141,20 +170,12 @@ func (s *Service) summariseUpstream(ctx context.Context, tenant *storage.Tenant,
 	if tools, err := s.loadToolCatalog(ctx, tenant.ID, up.ID); err == nil {
 		row.Tools = tools
 	}
-	strat, sErr := s.registry.Resolve(StrategyType(up.StrategyType))
-	if sErr != nil {
+	if _, sErr := s.applyStrategyMeta(ctx, tenant, up, &row); sErr != nil {
 		// Unknown strategy at runtime — keep listing the upstream but
 		// surface the failure shape.
 		row.LinkState = LinkStateNone
 		row.LastErrorReason = sErr.Error()
 		return row
-	}
-	row.RequiresLink = strat.RequiresLink()
-	if smp, ok := strat.(subModeProvider); ok {
-		lctx := LinkContext{Tenant: tenant, Upstream: up}
-		if sub, err := smp.SubMode(ctx, lctx); err == nil {
-			row.StrategySubMode = sub
-		}
 	}
 	link, lerr := s.loadLink(ctx, tenant.ID, user.ID, up.ID)
 	switch {

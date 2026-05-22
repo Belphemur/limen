@@ -23,6 +23,11 @@ var ErrUpstreamNotFound = errors.New("upstream: not found")
 // (tenant, user, upstream) tuple.
 var ErrLinkNotFound = errors.New("upstream: link not found")
 
+// ErrConfigNotFound is returned when an upstream has no
+// UpstreamStrategyConfig row (e.g. `none` strategy, or a strategy that
+// hasn't been provisioned yet).
+var ErrConfigNotFound = errors.New("upstream: strategy config not found")
+
 // Service is the in-process facade over the strategy registry. Callers
 // give us the upstream's name (per-tenant unique) and we route to the
 // right Strategy.
