@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ConnectError, Code } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import { ArrowLeft, RefreshCw, Trash2, Save, ChevronDown, KeyRound } from '@lucide/vue'
+import { ArrowLeft, RefreshCw, Trash2, Save, ChevronDown } from '@lucide/vue'
 import { ContextJsonEditor, hintsFor } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -35,26 +35,6 @@ const deleting = ref(false)
 const confirmText = ref('')
 const toolsOpen = ref(false)
 
-// static_header secret rotation. We never read the existing shared
-// secret back from the server — the input is write-only and an empty
-// value means "keep current". The override toggle is initialised
-// from the StrategySubMode the summary already carries.
-const sharedSecret = ref('')
-const allowUserOverride = ref(false)
-const savingStrategy = ref(false)
-const strategyError = ref<string | null>(null)
-const strategyJustSaved = ref(false)
-
-const isStaticHeader = computed(() => summary.value?.strategyType === 'static_header')
-const canSaveStrategy = computed(
-  () =>
-    !savingStrategy.value &&
-    isStaticHeader.value &&
-    summary.value !== null &&
-    (sharedSecret.value.trim() !== '' ||
-      allowUserOverride.value !== (summary.value.strategySubMode === 'override')),
-)
-
 const defaultsHint = computed(() => (summary.value ? hintsFor(summary.value.mcpUrl) : null))
 
 async function refresh() {
@@ -66,7 +46,6 @@ async function refresh() {
     summary.value = found
     if (found) {
       displayName.value = found.displayName
-      allowUserOverride.value = found.strategySubMode === 'override'
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -109,40 +88,8 @@ async function save() {
   }
 }
 
-async function saveStrategy() {
-  if (!canSaveStrategy.value || !summary.value) return
-  savingStrategy.value = true
-  strategyError.value = null
-  strategyJustSaved.value = false
-  // Build the patch map. Omit `value` when blank so the backend keeps
-  // the current shared secret (sentinel: empty = keep). Always send
-  // `allow_user_override` so toggling alone is a valid save.
-  const cfg: Record<string, string> = {
-    allow_user_override: allowUserOverride.value ? 'true' : 'false',
-  }
-  const secret = sharedSecret.value.trim()
-  if (secret !== '') cfg.value = secret
-  try {
-    const resp = await adminClient().updateUpstream(
-      create(UpdateUpstreamRequestSchema, {
-        publicId: publicId.value,
-        strategyConfig: cfg,
-      }),
-    )
-    if (resp.upstream) {
-      summary.value = resp.upstream
-      allowUserOverride.value = resp.upstream.strategySubMode === 'override'
-    }
-    sharedSecret.value = ''
-    strategyJustSaved.value = true
-  } catch (err) {
-    strategyError.value = err instanceof Error ? err.message : String(err)
-  } finally {
-    savingStrategy.value = false
-  }
-}
-
-async function reindex() {  if (!summary.value) return
+async function reindex() {
+  if (!summary.value) return
   reindexing.value = true
   error.value = null
   try {
@@ -328,76 +275,6 @@ async function remove() {
         >
           <Save :size="16" aria-hidden="true" />
           {{ saving ? 'Saving…' : 'Save changes' }}
-        </button>
-      </section>
-
-      <section
-        v-if="isStaticHeader"
-        class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4"
-        data-testid="strategy-config-section"
-      >
-        <div class="flex items-center gap-2">
-          <KeyRound :size="18" class="text-on-surface-variant" aria-hidden="true" />
-          <h2 class="font-display text-lg font-semibold text-on-surface">
-            Static header credentials
-          </h2>
-        </div>
-        <p class="text-sm text-on-surface-variant">
-          Rotate the shared secret sent on every upstream request. For security the
-          current value is never shown — leave the field blank to keep it. Toggle
-          override mode to let individual members supply their own key instead of
-          using the shared one.
-        </p>
-        <div
-          v-if="strategyError"
-          role="alert"
-          class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
-          data-testid="strategy-config-error"
-        >
-          {{ strategyError }}
-        </div>
-        <div
-          v-else-if="strategyJustSaved"
-          class="rounded-md border border-success bg-success/10 px-3 py-2 text-sm text-success"
-          data-testid="strategy-config-success"
-        >
-          Credentials updated.
-        </div>
-        <label class="block">
-          <span class="text-sm font-medium text-on-surface">New shared secret</span>
-          <input
-            v-model="sharedSecret"
-            type="password"
-            autocomplete="new-password"
-            placeholder="Leave blank to keep current"
-            class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            data-testid="strategy-config-secret"
-          />
-        </label>
-        <label class="flex items-start gap-2">
-          <input
-            v-model="allowUserOverride"
-            type="checkbox"
-            class="mt-1"
-            data-testid="strategy-config-override"
-          />
-          <span class="text-sm text-on-surface">
-            Allow members to override with their own key
-            <span class="block text-xs text-on-surface-variant">
-              When enabled each member connects with a personal credential. When
-              disabled all members share the secret above.
-            </span>
-          </span>
-        </label>
-        <button
-          type="button"
-          :disabled="!canSaveStrategy"
-          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
-          data-testid="save-strategy-config"
-          @click="saveStrategy"
-        >
-          <Save :size="16" aria-hidden="true" />
-          {{ savingStrategy ? 'Saving…' : 'Save credentials' }}
         </button>
       </section>
 
