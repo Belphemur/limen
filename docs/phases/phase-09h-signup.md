@@ -7,24 +7,29 @@
 
 A stranger lands on `/signup`, fills out **tenant name + owner name + owner
 email**, solves a captcha, receives a Limen-issued verification email, clicks
-the link, sets a password in **Zitadel's hosted UI**, and is bounced back to
-their freshly-minted `/t/<tenant>/admin/` dashboard signed in as `owner` —
-end-to-end, no operator intervention, no Limen code ever sees the password.
+the link, sets a password on Limen's verify page, and is bounced into the
+standard `/auth/login` flow which lands them on `/t/<tenant>/admin/` signed
+in as `owner` — end-to-end, no operator intervention.
 
 Three design tenets distinguish this slice from a naïve "create-the-org-then-
 email-the-user" wizard:
 
 1. **Limen owns email verification.** The `StartSignup` RPC sends a
    Limen-minted verification email via SMTP (Mailpit in dev, real relay in
-   prod). Zitadel is **not** touched in `StartSignup`.
+   prod). Zitadel is **not** touched in `StartSignup` beyond a single
+   `ListUsers` probe to reject already-registered emails up front.
 2. **Zitadel is touched only at `CompleteSignup`.** Org + user + grant are
    created in one atomic step after the email is verified. No orphaned
    Zitadel orgs to garbage-collect; the sweeper only deletes stale Limen
    rows.
-3. **Limen never sees the password.** The user sets their password in
-   Zitadel's hosted `/ui/login/password/init` form via a one-time code Limen
-   mints through Zitadel's `UserService.PasswordReset` with
-   `MediumReturnCode`. The plaintext password is POSTed directly to Zitadel.
+3. **The password transits Limen exactly once.** The user types it into
+   Limen's `/signup/verify` page; `CompleteSignup` forwards it directly to
+   Zitadel's `CreateUser` (no plaintext is logged, persisted, or wrapped
+   into errors) and then returns a `/auth/login` URL that reuses the
+   normal OIDC dance for the actual sign-in. The Zitadel hosted
+   password-init UI is **not** used — Zitadel v4's LoginV2 ignores
+   `returnURL` on `/ui/login/password/init`, which would otherwise strand
+   the user on the Zitadel console.
 
 Social signup (Google / GitHub / Microsoft) is **out of scope** for this
 phase — captured separately in [Phase 18](phase-18-social-signup.md).
@@ -41,7 +46,8 @@ interceptor stack. Phase 9c Slice 4 shipped Limen-owned member management
 via Zitadel User V2 + Authorization V2 pass-through.
 
 This phase implements the `SignupService` body, adds a Limen-owned mailer,
-adds three SPA pages, and wires the Zitadel password-init handoff.
+adds three SPA pages, and wires the password-capture handoff into the
+standard `/auth/login` OIDC flow.
 
 ## Flow
 
@@ -62,11 +68,12 @@ GET /signup/verify?token=…   (SPA route)
        ├─ mint completion_token (32B crypto/rand) + HMAC-SHA256 hash, persist on row
        └─ return { completion_token } → SPA navigates to /signup/finish
 
-POST CompleteSignup(completion_token)
+POST CompleteSignup(completion_token, password)
   ├─ hash(completion_token) → lookup row by completion_token_hash
   ├─ require email_verified_at IS NOT NULL → else FailedPrecondition
+  ├─ reject password shorter than 8 chars (InvalidArgument)
   ├─ idempotency: if completed_at IS NOT NULL → return cached response
-  ├─ Zitadel calls (first time we touch it):
+  ├─ Zitadel calls (first time we touch it beyond StartSignup's ListUsers probe):
   │    ├─ derive base slug from tenant_name (NFKD-fold, lowercase ASCII,
   │    │  collapse non-alphanumerics to '-', cap at 120 chars)
   │    ├─ OrganizationService.CreateOrganization(slug)            → zitadel_org_id
@@ -78,31 +85,28 @@ POST CompleteSignup(completion_token)
   │    │  └─ safe-word list is a curated ~96-entry pool of neutral
   │    │     English words (e.g. "velvet", "otter", "willow") with
   │    │     crypto/rand selection
-  │    ├─ UserService.AddHumanUser(email, given/family,           → zitadel_user_id
-  │    │                           email_verified=true, no password)
+  │    ├─ UserService.CreateUser(email, given/family,             → zitadel_user_id
+  │    │                         email_verified=true,
+  │    │                         password=<plaintext>)
   │    ├─ AddUserGrant(user_id, project_id, role="owner")
-  │    ├─ ManagementService.SetOrgMetadata(org, "limen_tenant_id",
-  │    │                                    tenant.PublicID)
-  │    └─ UserService.PasswordReset(user_id, MediumReturnCode)    → init_code
+  │    └─ ManagementService.SetOrgMetadata(org, "limen_tenant_id",
+  │                                          tenant.PublicID)
   ├─ INSERT tenants row (PublicID = ids.MustMake(PrefixTenant))
   ├─ UPDATE pending_signups SET completed_at, zitadel_*, tenant_id
   └─ return {
        tenant_public_id,
-       password_init_url: "<issuer>/ui/login/password/init?userID=<id>&code=<code>
-                            &returnURL=<base>/auth/login?tenant=<pid>
-                                       &return_to=/t/<pid>/admin/"
+       redirect_url: "/auth/login?tenant=<pid>&return_to=/t/<pid>/admin/"
      }
 
-Browser → password_init_url → Zitadel hosted form → password POSTed to Zitadel
-       → Zitadel redirects to returnURL
-       → Limen /auth/login starts OIDC dance (Phase 4)
+Browser → redirect_url → Limen /auth/login (Phase 4 OIDC start)
+       → Zitadel hosted login UI (one credential prompt)
        → /auth/callback sets limen_portal cookie
        → /t/<pid>/admin/ landing
 ```
 
-The dotted line crossing into Zitadel is the **only** place the plaintext
-password exists in memory anywhere in the system. Limen's request log,
-audit log, and error traces are clean by construction.
+The plaintext password lives in the Go process across the
+`CreateUser` round-trip and nowhere else — it is never logged, persisted,
+or wrapped into an error string.
 
 ## Persistence — GORM AutoMigrate
 
@@ -176,13 +180,13 @@ slug** that exists only to satisfy Zitadel's instance-wide uniqueness
 constraint on `organization.name`. The two strings are intentionally
 decoupled:
 
-| Concern                             | `tenants.name` (Limen)            | Zitadel `organization.name`         |
-| ----------------------------------- | --------------------------------- | ----------------------------------- |
-| Storage                             | `tenants.name` (TEXT)             | Zitadel instance, opaque to Limen   |
+| Concern                             | `tenants.name` (Limen)                      | Zitadel `organization.name`         |
+| ----------------------------------- | ------------------------------------------- | ----------------------------------- |
+| Storage                             | `tenants.name` (TEXT)                       | Zitadel instance, opaque to Limen   |
 | Mutability                          | Owner can rename via `UpdateTenantSettings` | Set once at signup, never updated   |
-| Uniqueness                          | Not enforced — collisions allowed | Enforced by Zitadel instance-wide   |
-| Visible to end users                | Yes — every UI surface            | No — internal identifier            |
-| Stable identity for cross-reference | `PublicID` (`tnt_<ULID>`)         | `zitadel_org_id` on the tenants row |
+| Uniqueness                          | Not enforced — collisions allowed           | Enforced by Zitadel instance-wide   |
+| Visible to end users                | Yes — every UI surface                      | No — internal identifier            |
+| Stable identity for cross-reference | `PublicID` (`tnt_<ULID>`)                   | `zitadel_org_id` on the tenants row |
 
 The slug is derived in `internal/signup/orgslug.go`:
 
@@ -316,10 +320,11 @@ message VerifyEmailResponse {
 
 message CompleteSignupRequest {
   string completion_token = 1;
+  string password         = 2;  // forwarded once to Zitadel CreateUser; never persisted
 }
 message CompleteSignupResponse {
-  string tenant_public_id   = 1;
-  string password_init_url  = 2;  // Zitadel hosted /ui/login/password/init with code + returnURL
+  string tenant_public_id = 1;
+  string redirect_url     = 2;  // /auth/login?tenant=<pid>&return_to=/t/<pid>/admin/
 }
 ```
 
@@ -335,7 +340,7 @@ Three new pages under `web/admin/src/pages/`:
 | --------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
 | `/signup`             | `SignupStart.vue`      | Tenant name + owner first/last/email + captcha; POSTs `StartSignup`; navigates to next.  |
 | `/signup/check-email` | `SignupCheckEmail.vue` | "Check your inbox" landing; entered email displayed; resend button debounced 60 s.       |
-| `/signup/verify`      | `SignupVerify.vue`     | Reads `?token=`; calls `VerifyEmail` → `CompleteSignup`; redirects to `passwordInitUrl`. |
+| `/signup/verify`      | `SignupVerify.vue`     | Reads `?token=`; calls `VerifyEmail`, then presents a password form; on submit calls `CompleteSignup(token, password)` and navigates to `redirectUrl`. |
 
 All three are part of the **admin SPA** bundle (signup is the admin
 shell's tenant-bootstrap surface). The router entries are public (no
@@ -445,7 +450,7 @@ self-hosted single-tenant deploys.
 - **Email enumeration**: `StartSignup` calls
   `ZitadelClient.UserExistsByEmail` after captcha + rate-limit and
   returns `CodeAlreadyExists` when the address is already registered.
-  This is an intentional trade: see the *Anti-enumeration trade-off*
+  This is an intentional trade: see the _Anti-enumeration trade-off_
   bullet above.
 - **Verify token**: 32-byte cryptographically-random plaintext (in the
   email link only) hashed with HMAC-SHA256 before storage. Single-use:
@@ -456,20 +461,24 @@ self-hosted single-tenant deploys.
   Carries email-verification proof end-to-end without binding to a
   browser session, so the same flow works across devices (desktop
   start → phone email click → phone completion).
-- **Password handling**: Limen never receives the plaintext. The
-  `password_init_url` carries a Zitadel-minted one-time code; the user
-  POSTs the password directly to Zitadel's hosted form.
+- **Password handling**: the plaintext arrives in `CompleteSignup`,
+  is forwarded to Zitadel `CreateUser` in the same call, and is not
+  logged, persisted, or wrapped into errors. The Zitadel hosted
+  password-init UI is **not** used (its `returnURL` is ignored by
+  Zitadel v4 LoginV2 and would strand the user on the Zitadel
+  console).
 - **Idempotency**: `CompleteSignup` is keyed off `completion_token_hash`
   and short-circuits if `completed_at IS NOT NULL`. The hash is **not**
   rotated on success, so an accidental refresh after completion replays
-  the cached tenant + a freshly-minted password-init code.
+  the cached tenant + the same `/auth/login` redirect. Replays do not
+  reset the Zitadel password — the first call wins.
 - **Sweeper**: deletes stale pre-completion rows after 24 h. No Zitadel
   cleanup needed (deferred-creation design).
 - **Org-name uniqueness is not a security boundary.** Tenants are
   identified by `PublicID`, isolation is enforced by Postgres RLS, and
   the Zitadel org slug is opaque to end users. Two tenants can hold
   identical display names without weakening any auth or tenancy
-  invariant. See *Tenant display name vs Zitadel org slug* above.
+  invariant. See _Tenant display name vs Zitadel org slug_ above.
 
 ## Telemetry
 
@@ -524,8 +533,9 @@ fake `Mailer`. Cover at minimum:
 
 - `SignupStart.vue` renders the captcha widget only in non-dev provider
   mode; form validates required fields client-side.
-- `SignupVerify.vue` parses `?token=`, calls both RPCs in sequence, sets
-  `window.location.href` on success.
+- `SignupVerify.vue` parses `?token=`, calls `VerifyEmail`, renders the
+  password form, then calls `CompleteSignup` and navigates to
+  `redirectUrl` on success.
 
 ### End-to-end (Playwright, `web/admin/tests/e2e/signup.spec.ts`)
 
@@ -534,11 +544,11 @@ Full MailHog round-trip:
 1. Load `/signup`, fill the form, submit.
 2. Poll the MailHog HTTP API until the verification email arrives.
 3. Extract the verify link, navigate to it.
-4. Assert SPA reaches `SignupVerify.vue` and redirects to the Zitadel
-   password-init URL.
-5. In the Zitadel form (driven via Playwright), enter a password.
-6. Assert Zitadel redirects through `/auth/login` → `/auth/callback` →
-   `/t/tnt_*/admin/`.
+4. Assert SPA reaches `SignupVerify.vue`, renders the password form,
+   accepts a password, and navigates to `/auth/login?tenant=tnt_*&...`.
+5. In the Zitadel hosted login form (driven via Playwright), enter the
+   same email + password.
+6. Assert `/auth/callback` lands on `/t/tnt_*/admin/`.
 7. Assert the admin shell renders with `owner` role.
 
 The MailHog + Zitadel containers are already in `compose.dev.yaml` — the
@@ -572,10 +582,11 @@ chunk-name prefix. This closes the last v1 bullet that isn't signup-scoped.
   must wrap the mailer. Document the dev → prod SMTP swap in Phase 11.
 - **Captcha vendor lock-in**: provider is a config knob; site key
   surfaced via `/auth/discovery`. Document the matrix in Phase 11.
-- **Zitadel hosted password-init UI changes**: the URL shape
-  (`<issuer>/ui/login/password/init?userID=…&code=…&returnURL=…`) is a
-  stable v2 contract but worth a CI smoke-test against the dev Zitadel
-  container, alongside the existing deep-link smoke-tests.
+- **Zitadel `CreateUser` password-policy rejection**: if Zitadel's
+  configured policy rejects the chosen password, `CompleteSignup`
+  returns the Zitadel error message verbatim and the SPA re-renders
+  the password form. The pending_signups row stays open so a retry
+  with a stronger password works without re-verifying email.
 - **Verify-link phishing**: the email's `From:` and link host must match
   the configured `baseURL`. Mailer template MUST NOT include any URLs
   outside the configured `${baseURL}` host.

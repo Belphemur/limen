@@ -69,7 +69,6 @@ func NewHandler(rt *boot.Runtime, zclient signup.ZitadelClient) (string, http.Ha
 		Logger:         rt.Logger.Named("signup"),
 		Enabled:        cfg.Signup.Enabled,
 		BaseURL:        cfg.Server.BaseURL,
-		ZitadelIssuer:  cfg.OIDC.Issuer,
 		VerifyTokenTTL: cfg.Signup.VerifyTokenTTL,
 		TokenKey:       key[:],
 	}

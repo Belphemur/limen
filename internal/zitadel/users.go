@@ -48,6 +48,11 @@ type HumanUser struct {
 	// Phase 9h signup wizard's verification email) so Zitadel does
 	// not send its own verification message.
 	EmailVerified bool
+	// Password, when non-empty, is set on the user at creation time
+	// (used by the Phase 9h signup wizard which collects the owner's
+	// password in the SPA before calling CompleteSignup). Limen does
+	// not persist the plaintext — it is forwarded once to Zitadel.
+	Password string
 }
 
 // UserGrant is the Limen-shaped projection of a Zitadel user grant.
@@ -85,6 +90,11 @@ func (c *Client) AddHumanUser(ctx context.Context, u HumanUser) (string, error) 
 	if u.EmailVerified {
 		req.GetHuman().Email.Verification = &userV2.SetHumanEmail_IsVerified{IsVerified: true}
 	}
+	if u.Password != "" {
+		req.GetHuman().PasswordType = &userV2.CreateUserRequest_Human_Password{
+			Password: &userV2.Password{Password: u.Password},
+		}
+	}
 	if u.Username != "" {
 		req.Username = &u.Username
 	}
@@ -110,28 +120,6 @@ func (c *Client) CreateInviteCode(ctx context.Context, userID string) error {
 		return fmt.Errorf("zitadel: create invite code for %q: %w", userID, err)
 	}
 	return nil
-}
-
-// PasswordReset asks Zitadel to mint a single-use password-reset
-// code for userID and return it inline rather than send it by
-// email. Limen embeds the code into the password-init URL the
-// signup wizard navigates to in CompleteSignup, so the user's first
-// password is set on Zitadel's hosted UI — Limen never sees the
-// plaintext.
-func (c *Client) PasswordReset(ctx context.Context, userID string) (string, error) {
-	if userID == "" {
-		return "", fmt.Errorf("zitadel: PasswordReset: userID is required")
-	}
-	resp, err := c.api.UserServiceV2().PasswordReset(ctx, &userV2.PasswordResetRequest{
-		UserId: userID,
-		Medium: &userV2.PasswordResetRequest_ReturnCode{
-			ReturnCode: &userV2.ReturnPasswordResetCode{},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("zitadel: password reset for %q: %w", userID, err)
-	}
-	return resp.GetVerificationCode(), nil
 }
 
 // AddUserGrant assigns role keys to userID on the configured Limen project,

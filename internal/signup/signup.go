@@ -23,15 +23,16 @@
 //	                 completion_token forward, so signup works even
 //	                 if the email link is clicked on a different
 //	                 device than the one that started the wizard.
-//	CompleteSignup — take the completion_token, require email
-//	                 verified, run Zitadel org provisioning + Limen
-//	                 tenant insert idempotently, mint a Zitadel
-//	                 password-init code, return the password-init
-//	                 URL the browser navigates to.
+//	CompleteSignup — take the completion_token + password, require
+//	                 email verified, run Zitadel org provisioning +
+//	                 Limen tenant insert idempotently, set the
+//	                 password on the new Zitadel user, return the
+//	                 /auth/login URL the browser navigates to so the
+//	                 user lands on the admin SPA after one sign-in.
 //
-// Limen NEVER sees the user's plaintext password — Zitadel sets it on
-// its hosted password-init UI. Zitadel is NOT touched in StartSignup
-// or VerifyEmail; the org is only created when CompleteSignup runs.
+// Limen forwards the password to Zitadel on CreateUser and never
+// persists it. Zitadel is NOT touched in StartSignup or VerifyEmail;
+// the org is only created when CompleteSignup runs.
 package signup
 
 import (
@@ -76,10 +77,11 @@ const (
 	outcomeEmailInUse       outcomeTag = "email_in_use"
 )
 
-// passwordInitPath is appended to the configured Zitadel issuer to
-// build the hosted password-init URL. Zitadel exposes this UI on a
-// fixed path; callers do not need to override it.
-const passwordInitPath = "/ui/login/password/init"
+// passwordMinLen is the minimum plaintext password length Limen will
+// forward to Zitadel. Zitadel enforces its own password policy on
+// top of this; the local check just rejects obviously empty input
+// without a network round-trip.
+const passwordMinLen = 8
 
 // Deps bundles every concrete dependency Service needs. Keeping it a
 // struct of interfaces is overkill for a single implementation; tests
@@ -99,12 +101,8 @@ type Deps struct {
 	// the deployment is ready.
 	Enabled bool
 	// BaseURL is the externally-reachable public origin (scheme +
-	// host + optional port), used to build the verify link and the
-	// password-init return URL.
+	// host + optional port), used to build the verify link.
 	BaseURL string
-	// ZitadelIssuer is the configured issuer URL used as the prefix
-	// for the password-init link.
-	ZitadelIssuer string
 	// VerifyTokenTTL bounds VerifyEmail acceptance.
 	VerifyTokenTTL time.Duration
 	// TokenKey is the 32-byte HMAC key used to hash verify and
@@ -117,8 +115,8 @@ type Deps struct {
 }
 
 // ZitadelClient is the small subset of *zitadel.Client the signup
-// service uses. Phase 9h calls four methods; declaring an interface
-// lets tests stub it without spinning up a real Zitadel.
+// service uses. Declaring an interface lets tests stub it without
+// spinning up a real Zitadel.
 type ZitadelClient interface {
 	CreateOrganization(ctx context.Context, name string, seed *zitadel.SeedAdmin) (*zitadel.Organization, error)
 	UserExistsByEmail(ctx context.Context, email string) (bool, error)
@@ -126,7 +124,6 @@ type ZitadelClient interface {
 	EnsureProjectGrant(ctx context.Context, grantedOrgID string, roleKeys []string) error
 	AddUserGrant(ctx context.Context, orgID, userID string, roleKeys []string) (string, error)
 	SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error
-	PasswordReset(ctx context.Context, userID string) (string, error)
 }
 
 // Service is the SignupServiceHandler implementation.
@@ -344,10 +341,11 @@ func (s *Service) VerifyEmail(ctx context.Context, req *connect.Request[signupv1
 }
 
 // CompleteSignup provisions the Zitadel org + Limen tenant row,
-// mints a password-init code, and returns the URL the browser
-// navigates to. Idempotent on completed_at IS NOT NULL: a retry
-// with the same completion_token replays cached results and mints
-// a fresh password-init code.
+// sets the owner's password on the new Zitadel user, and returns
+// the /auth/login URL the browser navigates to. Idempotent on
+// completed_at IS NOT NULL: a retry with the same completion_token
+// replays the cached redirect (the password set on the first call
+// remains in force; replays do not re-issue Zitadel writes).
 func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signupv1.CompleteSignupRequest]) (*connect.Response[signupv1.CompleteSignupResponse], error) {
 	if !s.deps.Enabled {
 		s.log(req, "", outcomeFeatureDisabled, nil)
@@ -358,6 +356,11 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 	if token == "" {
 		s.log(req, "", outcomeInvalidArgument, nil)
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("completion_token is required"))
+	}
+	password := req.Msg.GetPassword()
+	if len(password) < passwordMinLen {
+		s.log(req, "", outcomeInvalidArgument, nil)
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("password must be at least %d characters", passwordMinLen))
 	}
 	hash := hashVerifyToken(s.deps.TokenKey, token)
 
@@ -410,6 +413,7 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 		FamilyName:    row.OwnerFamilyName,
 		OrgID:         org.ID,
 		EmailVerified: true,
+		Password:      password,
 	})
 	if err != nil {
 		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add human user: %w", err))
@@ -447,12 +451,6 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 			zap.Error(err))
 	}
 
-	code, err := s.deps.Zitadel.PasswordReset(ctx, userID)
-	if err != nil {
-		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("password reset: %w", err))
-		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
-	}
-
 	// Flip the row to completed.
 	now := s.deps.Now()
 	row.CompletedAt = &now
@@ -467,31 +465,27 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 	}
 
 	resp := connect.NewResponse(&signupv1.CompleteSignupResponse{
-		TenantPublicId:  tenant.PublicID,
-		PasswordInitUrl: s.buildPasswordInitURL(userID, code, tenant.PublicID),
+		TenantPublicId: tenant.PublicID,
+		RedirectUrl:    s.buildSignInURL(tenant.PublicID),
 	})
 	s.log(req, publicID, outcomeOK, nil)
 	return resp, nil
 }
 
 // replayCompletion serves a CompleteSignup retry against an
-// already-completed row: it looks up the tenant public id and mints
-// a fresh password-init code so the user can finish setting their
-// password even if the original code expired.
+// already-completed row: it returns the same tenant public id and
+// sign-in redirect. The password set on the first call remains in
+// force; replays do not re-issue Zitadel writes.
 func (s *Service) replayCompletion(ctx context.Context, db *gorm.DB, row *storage.PendingSignup, req *connect.Request[signupv1.CompleteSignupRequest]) (*connect.Response[signupv1.CompleteSignupResponse], error) {
+	_ = ctx
 	var t storage.Tenant
 	if err := db.Where("id = ?", *row.TenantID).First(&t).Error; err != nil {
 		s.log(req, row.PublicID, outcomeInternal, err)
 		return nil, connect.NewError(connect.CodeInternal, errors.New("internal error"))
 	}
-	code, err := s.deps.Zitadel.PasswordReset(ctx, row.ZitadelUserID)
-	if err != nil {
-		s.log(req, row.PublicID, outcomeProvisionFailed, fmt.Errorf("password reset (replay): %w", err))
-		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
-	}
 	resp := connect.NewResponse(&signupv1.CompleteSignupResponse{
-		TenantPublicId:  t.PublicID,
-		PasswordInitUrl: s.buildPasswordInitURL(row.ZitadelUserID, code, t.PublicID),
+		TenantPublicId: t.PublicID,
+		RedirectUrl:    s.buildSignInURL(t.PublicID),
 	})
 	s.log(req, row.PublicID, outcomeAlreadyCompleted, nil)
 	return resp, nil
@@ -529,27 +523,17 @@ func (s *Service) buildVerifyURL(plainToken string) string {
 	return base + "/signup/verify?token=" + url.QueryEscape(plainToken)
 }
 
-// buildPasswordInitURL composes the Zitadel-hosted password-init URL
-// the browser navigates to after CompleteSignup succeeds. The
-// returnURL drops the user at <base>/auth/post-signup?tenant=<pid>,
-// a Limen-controlled landing endpoint (registered as an allowed
-// OIDC redirect URI on the Zitadel project) that 302s into the
-// standard /auth/login OIDC flow with return_to=/t/<pid>/admin/.
-//
-// We can't put /auth/login directly here: Zitadel's password-init
-// UI silently drops returnURL values that don't match a project
-// redirect-URI allowlist, leaving the user stranded on Zitadel's
-// success page. /auth/post-signup is the stable, allowlistable
-// indirection.
-func (s *Service) buildPasswordInitURL(userID, code, tenantPublicID string) string {
-	base := strings.TrimRight(s.deps.BaseURL, "/")
-	returnURL := base + "/auth/post-signup?tenant=" + url.QueryEscape(tenantPublicID)
-	issuer := strings.TrimRight(s.deps.ZitadelIssuer, "/")
+// buildSignInURL composes the URL the browser navigates to after
+// CompleteSignup succeeds. It points at the tenant-scoped OIDC start
+// endpoint with a relative return_to; the OIDC callback prepends
+// /t/<pid> before issuing the final redirect. Provisioning has
+// already set the owner's password on the Zitadel user, so the user
+// enters their credentials once on Zitadel's hosted login UI and
+// lands on /t/<pid>/admin/.
+func (s *Service) buildSignInURL(tenantPublicID string) string {
 	q := url.Values{}
-	q.Set("userID", userID)
-	q.Set("code", code)
-	q.Set("returnURL", returnURL)
-	return issuer + passwordInitPath + "?" + q.Encode()
+	q.Set("return_to", "/admin/")
+	return "/t/" + tenantPublicID + "/auth/login?" + q.Encode()
 }
 
 // log emits a single structured line per RPC with a closed outcome
