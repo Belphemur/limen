@@ -109,6 +109,18 @@ Network-discovered values always take precedence; the static config is a fallbac
 - The background refresher (`upstream_refresh.refresh_window`, default 5 m) proactively rotates tokens approaching expiry.
 - On `invalid_grant` or a 401 that survives a forced refresh, the link is flagged as `needs_relink` and the user must re-authorize in the portal.
 
+#### Link verification on callback
+
+When the OAuth round-trip lands at `/t/{tenant}/mcp-servers/{identifier}/callback`, Limen does **not** trust the AS round-trip in isolation. Token exchange alone is not enough to prove the link works — some authorization servers (PayPal, observed) hand back a usable authorization code and access token even when the user **refused consent** on the AS-hosted screen. The token authenticates against the AS but the MCP resource server then rejects every call (typically 401, sometimes 404 on scope-gated MCP endpoints).
+
+To catch that case the callback handler runs three steps in order:
+
+1. **AS error branch.** If the callback URL carries `?error=<code>&error_description=<desc>` (RFC 6749 §4.1.2.1), Limen consumes the state envelope to recover the SPA's `return_to`, then 303-redirects to it with `?upstream_oauth_error=<code>&upstream_oauth_error_description=<desc>`. No link row is created. The SPA's popup-close handshake surfaces the structured error.
+2. **`Service.VerifyLink`.** On a successful token exchange Limen immediately performs a single MCP `initialize` round-trip against the upstream using the freshly-issued credentials. Any failure (401, 404, 5xx, network) is treated as a hard reject — the link row is deleted via `Disconnect` and the callback 303s to `return_to` with `?upstream_oauth_error=access_denied&upstream_oauth_error_description=...`. The admin can retry the consent flow; false negatives are recoverable, a green-checked but broken link is not.
+3. **Catalog index.** Only after `VerifyLink` returns nil does Limen bootstrap the shared upstream catalog (`IndexUpstream` → `tools/list`), and only for callers holding the `owner` or `admin` role. Catalog indexing remains best-effort: failures here log but do not roll back the link, since the periodic sweep retries.
+
+The SPA pairs with this contract: [McpServerNew.vue](../web/admin/src/pages/McpServerNew.vue) treats `ok:false` from the popup-close handshake as a signal to call `DeleteUpstream` on the orphan row and show the error modal with the real reason.
+
 **Use when:** Atlassian Rovo, GitHub Copilot, GitLab, or any MCP-spec-compliant OAuth resource server.
 
 ## Strategy Selection Guide
