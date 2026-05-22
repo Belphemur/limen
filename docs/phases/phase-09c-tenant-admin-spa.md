@@ -13,9 +13,9 @@ Split the customer-facing web surface into **two SPAs** sharing one `web/` codeb
 | **9b** | `/t/{tenant}/admin/`  | Tenant `owner` + `admin` roles | `web/src/admin/`  |
 | 12     | `/t/_staff/portal/`   | SaaS operator (`super_admin`)  | `web/src/staff/`  |
 
-Phase 9b handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9c handles the **tenant administrator**'s view of the **Limen-domain** admin surface: an **onboarding dashboard**, upstream catalog CRUD, member management (phased — see below), tenant settings, and the public self-serve signup flow that bootstraps a brand-new tenant.
+Phase 9b handles the **user**'s view of their own tenant (link/unlink upstreams, see their MCP clients, profile). Phase 9c handles the **tenant administrator**'s view of the **Limen-domain** admin surface: an **onboarding dashboard**, upstream catalog CRUD, member management, tenant settings, and the public self-serve signup flow that bootstraps a brand-new tenant.
 
-**Member management is phased across three releases.** v1 (this phase) renders a deep-link card to [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice). v1.5 adds a read-only `ListMembers` RPC that proxies Zitadel's Management API and surfaces an inline members table; mutations still bounce to Console. v2 takes full ownership with `InviteMember` / `UpdateMemberRole` / `RemoveMember` RPCs backed by a thin `internal/zitadel/management.go` client. The phasing is summarised in the [_Member management — phased delivery_](#member-management--phased-delivery) section below and reflected verbatim in the _Self-service delegation_ table in [Phase 4](phase-04-tenant-auth-session.md).
+**Member management is Limen-owned via Zitadel pass-through.** `ListMembers` / `InviteMember` / `UpdateMemberRole` / `RemoveMember` are thin handlers over Zitadel's User V2 + Authorization V2 APIs (see the [_Member management_](#member-management) section). Limen carries **zero** mirror tables for users, grants, or invites — every read and every mutation round-trips to Zitadel. Identity-policy concerns (external IdP federation, branding, login/lockout policy, profile/MFA/passkey enrollment) stay in Zitadel Console permanently and surface as deep-link cards in the Members page.
 
 **External IdP federation, password / MFA / passkey enrollment, and login / lockout policy stay in Zitadel Console permanently.** Those concerns evolve with Zitadel's permission model; reimplementing them in Limen would force us to track that model and double-handle every secret on the wire. The admin SPA renders deep-link cards for each of them — there is no plan to ever own that surface.
 
@@ -79,13 +79,13 @@ below for the details.
 
 **Delegated permanently to [Zitadel Console](https://zitadel.com/docs/concepts/features/selfservice):**
 
-| Surface                                                              | Why                                                                                                                            |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| External IdP federation (OIDC / SAML / social)                       | Tracks Zitadel's permission model; doubles the secret-handling surface to no end.                                              |
-| Profile self-service, password, MFA enrollment, passkeys             | Pure Zitadel concerns; the admin SPA links to `<issuer>/ui/console/users/me`.                                                  |
-| Branding (logo, colors, custom login domain)                         | Per-org Zitadel feature with no Limen-side state.                                                                              |
-| Login / lockout policy                                               | Evolves with Zitadel's policy engine; reimplementing would mean tracking that engine.                                          |
-| `TransferOwnership`                                                  | Deliberately manual via Console. Rare, high-impact, not worth a custom UI.                                                     |
+| Surface                                                  | Why                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| External IdP federation (OIDC / SAML / social)           | Tracks Zitadel's permission model; doubles the secret-handling surface to no end.     |
+| Profile self-service, password, MFA enrollment, passkeys | Pure Zitadel concerns; the admin SPA links to `<issuer>/ui/console/users/me`.         |
+| Branding (logo, colors, custom login domain)             | Per-org Zitadel feature with no Limen-side state.                                     |
+| Login / lockout policy                                   | Evolves with Zitadel's policy engine; reimplementing would mean tracking that engine. |
+| `TransferOwnership`                                      | Deliberately manual via Console. Rare, high-impact, not worth a custom UI.            |
 
 No schema for IdP configs, user mirrors, or membership rosters is added
 at any point.
@@ -96,18 +96,18 @@ Requests do **not** carry `tenant_id` for any authenticated method — the tenan
 
 The `/t/{tenant}/admin/` index route is **`Dashboard.vue`**, modelled on the Stitch "Onboarding Dashboard" screen. It is intentionally task-focused, not metric-focused, because in the user's first session there is nothing meaningful to chart yet.
 
-| Section              | v1 (this phase)                                                                                                                                                                                                                     | Later phase                                                                                                                                                                                                    |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Welcome header       | "Welcome to Limen, `{firstName}`" + one-sentence onboarding sub.                                                                                                                                                                    | unchanged                                                                                                                                                                                                      |
-| Setup Progress card  | Progress bar + "X of N steps completed" + percent. N=3 in v1.                                                                                                                                                                       | unchanged                                                                                                                                                                                                      |
-| Task bento           | Primary card **Connect MCP Servers** → `/mcp-servers/new`. Secondary stack: **Invite Your Team** → opens `ZitadelDirectory.vue` panel (v1) / scrolls to inline members table (v1.5+). **Configure Organization** → `/org/settings`. | Adds a fourth tile when v1.5/v2 milestones land (e.g. **Review Audit Log**, **Inspect Active Sessions**).                                                                                                      |
-| System Health card   | Empty state ("Waiting for data…") with a `Monitor` icon and a one-sentence explanation.                                                                                                                                             | Replace with a 3-card metric tile row: Active MCP Servers `N / N_max`, Connected Clients, P95 Latency (sourced from MCP RS metrics — see the Stitch "Admin Dashboard (Updated Nav)" reference for the visual). |
-| Quick Resources list | Documentation / API Reference / Community Support deep-links to public docs.                                                                                                                                                        | unchanged                                                                                                                                                                                                      |
+| Section              | v1 (this phase)                                                                                                                                                                                    | Later phase                                                                                                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Welcome header       | "Welcome to Limen, `{firstName}`" + one-sentence onboarding sub.                                                                                                                                   | unchanged                                                                                                                                                                                                      |
+| Setup Progress card  | Progress bar + "X of N steps completed" + percent. N=3 in v1.                                                                                                                                      | unchanged                                                                                                                                                                                                      |
+| Task bento           | Primary card **Connect MCP Servers** → `/mcp-servers/new`. Secondary stack: **Invite Your Team** → opens the inline members table on `/org/members`. **Configure Organization** → `/org/settings`. | Adds a fourth tile when later milestones land (e.g. **Review Audit Log**, **Inspect Active Sessions**).                                                                                                        |
+| System Health card   | Empty state ("Waiting for data…") with a `Monitor` icon and a one-sentence explanation.                                                                                                            | Replace with a 3-card metric tile row: Active MCP Servers `N / N_max`, Connected Clients, P95 Latency (sourced from MCP RS metrics — see the Stitch "Admin Dashboard (Updated Nav)" reference for the visual). |
+| Quick Resources list | Documentation / API Reference / Community Support deep-links to public docs.                                                                                                                       | unchanged                                                                                                                                                                                                      |
 
 **Step completion rules** (computed client-side from `ListUpstreams` + tenant-settings state — no dedicated RPC):
 
 1. _Connect MCP Servers_ — checked when at least one row in `ListUpstreams` has `status == ready` (i.e. `tool_count > 0`).
-2. _Invite Your Team_ — checked when `tenant_settings.invited_team_at IS NOT NULL`. A one-shot flag the SPA flips when the user first opens the deep-link card / members table; this is a nudge, not verification — the actual invite happens in Console (v1) or via the v2 RPC.
+2. _Invite Your Team_ — checked when `tenant_settings.invited_team_at IS NOT NULL`. A one-shot flag the SPA flips when the user first opens the members table; this is a nudge, not verification — the actual invite happens via `InviteMember`.
 3. _Configure Organization_ — checked when `tenant_settings.configured_at IS NOT NULL`, set by the first successful `UpdateTenantSettings` call.
 
 The two timestamp fields live on the existing `tenant_settings` JSONB column added in Phase 4 — no new schema. The SPA writes them through the existing `UpdateTenantSettings` RPC.
@@ -116,11 +116,11 @@ The two timestamp fields live on the existing `tenant_settings` JSONB column add
 
 The topbar's search input is one component (`ContextualSearch.vue`) with two behaviours selected by `route.meta.search`:
 
-| Mode      | When                                                                           | Behaviour                                                                                                                                                 |
-| --------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `filter`  | List / detail routes (e.g. `/mcp-servers`, `/mcp-servers/:id`, `/org/members`) | Debounced 200 ms; filters the page's local list / table in-place. Empty input → full list. No global jump.                                                |
-| `palette` | Dashboard (`/`) and any future overview routes                                 | `/` keyboard shortcut opens a modal-style palette listing upstreams + members (v1.5+) + settings sections, all client-side. Selecting a result navigates. |
-| _(none)_  | `/org/settings`                                                                | Topbar hides the input — settings has no list to filter and the palette would duplicate the sidebar.                                                      |
+| Mode      | When                                                                           | Behaviour                                                                                                                                         |
+| --------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filter`  | List / detail routes (e.g. `/mcp-servers`, `/mcp-servers/:id`, `/org/members`) | Debounced 200 ms; filters the page's local list / table in-place. Empty input → full list. No global jump.                                        |
+| `palette` | Dashboard (`/`) and any future overview routes                                 | `/` keyboard shortcut opens a modal-style palette listing upstreams + members + settings sections, all client-side. Selecting a result navigates. |
+| _(none)_  | `/org/settings`                                                                | Topbar hides the input — settings has no list to filter and the palette would duplicate the sidebar.                                              |
 
 The placeholder text is also route-driven (`route.meta.search.placeholder`). Per-page filter rows (e.g. the role dropdown on members) live on the page itself, not in the topbar.
 
@@ -307,12 +307,12 @@ no new background workers.
 
 Operation details:
 
-| RPC                  | Zitadel calls                                                                                                              | Notes                                                                                                                                                                                                                                                                          |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ListMembers`        | `UserServiceV2.ListUsers` (filtered by `OrganizationIdQuery`) + `AuthorizationServiceV2.ListAuthorizations` (project-wide) | Join on `userId` happens in `internal/zitadel`. Users without a grant on the Limen project surface with `role = ""`. A single round-trip per RPC: list users, list grants, merge. No pagination in v1 — the table caps at a few hundred per tenant; Zitadel's default suffices. |
-| `InviteMember`       | `CreateUser` + `CreateAuthorization` + `CreateInviteCode`                                                                  | `CreateInviteCode` triggers the Zitadel-side invite email. We do not store the code. Failure between steps leaves Zitadel in a partially-provisioned state, surfaced on the next `ListMembers` (user exists, `role = ""`); admin can re-issue.                                |
-| `UpdateMemberRole`   | `ListAuthorizations` (find grant for user) → `UpdateAuthorization` _or_ `CreateAuthorization`                              | One grant per (user, project, org) — replace its `RoleKeys` with the single new role. If the user has no grant yet (invited but not authorized), create one.                                                                                                                  |
-| `RemoveMember`       | `DeleteUser`                                                                                                               | Removes the user globally from Zitadel. Their Limen project grant is cascaded by Zitadel. Limen never soft-deletes — once the admin has confirmed, the row is gone.                                                                                                            |
+| RPC                | Zitadel calls                                                                                                              | Notes                                                                                                                                                                                                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ListMembers`      | `UserServiceV2.ListUsers` (filtered by `OrganizationIdQuery`) + `AuthorizationServiceV2.ListAuthorizations` (project-wide) | Join on `userId` happens in `internal/zitadel`. Users without a grant on the Limen project surface with `role = ""`. A single round-trip per RPC: list users, list grants, merge. No pagination in v1 — the table caps at a few hundred per tenant; Zitadel's default suffices. |
+| `InviteMember`     | `CreateUser` + `CreateAuthorization` + `CreateInviteCode`                                                                  | `CreateInviteCode` triggers the Zitadel-side invite email. We do not store the code. Failure between steps leaves Zitadel in a partially-provisioned state, surfaced on the next `ListMembers` (user exists, `role = ""`); admin can re-issue.                                  |
+| `UpdateMemberRole` | `ListAuthorizations` (find grant for user) → `UpdateAuthorization` _or_ `CreateAuthorization`                              | One grant per (user, project, org) — replace its `RoleKeys` with the single new role. If the user has no grant yet (invited but not authorized), create one.                                                                                                                    |
+| `RemoveMember`     | `DeleteUser`                                                                                                               | Removes the user globally from Zitadel. Their Limen project grant is cascaded by Zitadel. Limen never soft-deletes — once the admin has confirmed, the row is gone.                                                                                                             |
 
 #### Authorization & guardrails
 
@@ -359,7 +359,7 @@ internal/admin/
 └── errors.go          // Connect error mapping
 ```
 
-v1 ships **no** `members.go` and **no** `idp.go`. v1.5 introduces `members.go` (read-only `ListMembers`) and `internal/zitadel/management.go` (the thin Management-API client). v2 expands `members.go` with `InviteMember` / `UpdateMemberRole` / `RemoveMember` / `ResendInvite`. `idp.go` and any `tenant_idp_configurations` migration never appear — IdP federation is permanently delegated.
+v1 ships `members.go` (`ListMembers`, `InviteMember`, `UpdateMemberRole`, `RemoveMember`) backed by a `MemberDirectory` interface satisfied by `*zitadel.Client`. `idp.go` and any `tenant_idp_configurations` migration never appear — IdP federation is permanently delegated to Zitadel Console.
 
 Mounted with three layered interceptors:
 
@@ -395,14 +395,14 @@ Pages (v1 — this phase):
 - `AdminShell.vue` — `Sidebar` + `Topbar` + `<RouterView/>`. Sidebar structure, topbar layout, and dark-mode theming are defined in [`docs/frontend-design.md`](../frontend-design.md). The topbar hosts `ContextualSearch.vue` (two-mode component documented above) and the identity dropdown.
 - Child routes under `/t/{tenant}/admin/`:
 
-| Route              | Component            | Search mode      | Notes                                                                                                  |
-| ------------------ | -------------------- | ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `/`                | `Dashboard.vue`      | `palette`        | Welcome + setup-progress + bento + system-health empty state.                                          |
-| `/mcp-servers`     | `Upstreams.vue`      | `filter`         | Catalog list (the **admin** Upstreams page; the per-user link page stays in `/portal/`).               |
-| `/mcp-servers/new` | `UpstreamWizard.vue` | _(none)_         | Modal-in-page wizard with 3 strategy variants (Anonymous / OAuth / MCP Spec).                          |
-| `/mcp-servers/:id` | `UpstreamDetail.vue` | `filter`         | Strategy, tool catalog, `ContextJsonEditor.vue` for `defaults_json`, reindex, danger zone.             |
-| `/org/members`     | `Members.vue`        | `filter` (v1.5+) | v1 renders `ZitadelDirectory.vue`; v1.5 renders inline table via `ListMembers`; v2 adds write actions. |
-| `/org/settings`    | `Settings.vue`       | _(none)_         | Owner-only Limen fields **and** read-only Zitadel deep-link panel (see below).                         |
+| Route              | Component            | Search mode | Notes                                                                                                                    |
+| ------------------ | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/`                | `Dashboard.vue`      | `palette`   | Welcome + setup-progress + bento + system-health empty state.                                                            |
+| `/mcp-servers`     | `Upstreams.vue`      | `filter`    | Catalog list (the **admin** Upstreams page; the per-user link page stays in `/portal/`).                                 |
+| `/mcp-servers/new` | `UpstreamWizard.vue` | _(none)_    | Modal-in-page wizard with 3 strategy variants (Anonymous / OAuth / MCP Spec).                                            |
+| `/mcp-servers/:id` | `UpstreamDetail.vue` | `filter`    | Strategy, tool catalog, `ContextJsonEditor.vue` for `defaults_json`, reindex, danger zone.                               |
+| `/org/members`     | `Members.vue`        | `filter`    | Inline members table via `ListMembers` with invite / edit-role / remove modals; identity-policies deep-link panel below. |
+| `/org/settings`    | `Settings.vue`       | _(none)_    | Owner-only Limen fields **and** read-only Zitadel deep-link panel (see below).                                           |
 
 `Settings.vue` covers **both** the Limen-owned tenant fields and a read-only mirror of the key Zitadel-side identity facts, matching the Stitch "Organization Settings (Read-only)" reference:
 
@@ -443,16 +443,11 @@ v1 (this phase):
 - Updated Phase 11 Caddyfile + Phase 9b Vite proxy with the new path patterns.
 - Updated `AGENTS.md` build section.
 
-v1.5 (follow-up):
-
-- Add `ListMembers` to `proto/limen/admin/v1/admin.proto`.
-- Add `internal/admin/members.go` (read-only) and `internal/zitadel/management.go` (thin Management-API client).
-- Swap `Members.vue` from `ZitadelDirectory.vue` to the inline table layout.
-
-v2 (follow-up):
-
-- Add `InviteMember`, `UpdateMemberRole`, `RemoveMember`, `ResendInvite` to the proto + handler.
-- Wire `Members.vue` actions to the new RPCs.
+Member management RPCs (`ListMembers`, `InviteMember`, `UpdateMemberRole`,
+`RemoveMember`) shipped in v1 as direct Zitadel User V2 + Authorization V2
+pass-throughs — the v1.5 / v2 phasing originally planned here collapsed
+into v1 once the Zitadel SDK surface stabilised. The `Member management`
+checklist below tracks the delivered RPCs and frontend.
 
 **Explicitly _not_ ever in Limen**: no `tenant_idp_configurations` migration, no Zitadel IdP wrappers (`AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.), no `internal/admin/idp.go`, no profile / password / MFA / passkey RPCs. Those stay in Zitadel Console permanently.
 
@@ -500,18 +495,18 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 
 - [x] `proto/limen/admin/v1/admin.proto` defines `AdminService` with upstream catalog CRUD + tenant-settings RPCs — no member RPCs at v1; **signup is a sibling `proto/limen/signup/v1/signup.proto`/`SignupService`** instead of a skip-list, so the three layered interceptors stay uniform
 - [x] `buf generate` produces Go bindings under `internal/admin/adminv1/`, `internal/signup/signupv1/`, and TS under `web/admin/src/gen/limen/{admin,signup}/v1/` (template `buf.gen.admin-ts.yaml`)
-- [ ] `internal/admin/` package implements the above RPCs — slice 1 ships the handler skeleton (every RPC returns `CodeUnimplemented`) plus the three layered interceptors and a default-deny `requiredRole` map (`DeleteTenant`=`owner`, everything else=`admin`); subsequent slices implement bodies
+- [x] `internal/admin/` package implements the above RPCs — slice 1 ships the handler skeleton (every RPC returns `CodeUnimplemented`) plus the three layered interceptors and a default-deny `requiredRole` map (`DeleteTenant`=`owner`, everything else=`admin`); subsequent slices implement bodies
 - [x] `CreateUpstream` runs `IndexUpstream` inline for tenant-mode strategies (`none`, `static_header` tenant-mode) and returns `{requires_admin_link: false, tools: [...]}`; for per-user strategies it returns `{requires_admin_link: true, connect_url}` and leaves the catalog empty until an admin/owner completes the connect flow
 - [x] `ReindexUpstreamCatalog` rejects per-user-strategy calls from admins who hold no enabled link to the upstream with `failed_precondition`
 - [x] `Upstreams.vue` blocks the "upstream ready" state on `tool_count > 0` and renders the admin-link modal as the mandatory next step after creating an OAuth/per-user upstream
 - [x] `UpstreamDetail.vue` includes the `ContextJsonEditor.vue` for `defaults_json`: textarea-backed JSON.parse linter with live size + parse validation, schema hints per strategy, and a disabled merged-preview placeholder (will use `AdminService.PreviewUpstreamContext` once a user-picker lands)
 - [x] `AdminService.UpdateUpstream` calls `contextblob.ValidateContextBlob` on `defaults_json` (inside `upstream.Service`) and maps failures to Connect `invalid_argument` with a structured `field_path` detail
 - [x] `web/shared/src/components/ContextJsonEditor.vue` and `web/shared/src/lib/upstreamContextHints.ts` are reusable from the customer portal (Phase 9b) for the per-link `context_json` editor
-- [ ] `Dashboard.vue` renders the onboarding bento (welcome + setup-progress + 3 task cards + system-health empty state + quick-resources) and computes step completion from `ListUpstreams` + `tenant_settings.invited_team_at` + `tenant_settings.configured_at`
-- [ ] `ContextualSearch.vue` honours `route.meta.search` for `filter` vs `palette` vs hidden modes; placeholder text is route-driven
-- [x] `Members.vue` (v1) wraps `ZitadelDirectory.vue` and renders deep-links for invite / role / remove / IdP / branding / login policy / personal profile, populated with the calling tenant's `orgId`
-- [ ] `Settings.vue` covers tenant name + read-only `PublicID` + read-only Zitadel identity panel + DCR redirect-URI allowlist editor + Danger Zone (`DeleteTenant`)
-- [x] `internal/admin/` contains **no** `members.go` and **no** `idp.go` at v1; reviewers may approve `members.go` at v1.5+ but never `idp.go`
+- [x] `Dashboard.vue` renders the onboarding bento (welcome + setup-progress + 3 task cards + system-health empty state + quick-resources) and computes step completion from `ListUpstreams` + `tenant_settings.invited_team_at` + `tenant_settings.configured_at`
+- [x] `ContextualSearch.vue` honours `route.meta.search` for `filter` vs `palette` vs hidden modes; placeholder text is route-driven
+- [x] `Members.vue` (v1) renders the inline members table via `ListMembers` with invite / edit-role / remove modals plus the identity-policies deep-link panel below (`ZitadelDirectory.vue` for IdP / branding / login / profile); the original deep-link-only v1 surface was superseded when the Limen-owned Members RPCs landed in this phase
+- [x] `Settings.vue` covers tenant name + read-only `PublicID` + read-only Zitadel identity panel + DCR redirect-URI allowlist editor + Danger Zone (`DeleteTenant`)
+- [x] `internal/admin/` ships `members.go` backed by Zitadel User V2 + Authorization V2 pass-through and contains **no** `idp.go`; IdP federation stays permanently delegated to Zitadel Console
 - [x] No `tenant_idp_configurations` migration ever; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.
 - [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
 - [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
@@ -519,12 +514,12 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [ ] Admin SPA routes lazy-loaded; all v1 pages above implemented
 - [x] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [x] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
-- [ ] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
+- [x] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary
 - [ ] Vite dev proxy + Phase 11 Caddyfile route `/t/*/admin/api/*`, `/signup`, `/auth/signup`, `/auth/discovery` to Limen
 - [ ] Bundle-separation test: a clean-cache `member` browsing `/portal/` does not fetch the admin bundle
-- [ ] Phase 9b proto and handlers trimmed: admin RPCs moved out; Phase 9b doc updated to point at this phase
-- [ ] Phase 4 _Self-service delegation_ table updated to reflect Limen-owned member management
-- [ ] `AGENTS.md` build section updated
+- [x] Phase 9b proto and handlers trimmed: admin RPCs moved out; Phase 9b doc updated to point at this phase
+- [x] Phase 4 _Self-service delegation_ table updated to reflect Limen-owned member management
+- [x] `AGENTS.md` build section updated
 
 ### Member management
 
