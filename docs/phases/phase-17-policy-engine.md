@@ -1,4 +1,4 @@
-# Phase 16 — Policy engine (tag-based IAM for users, upstreams, tools, clients)
+# Phase 17 — Policy engine (tag-based IAM for users, upstreams, tools, clients)
 
 **Depends on**: [Phase 4](phase-04-tenant-auth-session.md) (users + roles claim),
 [Phase 6](phase-06-resource-server.md) (MCP RS request path),
@@ -351,7 +351,7 @@ single round-trip to Postgres.
 
 The "hidden upstream" rule applies to **every principal that would
 call into the gateway** — owner, admin, member, service account
-([Phase 17](phase-17-observability-and-active-users.md)). It does
+([Phase 16](phase-16-observability-and-active-users.md)). It does
 **not** apply to administrative views whose job is to manage the
 policies themselves:
 
@@ -439,7 +439,7 @@ sees Policies hidden from the nav.
 
 The admin **Dashboard** ([web/admin/src/pages/Dashboard.vue](../../web/admin/src/pages/Dashboard.vue))
 already ships a four-card setup bento (`connect`, `ide`, `invite`,
-`configure`). Phase 16 adds a **fifth** card so picking a policy
+`configure`). Phase 17 adds a **fifth** card so picking a policy
 posture is part of new-tenant onboarding rather than a setting an
 admin discovers months later when a deny doesn't fire as expected.
 

@@ -1,4 +1,4 @@
-# Phase 17 — Observability, active-user billing & service accounts
+# Phase 16 — Observability, active-user billing & service accounts
 
 **Depends on**: [Phase 6](phase-06-resource-server.md) (tool-call hot path),
 [Phase 8](phase-08-per-tenant-injection.md) +
@@ -106,46 +106,190 @@ RLS-forced under the standard tenant policy; staff cross-tenant
 `SELECT` honours `limen.staff_mode`
 ([Phase 12](phase-12-staff-backoffice.md)).
 
-### Async writer (non-blocking)
+### Event transport: Valkey Streams + observer pod
 
-The dispatch path **must not** block on metric persistence. The same
-in-memory channel + drain goroutine pattern that
-[Phase 13's webhook handler](phase-13-billing-stripe.md#webhook-endpoint)
-uses applies here, with tuned parameters:
+The dispatch path **must not** block on metric persistence — and with
+multi-pod gateway deployments ([Phase 11](phase-11-production-deployment.md)),
+per-pod in-memory buffers can't coordinate dedup or back-pressure.
+Solution: gateway pods fire events at a **Valkey Stream**
+([upstream docs](https://valkey.io/topics/streams-intro/)); a dedicated
+**observer binary** consumes the stream and owns every Postgres write.
 
 ```
-internal/observability/recorder.go
+gateway pod (cmd/gateway)         valkey                   limen-observer (cmd/observer)
+─────────────────────────         ──────                   ─────────────────────────────
+dispatch.Record(ev)               Stream: tool_calls   ◀──XREADGROUP GROUP observer …
+  → encode (msgpack)              MAXLEN ~ 1000000          batch 256 / 250ms
+  → XADD * tenant_id=… …      ───▶ (~7 d worst-case            ↓
+  → return immediately              retention; <1 min        encrypt-if-needed (no-op for tool calls)
+                                    in steady state)            ↓
+                                                              COPY → tool_call_events
+                                                              upsert active_user_months
+                                                              emit billing.*_became_active rows
+                                                                ↓
+                                                              XACK observer <ids…>
+                                                              XDEL tool_calls <ids…>
+```
 
-type Recorder struct { ch chan Event; ... }
+Why Streams (not Pub/Sub):
+
+- **Durable**: entries persist until ACK+DEL, so an observer restart
+  loses nothing. Pub/Sub drops messages if no subscriber is connected
+  at publish time — unacceptable for billing data.
+- **Consumer groups** (`XREADGROUP GROUP observer worker-N`): the
+  observer scales horizontally; each entry is delivered to exactly one
+  worker, with a pending-entries list for crash recovery.
+- **Bounded memory**: `MAXLEN ~ 1000000` on every `XADD` caps the
+  stream; oldest entries are evicted if the observer falls catastrophically
+  behind. Evictions are counted (`limen_observability_stream_evicted_total`)
+  and alert in the ops runbook. The `~` is the approximate-trim flag —
+  ~10× cheaper than exact trim, slop is at most a few thousand entries.
+- **Replay**: bug in the consumer? Reset the consumer-group cursor and
+  reprocess. `XDEL` happens only after a successful Postgres write, so
+  in-flight events survive consumer code changes.
+
+#### Retention
+
+The stream is **ephemeral by design**. After the observer commits the
+batch to Postgres it issues `XACK` _and_ `XDEL` in the same pipeline,
+so processed entries disappear immediately. In steady state the
+stream holds < 1 minute of unprocessed events; the `MAXLEN` cap is
+purely the disaster-mode safety net. We do **not** retain
+already-processed entries for replay — the source of truth is
+Postgres, and Postgres supports any historical query we care about.
+
+(Note: `XACK` alone does not delete the entry — it only clears the
+pending-entries list for the consumer group. `XDEL` is what frees the
+memory. Both must happen.)
+
+#### Operational notes from the Valkey docs
+
+A few specifics from the [Valkey Streams intro](https://valkey.io/topics/streams-intro/)
+that shape the runbook (not the code):
+
+- **AOF + fsync.** Valkey streams replicate asynchronously and the
+  consumer-group state is in AOF/RDB like any other key. If a
+  primary fails over before a recently-`XADD`-ed entry replicates,
+  that entry is gone — at-most-once for the in-flight window. The
+  operator runbook ([Phase 10](phase-10-wiring-hardening.md)) pins
+  Valkey to `appendfsync everysec` minimum; metrics tolerate the
+  worst-case 1 s window, and Postgres remains the source of truth
+  for everything that has already been ACK-ed.
+- **Stuck consumer recovery.** Observer pods use `XAUTOCLAIM` on
+  startup (and periodically every 60 s) with `min-idle-time = 60000`
+  to take over messages whose owning consumer crashed. The delivery
+  counter on each pending entry is exposed as a Prometheus gauge;
+  any entry with delivery count ≥ 5 is moved to a dead-letter
+  stream (`tool_calls:dlq`) and surfaces an operator alert. The
+  dead-letter stream is sized small (`MAXLEN 10000`) and inspected
+  manually — it should be empty in steady state.
+- **Consumer-group bootstrap.** First-time observer startup runs
+  `XGROUP CREATE tool_calls observer $ MKSTREAM` (idempotent — we
+  swallow `BUSYGROUP`). Using `$` means we start from "new entries
+  only"; we explicitly do **not** want to replay history at first
+  boot since the gateway hasn't been producing into the stream
+  before the observer existed.
+- **Single-stream throughput.** `XADD` is O(1) and benchmarks at
+  ≥ 500 K inserts/s on a single Valkey node. We are nowhere near
+  that ceiling; if we ever approach it, the response is to shard
+  the stream by `(tenant_id mod N)`, not to scale Valkey vertically.
+
+#### Gateway-side recorder
+
+The gateway never touches `tool_call_events` directly. Its only job
+is to put an event on the stream.
+
+```go
+// internal/observability/recorder.go
+
+type Recorder struct {
+    valkey *valkey.Client   // shared with the rest of the gateway
+    fallback chan Event     // only used when valkey.enabled == false
+    dropped  atomic.Uint64
+}
 
 func (r *Recorder) Record(ev Event) {
-    select {
-    case r.ch <- ev:                  // happy path
-    default:
-        atomic.AddUint64(&r.dropped, 1) // shed load instead of stalling
+    payload := msgpack.Marshal(&ev)
+    if err := r.valkey.XAdd(ctx, "tool_calls", payload, MaxLen(1_000_000)); err != nil {
+        r.dropped.Add(1)
+        return // shed load — never block dispatch
     }
 }
 ```
 
-- Buffer size: 8192 events. At a sustained 1 K req/s the drain has
-  ~8 s of head-room before shedding.
-- Drain goroutine batches up to 256 events or 250 ms, whichever first,
-  and `COPY`s into Postgres via `pgx`'s `CopyFrom`. (GORM is fine for
-  CRUD; not for hot-path bulk inserts.)
-- `dropped` counter is exported as a Prometheus gauge —
-  `limen_observability_dropped_total` — alerting threshold lives in
-  the ops runbook, not the code.
-- The drain owns its own pool connection (`storage.WithSuperuser` is
-  **not** needed; tenant id travels on each row and RLS still applies
-  via the standard `limen_app` pool — the writer sets
-  `limen.tenant_id` per `COPY` batch by sorting events by tenant and
-  emitting one `SET LOCAL` + `COPY` per tenant inside one transaction).
+- `XADD` round-trip target: < 200 μs on the same VPC, < 50 μs with
+  Unix-socket Valkey in dev.
+- Failure is non-fatal: increment `limen_observability_dropped_total`
+  and move on. No retry queue in the gateway — the observer is the
+  retry layer.
+- The all-in-one `cmd/limen/` binary (dev + small self-hosted)
+  short-circuits the stream when `valkey.enabled: false`: the
+  Recorder owns an in-process channel and drains it on the same
+  goroutine that would otherwise be the observer. Same code, same
+  invariants; no Valkey infrastructure required.
 
-The dispatch hook is a single call at one site — `internal/mcprs/`'s
-tool-call wrapper — for both direct MCP and codemode-driven calls.
-Codemode does **not** call `Record` itself; it calls the wrapped
-dispatch, which records once. That keeps "one tool call = one row"
-invariant intact even when the same script makes 50 fan-out calls.
+The dispatch hook is a single call at one site —
+`internal/mcprs/`'s tool-call wrapper — for both direct MCP and
+codemode-driven calls. Codemode does **not** call `Record` itself;
+it calls the wrapped dispatch, which records once. That keeps
+"one tool call = one row" intact even when a script fans out 50
+calls.
+
+### `cmd/observer` — the consumer binary
+
+This phase ships a sixth binary: `cmd/observer/main.go`, built and
+deployed alongside the existing five. Same Go module, same
+`internal/boot/` runtime, same Docker base image — the split is at
+the entry-point + image boundary, per
+[Phase 9a](phase-09a-binary-split.md)'s pattern.
+
+Responsibilities (everything the gateway used to do on the drain
+goroutine, plus a few things that benefit from being centralized):
+
+1. **`tool_calls` stream consumer.** Joins consumer group `observer`,
+   batches up to 256 events or 250 ms, `COPY`s into
+   `tool_call_events`, upserts `active_user_months` in the same
+   transaction, then `XACK`+`XDEL`.
+2. **`audit` stream consumer.** Same pattern for audit events — see
+   [`docs/audit.md` § Asynchronous transport](../audit.md#asynchronous-transport).
+3. **Materialized-view refresher.** Every 5 min jittered, runs
+   `REFRESH MATERIALIZED VIEW CONCURRENTLY tool_call_5m`. Single-
+   leader via a Valkey lease key (`SET observer:mv-lease … NX PX 60000`).
+4. **Billing nudges.** When the active-user upsert creates a new row
+   for the current month, emit a `billing.user_became_active` audit
+   event (which itself goes through the audit stream) and kick the
+   billing reconciler via a Valkey notification — see
+   [§ Active users → billing](#active-users--billing-replaces-phase-13s-seat-counter).
+
+Deployment shape:
+
+- **SaaS / multi-pod**: 2 observer pods minimum (rolling-update
+  friendly), consumer-group ensures each event is processed once
+  even with N workers. Lease-key ensures the materialized-view
+  refresh runs on exactly one pod at a time.
+- **Self-hosted small**: a single observer container alongside the
+  gateway / portal pods.
+- **All-in-one `cmd/limen/`**: no separate process; the observer
+  runs as a goroutine inside the same binary, sharing the DB pool.
+
+The observer holds its own `limen_app` pool connection. `tenant_id`
+travels on each row; the observer sets `limen.tenant_id` per `COPY`
+batch by sorting events by tenant and emitting one `SET LOCAL` +
+`COPY` per tenant inside one transaction (the standard RLS pattern,
+not `WithSuperuser`).
+
+#### Why a separate binary
+
+- **Hot-path isolation.** A slow Postgres or a long-running mat-view
+  refresh cannot back-pressure the gateway. The blast radius is the
+  observer + its stream backlog; the MCP request path is unaffected.
+- **Scales independently.** Observer pods are CPU-bound on
+  serialization + DB writes, gateway pods are CPU-bound on JS
+  evaluation. Different shapes, different node sizes.
+- **Single-writer guarantees.** All writes to `tool_call_events`,
+  `active_user_months`, and `audit_events` go through one binary,
+  one connection pool. Easier to reason about transactions,
+  idempotency, and rate limits.
 
 ### What counts
 
@@ -348,7 +492,7 @@ New entity. Fully separate from `users` because:
   (PAT) issued by Limen, not via Zitadel. They never log in to the
   portal; they don't have a Zitadel subject; they cannot own a tenant.
 - Their billing rule is different (see below).
-- Their policy-engine treatment ([Phase 16](phase-16-policy-engine.md))
+- Their policy-engine treatment ([Phase 17](phase-17-policy-engine.md))
   is identical (taggable, subject to policies) — service accounts are
   bound by `tag_bindings.subject_kind = 'service_account'` (new enum
   variant).
@@ -425,7 +569,7 @@ New `/t/<tenant>/portal/admin/service-accounts` page:
   prominent "we will not show this again" warning. Standard PAT idiom.
 - Detail: list of tokens (with prefixes, never the full secret),
   revoke buttons, and the same tag-binding UI used for users
-  ([Phase 16](phase-16-policy-engine.md)).
+  ([Phase 17](phase-17-policy-engine.md)).
 - Owner + admin can create / revoke; member cannot see the page.
 
 ### Audit
@@ -529,7 +673,7 @@ table only carries the per-tool outcome.
       `IssueToken` / `RevokeToken`, `ListServiceAccounts`.
 - [ ] MCP RS middleware: `limen_pat_` prefix dispatch + argon2id
       verification.
-- [ ] [Phase 16](phase-16-policy-engine.md) integration:
+- [ ] [Phase 17](phase-17-policy-engine.md) integration:
       `tag_bindings.subject_kind` enum gains `service_account`;
       evaluator handles the new principal kind transparently.
 - [ ] `internal/billing/seats.go` rewritten against

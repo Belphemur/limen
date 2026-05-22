@@ -77,9 +77,10 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 
 ### Binaries
 
-Limen ships as **five binaries** built from a single Go module. The split is
-at the entry-point + Docker-image boundary only; everything in
-`internal/boot` and `internal/*` is shared.
+Limen ships as **five binaries today** (a sixth, `limen-observer`, lands
+in [Phase 16](phases/phase-16-observability-and-active-users.md)) built
+from a single Go module. The split is at the entry-point + Docker-image
+boundary only; everything in `internal/boot` and `internal/*` is shared.
 
 | Binary           | Entry            | Mounts                                                                                 | Boot profile                                     |
 | ---------------- | ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -88,10 +89,13 @@ at the entry-point + Docker-image boundary only; everything in
 | `limen-portal`   | `cmd/portal`     | Portal SPA, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, upstream OAuth callback | `NeedStore \| NeedCipher \| NeedSigner`          |
 | `limen-staff`    | `cmd/staff`      | `/healthz`, `/readyz` today; backoffice routes land in Phase 12                        | `NeedStore`                                      |
 | `limenctl`       | `cmd/limenctl`   | Admin CLI: `migrate`, `create-tenant`, `create-upstream` (no HTTP)                     | n/a                                              |
+| `limen-observer` *(Phase 16)* | `cmd/observer` | No HTTP surface — drains the `tool_calls` and `audit` Valkey Streams and owns every Postgres write for observability + audit | `NeedStore \| NeedCipher \| NeedValkey` |
 
 Production runs `limen-gateway`, `limen-portal`, and `limen-staff` as
 separate services with `limenctl migrate` as a one-shot init container. The
-all-in-one `limen` is for dev and small self-hosted deployments. See
+all-in-one `limen` is for dev and small self-hosted deployments (and, once
+Phase 16 lands, embeds the observer as a goroutine rather than a separate
+process). See
 [docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
 
 **Load-bearing constraint**: `cmd/gateway`'s transitive import graph must
