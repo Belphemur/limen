@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createRouterTransport, type Transport } from '@connectrpc/connect'
-import { create } from '@bufbuild/protobuf'
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import { setSessionTransport, resetSessionTransport } from '@limen/shared/session'
 import { resetDiscoveryCache } from '@limen/shared'
 import {
@@ -15,7 +15,7 @@ import {
   PortalService,
   ListUpstreamsResponseSchema,
   LinkState,
-  type UpstreamSummary,
+  UpstreamSummarySchema,
 } from '@/gen/limen/portal/v1/portal_pb.ts'
 import {
   AdminService,
@@ -67,26 +67,30 @@ function happySessionTransport(): Transport {
 // adminAndPortalTransport stubs BOTH services on a single
 // createRouterTransport — the Dashboard reuses the admin transport
 // for the portal client (same /t/{tenant}/admin/api/ mount).
-function adminAndPortalTransport(upstreams: Partial<UpstreamSummary>[]): Transport {
+function adminAndPortalTransport(
+  upstreams: MessageInitShape<typeof UpstreamSummarySchema>[],
+): Transport {
   return createRouterTransport(({ service }) => {
     service(PortalService, {
       listUpstreams: () =>
         create(ListUpstreamsResponseSchema, {
-          upstreams: upstreams.map((u) => ({
-            publicId: '',
-            identifier: '',
-            displayName: '',
-            mcpUrl: '',
-            strategyType: '',
-            strategySubMode: '',
-            requiresLink: false,
-            linkState: LinkState.UNSPECIFIED,
-            lastErrorReason: '',
-            lastErrorAt: '',
-            tools: [],
-            aliases: [],
-            ...u,
-          })),
+          upstreams: upstreams.map((u) =>
+            create(UpstreamSummarySchema, {
+              publicId: '',
+              identifier: '',
+              displayName: '',
+              mcpUrl: '',
+              strategyType: '',
+              strategySubMode: '',
+              requiresLink: false,
+              linkState: LinkState.UNSPECIFIED,
+              lastErrorReason: '',
+              lastErrorAt: '',
+              tools: [],
+              aliases: [],
+              ...u,
+            }),
+          ),
         }),
     })
     service(AdminService, {

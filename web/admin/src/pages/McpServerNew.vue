@@ -30,8 +30,8 @@ interface Form {
   identifierAutoDerived: boolean
   mcpUrl: string
   strategyType: StrategyType
-  strategySubMode: 'tenant' | 'user' | ''
   apiKey: string
+  allowUserOverride: boolean
   headerName: string
   headerTemplate: string
   oauthClientId: string
@@ -46,8 +46,8 @@ const form = reactive<Form>({
   identifierAutoDerived: true,
   mcpUrl: '',
   strategyType: 'mcp_spec',
-  strategySubMode: '',
   apiKey: '',
+  allowUserOverride: false,
   headerName: 'Authorization',
   headerTemplate: 'Bearer {value}',
   oauthClientId: '',
@@ -118,10 +118,8 @@ const hint = computed(() => hintsFor(form.mcpUrl))
 watch(
   () => form.strategyType,
   (s) => {
-    if (s === 'static_header') {
-      if (!form.strategySubMode) form.strategySubMode = 'tenant'
-    } else {
-      form.strategySubMode = ''
+    if (s !== 'static_header') {
+      form.allowUserOverride = false
     }
   },
 )
@@ -149,7 +147,9 @@ const canSubmit = computed(
     form.displayName.trim() !== '' &&
     form.mcpUrl.trim() !== '' &&
     (form.strategyType !== 'static_header' ||
-      (form.headerName.trim() !== '' && form.headerTemplate.trim() !== '')),
+      (form.headerName.trim() !== '' &&
+        form.headerTemplate.trim() !== '' &&
+        form.apiKey.trim() !== '')),
 )
 
 interface StrategyCard {
@@ -193,13 +193,12 @@ function strategyIconComponent(s: StrategyType) {
 
 function buildStrategyConfig(): Record<string, string> {
   if (form.strategyType === 'static_header') {
-    const cfg: Record<string, string> = {
+    return {
       header_name: form.headerName,
       header_template: form.headerTemplate,
-      mode: form.strategySubMode || 'tenant',
+      value: form.apiKey,
+      allow_user_override: form.allowUserOverride ? 'true' : 'false',
     }
-    if (form.strategySubMode === 'tenant' && form.apiKey) cfg.value = form.apiKey
-    return cfg
   }
   return {}
 }
@@ -330,7 +329,6 @@ async function submit() {
         displayName: form.displayName.trim(),
         mcpUrl: form.mcpUrl.trim(),
         strategyType: form.strategyType,
-        strategySubMode: form.strategySubMode,
         strategyConfig: buildStrategyConfig(),
         defaultsJson: form.defaultsJson.trim(),
         oauthClientOverride:
@@ -475,26 +473,6 @@ function goToDetail() {
           <h2 class="text-base font-semibold text-on-surface">Header configuration</h2>
         </header>
         <div class="space-y-stack-md p-4">
-          <fieldset class="space-y-2">
-            <legend class="text-sm font-medium text-on-surface">Secret resolution mode</legend>
-            <div class="inline-flex rounded-md border border-outline-variant bg-surface-container p-1">
-              <button type="button" class="rounded px-3 py-1 text-xs font-medium transition-colors" :class="form.strategySubMode !== 'user'
-                ? 'bg-surface-container-lowest text-primary shadow-sm'
-                : 'text-on-surface-variant'
-                " @click="form.strategySubMode = 'tenant'">
-                Tenant (shared)
-              </button>
-              <button type="button" class="rounded px-3 py-1 text-xs font-medium transition-colors" :class="form.strategySubMode === 'user'
-                ? 'bg-surface-container-lowest text-primary shadow-sm'
-                : 'text-on-surface-variant'
-                " @click="form.strategySubMode = 'user'">
-                User (individual)
-              </button>
-            </div>
-            <p class="text-xs text-on-surface-variant">
-              Tenant mode uses one global secret. User mode lets each member supply their own.
-            </p>
-          </fieldset>
           <div class="grid gap-stack-md md:grid-cols-2">
             <label class="block">
               <span class="text-sm font-medium text-on-surface">Header name</span>
@@ -510,15 +488,34 @@ function goToDetail() {
               </span>
             </label>
           </div>
-          <label v-if="form.strategySubMode === 'tenant'"
-            class="block border-t border-dashed border-outline-variant pt-stack-md">
+          <label class="block border-t border-dashed border-outline-variant pt-stack-md">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
-              Shared tenant secret
+              Shared secret
               <span class="text-xs font-normal text-on-surface-variant">Required</span>
             </span>
             <input v-model="form.apiKey" type="password" placeholder="Enter secure token or API key"
+              autocomplete="off"
               class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               data-testid="field-api-key" />
+            <span class="mt-1 block text-xs text-on-surface-variant">
+              Used as the default credential for every member of this tenant. Stored
+              encrypted at rest.
+            </span>
+          </label>
+          <label class="flex items-start gap-3 rounded-md border border-outline-variant bg-surface-container-low p-3">
+            <input v-model="form.allowUserOverride" type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+              data-testid="field-allow-user-override" />
+            <span class="block">
+              <span class="block text-sm font-medium text-on-surface">
+                Allow members to override with their own key
+              </span>
+              <span class="mt-0.5 block text-xs text-on-surface-variant">
+                When enabled, each user can submit a personal API key in the portal that
+                will be used instead of the shared secret above. If a user's key fails,
+                Limen transparently falls back to the shared secret.
+              </span>
+            </span>
           </label>
         </div>
       </section>

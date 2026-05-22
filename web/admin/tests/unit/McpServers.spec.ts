@@ -3,12 +3,12 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createRouterTransport, type Transport } from '@connectrpc/connect'
-import { create } from '@bufbuild/protobuf'
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import {
   PortalService,
   ListUpstreamsResponseSchema,
   LinkState,
-  type UpstreamSummary,
+  UpstreamSummarySchema,
 } from '@/gen/limen/portal/v1/portal_pb.ts'
 import {
   AdminService,
@@ -32,28 +32,30 @@ function buildRouter(): Router {
 }
 
 function withUpstreams(
-  upstreams: Partial<UpstreamSummary>[],
+  upstreams: MessageInitShape<typeof UpstreamSummarySchema>[],
   opts?: { onDelete?: () => void },
 ): Transport {
   return createRouterTransport(({ service }) => {
     service(PortalService, {
       listUpstreams: () =>
         create(ListUpstreamsResponseSchema, {
-          upstreams: upstreams.map((u) => ({
-            publicId: 'up_x',
-            identifier: 'x',
-            displayName: '',
-            mcpUrl: '',
-            strategyType: 'none',
-            strategySubMode: '',
-            requiresLink: false,
-            linkState: LinkState.UNSPECIFIED,
-            lastErrorReason: '',
-            lastErrorAt: '',
-            tools: [],
-            aliases: [],
-            ...u,
-          })),
+          upstreams: upstreams.map((u) =>
+            create(UpstreamSummarySchema, {
+              publicId: 'up_x',
+              identifier: 'x',
+              displayName: '',
+              mcpUrl: '',
+              strategyType: 'none',
+              strategySubMode: '',
+              requiresLink: false,
+              linkState: LinkState.UNSPECIFIED,
+              lastErrorReason: '',
+              lastErrorAt: '',
+              tools: [],
+              aliases: [],
+              ...u,
+            }),
+          ),
         }),
     })
     service(AdminService, {
@@ -101,21 +103,26 @@ describe('McpServers', () => {
 
   it('calls deleteUpstream after confirmation and drops the row', async () => {
     let called = false
-    const origConfirm = window.confirm
-    window.confirm = () => true
-    try {
-      const { wrapper } = await mountPage(
-        withUpstreams(
-          [{ publicId: 'up_a', identifier: 'github', displayName: 'GitHub' }],
-          { onDelete: () => (called = true) },
-        ),
-      )
-      await wrapper.get('[data-testid="upstream-delete-github"]').trigger('click')
-      await flushPromises()
-      expect(called).toBe(true)
-      expect(wrapper.find('[data-testid="upstreams-empty"]').exists()).toBe(true)
-    } finally {
-      window.confirm = origConfirm
-    }
+    const { wrapper } = await mountPage(
+      withUpstreams(
+        [{ publicId: 'up_a', identifier: 'github', displayName: 'GitHub' }],
+        { onDelete: () => (called = true) },
+      ),
+    )
+    await wrapper.get('[data-testid="upstream-delete-github"]').trigger('click')
+    await flushPromises()
+    const input = document.querySelector(
+      '[data-testid="confirm-delete-input"]',
+    ) as HTMLInputElement
+    input.value = 'github'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    const confirmBtn = document.querySelector(
+      '[data-testid="confirm-delete-confirm"]',
+    ) as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+    expect(called).toBe(true)
+    expect(wrapper.find('[data-testid="upstreams-empty"]').exists()).toBe(true)
   })
 })

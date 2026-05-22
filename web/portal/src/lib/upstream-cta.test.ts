@@ -17,83 +17,123 @@ function summary(overrides: MessageInitShape<typeof UpstreamSummarySchema>): Ups
     strategySubMode: '',
     requiresLink: true,
     linkState: LinkState.NONE,
+    hasUserOverride: false,
     lastErrorReason: '',
     lastErrorAt: '',
     ...overrides,
   })
 }
 
-describe('upstreamCTAs', () => {
+const sharedHeader = { strategyType: 'static_header', strategySubMode: 'shared' } as const
+const overrideHeader = {
+  strategyType: 'static_header',
+  strategySubMode: 'override',
+} as const
+
+describe('upstreamCTAs — non-link strategies', () => {
   it('returns no CTAs when the upstream does not require a link', () => {
     const cta = upstreamCTAs(summary({ requiresLink: false, strategyType: 'none' }))
     expect(cta).toEqual([])
   })
+})
 
-  it('returns no CTAs for static_header tenant-mode (tenant key is admin-managed)', () => {
-    const cta = upstreamCTAs(
-      summary({ strategyType: 'static_header', strategySubMode: 'tenant', requiresLink: false }),
-    )
-    expect(cta).toEqual([])
+describe('upstreamCTAs — mcp_spec', () => {
+  it('NONE → Connect', () => {
+    expect(upstreamCTAs(summary({ linkState: LinkState.NONE })).map((c) => c.kind)).toEqual([
+      'connect',
+    ])
   })
-
-  it('NONE + mcp_spec → Connect', () => {
-    const cta = upstreamCTAs(summary({ linkState: LinkState.NONE }))
-    expect(cta.map((c) => c.kind)).toEqual(['connect'])
+  it('CONNECTED → Disable + Disconnect', () => {
+    expect(upstreamCTAs(summary({ linkState: LinkState.CONNECTED })).map((c) => c.kind)).toEqual([
+      'disable',
+      'disconnect',
+    ])
   })
-
-  it('NONE + static_header.user → Enter API key', () => {
-    const cta = upstreamCTAs(
-      summary({
-        strategyType: 'static_header',
-        strategySubMode: 'user',
-        linkState: LinkState.NONE,
-      }),
-    )
-    expect(cta.map((c) => c.kind)).toEqual(['submitKey'])
-  })
-
-  it('CONNECTED + mcp_spec → Disable + Disconnect', () => {
-    const cta = upstreamCTAs(summary({ linkState: LinkState.CONNECTED }))
-    expect(cta.map((c) => c.kind)).toEqual(['disable', 'disconnect'])
-  })
-
-  it('CONNECTED + static_header.user → Rotate + Disable + Disconnect', () => {
-    const cta = upstreamCTAs(
-      summary({
-        strategyType: 'static_header',
-        strategySubMode: 'user',
-        linkState: LinkState.CONNECTED,
-      }),
-    )
-    expect(cta.map((c) => c.kind)).toEqual(['rotateKey', 'disable', 'disconnect'])
-  })
-
-  it('DISABLED → Enable + Disconnect', () => {
-    const cta = upstreamCTAs(summary({ linkState: LinkState.DISABLED }))
-    expect(cta.map((c) => c.kind)).toEqual(['enable', 'disconnect'])
-  })
-
   it('AUTO_DISABLED → Re-enable + Disconnect', () => {
     const cta = upstreamCTAs(summary({ linkState: LinkState.AUTO_DISABLED }))
     expect(cta.map((c) => c.kind)).toEqual(['enable', 'disconnect'])
     expect(cta[0].label).toBe('Re-enable')
   })
-
-  it('NEEDS_RELINK + mcp_spec → Reconnect + Disconnect', () => {
+  it('NEEDS_RELINK → Reconnect + Disconnect', () => {
     const cta = upstreamCTAs(summary({ linkState: LinkState.NEEDS_RELINK }))
     expect(cta.map((c) => c.kind)).toEqual(['connect', 'disconnect'])
     expect(cta[0].label).toBe('Reconnect')
   })
+})
 
-  it('NEEDS_RELINK + static_header.user → Re-enter API key + Disconnect', () => {
+describe('upstreamCTAs — static_header shared', () => {
+  it('NONE → Disable (creates a hide-only link row)', () => {
+    expect(
+      upstreamCTAs(summary({ ...sharedHeader, linkState: LinkState.NONE })).map((c) => c.kind),
+    ).toEqual(['disable'])
+  })
+  it('CONNECTED → Disable + Disconnect', () => {
+    expect(
+      upstreamCTAs(summary({ ...sharedHeader, linkState: LinkState.CONNECTED })).map(
+        (c) => c.kind,
+      ),
+    ).toEqual(['disable', 'disconnect'])
+  })
+  it('DISABLED → Enable + Disconnect', () => {
+    expect(
+      upstreamCTAs(summary({ ...sharedHeader, linkState: LinkState.DISABLED })).map((c) => c.kind),
+    ).toEqual(['enable', 'disconnect'])
+  })
+})
+
+describe('upstreamCTAs — static_header override (no user secret yet)', () => {
+  it('NONE → Submit key', () => {
+    expect(
+      upstreamCTAs(
+        summary({ ...overrideHeader, hasUserOverride: false, linkState: LinkState.NONE }),
+      ).map((c) => c.kind),
+    ).toEqual(['submitKey'])
+  })
+  it('CONNECTED (no override) → Submit key + Disable + Disconnect', () => {
+    expect(
+      upstreamCTAs(
+        summary({ ...overrideHeader, hasUserOverride: false, linkState: LinkState.CONNECTED }),
+      ).map((c) => c.kind),
+    ).toEqual(['submitKey', 'disable', 'disconnect'])
+  })
+  it('DISABLED (no override) → Enable + Submit key', () => {
+    expect(
+      upstreamCTAs(
+        summary({ ...overrideHeader, hasUserOverride: false, linkState: LinkState.DISABLED }),
+      ).map((c) => c.kind),
+    ).toEqual(['enable', 'submitKey'])
+  })
+})
+
+describe('upstreamCTAs — static_header override (user secret set)', () => {
+  it('CONNECTED → Rotate + Clear override + Disable + Disconnect', () => {
     const cta = upstreamCTAs(
-      summary({
-        strategyType: 'static_header',
-        strategySubMode: 'user',
-        linkState: LinkState.NEEDS_RELINK,
-      }),
+      summary({ ...overrideHeader, hasUserOverride: true, linkState: LinkState.CONNECTED }),
     )
-    expect(cta.map((c) => c.kind)).toEqual(['submitKey', 'disconnect'])
+    expect(cta.map((c) => c.kind)).toEqual([
+      'rotateKey',
+      'clearOverride',
+      'disable',
+      'disconnect',
+    ])
+  })
+  it('NEEDS_RELINK → Re-enter key + Clear override + Disable + Disconnect (tools still work via shared)', () => {
+    const cta = upstreamCTAs(
+      summary({ ...overrideHeader, hasUserOverride: true, linkState: LinkState.NEEDS_RELINK }),
+    )
+    expect(cta.map((c) => c.kind)).toEqual([
+      'submitKey',
+      'clearOverride',
+      'disable',
+      'disconnect',
+    ])
     expect(cta[0].label).toBe('Re-enter API key')
+  })
+  it('AUTO_DISABLED → Re-enable + Clear override + Disconnect', () => {
+    const cta = upstreamCTAs(
+      summary({ ...overrideHeader, hasUserOverride: true, linkState: LinkState.AUTO_DISABLED }),
+    )
+    expect(cta.map((c) => c.kind)).toEqual(['enable', 'clearOverride', 'disconnect'])
+    expect(cta[0].label).toBe('Re-enable')
   })
 })

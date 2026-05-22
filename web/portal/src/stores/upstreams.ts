@@ -35,6 +35,11 @@ export const useUpstreamsStore = defineStore('upstreams', () => {
     await refresh()
   }
 
+  async function clearOverride(upstreamIdentifier: string): Promise<void> {
+    await portalClient().clearUpstreamOverride({ upstreamIdentifier })
+    await refresh()
+  }
+
   async function setEnabled(upstreamIdentifier: string, enabled: boolean): Promise<void> {
     await portalClient().setUpstreamLinkEnabled({ upstreamIdentifier, enabled })
     await refresh()
@@ -45,5 +50,15 @@ export const useUpstreamsStore = defineStore('upstreams', () => {
     await refresh()
   }
 
-  return { items, loading, error, refresh, startConnect, submitApiKey, setEnabled, disconnect }
+  return {
+    items,
+    loading,
+    error,
+    refresh,
+    startConnect,
+    submitApiKey,
+    clearOverride,
+    setEnabled,
+    disconnect,
+  }
 })

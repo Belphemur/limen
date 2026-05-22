@@ -32,6 +32,16 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
       case 'rotateKey':
         modal.value = { open: true, upstream: up }
         return
+      case 'clearOverride':
+        if (
+          !window.confirm(
+            `Stop using your personal key for ${up.displayName || up.identifier}? The shared key configured by your tenant admin will be used instead.`,
+          )
+        ) {
+          return
+        }
+        await upstreams.clearOverride(up.identifier)
+        return
       case 'enable':
         await upstreams.setEnabled(up.identifier, true)
         return
