@@ -145,6 +145,7 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - New `proto/limen/staff/v1/staff.proto` + buf wiring.
 - New `internal/staff/` package: RPC handlers, impersonation flow, breaker control.
 - New `internal/storage/staff.go`: `WithStaffRead(ctx)` helper, staff-mode RLS migration.
+- **Staff-managed tenant tags** — a key/value tag namespace owned by the staff backoffice and bound to `tenants` themselves (e.g. `tier=enterprise`, `region=eu`, `pilot=true`). Powers cross-tenant filtering in the Tenants list, future per-tier free-tier overrides, and EU-only feature gates. Schema is the same `tags` / `tag_bindings` shape introduced in [Phase 16](phase-16-policy-engine.md) but rows live in dedicated `staff_tenant_tags` + `staff_tenant_tag_bindings` tables (no RLS — staff-only, accessed via `WithStaffRead`) so customer admins cannot see or author them. The Phase 16 policy evaluator does **not** consult these; this is a staff-side organisational tool, not a runtime gate.
 - New `internal/audit/` writer + `audit_events` migration (partitioned, **shared** across user / staff / system actors). Schema, encryption envelope, action vocabulary, and writer API are all specified in [docs/audit.md](../audit.md) — this phase implements that spec.
 - Retrofit prior phases (Phase 7 first, then Phase 9b / 9c) to route their existing structured-log audit events through `audit.Append` once the writer is available.
 - Extension to [Phase 0](phase-00-dev-environment.md) bootstrap: staff org + `super_admin` role + bootstrap user.
@@ -197,6 +198,7 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - [ ] Customer SPA shows a non-dismissible banner whenever an impersonation cookie is present
 - [ ] OAuth-handshake CTAs disabled in impersonated sessions
 - [ ] Upstream tokens remain encrypted-at-rest; decryption still happens only inside the upstream-call transport
+- [ ] `staff_tenant_tags` + `staff_tenant_tag_bindings` tables (staff-only, no RLS, accessed via `WithStaffRead`); `StaffService` RPCs `ListTenantTags`, `CreateTenantTag`, `BindTenantTag`, `UnbindTenantTag`; Tenants list gains a key/value filter chip row
 - [ ] SPA route bundles split: `_staff` lazy-loads the backoffice; customer tenants never download the staff bundle
 - [ ] Integration tests cover: role isolation, RLS staff-mode read, write-blocked-from-staff-mode, impersonation happy path, MFA gate, TTL expiry, force-unlink audit row, bundle separation
 - [ ] Runbook (Phase 10) updated with the impersonation procedure and audit-log query examples

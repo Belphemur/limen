@@ -44,6 +44,8 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing with Stripe (per-seat)](phase-13-billing-stripe.md)                                                   | 4, 9b, 10, 11, 12       | ☐            |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
+| 16  | [Policy engine (tag-based IAM)](phase-16-policy-engine.md)                                                     | 4, 6, 7, 8, 9c          | ☐            |
+| 17  | [Observability, active-user billing & service accounts](phase-17-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13    | ☐            |
 
 Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9b unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
