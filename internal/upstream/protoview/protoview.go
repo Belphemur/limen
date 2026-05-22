@@ -45,6 +45,7 @@ func ToSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSummary {
 		LastErrorReason: r.LastErrorReason,
 		Aliases:         r.Aliases,
 		Tools:           toToolProtos(r.Tools),
+		HasUserOverride: r.HasUserOverride,
 	}
 	if r.Link != nil && r.Link.LastFailureAt != nil {
 		out.LastErrorAt = r.Link.LastFailureAt.UTC().Format(time.RFC3339)

@@ -42,6 +42,9 @@ const (
 	// PortalServiceSubmitUpstreamAPIKeyProcedure is the fully-qualified name of the PortalService's
 	// SubmitUpstreamAPIKey RPC.
 	PortalServiceSubmitUpstreamAPIKeyProcedure = "/limen.portal.v1.PortalService/SubmitUpstreamAPIKey"
+	// PortalServiceClearUpstreamOverrideProcedure is the fully-qualified name of the PortalService's
+	// ClearUpstreamOverride RPC.
+	PortalServiceClearUpstreamOverrideProcedure = "/limen.portal.v1.PortalService/ClearUpstreamOverride"
 	// PortalServiceSetUpstreamLinkEnabledProcedure is the fully-qualified name of the PortalService's
 	// SetUpstreamLinkEnabled RPC.
 	PortalServiceSetUpstreamLinkEnabledProcedure = "/limen.portal.v1.PortalService/SetUpstreamLinkEnabled"
@@ -62,6 +65,7 @@ type PortalServiceClient interface {
 	ListUpstreams(context.Context, *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error)
 	StartConnect(context.Context, *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error)
 	SubmitUpstreamAPIKey(context.Context, *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error)
+	ClearUpstreamOverride(context.Context, *connect.Request[portalv1.ClearUpstreamOverrideRequest]) (*connect.Response[portalv1.ClearUpstreamOverrideResponse], error)
 	SetUpstreamLinkEnabled(context.Context, *connect.Request[portalv1.SetUpstreamLinkEnabledRequest]) (*connect.Response[portalv1.SetUpstreamLinkEnabledResponse], error)
 	Disconnect(context.Context, *connect.Request[portalv1.DisconnectRequest]) (*connect.Response[portalv1.DisconnectResponse], error)
 	ListMCPClients(context.Context, *connect.Request[portalv1.ListMCPClientsRequest]) (*connect.Response[portalv1.ListMCPClientsResponse], error)
@@ -97,6 +101,12 @@ func NewPortalServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(portalServiceMethods.ByName("SubmitUpstreamAPIKey")),
 			connect.WithClientOptions(opts...),
 		),
+		clearUpstreamOverride: connect.NewClient[portalv1.ClearUpstreamOverrideRequest, portalv1.ClearUpstreamOverrideResponse](
+			httpClient,
+			baseURL+PortalServiceClearUpstreamOverrideProcedure,
+			connect.WithSchema(portalServiceMethods.ByName("ClearUpstreamOverride")),
+			connect.WithClientOptions(opts...),
+		),
 		setUpstreamLinkEnabled: connect.NewClient[portalv1.SetUpstreamLinkEnabledRequest, portalv1.SetUpstreamLinkEnabledResponse](
 			httpClient,
 			baseURL+PortalServiceSetUpstreamLinkEnabledProcedure,
@@ -129,6 +139,7 @@ type portalServiceClient struct {
 	listUpstreams          *connect.Client[portalv1.ListUpstreamsRequest, portalv1.ListUpstreamsResponse]
 	startConnect           *connect.Client[portalv1.StartConnectRequest, portalv1.StartConnectResponse]
 	submitUpstreamAPIKey   *connect.Client[portalv1.SubmitUpstreamAPIKeyRequest, portalv1.SubmitUpstreamAPIKeyResponse]
+	clearUpstreamOverride  *connect.Client[portalv1.ClearUpstreamOverrideRequest, portalv1.ClearUpstreamOverrideResponse]
 	setUpstreamLinkEnabled *connect.Client[portalv1.SetUpstreamLinkEnabledRequest, portalv1.SetUpstreamLinkEnabledResponse]
 	disconnect             *connect.Client[portalv1.DisconnectRequest, portalv1.DisconnectResponse]
 	listMCPClients         *connect.Client[portalv1.ListMCPClientsRequest, portalv1.ListMCPClientsResponse]
@@ -148,6 +159,11 @@ func (c *portalServiceClient) StartConnect(ctx context.Context, req *connect.Req
 // SubmitUpstreamAPIKey calls limen.portal.v1.PortalService.SubmitUpstreamAPIKey.
 func (c *portalServiceClient) SubmitUpstreamAPIKey(ctx context.Context, req *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error) {
 	return c.submitUpstreamAPIKey.CallUnary(ctx, req)
+}
+
+// ClearUpstreamOverride calls limen.portal.v1.PortalService.ClearUpstreamOverride.
+func (c *portalServiceClient) ClearUpstreamOverride(ctx context.Context, req *connect.Request[portalv1.ClearUpstreamOverrideRequest]) (*connect.Response[portalv1.ClearUpstreamOverrideResponse], error) {
+	return c.clearUpstreamOverride.CallUnary(ctx, req)
 }
 
 // SetUpstreamLinkEnabled calls limen.portal.v1.PortalService.SetUpstreamLinkEnabled.
@@ -176,6 +192,7 @@ type PortalServiceHandler interface {
 	ListUpstreams(context.Context, *connect.Request[portalv1.ListUpstreamsRequest]) (*connect.Response[portalv1.ListUpstreamsResponse], error)
 	StartConnect(context.Context, *connect.Request[portalv1.StartConnectRequest]) (*connect.Response[portalv1.StartConnectResponse], error)
 	SubmitUpstreamAPIKey(context.Context, *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error)
+	ClearUpstreamOverride(context.Context, *connect.Request[portalv1.ClearUpstreamOverrideRequest]) (*connect.Response[portalv1.ClearUpstreamOverrideResponse], error)
 	SetUpstreamLinkEnabled(context.Context, *connect.Request[portalv1.SetUpstreamLinkEnabledRequest]) (*connect.Response[portalv1.SetUpstreamLinkEnabledResponse], error)
 	Disconnect(context.Context, *connect.Request[portalv1.DisconnectRequest]) (*connect.Response[portalv1.DisconnectResponse], error)
 	ListMCPClients(context.Context, *connect.Request[portalv1.ListMCPClientsRequest]) (*connect.Response[portalv1.ListMCPClientsResponse], error)
@@ -205,6 +222,12 @@ func NewPortalServiceHandler(svc PortalServiceHandler, opts ...connect.HandlerOp
 		PortalServiceSubmitUpstreamAPIKeyProcedure,
 		svc.SubmitUpstreamAPIKey,
 		connect.WithSchema(portalServiceMethods.ByName("SubmitUpstreamAPIKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portalServiceClearUpstreamOverrideHandler := connect.NewUnaryHandler(
+		PortalServiceClearUpstreamOverrideProcedure,
+		svc.ClearUpstreamOverride,
+		connect.WithSchema(portalServiceMethods.ByName("ClearUpstreamOverride")),
 		connect.WithHandlerOptions(opts...),
 	)
 	portalServiceSetUpstreamLinkEnabledHandler := connect.NewUnaryHandler(
@@ -239,6 +262,8 @@ func NewPortalServiceHandler(svc PortalServiceHandler, opts ...connect.HandlerOp
 			portalServiceStartConnectHandler.ServeHTTP(w, r)
 		case PortalServiceSubmitUpstreamAPIKeyProcedure:
 			portalServiceSubmitUpstreamAPIKeyHandler.ServeHTTP(w, r)
+		case PortalServiceClearUpstreamOverrideProcedure:
+			portalServiceClearUpstreamOverrideHandler.ServeHTTP(w, r)
 		case PortalServiceSetUpstreamLinkEnabledProcedure:
 			portalServiceSetUpstreamLinkEnabledHandler.ServeHTTP(w, r)
 		case PortalServiceDisconnectProcedure:
@@ -266,6 +291,10 @@ func (UnimplementedPortalServiceHandler) StartConnect(context.Context, *connect.
 
 func (UnimplementedPortalServiceHandler) SubmitUpstreamAPIKey(context.Context, *connect.Request[portalv1.SubmitUpstreamAPIKeyRequest]) (*connect.Response[portalv1.SubmitUpstreamAPIKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.portal.v1.PortalService.SubmitUpstreamAPIKey is not implemented"))
+}
+
+func (UnimplementedPortalServiceHandler) ClearUpstreamOverride(context.Context, *connect.Request[portalv1.ClearUpstreamOverrideRequest]) (*connect.Response[portalv1.ClearUpstreamOverrideResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.portal.v1.PortalService.ClearUpstreamOverride is not implemented"))
 }
 
 func (UnimplementedPortalServiceHandler) SetUpstreamLinkEnabled(context.Context, *connect.Request[portalv1.SetUpstreamLinkEnabledRequest]) (*connect.Response[portalv1.SetUpstreamLinkEnabledResponse], error) {

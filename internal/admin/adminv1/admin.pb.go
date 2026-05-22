@@ -197,10 +197,20 @@ type CreateUpstreamRequest struct {
 	DisplayName  string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	McpUrl       string                 `protobuf:"bytes,3,opt,name=mcp_url,json=mcpUrl,proto3" json:"mcp_url,omitempty"`
 	StrategyType string                 `protobuf:"bytes,4,opt,name=strategy_type,json=strategyType,proto3" json:"strategy_type,omitempty"`
-	// e.g. "tenant" / "user" for static_header. Empty otherwise.
+	// Unused for `static_header` (override policy travels inside
+	// `strategy_config["allow_user_override"]`). Reserved for strategies
+	// that grow real sub-modes later (e.g. mcp_spec DCR vs static client).
 	StrategySubMode string `protobuf:"bytes,5,opt,name=strategy_sub_mode,json=strategySubMode,proto3" json:"strategy_sub_mode,omitempty"`
-	// Strategy-specific static config (e.g. tenant-wide API key for
-	// static_header tenant-mode).
+	// Strategy-specific config map. For `static_header`:
+	//
+	//	header_name          required, HTTP header field name
+	//	header_template      required, must contain "{value}"
+	//	value                required, shared secret substituted by default
+	//	allow_user_override  "true" or "false"; when true users may submit
+	//	                     their own override key in the portal
+	//
+	// The whole map is encrypted into UpstreamStrategyConfig.config_json
+	// at rest (AES-SIV with AAD bound to tenant).
 	StrategyConfig map[string]string `protobuf:"bytes,6,rep,name=strategy_config,json=strategyConfig,proto3" json:"strategy_config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Optional pre-registered OAuth client for ASes without DCR.
 	OauthClientOverride *OAuthClientOverride `protobuf:"bytes,7,opt,name=oauth_client_override,json=oauthClientOverride,proto3" json:"oauth_client_override,omitempty"`
@@ -301,7 +311,9 @@ type CreateUpstreamResponse struct {
 	state    protoimpl.MessageState    `protogen:"open.v1"`
 	Upstream *portalv1.UpstreamSummary `protobuf:"bytes,1,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	// True when the strategy requires an owner/admin link before the
-	// tool catalog can be populated (mcp_spec, static_header user-mode).
+	// tool catalog can be populated (mcp_spec). `static_header` always
+	// has a working shared secret, so this is false even when
+	// allow_user_override is true.
 	RequiresAdminLink bool `protobuf:"varint,2,opt,name=requires_admin_link,json=requiresAdminLink,proto3" json:"requires_admin_link,omitempty"`
 	// Absolute or SPA-relative URL the SPA should open to start the
 	// admin-link flow. Empty when requires_admin_link is false.

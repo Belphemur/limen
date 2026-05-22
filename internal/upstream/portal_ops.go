@@ -30,9 +30,13 @@ type UserUpstreamSummary struct {
 	Upstream        *storage.Upstream
 	Link            *storage.UpstreamLink // nil when LinkState == LinkStateNone
 	LinkState       LinkState
-	StrategySubMode string // "tenant"/"user" for static_header; "" otherwise
+	StrategySubMode string // "shared"/"override" for static_header; "" otherwise
 	RequiresLink    bool
 	LastErrorReason string
+	// HasUserOverride is true for static_header upstreams when the user
+	// has submitted their own override secret (Link.ExtraJSON is
+	// populated). Drives the portal CTA between Submit and Rotate/Clear.
+	HasUserOverride bool
 	// Tools is the cached MCP tool catalog for this upstream
 	// (upstream_tools rows). Same for every user.
 	Tools []storage.UpstreamTool
@@ -44,7 +48,7 @@ type UserUpstreamSummary struct {
 
 // subModeProvider is an optional capability for strategies that have
 // a per-upstream sub-mode (currently only static_header). Implementing
-// it lets ListUpstreamsForUser surface "tenant"/"user" without the
+// it lets ListUpstreamsForUser surface "shared"/"override" without the
 // upstream package importing the strategy package.
 type subModeProvider interface {
 	SubMode(ctx context.Context, lctx LinkContext) (string, error)
@@ -52,9 +56,16 @@ type subModeProvider interface {
 
 // secretPersister is the optional capability for strategies that
 // accept a user-submitted secret out-of-band (currently only
-// static_header in user mode).
+// static_header with AllowUserOverride=true).
 type secretPersister interface {
 	PersistUserSecret(ctx context.Context, lctx LinkContext, secret string) error
+}
+
+// secretClearer is the optional capability for strategies that
+// expose a server-side "clear user override" operation (currently
+// only static_header with AllowUserOverride=true).
+type secretClearer interface {
+	ClearUserOverride(ctx context.Context, lctx LinkContext) error
 }
 
 // LoadUserBySubject returns the local User row for (tenant, zitadel
@@ -156,6 +167,7 @@ func (s *Service) summariseUpstream(ctx context.Context, tenant *storage.Tenant,
 		row.Link = link
 		row.LinkState = deriveLinkState(link)
 		row.LastErrorReason = link.LastFailureReason
+		row.HasUserOverride = !link.ExtraJSON.IsZero()
 	}
 	return row
 }
@@ -199,9 +211,10 @@ func (s *Service) SetLinkEnabled(ctx context.Context, tenant *storage.Tenant, us
 }
 
 // PersistUserStaticHeaderSecret routes to a static_header strategy's
-// user-mode secret persistence. Returns ErrUnsupported if the upstream
-// is not user-mode static_header. The secret is NEVER logged — callers
-// should log only its length.
+// user-override secret persistence. Returns ErrUnsupported when the
+// upstream is not `static_header` or when the admin has not enabled
+// per-user override on it. The secret is NEVER logged — callers should
+// log only its length.
 func (s *Service) PersistUserStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, secret string) error {
 	if tenant == nil || user == nil {
 		return errors.New("upstream: tenant/user required")
@@ -220,6 +233,31 @@ func (s *Service) PersistUserStaticHeaderSecret(ctx context.Context, tenant *sto
 	}
 	lctx := LinkContext{Tenant: tenant, User: user, Upstream: up}
 	return p.PersistUserSecret(ctx, lctx, secret)
+}
+
+// ClearUserStaticHeaderOverride drops the user's override secret on a
+// `static_header` link, falling the user back to the admin-configured
+// shared secret on the next request. Idempotent; safe when no override
+// has ever been submitted. Returns ErrUnsupported when the strategy is
+// not `static_header`.
+func (s *Service) ClearUserStaticHeaderOverride(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier string) error {
+	if tenant == nil || user == nil {
+		return errors.New("upstream: tenant/user required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+	c, ok := strat.(secretClearer)
+	if !ok {
+		return ErrUnsupported
+	}
+	lctx := LinkContext{Tenant: tenant, User: user, Upstream: up}
+	return c.ClearUserOverride(ctx, lctx)
 }
 
 func deriveLinkState(link *storage.UpstreamLink) LinkState {

@@ -17,11 +17,11 @@ There is no global upstream list — every upstream is owned by a tenant and car
 
 ### Database Fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Unique identifier within the tenant. Used as a prefix for tool names (e.g., `github_search_issues`). |
-| `mcp_server_url` | Yes | Full URL of the upstream MCP endpoint. Must use Streamable HTTP transport. |
-| `strategy_type` | Yes | One of `none`, `static_header`, or `mcp_spec`. See [Authentication Strategies](#authentication-strategies) below. |
+| Field            | Required | Description                                                                                                       |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `name`           | Yes      | Unique identifier within the tenant. Used as a prefix for tool names (e.g., `github_search_issues`).              |
+| `mcp_server_url` | Yes      | Full URL of the upstream MCP endpoint. Must use Streamable HTTP transport.                                        |
+| `strategy_type`  | Yes      | One of `none`, `static_header`, or `mcp_spec`. See [Authentication Strategies](#authentication-strategies) below. |
 
 ## Authentication Strategies
 
@@ -47,12 +47,12 @@ Connection", the catalog indexer, and serves as the working default for every
 user. The admin can optionally allow individual users to override the shared
 secret with their own value — see `allow_user_override` below.
 
-| Config knob          | Required | Effect |
-|----------------------|----------|--------|
-| `header_name`        | yes      | HTTP header field name (e.g. `Authorization`, `X-Api-Key`) |
-| `header_template`    | yes      | Header value with `{value}` placeholder, e.g. `Bearer {value}` |
-| `shared_secret`      | yes      | Always-on credential. Substituted into `{value}` by default. |
-| `allow_user_override`| no       | When `true`, users may submit their own key in the portal; it shadows `shared_secret` for that user only. |
+| Config knob           | Required | Effect                                                                                                    |
+| --------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `header_name`         | yes      | HTTP header field name (e.g. `Authorization`, `X-Api-Key`)                                                |
+| `header_template`     | yes      | Header value with `{value}` placeholder, e.g. `Bearer {value}`                                            |
+| `shared_secret`       | yes      | Always-on credential. Substituted into `{value}` by default.                                              |
+| `allow_user_override` | no       | When `true`, users may submit their own key in the portal; it shadows `shared_secret` for that user only. |
 
 The entire config — including `shared_secret` — is stored as an encrypted
 JSON blob in `upstream_strategy_configs.config_json` (AES-SIV with AAD
@@ -61,6 +61,7 @@ Per-user override keys live encrypted on `upstream_links.extra_json` (AAD
 `tenant|user|"upstream.extra"`).
 
 **Shared-only example** (single org API key, no overrides):
+
 ```
 header_name:         Authorization
 header_template:     Bearer {value}
@@ -69,12 +70,14 @@ allow_user_override: false
 ```
 
 **Shared + opt-in user override** (e.g. GitHub PATs with an org fallback):
+
 ```
 header_name:         Authorization
 header_template:     Bearer {value}
 shared_secret:       <org-fallback-token>
 allow_user_override: true
 ```
+
 With `allow_user_override = true`, each user can navigate to the portal's
 API-key entry page for that upstream and paste their own token. Until they
 do, their requests go out under `shared_secret`. If their override key
@@ -89,13 +92,13 @@ cleanly.
 
 Sub-mode strings surfaced via `UpstreamSummary.strategy_sub_mode`:
 
-| Value      | Meaning                                                    |
-|------------|------------------------------------------------------------|
-| `shared`   | `allow_user_override = false`; portal shows enable/disable |
+| Value      | Meaning                                                         |
+| ---------- | --------------------------------------------------------------- |
+| `shared`   | `allow_user_override = false`; portal shows enable/disable      |
 | `override` | `allow_user_override = true`; portal offers submit/rotate/clear |
 
 **Use when:** SaaS APIs with a shared org token (set `allow_user_override =
-false`) or APIs where each user *may* prefer their own credentials while a
+false`) or APIs where each user _may_ prefer their own credentials while a
 shared fallback exists (set `allow_user_override = true`).
 
 ---
@@ -104,10 +107,10 @@ shared fallback exists (set `allow_user_override = true`).
 
 For upstreams that implement the MCP OAuth specification. Limen acts as the OAuth client and drives a **code + PKCE (S256)** flow per user. Two client-provisioning sub-modes:
 
-| Sub-mode | When used | How |
-|----------|-----------|-----|
-| **DCR** (default) | The upstream's AS advertises a `registration_endpoint` | Limen auto-registers itself once per `(tenant, upstream)` via RFC 7591 |
-| **Static OAuth client** | No `registration_endpoint` (e.g. GitHub) | Operator provisions a client out-of-band and supplies credentials at upstream creation |
+| Sub-mode                | When used                                              | How                                                                                    |
+| ----------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| **DCR** (default)       | The upstream's AS advertises a `registration_endpoint` | Limen auto-registers itself once per `(tenant, upstream)` via RFC 7591                 |
+| **Static OAuth client** | No `registration_endpoint` (e.g. GitHub)               | Operator provisions a client out-of-band and supplies credentials at upstream creation |
 
 `RequiresLink = true` — each user must complete the OAuth flow in the portal before tools are available.
 
@@ -122,14 +125,14 @@ Limen discovers the upstream's authorization server in this order:
 
 #### Static OAuth client config fields
 
-| Field | Description |
-|-------|-------------|
-| `client_id` | OAuth client ID provisioned out-of-band on the AS. Presence of this field skips DCR. |
-| `client_secret` | Client secret (empty for public clients). |
-| `issuer` | AS issuer URL. Used when AS metadata discovery returns nothing. |
-| `authorization_endpoint` | Override when the AS metadata document omits it. |
-| `token_endpoint` | Override when the AS metadata document omits it. |
-| `scopes` | Additional scopes appended to the authorization request. |
+| Field                    | Description                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| `client_id`              | OAuth client ID provisioned out-of-band on the AS. Presence of this field skips DCR. |
+| `client_secret`          | Client secret (empty for public clients).                                            |
+| `issuer`                 | AS issuer URL. Used when AS metadata discovery returns nothing.                      |
+| `authorization_endpoint` | Override when the AS metadata document omits it.                                     |
+| `token_endpoint`         | Override when the AS metadata document omits it.                                     |
+| `scopes`                 | Additional scopes appended to the authorization request.                             |
 
 Network-discovered values always take precedence; the static config is a fallback, never an override.
 
@@ -155,13 +158,13 @@ The SPA pairs with this contract: [McpServerNew.vue](../web/admin/src/pages/McpS
 
 ## Strategy Selection Guide
 
-| Upstream type | Strategy |
-|---------------|----------|
-| Trusted/internal, no auth needed | `none` |
-| Shared org API key / token | `static_header` (`allow_user_override = false`) |
-| Shared fallback + per-user PATs welcome | `static_header` (`allow_user_override = true`) |
-| MCP-spec OAuth resource server with DCR | `mcp_spec` (DCR auto) |
-| OAuth server without DCR (GitHub, etc.) | `mcp_spec` (static client) |
+| Upstream type                           | Strategy                                        |
+| --------------------------------------- | ----------------------------------------------- |
+| Trusted/internal, no auth needed        | `none`                                          |
+| Shared org API key / token              | `static_header` (`allow_user_override = false`) |
+| Shared fallback + per-user PATs welcome | `static_header` (`allow_user_override = true`)  |
+| MCP-spec OAuth resource server with DCR | `mcp_spec` (DCR auto)                           |
+| OAuth server without DCR (GitHub, etc.) | `mcp_spec` (static client)                      |
 
 ## Connection Flow
 
@@ -215,10 +218,12 @@ ERROR upstream "github" failed to initialize: context deadline exceeded
 ```
 
 **Causes:**
+
 - Upstream server is down or unreachable
 - Network firewall blocking the connection
 
 **Fixes:**
+
 - Verify the `mcp_server_url` is correct and the server is running
 - Test connectivity: `curl -v <url>`
 
@@ -229,15 +234,18 @@ ERROR upstream "jira" tool call failed: 401 Unauthorized
 ```
 
 **Causes (`static_header`):**
+
 - The `shared_secret` is expired or wrong (affects every user)
 - A user's override key (when `allow_user_override = true`) is expired or wrong (affects only that user; the gateway falls back to `shared_secret` and marks the link `needs_relink`)
 - The `header_template` is missing the `Bearer ` prefix (e.g. template is `{value}` instead of `Bearer {value}`)
 
 **Causes (`mcp_spec`):**
+
 - The user's access token has expired and refresh failed (`needs_relink`)
 - The static OAuth client credentials are wrong
 
 **Fixes:**
+
 - For `static_header` shared-secret failures: recreate the upstream with a fresh `shared_secret` (in-place rotation is Phase 10 hardening work)
 - For `static_header` override failures: ask the user to re-enter their key in the portal, or have them clear the override to fall back to `shared_secret`
 - For `mcp_spec`: ask the user to re-link in the portal (OAuth re-authorize flow)
@@ -259,10 +267,12 @@ ERROR upstream "internal" rejected initialization: unsupported protocol version
 ```
 
 **Causes:**
+
 - Upstream server is running an older MCP version
 - Upstream does not support Streamable HTTP transport (only stdio)
 
 **Fixes:**
+
 - Update the upstream server to a version supporting Streamable HTTP
 - Verify the upstream implements the MCP specification correctly
 - Confirm the upstream accepts HTTP-based MCP connections (not stdio)
@@ -274,11 +284,13 @@ ERROR tool "github_search_issues" not found
 ```
 
 **Causes:**
+
 - Tool name prefix doesn't match the upstream `name`
 - Upstream failed to initialize, so its tools were never registered
 - Upstream doesn't expose that tool
 
 **Fixes:**
+
 - Confirm the upstream `name` matches the prefix in the tool name
 - Look for upstream initialization errors in the gateway logs
 - Verify the upstream server actually lists that tool (check upstream docs)

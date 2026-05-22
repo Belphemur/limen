@@ -64,10 +64,18 @@ message CreateUpstreamRequest {
   string display_name = 2;
   string mcp_url = 3;
   string strategy_type = 4;
-  // e.g. "tenant" / "user" for static_header. Empty otherwise.
+  // Unused for `static_header` (override policy travels inside
+  // `strategy_config["allow_user_override"]`). Reserved for strategies
+  // that grow real sub-modes later (e.g. mcp_spec DCR vs static client).
   string strategy_sub_mode = 5;
-  // Strategy-specific static config (e.g. tenant-wide API key for
-  // static_header tenant-mode).
+  // Strategy-specific config map. For `static_header`:
+  //   header_name          required, HTTP header field name
+  //   header_template      required, must contain "{value}"
+  //   value                required, shared secret substituted by default
+  //   allow_user_override  "true" or "false"; when true users may submit
+  //                        their own override key in the portal
+  // The whole map is encrypted into UpstreamStrategyConfig.config_json
+  // at rest (AES-SIV with AAD bound to tenant).
   map<string, string> strategy_config = 6;
   // Optional pre-registered OAuth client for ASes without DCR.
   OAuthClientOverride oauth_client_override = 7;
@@ -79,7 +87,9 @@ message CreateUpstreamRequest {
 message CreateUpstreamResponse {
   limen.portal.v1.UpstreamSummary upstream = 1;
   // True when the strategy requires an owner/admin link before the
-  // tool catalog can be populated (mcp_spec, static_header user-mode).
+  // tool catalog can be populated (mcp_spec). `static_header` always
+  // has a working shared secret, so this is false even when
+  // allow_user_override is true.
   bool requires_admin_link = 2;
   // Absolute or SPA-relative URL the SPA should open to start the
   // admin-link flow. Empty when requires_admin_link is false.

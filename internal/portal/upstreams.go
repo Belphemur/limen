@@ -89,6 +89,26 @@ func (s *Service) SubmitUpstreamAPIKey(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&portalv1.SubmitUpstreamAPIKeyResponse{}), nil
 }
 
+// ClearUpstreamOverride drops the user's static_header override
+// secret. The link row is preserved (Enabled flag stays as-is); the
+// next request falls back to the admin-configured shared secret
+// cleanly. Idempotent. Returns InvalidArgument when the upstream
+// strategy does not support overrides.
+func (s *Service) ClearUpstreamOverride(ctx context.Context, req *connect.Request[portalv1.ClearUpstreamOverrideRequest]) (*connect.Response[portalv1.ClearUpstreamOverrideResponse], error) {
+	identifier := strings.TrimSpace(req.Msg.UpstreamIdentifier)
+	if identifier == "" {
+		return nil, errInvalidArgument("upstream_identifier required")
+	}
+	tenant, user, err := s.callerContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.upstream.ClearUserStaticHeaderOverride(ctx, tenant, user, identifier); err != nil {
+		return nil, mapUpstreamError(err, "clear override", identifier, s.logger)
+	}
+	return connect.NewResponse(&portalv1.ClearUpstreamOverrideResponse{}), nil
+}
+
 // SetUpstreamLinkEnabled flips the per-user link toggle. Re-enabling
 // an auto_disabled link transparently clears the failure counters
 // inside upstream.Service.SetLinkEnabled.

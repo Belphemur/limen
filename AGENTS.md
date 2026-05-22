@@ -41,6 +41,12 @@ internal/
 
 ## Setup
 
+> **Shell:** the local dev shell is **fish**. When invoking terminal tooling
+> as an agent, send fish-syntax commands (no `&&` chaining tricks that
+> assume bash semantics; `set -lx VAR …` for env vars; `string` builtins
+> over GNU coreutils where natural). Examples in this doc use POSIX/bash
+> for portability, but adapt them when sending into the live terminal.
+
 ```bash
 # Build all five binaries (limen, limenctl, limen-gateway, limen-portal, limen-staff)
 make build

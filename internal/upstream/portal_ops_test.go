@@ -56,7 +56,7 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	if err := adminTx.Create(up).Error; err != nil {
 		t.Fatalf("create upstream: %v", err)
 	}
-	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", Mode: statichdr.ModeUser})
+	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", SharedSecret: "shared", AllowUserOverride: true})
 	if err != nil {
 		t.Fatalf("encode config: %v", err)
 	}
@@ -87,8 +87,8 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	if rows[0].LinkState != upstream.LinkStateNone {
 		t.Errorf("state = %q, want none", rows[0].LinkState)
 	}
-	if rows[0].StrategySubMode != "user" {
-		t.Errorf("sub_mode = %q, want user", rows[0].StrategySubMode)
+	if rows[0].StrategySubMode != "override" {
+		t.Errorf("sub_mode = %q, want override", rows[0].StrategySubMode)
 	}
 	if !rows[0].RequiresLink {
 		t.Errorf("RequiresLink = false, want true")

@@ -17,6 +17,7 @@ service PortalService {
   rpc ListUpstreams(ListUpstreamsRequest) returns (ListUpstreamsResponse);
   rpc StartConnect(StartConnectRequest) returns (StartConnectResponse);
   rpc SubmitUpstreamAPIKey(SubmitUpstreamAPIKeyRequest) returns (SubmitUpstreamAPIKeyResponse);
+  rpc ClearUpstreamOverride(ClearUpstreamOverrideRequest) returns (ClearUpstreamOverrideResponse);
   rpc SetUpstreamLinkEnabled(SetUpstreamLinkEnabledRequest) returns (SetUpstreamLinkEnabledResponse);
   rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
   rpc ListMCPClients(ListMCPClientsRequest) returns (ListMCPClientsResponse);
@@ -47,8 +48,9 @@ message UpstreamSummary {
   string display_name = 3;
   string mcp_url = 4;
   string strategy_type = 5;
-  // e.g. "tenant" / "user" for static_header. Empty for strategies
-  // without a sub-mode.
+  // For `static_header`: "shared" when the admin disallows per-user
+  // override keys, "override" when users may submit their own. Empty
+  // for strategies without a sub-mode.
   string strategy_sub_mode = 6;
   bool requires_link = 7;
 
@@ -64,6 +66,12 @@ message UpstreamSummary {
   // Derived prefix aliases (Phase 15) after the tenant-wide collision
   // pass — e.g. ["jira", "confluence"] for the Atlassian upstream.
   repeated string aliases = 12;
+
+  // `static_header` with `strategy_sub_mode == "override"`: true when
+  // the user has submitted their own override key (ExtraJSON populated
+  // on the link). Drives the portal CTA between Submit and Rotate/Clear.
+  // Always false for shared sub-mode and for other strategies.
+  bool has_user_override = 13;
 }
 
 message UpstreamTool {
@@ -94,6 +102,20 @@ message SubmitUpstreamAPIKeyRequest {
 }
 
 message SubmitUpstreamAPIKeyResponse {}
+
+// ---- ClearUpstreamOverride -----------------------------------------
+//
+// Drops the per-user override secret on a `static_header` link. The
+// link row itself stays (Enabled flag preserved); only ExtraJSON is
+// zeroed and health counters reset so the next request falls back to
+// the admin-configured shared secret cleanly. Returns FailedPrecondition
+// when the upstream's strategy_sub_mode is not "override".
+
+message ClearUpstreamOverrideRequest {
+  string upstream_identifier = 1;
+}
+
+message ClearUpstreamOverrideResponse {}
 
 // ---- SetUpstreamLinkEnabled ----------------------------------------
 

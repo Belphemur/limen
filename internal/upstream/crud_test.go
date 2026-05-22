@@ -224,53 +224,10 @@ func TestDeleteUpstream_SoftDeletes(t *testing.T) {
 	}
 }
 
-func TestReindexCatalog_WithoutLink_PerUserStrategy_ReturnsSentinel(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires postgres")
-	}
-	store := storagetest.OpenMigrated(t)
-	cipher := newTestCipher(t)
-	crypto.SetCipher(cipher)
-	t.Cleanup(func() { crypto.SetCipher(nil) })
-
-	fix := setupCRUDFixture(t, store)
-	svc := newCRUDService(t, store)
-	ctx := context.Background()
-
-	// Build a static_header user-mode upstream with its config.
-	up, err := svc.CreateUpstream(ctx, fix.tenant, upstream.CreateUpstreamInput{
-		Identifier:   "gh-user",
-		MCPServerURL: "https://example.com/mcp",
-		StrategyType: upstream.StrategyStaticHeader,
-	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	cfg, err := statichdr.EncodeConfig(fix.tenant.ID, statichdr.Config{
-		HeaderName: "X-Api-Key", HeaderTemplate: "{value}", Mode: statichdr.ModeUser,
-	})
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	adminTx, commit, err := store.Session(storage.WithSuperuser(ctx))
-	if err != nil {
-		t.Fatalf("super: %v", err)
-	}
-	if err := adminTx.Create(&storage.UpstreamStrategyConfig{
-		TenantID: fix.tenant.ID, UpstreamID: up.ID,
-		Type: string(upstream.StrategyStaticHeader), ConfigJSON: cfg,
-	}).Error; err != nil {
-		t.Fatalf("config row: %v", err)
-	}
-	if err := commit(); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-
-	_, err = svc.ReindexCatalog(ctx, fix.tenant, fix.user, up.PublicID)
-	if err != upstream.ErrCannotReindexWithoutLink {
-		t.Fatalf("err = %v, want ErrCannotReindexWithoutLink", err)
-	}
-}
+// Phase 9g note: static_header always carries a SharedSecret, so reindex
+// without a user link no longer hits ErrCannotReindexWithoutLink — the
+// shared secret is sufficient. The sentinel is now exercised only by
+// per-user strategies (mcp_spec) which have their own coverage.
 
 func TestPreviewContext_MergesDefaultsAndLink(t *testing.T) {
 	if testing.Short() {

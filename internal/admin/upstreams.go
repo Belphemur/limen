@@ -16,6 +16,7 @@ import (
 	"github.com/belphemur/limen/internal/upstream"
 	"github.com/belphemur/limen/internal/upstream/mcpspec"
 	"github.com/belphemur/limen/internal/upstream/protoview"
+	"github.com/belphemur/limen/internal/upstream/statichdr"
 )
 
 func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[adminv1.CreateUpstreamRequest]) (*connect.Response[adminv1.CreateUpstreamResponse], error) {
@@ -43,6 +44,18 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 		sf, encErr := mcpspec.EncodeConfig(tenant.ID, cfg)
 		if encErr != nil {
 			return nil, s.internal("encode mcpspec config", encErr)
+		}
+		in.EncodedStrategyConfig = sf
+	}
+
+	if in.StrategyType == upstream.StrategyStaticHeader {
+		cfg, parseErr := statichdr.ParseConfig(msg.GetStrategyConfig())
+		if parseErr != nil {
+			return nil, s.invalidArg("strategy_config", parseErr.Error())
+		}
+		sf, encErr := statichdr.EncodeConfig(tenant.ID, cfg)
+		if encErr != nil {
+			return nil, s.internal("encode statichdr config", encErr)
 		}
 		in.EncodedStrategyConfig = sf
 	}
