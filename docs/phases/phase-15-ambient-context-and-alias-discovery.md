@@ -632,21 +632,21 @@ create_ai_gateway]` → `[]`.
       wired into `reconcileCatalog` so aliases are recomputed every
       time the tool cache refreshes.
 - [~] `AfterFirstCall(link, args, response)` hook on the strategy
-      interface; Atlassian concrete hook stashes `cloudId`.
-      **Rejected — wrong abstraction.** A `Strategy` is the
-      authentication / transport driver (none / static_header /
-      mcp_spec); response parsing is a per-vendor concern orthogonal
-      to auth (Atlassian, Linear, Sentry can all share `mcp_spec`
-      yet need different extractors). The motivating case
-      (`cloudId`) is also carried on the OAuth-side
-      `/oauth/token/accessible-resources` response, not on any MCP
-      tool-call response — so even the hook *timing* is wrong. A
-      proper design needs a separate `ContextEnricher` registry
-      keyed by an explicit `vendor` field on `Upstream` (or by
-      upstream URL pattern), independent of the auth strategy. Until
-      a concrete need surfaces, context stays admin-defaulted +
-      portal-edited only. See
-      [docs/ambient-context.md §7](../ambient-context.md#7-open-question-automatic-context-discovery).
+  interface; Atlassian concrete hook stashes `cloudId`.
+  **Rejected — wrong abstraction.** A `Strategy` is the
+  authentication / transport driver (none / static*header /
+  mcp_spec); response parsing is a per-vendor concern orthogonal
+  to auth (Atlassian, Linear, Sentry can all share `mcp_spec`
+  yet need different extractors). The motivating case
+  (`cloudId`) is also carried on the OAuth-side
+  `/oauth/token/accessible-resources` response, not on any MCP
+  tool-call response — so even the hook \_timing* is wrong. A
+  proper design needs a separate `ContextEnricher` registry
+  keyed by an explicit `vendor` field on `Upstream` (or by
+  upstream URL pattern), independent of the auth strategy. Until
+  a concrete need surfaces, context stays admin-defaulted +
+  portal-edited only. See
+  [docs/ambient-context.md §7](../ambient-context.md#7-open-question-automatic-context-discovery).
 - [x] `codemode.tools()` returns the new envelope
       (`{ upstreams: UpstreamGroup[], hint?: EmptyHint }`); per-tool
       `upstream` field removed; groups carry `name`, `aliases`,
