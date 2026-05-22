@@ -38,6 +38,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9c  | [Tenant administrative portal + self-serve signup](phase-09c-tenant-admin-spa.md)                              | 9a, 4, 7, 9b            | ☐            |
 | 9d  | [Shared `SessionService` (DRY the session RPC + web/shared package)](phase-09d-shared-session-service.md)      | 9b, 9c                  | ✅           |
 | 9f  | [IDE presets & per-tenant redirect-URI allowlist as a relation](phase-09f-ide-presets-and-allowlist.md)        | 5, 9c                   | ☐            |
+| 9g  | [Static-header rework (shared secret + opt-in user override)](phase-09g-static-header-rework.md)               | 7, 8, 9b, 9c            | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | ☐            |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |

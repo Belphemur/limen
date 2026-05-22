@@ -41,32 +41,62 @@ For self-hosted or trusted-network servers that require no credentials.
 
 ### `static_header` — Static HTTP Header
 
-Attaches a fixed HTTP header to every outbound request. Two sub-modes:
+Attaches a fixed HTTP header to every outbound request. The admin **always**
+supplies a shared secret at upstream creation; that secret powers "Test
+Connection", the catalog indexer, and serves as the working default for every
+user. The admin can optionally allow individual users to override the shared
+secret with their own value — see `allow_user_override` below.
 
-| Sub-mode | Who supplies the secret | `RequiresLink` |
-|----------|------------------------|----------------|
-| `tenant` | Admin provides a single shared secret at upstream creation | `false` — all tenant users share it automatically |
-| `user` | Each user pastes their own key in the portal | `true` — user must connect before tools appear |
+| Config knob          | Required | Effect |
+|----------------------|----------|--------|
+| `header_name`        | yes      | HTTP header field name (e.g. `Authorization`, `X-Api-Key`) |
+| `header_template`    | yes      | Header value with `{value}` placeholder, e.g. `Bearer {value}` |
+| `shared_secret`      | yes      | Always-on credential. Substituted into `{value}` by default. |
+| `allow_user_override`| no       | When `true`, users may submit their own key in the portal; it shadows `shared_secret` for that user only. |
 
-The header value is defined as a template with `{value}` as a placeholder, e.g. `Bearer {value}` or `{value}`. Secrets are stored encrypted in the database; the plaintext never touches disk.
+The entire config — including `shared_secret` — is stored as an encrypted
+JSON blob in `upstream_strategy_configs.config_json` (AES-SIV with AAD
+`tenant|∅|"upstream.strategy_config"`); the plaintext never touches disk.
+Per-user override keys live encrypted on `upstream_links.extra_json` (AAD
+`tenant|user|"upstream.extra"`).
 
-**`tenant` mode example** (shared API key):
+**Shared-only example** (single org API key, no overrides):
 ```
-header_name:     Authorization
-header_template: Bearer {value}
-mode:            tenant
-tenant_secret:   <shared-api-key>
+header_name:         Authorization
+header_template:     Bearer {value}
+shared_secret:       <org-api-key>
+allow_user_override: false
 ```
 
-**`user` mode example** (per-user PAT):
+**Shared + opt-in user override** (e.g. GitHub PATs with an org fallback):
 ```
-header_name:     X-API-Key
-header_template: {value}
-mode:            user
+header_name:         Authorization
+header_template:     Bearer {value}
+shared_secret:       <org-fallback-token>
+allow_user_override: true
 ```
-In user mode, each user navigates to the portal's API-key entry page for that upstream before they can call its tools.
+With `allow_user_override = true`, each user can navigate to the portal's
+API-key entry page for that upstream and paste their own token. Until they
+do, their requests go out under `shared_secret`. If their override key
+later starts failing (401), the gateway transparently falls back to
+`shared_secret` while flagging the link as `needs_relink` so the portal
+can nudge them to rotate — tools never break for the user mid-session.
 
-**Use when:** SaaS APIs with a shared org token (`tenant`) or per-user personal access tokens (`user`).
+`RequiresLink = true` in both cases, but only because the per-user link row
+doubles as an opt-out toggle (`Enabled = false` hides the tools from that
+user). A missing link is fine — the gateway falls back to the shared secret
+cleanly.
+
+Sub-mode strings surfaced via `UpstreamSummary.strategy_sub_mode`:
+
+| Value      | Meaning                                                    |
+|------------|------------------------------------------------------------|
+| `shared`   | `allow_user_override = false`; portal shows enable/disable |
+| `override` | `allow_user_override = true`; portal offers submit/rotate/clear |
+
+**Use when:** SaaS APIs with a shared org token (set `allow_user_override =
+false`) or APIs where each user *may* prefer their own credentials while a
+shared fallback exists (set `allow_user_override = true`).
 
 ---
 
@@ -128,8 +158,8 @@ The SPA pairs with this contract: [McpServerNew.vue](../web/admin/src/pages/McpS
 | Upstream type | Strategy |
 |---------------|----------|
 | Trusted/internal, no auth needed | `none` |
-| Shared org API key / token | `static_header` (tenant mode) |
-| Per-user personal access token | `static_header` (user mode) |
+| Shared org API key / token | `static_header` (`allow_user_override = false`) |
+| Shared fallback + per-user PATs welcome | `static_header` (`allow_user_override = true`) |
 | MCP-spec OAuth resource server with DCR | `mcp_spec` (DCR auto) |
 | OAuth server without DCR (GitHub, etc.) | `mcp_spec` (static client) |
 
@@ -199,7 +229,8 @@ ERROR upstream "jira" tool call failed: 401 Unauthorized
 ```
 
 **Causes (`static_header`):**
-- The tenant secret or user API key is expired or wrong
+- The `shared_secret` is expired or wrong (affects every user)
+- A user's override key (when `allow_user_override = true`) is expired or wrong (affects only that user; the gateway falls back to `shared_secret` and marks the link `needs_relink`)
 - The `header_template` is missing the `Bearer ` prefix (e.g. template is `{value}` instead of `Bearer {value}`)
 
 **Causes (`mcp_spec`):**
@@ -207,8 +238,8 @@ ERROR upstream "jira" tool call failed: 401 Unauthorized
 - The static OAuth client credentials are wrong
 
 **Fixes:**
-- For `static_header` tenant mode: update the tenant secret via the portal
-- For `static_header` user mode: ask the user to re-enter their key in the portal
+- For `static_header` shared-secret failures: recreate the upstream with a fresh `shared_secret` (in-place rotation is Phase 10 hardening work)
+- For `static_header` override failures: ask the user to re-enter their key in the portal, or have them clear the override to fall back to `shared_secret`
 - For `mcp_spec`: ask the user to re-link in the portal (OAuth re-authorize flow)
 
 ### `none` Strategy Rejected at Provisioning

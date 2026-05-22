@@ -6,12 +6,12 @@ This document describes the security model for Limen -- its threat model, isolat
 
 Limen sits between LLM clients and upstream MCP servers. The key attack surfaces are:
 
-| Surface | Risk | Mitigation |
-|---------|------|------------|
-| **LLM client prompts** | Malicious prompts injected into tool arguments could attempt sandbox escape | Goja sandbox isolation -- no host access beyond injected tools |
-| **Configuration file** | Secrets embedded in config (tokens, API keys) could be leaked | `${ENV_VAR}` substitution; never commit real tokens to version control |
-| **Upstream responses** | Malicious or malformed responses from upstream servers could carry payloads | Tool responses pass through the gateway without modification; validate upstream trust |
-| **Sandbox JS code** | LLM-generated JavaScript in Code Mode could attempt resource exhaustion or exfiltration | Goja sandbox blocks filesystem, network, process spawning; execution timeout enforced |
+| Surface                | Risk                                                                                    | Mitigation                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **LLM client prompts** | Malicious prompts injected into tool arguments could attempt sandbox escape             | Goja sandbox isolation -- no host access beyond injected tools                        |
+| **Configuration file** | Secrets embedded in config (tokens, API keys) could be leaked                           | `${ENV_VAR}` substitution; never commit real tokens to version control                |
+| **Upstream responses** | Malicious or malformed responses from upstream servers could carry payloads             | Tool responses pass through the gateway without modification; validate upstream trust |
+| **Sandbox JS code**    | LLM-generated JavaScript in Code Mode could attempt resource exhaustion or exfiltration | Goja sandbox blocks filesystem, network, process spawning; execution timeout enforced |
 
 ## Goja Sandbox Guarantees
 
@@ -21,13 +21,13 @@ Code Mode runs agent-provided JavaScript inside a [Goja](https://github.com/dop2
 
 The following are **not available** inside the sandbox:
 
-| Category | Blocked APIs |
-|----------|-------------|
-| Filesystem | `os`, `fs`, `path` module equivalents |
-| Network | `fetch`, `XMLHttpRequest`, `http`, `net` module equivalents |
-| Processes | `child_process`, `exec`, `spawn` equivalents |
-| Modules | `require()`, `import` -- no module resolution |
-| Go runtime | Direct access to Go heap, goroutines, or reflection |
+| Category   | Blocked APIs                                                |
+| ---------- | ----------------------------------------------------------- |
+| Filesystem | `os`, `fs`, `path` module equivalents                       |
+| Network    | `fetch`, `XMLHttpRequest`, `http`, `net` module equivalents |
+| Processes  | `child_process`, `exec`, `spawn` equivalents                |
+| Modules    | `require()`, `import` -- no module resolution               |
+| Go runtime | Direct access to Go heap, goroutines, or reflection         |
 
 ### Available APIs
 
@@ -45,8 +45,8 @@ To prevent infinite loops and resource exhaustion, Goja execution is interrupted
 
 ```yaml
 codemode:
-  timeout: 30s    # JS execution limit
-  memory: 64MB    # JS heap cap
+  timeout: 30s # JS execution limit
+  memory: 64MB # JS heap cap
 ```
 
 When the timeout fires, the Goja runtime raises an interrupt that immediately halts script execution. The gateway returns an error to the client -- the loop never completes.
@@ -70,11 +70,11 @@ SELECT set_config('app.current_tenant', <tenantID>, true);
 
 ### What this means for application code
 
-| Path                              | Pool         | Tenant pin?         | Must filter by `tenant_id` in `WHERE`? |
-| --------------------------------- | ------------ | ------------------- | -------------------------------------- |
-| `Session(WithTenant(ctx, id))`    | `limen_app`  | yes (`SET LOCAL`)   | **No.** RLS rewrites every query.      |
-| `Session(WithSuperuser(ctx))`     | `limen_admin` (`BYPASSRLS`) | none | **Yes — required.** Without an explicit predicate the query touches every tenant. |
-| `Session(ctx)` with no marker     | —            | —                   | Returns `ErrNoTenant`; fail-closed.    |
+| Path                           | Pool                        | Tenant pin?       | Must filter by `tenant_id` in `WHERE`?                                            |
+| ------------------------------ | --------------------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `Session(WithTenant(ctx, id))` | `limen_app`                 | yes (`SET LOCAL`) | **No.** RLS rewrites every query.                                                 |
+| `Session(WithSuperuser(ctx))`  | `limen_admin` (`BYPASSRLS`) | none              | **Yes — required.** Without an explicit predicate the query touches every tenant. |
+| `Session(ctx)` with no marker  | —                           | —                 | Returns `ErrNoTenant`; fail-closed.                                               |
 
 The default app role `limen_app` has **no `BYPASSRLS`** privilege. An
 unset GUC makes the policy predicate `tenant_id = NULL::bigint` (the
@@ -155,10 +155,10 @@ Limen is multi-tenant. Every tenant has its own URL prefix (`/t/{tenant}/...`)
 and is mirrored 1:1 to a Zitadel **organization**. Two questions drive the
 design:
 
-1. *How does Limen know which tenant a request belongs to?* — from the
+1. _How does Limen know which tenant a request belongs to?_ — from the
    `{tenant}` (the tenant's `PublicID`, a `tnt_<ULID>`) in the URL,
    resolved through the `tenants` table.
-2. *How does Limen prove the logged-in user is allowed in that tenant?* —
+2. _How does Limen prove the logged-in user is allowed in that tenant?_ —
    by checking that the user's **home org in Zitadel** matches the
    tenant's stored `zitadel_org_id`.
 
@@ -215,7 +215,7 @@ if gotOrgID != wantOrgID {
 ```
 
 If the user's home org doesn't match `tenants.zitadel_org_id` for the
-tenant in the URL, the callback returns 403 *before* a session cookie is
+tenant in the URL, the callback returns 403 _before_ a session cookie is
 ever issued. The user must restart the flow against a tenant they
 actually belong to.
 
@@ -229,7 +229,7 @@ in the browser.
 
 ### What this does NOT cover
 
-The org binding only proves *home org membership*. It does not yet
+The org binding only proves _home org membership_. It does not yet
 enforce:
 
 - **Project-role-based authorisation** — gating individual portal pages
@@ -270,6 +270,30 @@ export JIRA_API_KEY="jira_xxxx"
 - Use `.gitignore` to exclude local config files with embedded secrets
 - Use `.env` files for local development (not committed)
 - Rotating tokens requires a gateway restart
+
+### Upstream credentials (strategy config + per-user links)
+
+Upstream credentials are **not** read from YAML. They are stored per-tenant
+in Postgres as encrypted blobs and never appear in plaintext anywhere on
+disk:
+
+| Table                       | Column        | AAD `(tenant, user, kind)`              | Carries                                                                                       |
+| --------------------------- | ------------- | --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `upstream_strategy_configs` | `config_json` | `(tenant, ∅, upstream.strategy_config)` | `static_header` shared secret + header template; `mcp_spec` static client id/secret/endpoints |
+| `upstream_links`            | `tokens_json` | `(tenant, user, upstream.tokens)`       | `mcp_spec` user access/refresh tokens                                                         |
+| `upstream_links`            | `extra_json`  | `(tenant, user, upstream.extra)`        | `static_header` per-user override secret (when `allow_user_override = true`)                  |
+
+All three use AES-SIV (RFC 5297) via `crypto.SecretField`; the AAD binds
+the ciphertext to the tenant (and user, where applicable), so a row stolen
+from one tenant cannot be decrypted under another tenant's id even with
+the key. See [internal/crypto/secret_field.go](../internal/crypto/secret_field.go).
+
+For `static_header` specifically: the shared secret travels **inside** the
+strategy-config JSON blob — not as a separate column — so a single AAD-bound
+decryption gates access to every field (header name, template, shared
+secret, override flag) at once. The `allow_user_override` flag itself is
+not a secret and only controls whether `extra_json` is consulted at
+request time.
 
 ## Remote Upstreams Only
 
