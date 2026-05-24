@@ -36,3 +36,6 @@ web/*/.playwright/
 
 # Local dev data (bind-mounted into postgres containers)
 /data/
+
+# Air hot-reload temp build outputs
+/tmp/
