@@ -1,4 +1,5 @@
 .PHONY: dev dev-run hot-dev hot-dev-run hot-dev-install dev-cmd dev-migrate dev-create-tenant dev-create-upstream \
+	nix-setup \
 	dev-fix-bootstrap-perms \
 	dev-reset dev-bootstrap dev-down dev-portal dev-portal-install dev-portal-build \
 	dev-admin dev-admin-install dev-admin-build \
@@ -105,6 +106,49 @@ hot-dev-run: .env.dev
 
 hot-dev-install:
 	go install github.com/air-verse/air@latest
+
+# First-time repo bootstrap for Nix + devenv.
+# Installs devenv tooling into the user profile, updates flake.lock,
+# then allows the checked-in .envrc.
+nix-setup:
+	@bash -eu -c '\
+		command -v nix >/dev/null 2>&1 || { \
+			echo "nix not found. Install Nix first: https://nixos.org/download/" >&2; \
+			exit 1; \
+		}; \
+		if command -v systemctl >/dev/null 2>&1; then \
+			if systemctl is-active nix-daemon >/dev/null 2>&1; then :; else \
+				echo "==========================================================================" >&2; \
+				echo "WARNING: nix-daemon is not running! This usually causes permission denied." >&2; \
+				echo "Run: sudo systemctl enable --now nix-daemon" >&2; \
+				echo "==========================================================================" >&2; \
+			fi; \
+		fi; \
+		nix --extra-experimental-features "nix-command flakes" profile install \
+			nixpkgs#devenv \
+			nixpkgs#nix-direnv \
+			nixpkgs#direnv || { \
+			echo "==========================================================================" >&2; \
+			echo "Nix command failed. If you see permission denied on /nix/store:" >&2; \
+			echo "1. On systemd Linux: sudo systemctl enable --now nix-daemon" >&2; \
+			echo "2. Check if your user is in the nix-users group (usually /etc/nix/nix.conf)." >&2; \
+			echo "==========================================================================" >&2; \
+			exit 1; \
+		}; \
+		export PATH="$$HOME/.nix-profile/bin:$$PATH"; \
+		nix --extra-experimental-features "nix-command flakes" flake update; \
+		mkdir -p "$$HOME/.config/fish"; \
+		touch "$$HOME/.config/fish/config.fish"; \
+		grep -Fq "fish_add_path $$HOME/.nix-profile/bin" "$$HOME/.config/fish/config.fish" || \
+			echo "if test -d $$HOME/.nix-profile/bin; fish_add_path $$HOME/.nix-profile/bin; end" >> "$$HOME/.config/fish/config.fish"; \
+		grep -Fq "source $$HOME/.nix-profile/share/nix-direnv/direnvrc" "$$HOME/.config/fish/config.fish" || \
+			echo "source $$HOME/.nix-profile/share/nix-direnv/direnvrc" >> "$$HOME/.config/fish/config.fish"; \
+		grep -Fq "direnv hook fish | source" "$$HOME/.config/fish/config.fish" || \
+			echo "direnv hook fish | source" >> "$$HOME/.config/fish/config.fish"; \
+		direnv allow; \
+		echo "[nix-setup] done. next: exec fish"; \
+		echo "[nix-setup] then: cd . (or direnv reload)"\
+	'
 
 # Run an arbitrary limen subcommand with the dev env loaded.
 # Usage: make dev-cmd ARGS="create-upstream --name foo --tenant tnt_... --url ..."

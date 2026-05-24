@@ -10,6 +10,83 @@ without leaving your laptop.
 - Go 1.26+
 - `curl`, `openssl` (used by `scripts/wait-for-zitadel.sh` and the Makefile)
 
+## Nix dev environment (optional)
+
+If you want a fully reproducible toolchain, use Nix + devenv. Docker Compose
+still runs runtime services (Zitadel, Postgres, Valkey, etc.); Nix provides the
+local CLI/runtime tools (Go, Node, pnpm via Corepack, Buf, Air, linters).
+
+The required files are already checked in:
+
+- [flake.nix](../flake.nix)
+- [.envrc](../.envrc)
+- [.gitignore](../.gitignore)
+
+### Versions
+
+| Tool    | Version                                           |
+| ------- | ------------------------------------------------- |
+| Go      | `1.26.x` (from `flake.nix`)                       |
+| Node.js | `v24` (LTS "Krypton", from `flake.nix`)           |
+| pnpm    | via Corepack (`packageManager` in `package.json`) |
+
+### How to run it
+
+One-time setup (per machine):
+
+```bash
+# 1. Enable Nix flakes (add to /etc/nix/nix.conf or ~/.config/nix/nix.conf)
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+
+# 2. Restart shell once so nix CLI is available
+exec fish
+```
+
+Per-repo setup (once):
+
+```bash
+cd /path/to/limen
+
+# Bootstrap the checked-in Nix setup for this repo
+make nix-setup
+```
+
+`make nix-setup` runs:
+
+- `nix profile install nixpkgs#devenv nixpkgs#nix-direnv nixpkgs#direnv`
+- `nix flake update`
+- fish hook setup in `~/.config/fish/config.fish`:
+   - `source $HOME/.nix-profile/share/nix-direnv/direnvrc`
+   - `direnv hook fish | source`
+- `direnv allow`
+
+Daily use:
+
+| What you want               | Command                                      |
+| --------------------------- | -------------------------------------------- |
+| First-time repo bootstrap   | `make nix-setup`                             |
+| Enter shell manually        | `devenv shell` or `nix develop --impure`     |
+| Start all services (Docker) | `make dev` or `devenv tasks run dev:up`      |
+| Run all dev processes       | `devenv up` (runs backend air + portal Vite + admin Vite in parallel) |
+| Hot-reload backend          | `make hot-dev` or `devenv tasks run dev:hot` |
+| Regenerate protos           | `make proto` or `devenv tasks run proto:gen` |
+| Run pre-commit hooks now    | `devenv shell -- pre-commit run --all-files` |
+| Update all Nix inputs       | `nix flake update`                           |
+| Update only devenv          | `nix flake lock --update-input devenv`       |
+| Check what's in the shell   | `devenv info`                                |
+
+### Tips
+
+- Corepack + pnpm: after first entering the shell, run `corepack install` once
+  in the repo root. It reads the `packageManager` field from `package.json` and
+  pins the exact pnpm version.
+- Delve on Linux: `enableHardeningWorkaround = true` is needed because NixOS
+  hardening can break ptrace for Delve.
+- CI: in GitHub Actions, use `cachix/install-nix-action` +
+  `cachix/devenv-install-action`, then run `devenv shell -- make test`.
+- Cachix (optional): add `cachix.enable = true;` in `devenv.shells.default`
+  and use a team cache token to avoid repeated rebuilds.
+
 ## Quickstart
 
 ```bash
@@ -79,13 +156,14 @@ Stop with `Ctrl-C`; the stack keeps running. Re-launch Limen alone with
 | `make dev`                            | Full bring-up: stack → bootstrap → migrate → serve.                     |
 | `make dev-run`                        | Migrate + serve, auto-loading the env. Assumes the stack is already up. |
 | `make dev-bootstrap`                  | Re-run the Zitadel bootstrap. Idempotent.                               |
-| `make dev-cmd ARGS="…"`               | Run any `cmd/limen` subcommand with the dev env auto-loaded.          |
+| `make dev-cmd ARGS="…"`               | Run any `cmd/limen` subcommand with the dev env auto-loaded.            |
 | `make dev-migrate`                    | Run `migrate` with the dev env auto-loaded.                             |
 | `make dev-create-tenant ARGS="…"`     | Run `create-tenant` with the dev env auto-loaded.                       |
 | `make dev-create-upstream ARGS="…"`   | Run `create-upstream` with the dev env auto-loaded.                     |
+| `make nix-setup`                      | First-time repo Nix setup (installs devenv/direnv tools, updates flake lock, configures fish hooks, runs `direnv allow`). |
 | `make dev-down`                       | Stop services (keeps volumes).                                          |
 | `make dev-reset`                      | Stop services, wipe volumes, drop `.env.dev` and `.bootstrap-out.env`.  |
-| `make build`                          | `go build -o limen ./cmd/limen`.                                      |
+| `make build`                          | `go build -o limen ./cmd/limen`.                                        |
 | `make test` / `make vet` / `make fmt` | Standard Go toolchain wrappers.                                         |
 
 ## CLI commands
@@ -238,7 +316,7 @@ any interactive shell.
 | http://localhost:8000                                  | Caddy dev origin (portal + admin + API)             |
 | http://localhost:8080                                  | Limen Go backend (bypass Caddy)                     |
 | http://localhost:5173                                  | Vite portal dev server (do not load directly)       |
-| http://localhost:5174                                  | Vite admin  dev server (do not load directly)       |
+| http://localhost:5174                                  | Vite admin dev server (do not load directly)        |
 | http://localhost:8081                                  | Zitadel console (`root` / `RootPassword1!`)         |
 | http://localhost:8081/.well-known/openid-configuration | OIDC discovery (Limen validates `iss` against this) |
 | http://localhost:8025                                  | Mailpit inbox                                       |
@@ -258,16 +336,17 @@ ports exposed). It is **not** production-ready — see
 
 ## Troubleshooting
 
-| Symptom                                               | Cause / fix                                                                                                                                                                                                                                 |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `refers to undefined network zitadel`                 | You ran `docker compose -f compose.dev.yaml …` directly. The `zitadel` network lives in the upstream Zitadel compose file — use `make dev` (or copy the full `COMPOSE :=` chain from the Makefile).                                         |
-| `Project Grant not found` during bootstrap            | Stale Zitadel state. `make dev-reset && make dev`.                                                                                                                                                                                          |
-| SDK error `ExternalDomain mismatch`                   | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`.                                                                                                                 |
-| `invalid_client` at the token endpoint                | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                                                                                                                                         |
-| Callback loops back to login                          | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`, and make sure you're loading the SPA via `http://localhost:8000` (the cookie is bound to that origin, not the raw `:5173`/`:5174` Vite ports).                                                                                                                                               |
-| `password authentication failed for user "limen_app"` | Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Either run it manually (`docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`) or `make dev-reset`.                  |
-| `dial limen-valkey: no such host`                     | Limen on the host can't resolve docker DNS. `make dev-run` exports `LIMEN_VALKEY_ADDRESS=localhost:6380` — make sure that's set if you run `serve` manually.                                                                                |
-| `create-tenant` fails with auth error                 | PAT changed (every `dev-reset` mints a new one). `make dev-run` re-reads it live; manual shells need to re-export.                                                                                                                          |
-| `invalid state` after restarting `serve`              | `LIMEN_TOKEN_ENCRYPTION_KEY` rotated — it seeds the state-cookie HMAC. Keep `.env.dev` pinned and clear the stale `limen_state` cookie.                                                                                                     |
-| `org mismatch want=<id> got=""`                       | Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding). |
-| `org mismatch want=<acme-id> got=<other-id>`          | Logged-in user's home org isn't the tenant's bound org. Create / use a user inside the right org (Zitadel Console → switch org → Users → New).                                                                                              |
+| Symptom                                               | Cause / fix                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `refers to undefined network zitadel`                 | You ran `docker compose -f compose.dev.yaml …` directly. The `zitadel` network lives in the upstream Zitadel compose file — use `make dev` (or copy the full `COMPOSE :=` chain from the Makefile).                                          |
+| `Project Grant not found` during bootstrap            | Stale Zitadel state. `make dev-reset && make dev`.                                                                                                                                                                                           |
+| SDK error `ExternalDomain mismatch`                   | `ZITADEL_HOST` must equal Zitadel's `ExternalDomain` (default `localhost`). The bootstrap uses it as the gRPC `:authority`.                                                                                                                  |
+| `invalid_client` at the token endpoint                | `LIMEN_OIDC_CLIENT_ID` must equal `LIMEN_OIDC_PORTAL_CLIENT_ID`, not `LIMEN_OIDC_MCP_RS_CLIENT_ID`.                                                                                                                                          |
+| Callback loops back to login                          | Browser dropped the cookie. Set `portal_session_cookie_secure: false` for `http://localhost`, and make sure you're loading the SPA via `http://localhost:8000` (the cookie is bound to that origin, not the raw `:5173`/`:5174` Vite ports). |
+| `password authentication failed for user "limen_app"` | Postgres volume predates `scripts/postgres-init/limen-roles.sql`. Either run it manually (`docker exec -i limen-dev-limen-postgres-1 psql -U limen -d limen < scripts/postgres-init/limen-roles.sql`) or `make dev-reset`.                   |
+| `dial limen-valkey: no such host`                     | Limen on the host can't resolve docker DNS. `make dev-run` exports `LIMEN_VALKEY_ADDRESS=localhost:6380` — make sure that's set if you run `serve` manually.                                                                                 |
+| `create-tenant` fails with auth error                 | PAT changed (every `dev-reset` mints a new one). `make dev-run` re-reads it live; manual shells need to re-export.                                                                                                                           |
+| `invalid state` after restarting `serve`              | `LIMEN_TOKEN_ENCRYPTION_KEY` rotated — it seeds the state-cookie HMAC. Keep `.env.dev` pinned and clear the stale `limen_state` cookie.                                                                                                      |
+| `org mismatch want=<id> got=""`                       | Portal app isn't requesting `urn:zitadel:iam:user:resourceowner`. Check that scope is present in `oidc.scopes` of [config.yaml](../config.yaml). See [security.md — Tenant ↔ Zitadel org binding](security.md#tenant--zitadel-org-binding).  |
+| `org mismatch want=<acme-id> got=<other-id>`          | Logged-in user's home org isn't the tenant's bound org. Create / use a user inside the right org (Zitadel Console → switch org → Users → New).                                                                                               |
+| `502 Bad Gateway` from Caddy                           | The host firewall (e.g. `ufw` or `firewalld`) is blocking Docker from connecting back to your local development processes on port `8080`, `5173`, or `5174`. On Linux, allow the Docker bridge network subnets to reach the host:<br>`sudo ufw allow in from 172.16.0.0/12` or similar firewall exception configuration. |

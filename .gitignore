@@ -39,3 +39,8 @@ web/*/.playwright/
 
 # Air hot-reload temp build outputs
 /tmp/
+
+# Nix / devenv local state
+.devenv/
+.devenv.flake.nix
+.direnv/
