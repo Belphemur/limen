@@ -8,7 +8,7 @@ import (
 func TestPerIPLimiter_BurstThenDeny(t *testing.T) {
 	l := NewPerIPLimiter(1, 2) // burst=2, refill=1/hour
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := l.Allow(ctx, "1.2.3.4"); err != nil {
 			t.Fatalf("burst slot %d: unexpected error %v", i, err)
 		}

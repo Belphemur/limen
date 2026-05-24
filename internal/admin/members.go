@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -253,13 +254,7 @@ func (s *Service) UpdateMemberRole(ctx context.Context, req *connect.Request[adm
 	wasOwner := false
 	var existingGrantID string
 	for _, g := range allGrants {
-		isOwner := false
-		for _, k := range g.RoleKeys {
-			if k == roleKeyOwner {
-				isOwner = true
-				break
-			}
-		}
+		isOwner := slices.Contains(g.RoleKeys, roleKeyOwner)
 		if isOwner {
 			owners++
 		}
@@ -317,13 +312,7 @@ func (s *Service) RemoveMember(ctx context.Context, req *connect.Request[adminv1
 	owners := 0
 	targetIsOwner := false
 	for _, g := range allGrants {
-		isOwner := false
-		for _, k := range g.RoleKeys {
-			if k == roleKeyOwner {
-				isOwner = true
-				break
-			}
-		}
+		isOwner := slices.Contains(g.RoleKeys, roleKeyOwner)
 		if isOwner {
 			owners++
 			if g.UserID == userID {

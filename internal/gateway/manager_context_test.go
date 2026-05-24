@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -46,9 +47,7 @@ func TestCallTool_DoesNotInjectContext(t *testing.T) {
 			args := req.GetArguments()
 			// Defensive copy so test reads aren't racing with mcp-go internals.
 			captured = make(map[string]any, len(args))
-			for k, v := range args {
-				captured[k] = v
-			}
+			maps.Copy(captured, args)
 			mu.Unlock()
 			return mcp.NewToolResultText("ok"), nil
 		},

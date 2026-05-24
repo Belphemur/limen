@@ -363,15 +363,9 @@ func (h *Handler) run(ctx context.Context, code string, withProxies bool) (any, 
 			used := atomic.LoadInt64(&callSeq)
 			remaining := int64(-1)
 			if h.cfg.MaxToolCalls > 0 {
-				remaining = int64(h.cfg.MaxToolCalls) - used
-				if remaining < 0 {
-					remaining = 0
-				}
+				remaining = max(int64(h.cfg.MaxToolCalls)-used, 0)
 			}
-			deadlineMS := time.Until(deadline).Milliseconds()
-			if deadlineMS < 0 {
-				deadlineMS = 0
-			}
+			deadlineMS := max(time.Until(deadline).Milliseconds(), 0)
 			return vm.ToValue(map[string]any{
 				"used":        used,
 				"max":         int64(h.cfg.MaxToolCalls),

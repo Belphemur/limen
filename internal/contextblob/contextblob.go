@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 )
 
@@ -56,12 +57,8 @@ func ValidateContextBlob(raw []byte) (map[string]any, error) {
 // sees `null` for `context`.
 func MergeContext(upstreamDefaults, linkContext map[string]any) map[string]any {
 	out := make(map[string]any, len(upstreamDefaults)+len(linkContext))
-	for k, v := range upstreamDefaults {
-		out[k] = v
-	}
-	for k, v := range linkContext {
-		out[k] = v
-	}
+	maps.Copy(out, upstreamDefaults)
+	maps.Copy(out, linkContext)
 	return out
 }
 

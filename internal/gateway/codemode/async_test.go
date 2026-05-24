@@ -147,7 +147,7 @@ func TestCodeMode_ConcurrencyBoundEnforced(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	// Hold at cap for a beat and verify the (cap+1)-th doesn't sneak in.
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		d.mu.Lock()
 		n := d.inFlight
 		d.mu.Unlock()

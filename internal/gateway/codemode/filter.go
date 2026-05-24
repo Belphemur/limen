@@ -3,6 +3,7 @@ package codemode
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -188,10 +189,8 @@ func upstreamMatches(g UpstreamGroup, wanted []string) bool {
 		if w == g.Name {
 			return true
 		}
-		for _, a := range g.Aliases {
-			if a == w {
-				return true
-			}
+		if slices.Contains(g.Aliases, w) {
+			return true
 		}
 	}
 	return false
@@ -289,10 +288,7 @@ func levenshtein(a, b string) int {
 			ad := prev[j] + 1
 			bd := curr[j-1] + 1
 			cd := prev[j-1] + cost
-			m := ad
-			if bd < m {
-				m = bd
-			}
+			m := min(bd, ad)
 			if cd < m {
 				m = cd
 			}

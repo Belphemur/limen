@@ -614,8 +614,8 @@ func persistTenantAndOwner(tx *gorm.DB, tenant *storage.Tenant, user *storage.Us
 // server invocation in tests).
 func clientIP(req connect.AnyRequest) string {
 	if v := req.Header().Get("X-Forwarded-For"); v != "" {
-		if i := strings.IndexByte(v, ','); i >= 0 {
-			return strings.TrimSpace(v[:i])
+		if before, _, ok := strings.Cut(v, ","); ok {
+			return strings.TrimSpace(before)
 		}
 		return strings.TrimSpace(v)
 	}

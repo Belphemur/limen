@@ -83,9 +83,9 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 // default-denies unknown procedures, so a missing entry is a 403 in
 // production — caught here at build time instead.
 func TestRequiredRole_CoversEveryHandlerMethod(t *testing.T) {
-	iface := reflect.TypeOf((*adminv1connect.AdminServiceHandler)(nil)).Elem()
-	for i := 0; i < iface.NumMethod(); i++ {
-		name := iface.Method(i).Name
+	iface := reflect.TypeFor[adminv1connect.AdminServiceHandler]()
+	for method := range iface.Methods() {
+		name := method.Name
 		if _, ok := requiredRole[name]; !ok {
 			t.Errorf("requiredRole missing entry for AdminServiceHandler.%s", name)
 		}
