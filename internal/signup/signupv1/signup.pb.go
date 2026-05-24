@@ -194,10 +194,11 @@ func (x *VerifyEmailRequest) GetToken() string {
 // CompleteSignup runs; idempotent replays accept the same token so
 // a page refresh after success still works.
 type VerifyEmailResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	CompletionToken string                 `protobuf:"bytes,1,opt,name=completion_token,json=completionToken,proto3" json:"completion_token,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state              protoimpl.MessageState   `protogen:"open.v1"`
+	CompletionToken    string                   `protobuf:"bytes,1,opt,name=completion_token,json=completionToken,proto3" json:"completion_token,omitempty"`
+	PasswordComplexity *PasswordComplexityRules `protobuf:"bytes,2,opt,name=password_complexity,json=passwordComplexity,proto3" json:"password_complexity,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VerifyEmailResponse) Reset() {
@@ -237,6 +238,91 @@ func (x *VerifyEmailResponse) GetCompletionToken() string {
 	return ""
 }
 
+func (x *VerifyEmailResponse) GetPasswordComplexity() *PasswordComplexityRules {
+	if x != nil {
+		return x.PasswordComplexity
+	}
+	return nil
+}
+
+// PasswordComplexityRules defines the validation rules enforced by
+// Zitadel's password complexity policy.
+type PasswordComplexityRules struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	MinLength         uint32                 `protobuf:"varint,1,opt,name=min_length,json=minLength,proto3" json:"min_length,omitempty"`
+	RequiresUppercase bool                   `protobuf:"varint,2,opt,name=requires_uppercase,json=requiresUppercase,proto3" json:"requires_uppercase,omitempty"`
+	RequiresLowercase bool                   `protobuf:"varint,3,opt,name=requires_lowercase,json=requiresLowercase,proto3" json:"requires_lowercase,omitempty"`
+	RequiresNumber    bool                   `protobuf:"varint,4,opt,name=requires_number,json=requiresNumber,proto3" json:"requires_number,omitempty"`
+	RequiresSymbol    bool                   `protobuf:"varint,5,opt,name=requires_symbol,json=requiresSymbol,proto3" json:"requires_symbol,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PasswordComplexityRules) Reset() {
+	*x = PasswordComplexityRules{}
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PasswordComplexityRules) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PasswordComplexityRules) ProtoMessage() {}
+
+func (x *PasswordComplexityRules) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PasswordComplexityRules.ProtoReflect.Descriptor instead.
+func (*PasswordComplexityRules) Descriptor() ([]byte, []int) {
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PasswordComplexityRules) GetMinLength() uint32 {
+	if x != nil {
+		return x.MinLength
+	}
+	return 0
+}
+
+func (x *PasswordComplexityRules) GetRequiresUppercase() bool {
+	if x != nil {
+		return x.RequiresUppercase
+	}
+	return false
+}
+
+func (x *PasswordComplexityRules) GetRequiresLowercase() bool {
+	if x != nil {
+		return x.RequiresLowercase
+	}
+	return false
+}
+
+func (x *PasswordComplexityRules) GetRequiresNumber() bool {
+	if x != nil {
+		return x.RequiresNumber
+	}
+	return false
+}
+
+func (x *PasswordComplexityRules) GetRequiresSymbol() bool {
+	if x != nil {
+		return x.RequiresSymbol
+	}
+	return false
+}
+
 // CompleteSignupRequest carries the completion_token returned by
 // VerifyEmail plus the plaintext password the owner chose on the
 // /signup/verify page. The token alone authorises provisioning, so
@@ -253,7 +339,7 @@ type CompleteSignupRequest struct {
 
 func (x *CompleteSignupRequest) Reset() {
 	*x = CompleteSignupRequest{}
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -265,7 +351,7 @@ func (x *CompleteSignupRequest) String() string {
 func (*CompleteSignupRequest) ProtoMessage() {}
 
 func (x *CompleteSignupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[4]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -278,7 +364,7 @@ func (x *CompleteSignupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteSignupRequest.ProtoReflect.Descriptor instead.
 func (*CompleteSignupRequest) Descriptor() ([]byte, []int) {
-	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{4}
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CompleteSignupRequest) GetCompletionToken() string {
@@ -313,7 +399,7 @@ type CompleteSignupResponse struct {
 
 func (x *CompleteSignupResponse) Reset() {
 	*x = CompleteSignupResponse{}
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +411,7 @@ func (x *CompleteSignupResponse) String() string {
 func (*CompleteSignupResponse) ProtoMessage() {}
 
 func (x *CompleteSignupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_signup_v1_signup_proto_msgTypes[5]
+	mi := &file_limen_signup_v1_signup_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +424,7 @@ func (x *CompleteSignupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteSignupResponse.ProtoReflect.Descriptor instead.
 func (*CompleteSignupResponse) Descriptor() ([]byte, []int) {
-	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{5}
+	return file_limen_signup_v1_signup_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CompleteSignupResponse) GetTenantPublicId() string {
@@ -370,9 +456,17 @@ const file_limen_signup_v1_signup_proto_rawDesc = "" +
 	"\rcaptcha_token\x18\x05 \x01(\tR\fcaptchaToken\"\x15\n" +
 	"\x13StartSignupResponse\"*\n" +
 	"\x12VerifyEmailRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"@\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\x9b\x01\n" +
 	"\x13VerifyEmailResponse\x12)\n" +
-	"\x10completion_token\x18\x01 \x01(\tR\x0fcompletionToken\"^\n" +
+	"\x10completion_token\x18\x01 \x01(\tR\x0fcompletionToken\x12Y\n" +
+	"\x13password_complexity\x18\x02 \x01(\v2(.limen.signup.v1.PasswordComplexityRulesR\x12passwordComplexity\"\xe8\x01\n" +
+	"\x17PasswordComplexityRules\x12\x1d\n" +
+	"\n" +
+	"min_length\x18\x01 \x01(\rR\tminLength\x12-\n" +
+	"\x12requires_uppercase\x18\x02 \x01(\bR\x11requiresUppercase\x12-\n" +
+	"\x12requires_lowercase\x18\x03 \x01(\bR\x11requiresLowercase\x12'\n" +
+	"\x0frequires_number\x18\x04 \x01(\bR\x0erequiresNumber\x12'\n" +
+	"\x0frequires_symbol\x18\x05 \x01(\bR\x0erequiresSymbol\"^\n" +
 	"\x15CompleteSignupRequest\x12)\n" +
 	"\x10completion_token\x18\x01 \x01(\tR\x0fcompletionToken\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"e\n" +
@@ -396,27 +490,29 @@ func file_limen_signup_v1_signup_proto_rawDescGZIP() []byte {
 	return file_limen_signup_v1_signup_proto_rawDescData
 }
 
-var file_limen_signup_v1_signup_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_limen_signup_v1_signup_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_limen_signup_v1_signup_proto_goTypes = []any{
-	(*StartSignupRequest)(nil),     // 0: limen.signup.v1.StartSignupRequest
-	(*StartSignupResponse)(nil),    // 1: limen.signup.v1.StartSignupResponse
-	(*VerifyEmailRequest)(nil),     // 2: limen.signup.v1.VerifyEmailRequest
-	(*VerifyEmailResponse)(nil),    // 3: limen.signup.v1.VerifyEmailResponse
-	(*CompleteSignupRequest)(nil),  // 4: limen.signup.v1.CompleteSignupRequest
-	(*CompleteSignupResponse)(nil), // 5: limen.signup.v1.CompleteSignupResponse
+	(*StartSignupRequest)(nil),      // 0: limen.signup.v1.StartSignupRequest
+	(*StartSignupResponse)(nil),     // 1: limen.signup.v1.StartSignupResponse
+	(*VerifyEmailRequest)(nil),      // 2: limen.signup.v1.VerifyEmailRequest
+	(*VerifyEmailResponse)(nil),     // 3: limen.signup.v1.VerifyEmailResponse
+	(*PasswordComplexityRules)(nil), // 4: limen.signup.v1.PasswordComplexityRules
+	(*CompleteSignupRequest)(nil),   // 5: limen.signup.v1.CompleteSignupRequest
+	(*CompleteSignupResponse)(nil),  // 6: limen.signup.v1.CompleteSignupResponse
 }
 var file_limen_signup_v1_signup_proto_depIdxs = []int32{
-	0, // 0: limen.signup.v1.SignupService.StartSignup:input_type -> limen.signup.v1.StartSignupRequest
-	2, // 1: limen.signup.v1.SignupService.VerifyEmail:input_type -> limen.signup.v1.VerifyEmailRequest
-	4, // 2: limen.signup.v1.SignupService.CompleteSignup:input_type -> limen.signup.v1.CompleteSignupRequest
-	1, // 3: limen.signup.v1.SignupService.StartSignup:output_type -> limen.signup.v1.StartSignupResponse
-	3, // 4: limen.signup.v1.SignupService.VerifyEmail:output_type -> limen.signup.v1.VerifyEmailResponse
-	5, // 5: limen.signup.v1.SignupService.CompleteSignup:output_type -> limen.signup.v1.CompleteSignupResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: limen.signup.v1.VerifyEmailResponse.password_complexity:type_name -> limen.signup.v1.PasswordComplexityRules
+	0, // 1: limen.signup.v1.SignupService.StartSignup:input_type -> limen.signup.v1.StartSignupRequest
+	2, // 2: limen.signup.v1.SignupService.VerifyEmail:input_type -> limen.signup.v1.VerifyEmailRequest
+	5, // 3: limen.signup.v1.SignupService.CompleteSignup:input_type -> limen.signup.v1.CompleteSignupRequest
+	1, // 4: limen.signup.v1.SignupService.StartSignup:output_type -> limen.signup.v1.StartSignupResponse
+	3, // 5: limen.signup.v1.SignupService.VerifyEmail:output_type -> limen.signup.v1.VerifyEmailResponse
+	6, // 6: limen.signup.v1.SignupService.CompleteSignup:output_type -> limen.signup.v1.CompleteSignupResponse
+	4, // [4:7] is the sub-list for method output_type
+	1, // [1:4] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_limen_signup_v1_signup_proto_init() }
@@ -430,7 +526,7 @@ func file_limen_signup_v1_signup_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_signup_v1_signup_proto_rawDesc), len(file_limen_signup_v1_signup_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

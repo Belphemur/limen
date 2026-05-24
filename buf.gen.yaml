@@ -9,12 +9,12 @@ version: v2
 #
 # All three are invoked by `make proto`.
 plugins:
-  - remote: buf.build/protocolbuffers/go:v1.36.11
+  - local: protoc-gen-go
     out: .
     opt:
       - paths=import
       - module=github.com/belphemur/limen
-  - remote: buf.build/connectrpc/go:v1.18.1
+  - local: protoc-gen-connect-go
     out: .
     opt:
       - paths=import

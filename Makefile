@@ -263,11 +263,13 @@ vet:
 fmt:
 	go fmt ./...
 
-# Install the protobuf/Connect codegen toolchain. Buf's remote plugin
-# fleet handles the language plugins themselves; we only need the buf
-# CLI locally.
+# Install the protobuf/Connect codegen toolchain. We generate Go and TS bindings
+# locally to avoid Buf Schema Registry remote plugin rate limits.
 tools:
 	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+	cd web && corepack pnpm install --frozen-lockfile
 
 # Regenerate Go + TS bindings from proto/. Go output lands under
 # internal/portal/portalv1/, internal/session/sessionv1/,

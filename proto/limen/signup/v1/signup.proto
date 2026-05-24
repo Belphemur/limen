@@ -70,6 +70,17 @@ message VerifyEmailRequest {
 // a page refresh after success still works.
 message VerifyEmailResponse {
   string completion_token = 1;
+  PasswordComplexityRules password_complexity = 2;
+}
+
+// PasswordComplexityRules defines the validation rules enforced by
+// Zitadel's password complexity policy.
+message PasswordComplexityRules {
+  uint32 min_length = 1;
+  bool requires_uppercase = 2;
+  bool requires_lowercase = 3;
+  bool requires_number = 4;
+  bool requires_symbol = 5;
 }
 
 // CompleteSignupRequest carries the completion_token returned by

@@ -96,11 +96,8 @@
           };
 
           enterShell = ''
-            export PATH="$PWD/bin:$PATH"
+            export PATH="$PWD/bin:$PWD/web/portal/node_modules/.bin:$PATH"
 
-            # Automatically run codegen on shell load so the IDE/Vite is instantly ready
-            echo "[nix-shell] Generating protobuf bindings..."
-            make proto
 
             echo ""
             echo "  Limen devshell"

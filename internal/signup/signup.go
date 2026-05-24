@@ -124,6 +124,7 @@ type ZitadelClient interface {
 	EnsureProjectGrant(ctx context.Context, grantedOrgID string, roleKeys []string) error
 	AddUserGrant(ctx context.Context, orgID, userID string, roleKeys []string) (string, error)
 	SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error
+	GetPasswordComplexitySettings(ctx context.Context, orgID string) (*zitadel.PasswordComplexitySettings, error)
 }
 
 // Service is the SignupServiceHandler implementation.
@@ -334,9 +335,27 @@ func (s *Service) VerifyEmail(ctx context.Context, req *connect.Request[signupv1
 		return nil, connect.NewError(connect.CodeInternal, errors.New("internal error"))
 	}
 
+	complexity, err := s.deps.Zitadel.GetPasswordComplexitySettings(ctx, "")
+	var complexityRules *signupv1.PasswordComplexityRules
+	if err != nil {
+		s.deps.Logger.Warn("signup: failed to retrieve password complexity settings from Zitadel, resorting to defaults", zap.Error(err))
+		complexityRules = &signupv1.PasswordComplexityRules{
+			MinLength: 8,
+		}
+	} else {
+		complexityRules = &signupv1.PasswordComplexityRules{
+			MinLength:         uint32(complexity.MinLength),
+			RequiresUppercase: complexity.RequiresUppercase,
+			RequiresLowercase: complexity.RequiresLowercase,
+			RequiresNumber:    complexity.RequiresNumber,
+			RequiresSymbol:    complexity.RequiresSymbol,
+		}
+	}
+
 	s.log(req, row.PublicID, outcomeOK, nil)
 	return connect.NewResponse(&signupv1.VerifyEmailResponse{
-		CompletionToken: completionToken,
+		CompletionToken:    completionToken,
+		PasswordComplexity: complexityRules,
 	}), nil
 }
 

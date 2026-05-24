@@ -8,7 +8,7 @@ inputs:
     paths:
       - proto/limen/portal
 plugins:
-  - remote: buf.build/bufbuild/es:v2.12.0
+  - local: protoc-gen-es
     out: web/portal/src/gen
     opt:
       - target=ts
