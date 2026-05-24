@@ -38,31 +38,17 @@ const filled = computed(() => (props.password ? score.value + 1 : 0))
 
 <template>
   <div>
-    <div
-      class="flex gap-1"
-      role="progressbar"
-      aria-label="Password strength"
-      :aria-valuemin="0"
-      :aria-valuemax="4"
-      :aria-valuenow="score"
-    >
-      <span
-        v-for="i in 5"
-        :key="i"
-        class="h-1.5 flex-1 rounded-full"
-        :class="i <= filled ? SCORE_COLOR[score] : 'bg-surface-3'"
-      />
+    <div class="flex gap-1" role="progressbar" aria-label="Password strength" :aria-valuemin="0" :aria-valuemax="4"
+      :aria-valuenow="score">
+      <span v-for="i in 5" :key="i" class="h-1.5 flex-1 rounded-full"
+        :class="i <= filled ? SCORE_COLOR[score] : 'bg-surface-3'" />
     </div>
     <div class="mt-2 flex items-baseline justify-between gap-3">
-      <span
-        class="text-body-xs font-medium"
-        :class="password ? (acceptable ? 'text-success' : 'text-text-muted') : 'text-text-muted'"
-      >
+      <span class="text-body-xs font-medium"
+        :class="password ? (acceptable ? 'text-success' : 'text-text-muted') : 'text-text-muted'">
         <template v-if="password">
           {{ SCORE_LABEL[score] }}
-          <span v-if="!acceptable" class="text-text-muted"
-            >&nbsp;— need “{{ SCORE_LABEL[PASSWORD_MIN_SCORE] }}”</span
-          >
+          <span v-if="!acceptable" class="text-text-muted">&nbsp;— need “{{ SCORE_LABEL[PASSWORD_MIN_SCORE] }}”</span>
         </template>
         <template v-else> Password strength </template>
       </span>

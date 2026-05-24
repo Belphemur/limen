@@ -3,9 +3,10 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ConnectError, Code } from '@connectrpc/connect'
 
-import PasswordStrengthMeter from '@/components/PasswordStrengthMeter.vue'
+import PasswordInputGrid from '@/components/PasswordInputGrid.vue'
 import { usePasswordStrength } from '@/composables/usePasswordStrength'
 import { signupClient } from '@/transport/adminClient'
+import type { PasswordComplexityRules } from '@/gen/limen/signup/v1/signup_pb'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,10 +16,11 @@ const status = ref<'verifying' | 'password' | 'completing' | 'redirecting' | 'er
 const errorMsg = ref('')
 const completionToken = ref('')
 const password = ref('')
-const passwordConfirm = ref('')
-const PASSWORD_MIN_LEN = 8
+const complexity = ref<PasswordComplexityRules | undefined>(undefined)
 
 const { acceptable: strengthOk } = usePasswordStrength(password)
+
+const isPasswordValid = ref(false)
 
 async function verify(): Promise<void> {
   const token = typeof route.query.token === 'string' ? route.query.token : ''
@@ -30,6 +32,7 @@ async function verify(): Promise<void> {
   try {
     const res = await signupClient().verifyEmail({ token })
     completionToken.value = res.completionToken
+    complexity.value = res.passwordComplexity
     status.value = 'password'
   } catch (e) {
     status.value = 'error'
@@ -39,16 +42,12 @@ async function verify(): Promise<void> {
 
 async function submitPassword(): Promise<void> {
   errorMsg.value = ''
-  if (password.value.length < PASSWORD_MIN_LEN) {
-    errorMsg.value = `Password must be at least ${PASSWORD_MIN_LEN} characters.`
+  if (!isPasswordValid.value) {
+    errorMsg.value = 'Please satisfy all password requirements and make sure passwords match.'
     return
   }
   if (!strengthOk.value) {
     errorMsg.value = 'Please choose a stronger password.'
-    return
-  }
-  if (password.value !== passwordConfirm.value) {
-    errorMsg.value = 'Passwords do not match.'
     return
   }
   status.value = 'completing'
@@ -109,41 +108,17 @@ function backToStart(): void {
           with your email to sign in.
         </p>
         <form class="mt-6 space-y-4" @submit.prevent="submitPassword">
-          <div>
-            <label class="mb-1 block text-body-sm font-medium text-text" for="password"
-              >Password</label
-            >
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              autocomplete="new-password"
-              required
-              :minlength="PASSWORD_MIN_LEN"
-              :disabled="status === 'completing'"
-              class="h-10 w-full rounded-md border border-divider bg-surface-2 px-3 text-body-md text-text outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label class="mb-1 block text-body-sm font-medium text-text" for="passwordConfirm"
-              >Confirm password</label
-            >
-            <input
-              id="passwordConfirm"
-              v-model="passwordConfirm"
-              type="password"
-              autocomplete="new-password"
-              required
-              :minlength="PASSWORD_MIN_LEN"
-              :disabled="status === 'completing'"
-              class="h-10 w-full rounded-md border border-divider bg-surface-2 px-3 text-body-md text-text outline-none focus:border-primary"
-            />
-          </div>
-          <PasswordStrengthMeter :password="password" />
+          <PasswordInputGrid
+            v-model="password"
+            :complexity="complexity"
+            :disabled="status === 'completing'"
+            @valid="isPasswordValid = $event"
+          />
+
           <p v-if="errorMsg" class="text-body-sm text-danger" role="alert">{{ errorMsg }}</p>
           <button
             type="submit"
-            :disabled="status === 'completing' || !strengthOk || password !== passwordConfirm"
+            :disabled="status === 'completing' || !strengthOk || !isPasswordValid"
             class="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-body-md font-semibold text-on-primary shadow-soft transition hover:bg-primary/90 disabled:opacity-60"
           >
             {{ status === 'completing' ? 'Provisioning…' : 'Finish signup' }}
