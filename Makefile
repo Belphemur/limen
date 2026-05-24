@@ -1,4 +1,5 @@
-.PHONY: dev dev-run dev-cmd dev-migrate dev-create-tenant dev-create-upstream \
+.PHONY: dev dev-run hot-dev hot-dev-run hot-dev-install dev-cmd dev-migrate dev-create-tenant dev-create-upstream \
+	dev-fix-bootstrap-perms \
 	dev-reset dev-bootstrap dev-down dev-portal dev-portal-install dev-portal-build \
 	dev-admin dev-admin-install dev-admin-build \
 	build test vet fmt proto tools
@@ -26,6 +27,17 @@ define DEV_ENV
 set -e
 test -f scripts/zitadel-bootstrap/.bootstrap-out.env || { \
 	echo "missing scripts/zitadel-bootstrap/.bootstrap-out.env — run 'make dev-bootstrap'" >&2; \
+	exit 1; \
+}
+# The bootstrap container may create this file as root:root (0600).
+# Repair ownership/permissions through docker so the host user can source it.
+if [ ! -r scripts/zitadel-bootstrap/.bootstrap-out.env ]; then \
+	docker run --rm \
+		-v "$$(pwd)/scripts/zitadel-bootstrap:/w" \
+		alpine sh -c "chown $$(id -u):$$(id -g) /w/.bootstrap-out.env && chmod 600 /w/.bootstrap-out.env" >/dev/null 2>&1 || true; \
+fi
+test -r scripts/zitadel-bootstrap/.bootstrap-out.env || { \
+	echo "scripts/zitadel-bootstrap/.bootstrap-out.env exists but is not readable; run 'make dev-fix-bootstrap-perms'" >&2; \
 	exit 1; \
 }
 set -a
@@ -69,6 +81,31 @@ dev:
 dev-run: .env.dev
 	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen migrate && go run ./cmd/limen serve'
 
+# Bring up the full dependency stack and run the Go app with hot-reload.
+# Requires air (`make hot-dev-install`).
+hot-dev:
+	$(COMPOSE) up -d --wait
+	./scripts/wait-for-zitadel.sh
+	$(MAKE) dev-bootstrap
+	$(MAKE) hot-dev-run
+
+# Migrate once, then serve via air so Go file changes trigger rebuild/restart.
+hot-dev-run: .env.dev
+	@bash -c 'eval "$$DEV_ENV"; \
+		command -v air >/dev/null 2>&1 || { \
+			echo "missing air binary; run \"make hot-dev-install\"" >&2; \
+			exit 1; \
+		}; \
+		test -f .air.toml || { \
+			echo "missing .air.toml" >&2; \
+			exit 1; \
+		}; \
+		go run ./cmd/limen migrate; \
+		exec air -c .air.toml'
+
+hot-dev-install:
+	go install github.com/air-verse/air@latest
+
 # Run an arbitrary limen subcommand with the dev env loaded.
 # Usage: make dev-cmd ARGS="create-upstream --name foo --tenant tnt_... --url ..."
 dev-cmd: .env.dev
@@ -86,10 +123,23 @@ dev-create-tenant: .env.dev
 dev-create-upstream: .env.dev
 	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-upstream $(ARGS)'
 
+# Repair ownership + mode for bootstrap env when Docker wrote it as root.
+dev-fix-bootstrap-perms:
+	@docker run --rm \
+		-v "$$(pwd)/scripts/zitadel-bootstrap:/w" \
+		alpine sh -c "chown $$(id -u):$$(id -g) /w/.bootstrap-out.env && chmod 600 /w/.bootstrap-out.env"
+
 # Run (or re-run) the Zitadel bootstrap, then mirror the resulting sample
 # org + seed owner into Limen's own database. Both steps are idempotent.
 dev-bootstrap:
-	$(COMPOSE) run --rm zitadel-bootstrap
+	$(COMPOSE) run --rm \
+		--user "$$(id -u):$$(id -g)" \
+		-v "$$(go env GOMODCACHE):/go/pkg/mod" \
+		-v "$$(go env GOCACHE):/tmp/go-build-cache" \
+		-e HOME=/tmp \
+		-e GOCACHE=/tmp/go-build-cache \
+		-e GOMODCACHE=/go/pkg/mod \
+		zitadel-bootstrap
 	$(MAKE) dev-migrate
 	@bash -c 'eval "$$DEV_ENV"; go run ./cmd/limen create-tenant \
 		--name "$$LIMEN_SAMPLE_TENANT_NAME" \

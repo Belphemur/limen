@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ./cmd/limen"
+  bin = "./tmp/main"
+  args_bin = ["serve"]
+  include_ext = ["go"]
+  include_dir = ["cmd", "internal"]
+  exclude_dir = ["tmp", "data", "web", "node_modules", "scripts", "docs"]
+  exclude_regex = ["_test\\.go"]
+  stop_on_error = true
+
+[log]
+  time = true
