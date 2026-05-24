@@ -21,7 +21,7 @@ func TestStaff_ImportGraph_ExcludesOauthproxyAndMCPHotPath(t *testing.T) {
 		"github.com/belphemur/limen/internal/gateway/codemode",
 		"github.com/belphemur/limen/internal/portal",
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		for _, bad := range forbidden {
 			if line == bad || strings.HasPrefix(line, bad+"/") {
 				t.Errorf("cmd/staff must not import %q (got %q in dependency graph)", bad, line)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	internalPermissionV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/internal_permission/v2"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
@@ -87,6 +88,31 @@ func (c *Client) SetOrgMetadata(ctx context.Context, orgID, key string, value []
 		},
 	}); err != nil {
 		return fmt.Errorf("zitadel: set org metadata (org=%q key=%q): %w", orgID, key, err)
+	}
+	return nil
+}
+
+// AddOrgOwner adds userID as an ORG_OWNER of orgID via the v2 InternalPermissionService RPC.
+// ORG_OWNER is the Zitadel-side role that lets the user self-serve invites, role changes,
+// IdP federation, etc. from `<issuer>/ui/console`.
+func (c *Client) AddOrgOwner(ctx context.Context, orgID, userID string) error {
+	if orgID == "" {
+		return fmt.Errorf("zitadel: AddOrgOwner: orgID is required")
+	}
+	if userID == "" {
+		return fmt.Errorf("zitadel: AddOrgOwner: userID is required")
+	}
+	_, err := c.api.InternalPermissionServiceV2().CreateAdministrator(ctx, &internalPermissionV2.CreateAdministratorRequest{
+		UserId: userID,
+		Roles:  []string{"ORG_OWNER"},
+		Resource: &internalPermissionV2.ResourceType{
+			Resource: &internalPermissionV2.ResourceType_OrganizationId{
+				OrganizationId: orgID,
+			},
+		},
+	})
+	if err != nil && !IsAlreadyExists(err) {
+		return fmt.Errorf("zitadel: add org owner (user=%s org=%s): %w", userID, orgID, err)
 	}
 	return nil
 }

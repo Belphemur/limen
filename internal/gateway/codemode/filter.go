@@ -288,10 +288,7 @@ func levenshtein(a, b string) int {
 			ad := prev[j] + 1
 			bd := curr[j-1] + 1
 			cd := prev[j-1] + cost
-			m := min(bd, ad)
-			if cd < m {
-				m = cd
-			}
+			m := min(cd, min(bd, ad))
 			curr[j] = m
 		}
 		prev, curr = curr, prev

@@ -27,9 +27,9 @@ services:
   # (/var/lib/postgresql/<major>/docker) and refuses to start with a
   # mount at the legacy /var/lib/postgresql/data location. Replace the
   # upstream service's volume list with a parent-directory bind mount
-  # under ./data/ so dev data is workspace-local and pg_upgrade --link
+  # under ../docker-data/ so dev data lives outside the project folder and pg_upgrade --link
   # works across major bumps. !override clears the upstream list (the
   # default merge behaviour appends, which would leave both mounts).
   postgres:
     volumes: !override
-      - ./data/zitadel-postgres:/var/lib/postgresql
+      - ../docker-data/zitadel-postgres:/var/lib/postgresql

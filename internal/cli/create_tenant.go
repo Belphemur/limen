@@ -137,6 +137,13 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 					logger.Info("owner grant already exists, continuing")
 				}
 
+				logger.Info("granting org owner membership",
+					zap.String("user_id", org.AdminUserID),
+					zap.String("org_id", org.ID))
+				if err := zclient.AddOrgOwner(ctx, org.ID, org.AdminUserID); err != nil {
+					return fmt.Errorf("add org owner membership: %w", err)
+				}
+
 				orgID = org.ID
 				ownerUserID = org.AdminUserID
 			}

@@ -125,6 +125,7 @@ type ZitadelClient interface {
 	AddUserGrant(ctx context.Context, orgID, userID string, roleKeys []string) (string, error)
 	SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error
 	GetPasswordComplexitySettings(ctx context.Context, orgID string) (*zitadel.PasswordComplexitySettings, error)
+	AddOrgOwner(ctx context.Context, orgID, userID string) error
 }
 
 // Service is the SignupServiceHandler implementation.
@@ -444,6 +445,10 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 	}
 	if _, err := s.deps.Zitadel.AddUserGrant(ctx, org.ID, userID, []string{string(session.RoleOwner)}); err != nil {
 		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add user grant: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
+	}
+	if err := s.deps.Zitadel.AddOrgOwner(ctx, org.ID, userID); err != nil {
+		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add org owner membership: %w", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
 	}
 
