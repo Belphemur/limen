@@ -274,7 +274,7 @@ func (s *Service) ReindexCatalog(ctx context.Context, tenant *storage.Tenant, ca
 			link = l
 		}
 	}
-	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, link); err != nil {
+	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, link, nil); err != nil {
 		if errors.Is(err, ErrLinkNotFound) || errors.Is(err, ErrNeedsRelink) {
 			return nil, ErrCannotReindexWithoutLink
 		}

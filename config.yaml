@@ -10,6 +10,10 @@ server:
   # Authorization Servers via DCR — rename only if the portal route
   # and any provisioned DCR clients are updated in lockstep.
   upstream_callback_path: "${LIMEN_UPSTREAM_CALLBACK_PATH:-/mcp-servers}"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+  shutdown_timeout: "15s"
 
 # Logger configuration for `gateway serve`. Level accepts debug / info /
 # warn / error (the standard zapcore names). Development=true switches
@@ -151,3 +155,52 @@ mailer:
     username: "${LIMEN_SMTP_USERNAME:-}"
     password: "${LIMEN_SMTP_PASSWORD:-}"
     tls: "${LIMEN_SMTP_TLS:-none}"
+
+# Phase 10 — resilience policies for outbound HTTP dependencies.
+# Defaults apply to any unnamed dependency. Per-policy overrides are
+# merged on top of defaults by name. Every field shown here is the
+# built-in default; comment out a policy to let the default stand.
+resilience:
+  defaults:
+    max_retries: 2
+    base_backoff: "250ms"
+    max_backoff: "2s"
+    breaker_consecutive_fails: 5
+    breaker_open_duration: "30s"
+  policies:
+    # upstream.tool_calls:
+    #   max_retries: 2
+    #   base_backoff: "250ms"
+    #   max_backoff: "2s"
+    #   breaker_consecutive_fails: 5
+    #   breaker_open_duration: "30s"
+    # upstream.token_refresh:
+    #   max_retries: 3
+    #   base_backoff: "500ms"
+    #   max_backoff: "5s"
+    #   breaker_consecutive_fails: 5
+    #   breaker_open_duration: "60s"
+    # upstream.dcr:
+    #   max_retries: 2
+    #   base_backoff: "500ms"
+    #   max_backoff: "5s"
+    #   breaker_consecutive_fails: 3
+    #   breaker_open_duration: "300s"
+    # zitadel.session:
+    #   max_retries: 2
+    #   base_backoff: "100ms"
+    #   max_backoff: "1s"
+    #   breaker_consecutive_fails: 10
+    #   breaker_open_duration: "15s"
+    # zitadel.user:
+    #   max_retries: 2
+    #   base_backoff: "250ms"
+    #   max_backoff: "2s"
+    #   breaker_consecutive_fails: 5
+    #   breaker_open_duration: "60s"
+    # zitadel.jwks:
+    #   max_retries: 3
+    #   base_backoff: "100ms"
+    #   max_backoff: "1s"
+    #   breaker_consecutive_fails: 5
+    #   breaker_open_duration: "30s"

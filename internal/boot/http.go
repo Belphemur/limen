@@ -7,10 +7,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 )
+
+type ctxKeyType struct{}
+
+var ctxKeyLogger ctxKeyType
 
 // RunHTTPServer binds the configured listener and shuts down cleanly
 // when rt.Ctx is canceled.
@@ -19,6 +25,10 @@ func RunHTTPServer(rt *Runtime, h http.Handler) error {
 	rt.Logger.Info("starting server", zap.String("addr", addr))
 
 	srv := &http.Server{Addr: addr, Handler: h}
+	srv.ReadTimeout = rt.Cfg.Server.ReadTimeout
+	srv.ReadHeaderTimeout = max(rt.Cfg.Server.ReadTimeout/2, 10*time.Second)
+	srv.WriteTimeout = rt.Cfg.Server.WriteTimeout
+	srv.IdleTimeout = rt.Cfg.Server.IdleTimeout
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	select {
@@ -28,9 +38,14 @@ func RunHTTPServer(rt *Runtime, h http.Handler) error {
 		}
 		return nil
 	case <-rt.Ctx.Done():
-		shutdownCtx, c := context.WithCancel(context.Background())
-		c()
-		_ = srv.Shutdown(shutdownCtx)
+		rt.Logger.Info("shutting down server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), rt.Cfg.Server.ShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			rt.Logger.Warn("server shutdown timed out", zap.Error(err))
+		} else {
+			rt.Logger.Info("server stopped")
+		}
 		return nil
 	}
 }
@@ -81,4 +96,29 @@ func PermissiveCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequestLogger injects request_id, method, and path into a per-request
+// logger stored on the context. Must be mounted AFTER middleware.RequestID.
+func RequestLogger(logger *zap.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := middleware.GetReqID(r.Context())
+			l := logger.With(
+				zap.String("request_id", reqID),
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+			)
+			ctx := context.WithValue(r.Context(), ctxKeyLogger, l)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// LoggerFromContext returns the per-request logger or a no-op fallback.
+func LoggerFromContext(ctx context.Context) *zap.Logger {
+	if l, ok := ctx.Value(ctxKeyLogger).(*zap.Logger); ok {
+		return l
+	}
+	return zap.NewNop()
 }

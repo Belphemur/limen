@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -55,6 +56,7 @@ func IndexUpstream(
 	tenant *storage.Tenant,
 	up *storage.Upstream,
 	link *storage.UpstreamLink,
+	httpClient *http.Client,
 ) error {
 	if store == nil || registry == nil || tenant == nil || up == nil {
 		return fmt.Errorf("index upstream: store/registry/tenant/upstream are required")
@@ -64,7 +66,7 @@ func IndexUpstream(
 		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
 
-	tools, err := listUpstreamTools(ctx, strat, tenant, up, link)
+	tools, err := listUpstreamTools(ctx, strat, tenant, up, link, httpClient)
 	if err != nil {
 		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
@@ -91,6 +93,7 @@ func listUpstreamTools(
 	tenant *storage.Tenant,
 	up *storage.Upstream,
 	link *storage.UpstreamLink,
+	httpClient *http.Client,
 ) ([]mcp.Tool, error) {
 	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link}
 	if link != nil {
@@ -103,7 +106,7 @@ func listUpstreamTools(
 
 	dialCtx, cancelDial := context.WithTimeout(ctx, indexTimeout)
 	defer cancelDial()
-	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, nil, indexTimeout, "limen-indexer", "0.1.0")
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, httpClient, indexTimeout, "limen-indexer", "0.1.0")
 	if err != nil {
 		return nil, err
 	}

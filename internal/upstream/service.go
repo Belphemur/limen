@@ -155,7 +155,7 @@ func (s *Service) LoadLink(ctx context.Context, tenantID, userID, upstreamID int
 // rule from Phase 8 — Service has no view of OIDC roles. Pass link=nil
 // for tenant-mode strategies (`none`, `static_header` tenant-wide).
 func (s *Service) IndexCatalog(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, link *storage.UpstreamLink) error {
-	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link)
+	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link, nil)
 }
 
 // VerifyLink confirms the credentials this link produces are accepted
@@ -227,7 +227,7 @@ func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenan
 	if err := strat.Provision(ctx, lctx); err != nil {
 		return fmt.Errorf("upstream: provision: %w", err)
 	}
-	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, nil); err != nil {
+	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, nil, nil); err != nil {
 		if errors.Is(err, ErrNeedsRelink) || errors.Is(err, ErrLinkNotFound) {
 			return nil
 		}

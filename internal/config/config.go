@@ -38,6 +38,22 @@ type Config struct {
 	Signup          SignupConfig          `yaml:"signup"`
 	Captcha         CaptchaConfig         `yaml:"captcha"`
 	Mailer          MailerConfig          `yaml:"mailer"`
+	Resilience      ResilienceConfig      `yaml:"resilience"`
+}
+
+// ResilienceConfig holds per-dependency retry and circuit-breaker policies.
+type ResilienceConfig struct {
+	Policies map[string]ResiliencePolicy `yaml:"policies"`
+	Defaults ResiliencePolicy            `yaml:"defaults"`
+}
+
+// ResiliencePolicy is a single retry + circuit-breaker configuration.
+type ResiliencePolicy struct {
+	MaxRetries              int           `yaml:"max_retries"`
+	BaseBackoff             time.Duration `yaml:"base_backoff"`
+	MaxBackoff              time.Duration `yaml:"max_backoff"`
+	BreakerConsecutiveFails int           `yaml:"breaker_consecutive_fails"`
+	BreakerOpenDuration     time.Duration `yaml:"breaker_open_duration"`
 }
 
 // SignupConfig governs the Phase 9h self-serve signup wizard.
@@ -116,10 +132,14 @@ type LoggingConfig struct {
 // with "/", contain no further slashes, and is exposed to the SPA + the
 // upstream Authorization Server via DCR. Defaults to "/mcp-servers".
 type ServerConfig struct {
-	Host                 string `yaml:"host"`
-	Port                 int    `yaml:"port"`
-	BaseURL              string `yaml:"base_url"`
-	UpstreamCallbackPath string `yaml:"upstream_callback_path"`
+	Host                 string        `yaml:"host"`
+	Port                 int           `yaml:"port"`
+	BaseURL              string        `yaml:"base_url"`
+	UpstreamCallbackPath string        `yaml:"upstream_callback_path"`
+	ReadTimeout          time.Duration `yaml:"read_timeout,omitempty"`
+	WriteTimeout         time.Duration `yaml:"write_timeout,omitempty"`
+	IdleTimeout          time.Duration `yaml:"idle_timeout,omitempty"`
+	ShutdownTimeout      time.Duration `yaml:"shutdown_timeout,omitempty"`
 }
 
 // DatabaseConfig configures the Postgres connections used by
@@ -434,6 +454,132 @@ func (c *Config) applyDefaults() {
 			"urn:zitadel:iam:user:resourceowner",
 		}
 	}
+	if c.Server.ReadTimeout == 0 {
+		c.Server.ReadTimeout = 30 * time.Second
+	}
+	if c.Server.WriteTimeout == 0 {
+		c.Server.WriteTimeout = 30 * time.Second
+	}
+	if c.Server.IdleTimeout == 0 {
+		c.Server.IdleTimeout = 120 * time.Second
+	}
+	if c.Server.ShutdownTimeout == 0 {
+		c.Server.ShutdownTimeout = 15 * time.Second
+	}
+	c.Resilience.applyDefaults()
+}
+
+func (r *ResilienceConfig) applyDefaults() {
+	if r.Defaults.MaxRetries == 0 {
+		r.Defaults.MaxRetries = 2
+	}
+	if r.Defaults.BaseBackoff == 0 {
+		r.Defaults.BaseBackoff = 250 * time.Millisecond
+	}
+	if r.Defaults.MaxBackoff == 0 {
+		r.Defaults.MaxBackoff = 2 * time.Second
+	}
+	if r.Defaults.BreakerConsecutiveFails == 0 {
+		r.Defaults.BreakerConsecutiveFails = 5
+	}
+	if r.Defaults.BreakerOpenDuration == 0 {
+		r.Defaults.BreakerOpenDuration = 30 * time.Second
+	}
+
+	defaults := map[string]ResiliencePolicy{
+		"upstream.tool_calls": {
+			MaxRetries:              2,
+			BaseBackoff:             250 * time.Millisecond,
+			MaxBackoff:              2 * time.Second,
+			BreakerConsecutiveFails: 5,
+			BreakerOpenDuration:     30 * time.Second,
+		},
+		"upstream.token_refresh": {
+			MaxRetries:              3,
+			BaseBackoff:             500 * time.Millisecond,
+			MaxBackoff:              5 * time.Second,
+			BreakerConsecutiveFails: 5,
+			BreakerOpenDuration:     60 * time.Second,
+		},
+		"upstream.dcr": {
+			MaxRetries:              2,
+			BaseBackoff:             500 * time.Millisecond,
+			MaxBackoff:              5 * time.Second,
+			BreakerConsecutiveFails: 3,
+			BreakerOpenDuration:     300 * time.Second,
+		},
+		"zitadel.session": {
+			MaxRetries:              2,
+			BaseBackoff:             100 * time.Millisecond,
+			MaxBackoff:              1 * time.Second,
+			BreakerConsecutiveFails: 10,
+			BreakerOpenDuration:     15 * time.Second,
+		},
+		"zitadel.user": {
+			MaxRetries:              2,
+			BaseBackoff:             250 * time.Millisecond,
+			MaxBackoff:              2 * time.Second,
+			BreakerConsecutiveFails: 5,
+			BreakerOpenDuration:     60 * time.Second,
+		},
+		"zitadel.jwks": {
+			MaxRetries:              3,
+			BaseBackoff:             100 * time.Millisecond,
+			MaxBackoff:              1 * time.Second,
+			BreakerConsecutiveFails: 5,
+			BreakerOpenDuration:     30 * time.Second,
+		},
+	}
+
+	if r.Policies == nil {
+		r.Policies = make(map[string]ResiliencePolicy, len(defaults))
+	}
+	for name, policy := range defaults {
+		if _, ok := r.Policies[name]; !ok {
+			r.Policies[name] = policy
+		}
+	}
+}
+
+// Resolve looks up a named policy and falls back to Defaults.
+func (r ResilienceConfig) Resolve(name string) ResiliencePolicy {
+	if p, ok := r.Policies[name]; ok {
+		return p
+	}
+	return r.Defaults
+}
+
+// Validate checks the defaults and every named policy.
+func (r ResilienceConfig) Validate() error {
+	if err := r.Defaults.Validate(); err != nil {
+		return fmt.Errorf("defaults: %w", err)
+	}
+	for name, policy := range r.Policies {
+		if err := policy.Validate(); err != nil {
+			return fmt.Errorf("policy %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// Validate checks that every field in the policy is positive.
+func (p ResiliencePolicy) Validate() error {
+	if p.MaxRetries < 0 {
+		return errors.New("max_retries must be >= 0")
+	}
+	if p.BaseBackoff <= 0 {
+		return errors.New("base_backoff must be > 0")
+	}
+	if p.MaxBackoff <= 0 {
+		return errors.New("max_backoff must be > 0")
+	}
+	if p.BreakerConsecutiveFails < 0 {
+		return errors.New("breaker_consecutive_fails must be >= 0")
+	}
+	if p.BreakerOpenDuration <= 0 {
+		return errors.New("breaker_open_duration must be > 0")
+	}
+	return nil
 }
 
 // Validate runs every section's validator in declaration order and reports
@@ -462,6 +608,9 @@ func (c *Config) Validate() error {
 	}
 	if err := c.UpstreamRefresh.Validate(); err != nil {
 		return fmt.Errorf("upstream_refresh: %w", err)
+	}
+	if err := c.Resilience.Validate(); err != nil {
+		return fmt.Errorf("resilience: %w", err)
 	}
 	if err := c.Captcha.Validate(); err != nil {
 		return fmt.Errorf("captcha: %w", err)

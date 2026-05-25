@@ -303,7 +303,7 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 		}
 	}
 
-	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link)
+	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link, nil)
 }
 
 // ensure gorm import is used in builds that don't reference it directly.

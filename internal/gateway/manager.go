@@ -13,7 +13,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/contextblob"
+	"github.com/belphemur/limen/internal/resilience"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
@@ -28,6 +30,12 @@ type ManagerOptions struct {
 	HealthThresholds upstream.HealthThresholds
 	Timeout          time.Duration
 	Logger           *zap.Logger
+	// ResiliencePolicy for upstream MCP tool calls. Used to construct the
+	// base transport that sits inside AuthInjectingTransport. When nil
+	// (zero-value), the resilience.Client uses a default policy that
+	// disables circuit-breaker + retry (MaxRetries=0), which is the
+	// current behaviour.
+	ResiliencePolicy config.ResiliencePolicy
 }
 
 // Manager owns the per-(tenant, upstream) Bundle cache and serves the
@@ -366,12 +374,14 @@ func (m *Manager) buildBundle(ctx context.Context, tenant *storage.Tenant, upstr
 		return nil, err
 	}
 
-	// TODO(phase-10): swap http.DefaultTransport for
-	// resilience.Client("upstream."+up.Identifier+".calls", cfg).Transport.
-	// This is the single construction site referenced in
-	// docs/phases/phase-10-wiring-hardening.md.
+	// Phase 10: construct a resilience HTTP client for this upstream. The
+	// AuthInjectingTransport wraps the resilience transport so every
+	// physical attempt (including the 401→refresh retry) inherits the same
+	// retry/breaker policy independently.
+	resilienceClient := resilience.Client("upstream."+up.Identifier+".calls", m.opts.ResiliencePolicy, m.opts.Logger)
+
 	rt := &AuthInjectingTransport{
-		Base:             http.DefaultTransport,
+		Base:             resilienceClient.Transport,
 		Auth:             authProvider,
 		Store:            m.opts.Store,
 		UpstreamName:     up.Identifier,

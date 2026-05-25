@@ -29,8 +29,9 @@ func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 			FailWindow:        rt.Cfg.UpstreamRefresh.FailWindow,
 			NeedsRelinkWindow: rt.Cfg.UpstreamRefresh.NeedsRelinkWindow,
 		},
-		Timeout: rt.Cfg.CodeMode.ExecutionTimeout,
-		Logger:  rt.Logger,
+		Timeout:          rt.Cfg.CodeMode.ExecutionTimeout,
+		Logger:           rt.Logger,
+		ResiliencePolicy: rt.Cfg.Resilience.Resolve("upstream.tool_calls"),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)

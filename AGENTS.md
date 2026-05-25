@@ -20,19 +20,50 @@ Limen ships as **five binaries** built from a single Go module (see Phase 9a). A
 ```
 cmd/limen/main.go            # All-in-one binary (dev + small self-hosted)
 cmd/gateway/main.go          # MCP RS hot path (Phase 9a)
-cmd/portal/main.go           # Portal/admin Connect-RPC + OIDC RP + OAuth proxy + upstream callback (Phase 9a)
+cmd/portal/main.go           # Portal/admin Connect-RPC + OIDC RP + OAuth proxy (Phase 9a)
 cmd/staff/main.go            # Staff backoffice scaffold (Phase 9a, routes land in Phase 12)
 cmd/limenctl/main.go         # Admin CLI: migrate, create-tenant, create-upstream (Phase 9a)
 internal/
-  auth/middleware.go          # JWT/JWKS auth middleware (stub — needs validation)
-  boot/runtime.go             # BootRuntime + BootProfile bitmask shared by every binary
-  boot/<suite>mount/          # Per-suite mount helpers (mcpmount, portalmount, oauthproxymount, ...)
-  boot/serve<binary>/         # Per-binary Run(configPath) entry points (servegateway, serveportal, ...)
-  config/config.go            # YAML config loading with env var substitution
-  gateway/gateway.go          # Core gateway: aggregates upstream MCP tools
-  gateway/codemode.go         # Goja JS sandbox for server-side tool composition
-  gateway/upstream.go         # MCP upstream HTTP/SSE client
-  transport/http.go           # HTTP/SSE transport layer (chi router)
+  admin/                      # AdminService Connect-RPC handler (Phase 9c)
+  auth/                       # OIDC relying party, JWT middleware, state signer (Phase 4, 6)
+  boot/                       # BootRuntime + BootProfile bitmask shared by every binary
+  boot/{suite}mount/          # Per-suite mount helpers (mcpmount, portalmount, oauthproxymount, ...)
+  boot/serve{name}/           # Per-binary Run(configPath) entry points
+  config/                     # YAML config loading with env var substitution
+  contextblob/                # Context merge utilities for ambient context
+  crypto/                     # AES-SIV encryption for SecretField (Phase 2)
+  gateway/                    # Core gateway: MCP upstream aggregation + Code Mode
+  gateway/authtransport.go    # Auth-injecting outbound HTTP RoundTripper (Phase 8)
+  gateway/codemode/           # Goja JS sandbox for server-side tool composition
+  gateway/codemodeaction/     # Code Mode MCP tool definitions
+  idepresets/                 # IDE preset configuration (Phase 9f)
+  ids/                        # ULID / public ID generation
+  mailer/                     # SMTP mailer for signup verification (Phase 9h)
+  mcprs/                      # MCP Resource Server: PRM handler, challenge flow (Phase 6)
+  oauthproxy/                 # Thin OAuth proxy: DCR, AS metadata, redirector (Phase 5)
+  portal/                     # PortalService Connect-RPC handler (Phase 9b)
+  resilience/                 # HTTP client resilience: retry + circuit breaker (Phase 10)
+  audit/                      # Audit event emitter (Phase 10 log sink; DB table in Phase 12)
+  session/                    # Shared session service (Phase 9d)
+  signup/                     # Self-serve signup wizard (Phase 9h)
+  storage/                    # GORM models, Postgres connection pools, RLS (Phase 1, 3)
+  tenancy/                    # Tenant resolution, per-tenant middleware (Phase 3)
+  tenant/                     # Tenant-scoped services (allowlist, etc.)
+  transport/                  # HTTP route mounting (chi): MCP, portal, OAuth, upstream
+  upstream/                   # Upstream registry, strategies (mcp_spec, none), refresher (Phase 7)
+  valkey/                     # Valkey (Redis) client for OAuth state (Phase 7)
+  zitadel/                    # Zitadel Management API client (Phase 4)
+web/
+  portal/                     # Vue 3 Portal SPA (Phase 9b)
+  admin/                      # Vue 3 Admin SPA (Phase 9c)
+  shared/                     # Shared TS types + SessionService bindings
+proto/
+  portal/v1/                  # PortalService protobuf definitions
+  admin/v1/                   # AdminService protobuf definitions
+  session/v1/                 # SessionService protobuf definitions
+  signup/v1/                  # SignupService protobuf definitions
+tests/
+  integration/                # Integration tests with testcontainers-go (Phase 10)
 ```
 
 **Key dependencies:** `go-chi/chi/v5`, `mark3labs/mcp-go`, `dop251/goja`, `go.uber.org/zap`, `gopkg.in/yaml.v3`
@@ -187,6 +218,18 @@ the reference shape for any new DB-backed test.
 - Helpers shared across tests in a single package go in `*_test.go` files —
   do **not** export test helpers from production packages.
 
+### Integration tests
+
+Integration tests use `testcontainers-go` with `postgres:18-alpine`:
+
+```bash
+# Run integration tests (requires Docker)
+go test ./tests/integration/... -v
+```
+
+All scenarios run against an ephemeral Postgres container with the full
+schema migration + RLS applied.
+
 ### Integration tests with real Postgres
 
 - Use [`testcontainers-go`](https://github.com/testcontainers/testcontainers-go)
@@ -239,18 +282,20 @@ go test -race ./...                 # race detector — run before pushing
 
 ## Security
 
-- **Goja sandbox:** No filesystem or network access. Only injected tool functions are callable.
-- **Secrets:** Config uses `${ENV_VAR}` substitution for secrets. Never commit real tokens to the repo.
-- **Auth middleware:** JWT/JWKS validation is currently stubbed — implement before production use.
-- **Config files:** Treat config as sensitive. Use `.gitignore` for any config with embedded secrets.
-- **Tenant isolation is RLS, not `WHERE`.** `storage.Session(ctx)` pins
-  `app.current_tenant` and Postgres rewrites every query against
-  tenant-scoped tables. Do **not** add `WHERE tenant_id = ?` to queries
-  on the app pool — it's redundant and obscures the few queries that
-  legitimately bypass RLS via `storage.WithSuperuser(ctx)`, where an
-  explicit `tenant_id` predicate is **mandatory**. See
-  [docs/security.md](docs/security.md#tenant-isolation-row-level-security)
-  and [internal/storage/AGENTS.md](internal/storage/AGENTS.md).
+- **Row-Level Security (RLS):** Every request is scoped to a single tenant
+  via `app.current_tenant` set by the tenancy middleware. The `limen_app`
+  Postgres role cannot BYPASSRLS.
+- **Zitadel JWKS:** Inbound MCP access tokens are validated against
+  Zitadel's JWKS endpoint per request. Audience checking ensures tokens
+  are bound to the Limen MCP resource server.
+- **AES-SIV encryption:** Sensitive fields (tokens, secrets) are encrypted
+  at rest using AES-128-SIV. The master key is never stored in the database.
+- **Delegated identity:** Limen never sees user passwords. Authentication
+  is delegated to Zitadel via OIDC. Limen only holds an encrypted session
+  cookie containing the id_token and refresh_token.
+- **Circuit breakers:** All outbound HTTP clients (upstream MCP, Zitadel
+  API, JWKS) are protected by circuit breakers that fail fast when
+  dependencies are unhealthy.
 
 ## Pull Requests & Commits
 

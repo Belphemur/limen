@@ -8,6 +8,7 @@ package serveportal
 
 import (
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/oauthproxymount"
@@ -38,6 +39,9 @@ func Run(configPath string) error {
 
 	r := chi.NewRouter()
 	r.Use(boot.PermissiveCORS)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.RequestID)
+	r.Use(boot.RequestLogger(rt.Logger))
 	boot.MountHealth(r)
 
 	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient, zclient)
