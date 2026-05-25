@@ -24,21 +24,22 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 1   | [Database foundation](phase-01-database-foundation.md)                                                         | —                       | ✅           |
 | 2   | [Crypto + config](phase-02-crypto-config.md)                                                                   | —                       | ✅           |
 | 3   | [Postgres Row-Level Security](phase-03-postgres-rls.md)                                                        | 1                       | ✅           |
-| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)                               | 0, 1, 2, 3              | ☐            |
-| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)                            | 4                       | ☐            |
+| 4   | [Tenant resolution, OIDC login, portal session](phase-04-tenant-auth-session.md)                               | 0, 1, 2, 3              | ✅           |
+| 5   | [Zitadel integration (AS delegation + DCR proxy)](phase-05-authorization-server.md)                            | 4                       | 🔶 (92%)     |
 | 6   | [Limen as MCP Resource Server](phase-06-resource-server.md)                                                    | 5                       | ✅           |
 | 7   | [Outbound upstream linking (strategies)](phase-07-outbound-upstream.md)                                        | 4                       | ✅           |
 | 7b  | [DCR per-client Zitadel projects (JIT in tenant org)](phase-07b-dcr-per-client-project.md)                     | 5, 6                    | ☐            |
-| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)                                    | 6, 7                    | ☐            |
+| 8   | [Per-tenant, per-user upstream injection](phase-08-per-tenant-injection.md)                                    | 6, 7                    | 🔶 (74%)     |
 | 8b  | [Codemode async tool calls (event loop + Promise proxies)](phase-08b-codemode-async-tool-calls.md)             | 8                       | ✅           |
-| 8c  | [Ambient context + alias autodiscovery + empty-filter hints](phase-08c-ambient-context-and-alias-discovery.md) | 8                       | ✅           |
+| 8c  | [Ambient context + alias autodiscovery + empty-filter hints](phase-15-ambient-context-and-alias-discovery.md)  | 8                       | ✅           |
 | 8d  | [Vendor context enrichment (Atlassian/GitHub/Linear/Sentry)](phase-08d-vendor-context-enrichment.md)           | 8c                      | ☐            |
-| 9a  | [Binary split (gateway / portal / staff)](phase-09a-binary-split.md)                                           | 7, 8                    | ☐            |
-| 9b  | [Customer portal backend (Connect-RPC) + Vue 3 SPA](phase-09b-portal-spa.md)                                   | 9a, 4, 7                | ☐            |
-| 9c  | [Tenant administrative portal + self-serve signup](phase-09c-tenant-admin-spa.md)                              | 9a, 4, 7, 9b            | ☐            |
+| 9a  | [Binary split (gateway / portal / staff)](phase-09a-binary-split.md)                                           | 7, 8                    | 🔶 (73%)     |
+| 9b  | [Customer portal backend (Connect-RPC) + Vue 3 SPA](phase-09b-portal-spa.md)                                   | 9a, 4, 7                | 🔶 (92%)     |
+| 9c  | [Tenant administrative portal + self-serve signup](phase-09c-tenant-admin-spa.md)                              | 9a, 4, 7, 9b            | 🔶 (82%)     |
 | 9d  | [Shared `SessionService` (DRY the session RPC + web/shared package)](phase-09d-shared-session-service.md)      | 9b, 9c                  | ✅           |
 | 9f  | [IDE presets & per-tenant redirect-URI allowlist as a relation](phase-09f-ide-presets-and-allowlist.md)        | 5, 9c                   | ☐            |
 | 9g  | [Static-header rework (shared secret + opt-in user override)](phase-09g-static-header-rework.md)               | 7, 8, 9b, 9c            | ☐            |
+| 9h  | [Self-serve signup (Portal-side)](phase-09h-signup.md)                                                        | 5, 9a, 9b, 9c           | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | ☐            |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
@@ -46,8 +47,9 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability, active-user billing & service accounts](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
+| 18  | [Social signup (GitHub / Google / Microsoft / Apple)](phase-18-social-signup.md)                              | 5, 9h                   | ☐ (deferred)  |
 
-Phases 1 + 2 can be done in parallel; Phase 0 is independent and should be stood up first since every other phase verifies against it. Phase 7 can run in parallel with 5 + 6 once Phase 4 lands. Phase 9b unblocks once 4 + 7 are done. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) sits last and is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 74% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9h (IDE presets, static-header rework, self-serve signup). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
