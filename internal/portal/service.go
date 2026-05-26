@@ -36,11 +36,12 @@ import (
 // logger) flow through the wiring layer (internal/boot/portalmount)
 // rather than getting picked up from globals.
 type Service struct {
-	store    *storage.Store
-	upstream *upstream.Service
-	apps     AppManager
-	resolver session.Resolver
-	logger   *zap.Logger
+	store                 *storage.Store
+	upstream              *upstream.Service
+	apps                  AppManager
+	resolver              session.Resolver
+	impersonationResolver session.Resolver
+	logger                *zap.Logger
 }
 
 // AppManager is the narrow ISP slice the portal needs from
@@ -53,13 +54,16 @@ type AppManager interface {
 
 // NewService builds the portal Connect-RPC service. resolver MUST
 // verify the portal cookie against the Zitadel ID-token issuer;
-// production wires this to auth.OIDC via session.OIDCResolver. apps
-// may be nil in tests that don't exercise the MCP-client RPCs.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, apps AppManager, resolver session.Resolver, logger *zap.Logger) *Service {
+// production wires this to auth.OIDC via session.OIDCResolver.
+// impersonationResolver, when non-nil, is tried first so the
+// interceptor stack reads the limen_portal_impersonate cookie before
+// falling back to the normal portal cookie. apps may be nil in tests
+// that don't exercise the MCP-client RPCs.
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, apps AppManager, resolver session.Resolver, impersonationResolver session.Resolver, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{store: store, upstream: upstreamSvc, apps: apps, resolver: resolver, logger: logger}
+	return &Service{store: store, upstream: upstreamSvc, apps: apps, resolver: resolver, impersonationResolver: impersonationResolver, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
@@ -69,7 +73,7 @@ func (s *Service) Handler() (string, http.Handler) {
 		s,
 		connect.WithInterceptors(
 			session.TenancyInterceptor(),
-			session.Interceptor(s.resolver, s.logger),
+			session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
 			session.RoleInterceptor(requiredRole, s.logger),
 		),
 	)

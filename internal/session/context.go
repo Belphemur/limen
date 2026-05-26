@@ -42,11 +42,12 @@ type UserSession struct {
 // that returns canned sessions.
 type Resolver func(ctx context.Context, header http.Header, tenantPublicID string) (*UserSession, *http.Cookie, error)
 
-// OIDCAdapter narrows *auth.OIDC to the single method the session
+// OIDCAdapter narrows *auth.OIDC to the methods the session
 // resolver needs so callers can drop in a fake without dragging RP
 // discovery into tests.
 type OIDCAdapter interface {
 	ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error)
+	ResolveImpersonationSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error)
 }
 
 // OIDCResolver adapts an OIDCAdapter (production: *auth.OIDC) into a
@@ -55,6 +56,21 @@ type OIDCAdapter interface {
 func OIDCResolver(o OIDCAdapter) Resolver {
 	return func(ctx context.Context, header http.Header, tenantPublicID string) (*UserSession, *http.Cookie, error) {
 		claims, accessToken, setCookie, err := o.ResolvePortalSession(ctx, header, tenantPublicID)
+		if err != nil {
+			return nil, nil, err
+		}
+		sess := claimsToSession(claims)
+		sess.AccessToken = accessToken
+		return sess, setCookie, nil
+	}
+}
+
+// OIDCImpersonationResolver adapts an OIDCAdapter into a Resolver
+// that reads the impersonation cookie. Callers should try this
+// resolver first and fall back to OIDCResolver.
+func OIDCImpersonationResolver(o OIDCAdapter) Resolver {
+	return func(ctx context.Context, header http.Header, tenantPublicID string) (*UserSession, *http.Cookie, error) {
+		claims, accessToken, setCookie, err := o.ResolveImpersonationSession(ctx, header, tenantPublicID)
 		if err != nil {
 			return nil, nil, err
 		}

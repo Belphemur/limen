@@ -40,42 +40,47 @@ import (
 
 // Service is the AdminServiceHandler implementation.
 type Service struct {
-	store            *storage.Store
-	upstream         *upstream.Service
-	tenant           *tenant.Service
-	resolver         session.Resolver
-	members          MemberDirectory
-	serviceAccounts  ServiceAccountDirectory
-	zitadelDomain    string
-	zitadelProjectID string
-	cipher           *crypto.Cipher
-	secureCookie     bool
-	logger           *zap.Logger
+	store                 *storage.Store
+	upstream              *upstream.Service
+	tenant                *tenant.Service
+	resolver              session.Resolver
+	impersonationResolver session.Resolver
+	members               MemberDirectory
+	serviceAccounts       ServiceAccountDirectory
+	zitadelDomain         string
+	zitadelProjectID      string
+	cipher                *crypto.Cipher
+	secureCookie          bool
+	logger                *zap.Logger
 }
 
 // NewService builds the admin Connect-RPC service. resolver MUST
 // verify the portal cookie against the Zitadel ID-token issuer.
-// members is the Zitadel directory pass-through used by the
+// impersonationResolver, when non-nil, is tried first so the
+// interceptor stack reads the limen_portal_impersonate cookie before
+// falling back to the normal portal cookie. members is the Zitadel
+// directory pass-through used by the
 // ListMembers/InviteMember/UpdateMemberRole/RemoveMember RPCs; when
-// nil those RPCs return CodeUnimplemented.
-// serviceAccounts is the Zitadel directory pass-through used by the
-// service account RPCs; when nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
+// nil those RPCs return CodeUnimplemented. serviceAccounts is the
+// Zitadel directory pass-through used by the service account RPCs;
+// when nil those RPCs return CodeUnimplemented.
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, impersonationResolver session.Resolver, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Service{
-		store:            store,
-		upstream:         upstreamSvc,
-		tenant:           tenantSvc,
-		resolver:         resolver,
-		members:          members,
-		serviceAccounts:  serviceAccounts,
-		zitadelDomain:    zitadelDomain,
-		zitadelProjectID: zitadelProjectID,
-		cipher:           cipher,
-		secureCookie:     secureCookie,
-		logger:           logger,
+		store:                 store,
+		upstream:              upstreamSvc,
+		tenant:                tenantSvc,
+		resolver:              resolver,
+		impersonationResolver: impersonationResolver,
+		members:               members,
+		serviceAccounts:       serviceAccounts,
+		zitadelDomain:         zitadelDomain,
+		zitadelProjectID:      zitadelProjectID,
+		cipher:                cipher,
+		secureCookie:          secureCookie,
+		logger:                logger,
 	}
 }
 
@@ -86,7 +91,7 @@ func (s *Service) Handler() (string, http.Handler) {
 		s,
 		connect.WithInterceptors(
 			session.TenancyInterceptor(),
-			session.Interceptor(s.resolver, s.logger),
+			session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
 			session.RoleInterceptor(requiredRole, s.logger),
 		),
 	)
