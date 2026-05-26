@@ -41,14 +41,14 @@ import (
 // the background sweeper goroutine on its lifetime. Returns an error
 // when SignupService construction fails (template load, mailer
 // build, captcha provider invalid).
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, members admin.MemberDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
 	resolver := session.OIDCResolver(oidc)
 
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
 	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, members)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, members, serviceAccounts)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect

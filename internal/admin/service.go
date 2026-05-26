@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/admin/adminv1/adminv1connect"
+	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenant"
@@ -39,12 +40,17 @@ import (
 
 // Service is the AdminServiceHandler implementation.
 type Service struct {
-	store    *storage.Store
-	upstream *upstream.Service
-	tenant   *tenant.Service
-	resolver session.Resolver
-	members  MemberDirectory
-	logger   *zap.Logger
+	store            *storage.Store
+	upstream         *upstream.Service
+	tenant           *tenant.Service
+	resolver         session.Resolver
+	members          MemberDirectory
+	serviceAccounts  ServiceAccountDirectory
+	zitadelDomain    string
+	zitadelProjectID string
+	cipher           *crypto.Cipher
+	secureCookie     bool
+	logger           *zap.Logger
 }
 
 // NewService builds the admin Connect-RPC service. resolver MUST
@@ -52,17 +58,24 @@ type Service struct {
 // members is the Zitadel directory pass-through used by the
 // ListMembers/InviteMember/UpdateMemberRole/RemoveMember RPCs; when
 // nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, members MemberDirectory, logger *zap.Logger) *Service {
+// serviceAccounts is the Zitadel directory pass-through used by the
+// service account RPCs; when nil those RPCs return CodeUnimplemented.
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Service{
-		store:    store,
-		upstream: upstreamSvc,
-		tenant:   tenantSvc,
-		resolver: resolver,
-		members:  members,
-		logger:   logger,
+		store:            store,
+		upstream:         upstreamSvc,
+		tenant:           tenantSvc,
+		resolver:         resolver,
+		members:          members,
+		serviceAccounts:  serviceAccounts,
+		zitadelDomain:    zitadelDomain,
+		zitadelProjectID: zitadelProjectID,
+		cipher:           cipher,
+		secureCookie:     secureCookie,
+		logger:           logger,
 	}
 }
 

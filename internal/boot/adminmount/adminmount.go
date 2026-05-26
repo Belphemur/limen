@@ -24,8 +24,8 @@ import (
 // gateway hot-path binary does not transitively pull in
 // internal/oauthproxy via internal/tenant's redirect-URI validator —
 // see cmd/gateway/import_graph_test.go.
-func NewHandler(rt *boot.Runtime, resolver session.Resolver, members admin.MemberDirectory) (string, http.Handler) {
+func NewHandler(rt *boot.Runtime, resolver session.Resolver, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory) (string, http.Handler) {
 	tenantSvc := tenant.NewService(rt.Store)
-	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, members, rt.Logger)
+	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, members, serviceAccounts, rt.Cfg.Zitadel.Domain, rt.Cfg.Zitadel.ProjectID, rt.Cipher, rt.Cfg.Security.PortalSessionCookieSecure, rt.Logger)
 	return svc.Handler()
 }

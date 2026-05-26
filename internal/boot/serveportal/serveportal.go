@@ -44,7 +44,7 @@ func Run(configPath string) error {
 	r.Use(boot.RequestLogger(rt.Logger))
 	boot.MountHealth(r)
 
-	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient)
+	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient, zclient)
 	if err != nil {
 		return err
 	}
