@@ -256,8 +256,9 @@ func TestPreviewContext_MergesDefaultsAndLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("super: %v", err)
 	}
+	uid := fix.user.ID
 	link := &storage.UpstreamLink{
-		TenantID: fix.tenant.ID, UserID: fix.user.ID, UpstreamID: up.ID,
+		TenantID: fix.tenant.ID, UserID: &uid, UpstreamID: up.ID,
 		Enabled: true, ContextJSON: []byte(`{"b":"from-link","c":3}`),
 	}
 	if err := adminTx.Create(link).Error; err != nil {

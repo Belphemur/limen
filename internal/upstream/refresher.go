@@ -160,7 +160,11 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 		return err
 	}
 	var user storage.User
-	if err := tx.Where("id = ?", link.UserID).First(&user).Error; err != nil {
+	if link.UserID == nil {
+		_ = commit()
+		return fmt.Errorf("link %d has no user_id", link.ID)
+	}
+	if err := tx.Where("id = ?", *link.UserID).First(&user).Error; err != nil {
 		_ = commit()
 		return err
 	}
@@ -291,7 +295,7 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 
 	if link != nil {
 		tenantStr := strconv.FormatInt(tenant.ID, 10)
-		userStr := strconv.FormatInt(link.UserID, 10)
+		userStr := strconv.FormatInt(*link.UserID, 10)
 		if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {
 			return fmt.Errorf("decrypt access_token: %w", err)
 		}

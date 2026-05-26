@@ -162,9 +162,10 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	err = tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
 		First(&existing).Error
 	if err != nil {
+		uid := lctx.User.ID
 		newLink := storage.UpstreamLink{
 			TenantID:     lctx.Tenant.ID,
-			UserID:       lctx.User.ID,
+			UserID:       &uid,
 			UpstreamID:   lctx.Upstream.ID,
 			AccessToken:  at,
 			RefreshToken: rt,

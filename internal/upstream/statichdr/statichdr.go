@@ -213,9 +213,10 @@ func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkCont
 	var existing storage.UpstreamLink
 	if err := tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
 		First(&existing).Error; err != nil {
+		uid := lctx.User.ID
 		newLink := storage.UpstreamLink{
 			TenantID:   lctx.Tenant.ID,
-			UserID:     lctx.User.ID,
+			UserID:     &uid,
 			UpstreamID: lctx.Upstream.ID,
 			Enabled:    true,
 			ExtraJSON:  extra,

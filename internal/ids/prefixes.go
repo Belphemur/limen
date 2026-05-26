@@ -14,4 +14,5 @@ const (
 	PrefixZitadelApp             Prefix = "zapp"
 	PrefixAllowlistEntry         Prefix = "ral"
 	PrefixPendingSignup          Prefix = "snp"
+	PrefixServiceAccount         Prefix = "sa"
 )

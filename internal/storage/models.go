@@ -46,5 +46,6 @@ func AllModels() []any {
 		&IDEPresetPattern{},
 		&TenantRedirectURIAllowlist{},
 		&PendingSignup{},
+		&ServiceAccount{},
 	}
 }

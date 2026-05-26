@@ -90,15 +90,16 @@ func (u *UpstreamRegistration) BeforeCreate(_ *gorm.DB) error {
 // Only created when the upstream strategy reports RequiresLink()==true.
 type UpstreamLink struct {
 	Base
-	TenantID     int64              `gorm:"not null;index;uniqueIndex:idx_link_tenant_user_upstream,where:deleted_at IS NULL"`
-	UserID       int64              `gorm:"not null;index;uniqueIndex:idx_link_tenant_user_upstream,where:deleted_at IS NULL"`
-	UpstreamID   int64              `gorm:"not null;index;uniqueIndex:idx_link_tenant_user_upstream,where:deleted_at IS NULL"`
-	AccessToken  crypto.SecretField `gorm:"type:bytea"`
-	RefreshToken crypto.SecretField `gorm:"type:bytea"`
-	ExpiresAt    *time.Time         `gorm:"type:timestamptz"`
-	Scopes       string             `gorm:"type:text;not null;default:''"`
-	ResourceURI  string             `gorm:"type:text;not null;default:''"`
-	ExtraJSON    crypto.SecretField `gorm:"type:bytea"`
+	TenantID         int64              `gorm:"not null;index"`
+	UserID           *int64             `gorm:"index;uniqueIndex:idx_link_tenant_user_id_upstream,where:deleted_at IS NULL AND user_id IS NOT NULL"`
+	ServiceAccountID *int64             `gorm:"index;uniqueIndex:idx_link_tenant_sa_id_upstream,where:deleted_at IS NULL AND service_account_id IS NOT NULL"`
+	UpstreamID       int64              `gorm:"not null;index;uniqueIndex:idx_link_tenant_user_upstream,where:deleted_at IS NULL"`
+	AccessToken      crypto.SecretField `gorm:"type:bytea"`
+	RefreshToken     crypto.SecretField `gorm:"type:bytea"`
+	ExpiresAt        *time.Time         `gorm:"type:timestamptz"`
+	Scopes           string             `gorm:"type:text;not null;default:''"`
+	ResourceURI      string             `gorm:"type:text;not null;default:''"`
+	ExtraJSON        crypto.SecretField `gorm:"type:bytea"`
 
 	// Phase 7 — health / lifecycle. See docs/phases/phase-07-outbound-upstream.md.
 	//
@@ -121,9 +122,10 @@ type UpstreamLink struct {
 	// gateway.ValidateContextBlob on write.
 	ContextJSON []byte `gorm:"column:context_json;type:jsonb;not null;default:'{}'::jsonb"`
 
-	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
-	User     *User     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
+	Tenant         *Tenant         `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
+	User           *User           `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	ServiceAccount *ServiceAccount `gorm:"foreignKey:ServiceAccountID;constraint:OnDelete:CASCADE"`
+	Upstream       *Upstream       `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
 }
 
 func (u *UpstreamLink) BeforeCreate(_ *gorm.DB) error {

@@ -164,7 +164,8 @@ func TestDelete_CascadesOwnedRowsAndIdempotent(t *testing.T) {
 	if err := tx.Create(up).Error; err != nil {
 		t.Fatalf("seed upstream: %v", err)
 	}
-	link := &storage.UpstreamLink{TenantID: tnt.ID, UserID: u.ID, UpstreamID: up.ID, Enabled: true}
+	uid := u.ID
+	link := &storage.UpstreamLink{TenantID: tnt.ID, UserID: &uid, UpstreamID: up.ID, Enabled: true}
 	if err := tx.Create(link).Error; err != nil {
 		t.Fatalf("seed link: %v", err)
 	}
