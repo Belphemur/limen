@@ -6,64 +6,149 @@ Limen is an MCP (Model Context Protocol) gateway that aggregates multiple upstre
 
 Rather than forwarding every tool schema to the LLM client, Limen inverts the model: the LLM writes JavaScript to discover and invoke only the tools it needs, at the moment it needs them.
 
+### Production Deployment
+
+```mermaid
+graph TB
+    Internet((Internet))
+
+    subgraph Caddy["Caddy (TLS Reverse Proxy)"]
+        direction LR
+        RouteMCP["@mcp matcher<br/>/t/*/mcp*"]
+        RouteAPI["@portalapi matcher<br/>all other routes"]
+    end
+
+    subgraph Gateways["Gateway Tier (2 replicas)"]
+        GW1["limen-gateway:8080"]
+        GW2["limen-gateway:8080"]
+    end
+
+    subgraph Portals["Portal Tier (2 replicas)"]
+        P1["limen-portal:8080"]
+        P2["limen-portal:8080"]
+    end
+
+    subgraph Private["Private Network"]
+        Staff["limen-staff:8080"]
+    end
+
+    Internet -->|"TLS"| Caddy
+    RouteMCP --> GW1
+    RouteMCP --> GW2
+    RouteAPI --> P1
+    RouteAPI --> P2
+
+    GW1 -.-> Staff
+    GW2 -.-> Staff
+    P1 -.-> Staff
+    P2 -.-> Staff
+```
+
+**Note**: `limen-staff` lives on a private Docker network with `internal: true`, meaning no public ingress routes to it. The dashed lines indicate internal-only access from gateway and portal replicas.
+
 ## Component Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         MCP Client                              │
-│               (Claude Desktop, Cursor, etc.)                    │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                           │  Single SSE connection
-                           │  2 tools: codemode_search, codemode_execute
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                          Limen                                  │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    Transport Layer                         │  │
-│  │              (internal/transport)                          │  │
-│  │                                                            │  │
-│  │   chi router → /mcp SSE endpoint (mcp-go SSEServer)       │  │
-│  │   Registers codemode_search + codemode_execute tools       │  │
-│  └────────────────────────┬──────────────────────────────────┘  │
-│                           │                                     │
-│                           ▼                                     │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                   CodeModeHandler                          │  │
-│  │                (internal/gateway)                          │  │
-│  │                                                            │  │
-│  │   Search():  Goja VM → codemode.tools() → filter          │  │
-│  │   Execute(): Goja VM → codemode.<toolName>() / .call()    │  │
-│  │   Timeout guard, panic recovery, context propagation       │  │
-│  └────────────────────────┬──────────────────────────────────┘  │
-│                           │                                     │
-│                           ▼                                     │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                       Gateway                              │  │
-│  │                (internal/gateway)                          │  │
-│  │                                                            │  │
-│  │   Tool registry (sync.Map: name → ToolEntry)               │  │
-│  │   Upstream router (map: name → UpstreamClient)             │  │
-│  │   AddUpstream / RemoveUpstream / CallTool                  │  │
-│  └─────┬──────────────┬──────────────┬───────────────────────┘  │
-│        │              │              │                          │
-│   ┌────▼────┐   ┌─────▼────┐   ┌────▼────┐                     │
-│   │ GitHub  │   │   Jira   │   │ Internal│   ← UpstreamClients │
-│   │ client  │   │  client  │   │ client  │                     │
-│   └────┬────┘   └─────┬────┘   └────┬────┘                     │
-└────────┼──────────────┼──────────────┼─────────────────────────┘
-         │              │              │
-         │  Streamable  │  Streamable  │  Streamable
-         │   HTTP/MCP   │   HTTP/MCP   │   HTTP/MCP
-         ▼              ▼              ▼
-   ┌──────────┐  ┌────────────┐  ┌──────────────┐
-   │  GitHub  │  │   Jira     │  │  Internal    │
-   │  MCP srv │  │  MCP srv   │  │  MCP srv     │
-   └──────────┘  └────────────┘  └──────────────┘
+```mermaid
+graph TB
+    subgraph External["External"]
+        MCPClient["MCP Client<br/>(VS Code, Goose, etc.)"]
+        Upstream["Upstream MCP Server<br/>(mcp_spec, static_header, none)"]
+    end
+
+    subgraph Caddy["Caddy Reverse Proxy"]
+        TLS["TLS Termination<br/>Let's Encrypt"]
+    end
+
+    subgraph Limen["Limen"]
+        subgraph Gateway["limen-gateway"]
+            MCPRS["MCP Resource Server<br/>PRM discovery / SSE / Streamable HTTP"]
+        end
+
+        subgraph Portal["limen-portal"]
+            OIDCRP["OIDC Relying Party"]
+            OAuthProxy["OAuth Proxy / DCR"]
+            ConnectRPC["Connect-RPC Services<br/>Portal / Admin / Session / Signup"]
+            UpCallback["Upstream Callback Handler"]
+        end
+
+        subgraph Staff["limen-staff<br/>(private network)"]
+            Backoffice["Staff Backoffice"]
+        end
+
+        subgraph Bootstrap["Bootstrap / Migrate (one-shot)"]
+            limenctl["limenctl migrate<br/>limenctl bootstrap"]
+        end
+    end
+
+    subgraph Zitadel["Zitadel IAM"]
+        ZitadelAPI["zitadel-api<br/>OIDC / Console / Management"]
+        ZitadelLogin["zitadel-login<br/>Login UI v2"]
+    end
+
+    subgraph Data["Data Layer"]
+        PostgresLimen[("Postgres<br/>(limen)")]
+        PostgresZitadel[("Postgres<br/>(zitadel)")]
+        Valkey[("Valkey")]
+    end
+
+    MCPClient -->|"TLS + Bearer Token"| TLS
+    TLS -->|"/t/{tenant}/mcp/*"| MCPRS
+    TLS -->|"/t/{tenant}/*"| OIDCRP
+    TLS -->|"/t/{tenant}/api/*"| ConnectRPC
+    TLS -->|"/t/{tenant}/oauth/*"| OAuthProxy
+    TLS -->|"/auth/*"| OIDCRP
+    TLS -->|"/.well-known/*"| OAuthProxy
+
+    OIDCRP -->|"OIDC RP"| ZitadelAPI
+    OIDCRP -->|"Login UI redirect"| ZitadelLogin
+    MCPRS -->|"Token validation"| ZitadelAPI
+    OAuthProxy -->|"DCR / Management API"| ZitadelAPI
+    MCPRS -->|"Tool calls"| Upstream
+
+    Gateway --> PostgresLimen
+    Gateway --> Valkey
+    Portal --> PostgresLimen
+    Portal --> Valkey
+    ZitadelAPI --> PostgresZitadel
+    Staff --> PostgresLimen
+
+    classDef gatewayClass fill:#b3d4fc,stroke:#333,stroke-width:1px
+    classDef portalClass fill:#c6efce,stroke:#333,stroke-width:1px
+    classDef zitadelClass fill:#d5a6bd,stroke:#333,stroke-width:1px
+    classDef dataClass fill:#f9cb9c,stroke:#333,stroke-width:1px
+
+    class MCPRS gatewayClass
+    class OIDCRP,OAuthProxy,ConnectRPC,UpCallback portalClass
+    class ZitadelAPI,ZitadelLogin zitadelClass
+    class PostgresLimen,PostgresZitadel,Valkey dataClass
 ```
 
 ## Request Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Caddy as Caddy (TLS)
+    participant Transport as Transport Layer<br/>(SSE/Streamable HTTP)
+    participant CodeMode as CodeModeHandler
+    participant Gateway as Gateway
+    participant Upstream as Upstream MCP Server
+    participant Zitadel as Zitadel OIDC
+
+    Client->>Caddy: TLS handshake
+    Caddy->>Transport: Proxy /t/{tenant}/mcp/sse
+    Transport->>Client: SSE connection established
+    Client->>Transport: POST JSON-RPC via /message
+    Transport->>Gateway: Authenticate bearer token
+    Gateway->>Zitadel: Validate token (aud, exp, roles)
+    Zitadel-->>Gateway: Token valid + role claims
+    Gateway->>CodeMode: Check for Code Mode interception
+    CodeMode-->>Gateway: Passthrough (no rules match)
+    Gateway->>Upstream: Forward tool call with auth context
+    Upstream-->>Gateway: Tool result
+    Gateway-->>Transport: JSON-RPC response
+    Transport-->>Client: SSE event with result
+```
 
 1. **Client connects** to Limen's `/mcp` SSE endpoint via the transport layer.
 2. **Tool initialization**: `MCPServer` registers two tools (`codemode_search`, `codemode_execute`) with the `mcp-go` server. The client sees only these two tools.
@@ -72,6 +157,32 @@ Rather than forwarding every tool schema to the LLM client, Limen inverts the mo
 5. **Tool proxy**: When JS calls a tool proxy, the handler resolves the tool's upstream, calls `Gateway.CallTool()`, which delegates to the appropriate `MCPUpstreamClient`.
 6. **Upstream call**: `MCPUpstreamClient.CallTool()` sends a JSON-RPC `tools/call` request to the upstream server via Streamable HTTP using `mcp-go/client`.
 7. **Response propagation**: The upstream response flows back through the gateway → handler → transport → SSE → client, serialized as JSON text content.
+
+## Auth Flow
+
+```mermaid
+sequenceDiagram
+    participant Browser as Browser
+    participant Portal as limen-portal<br/>(OIDC RP)
+    participant ZitadelAPI as zitadel-api
+    participant ZitadelLogin as zitadel-login
+
+    Browser->>Portal: GET /t/{tenant}/auth/login
+    Portal->>ZitadelAPI: Authorization request (PKCE)
+    ZitadelAPI-->>Portal: Redirect to Login UI
+    Portal-->>Browser: 302 → Login UI
+    Browser->>ZitadelLogin: GET /ui/v2/login/login?authRequest={id}
+    ZitadelLogin->>ZitadelAPI: Validate auth request
+    Browser->>ZitadelLogin: Submit credentials
+    ZitadelLogin->>ZitadelAPI: Authenticate user
+    ZitadelAPI-->>ZitadelLogin: Auth success
+    ZitadelLogin-->>Browser: 302 → /auth/callback?code=...&state=...
+    Browser->>Portal: GET /auth/callback?code=...&state=...
+    Portal->>ZitadelAPI: Token exchange (code → tokens)
+    ZitadelAPI-->>Portal: ID token + access token + refresh token
+    Portal->>Portal: Set session cookie (encrypted)
+    Portal-->>Browser: 302 → portal landing
+```
 
 ## Package Breakdown
 
@@ -219,6 +330,50 @@ Upstream connections are driven by a **strategy registry**. Each upstream row ca
 - **`none`** — no auth, for self-hosted upstreams on trusted networks; `Provision` refuses upstreams that advertise PRM (a safety net against operators picking the wrong strategy).
 
 Phase 8 wires a per-request `http.RoundTripper` that calls `Strategy.Headers` to inject auth on outbound MCP calls, and reactively re-runs refresh on 401 through the same single-flight that `Headers` uses.
+
+## Data Model
+
+```mermaid
+erDiagram
+    TENANTS ||--o{ TENANT_USERS : "has"
+    TENANTS ||--o{ UPSTREAMS : "has"
+    TENANTS {
+        bigint id PK
+        string name
+        string url_segment UK
+        string zitadel_org_id UK
+        string kind "tenant | staff"
+        timestamp created_at
+    }
+    TENANT_USERS {
+        bigint id PK
+        bigint tenant_id FK
+        string zitadel_user_id UK
+        string email
+        string role "member | admin | owner"
+        timestamp created_at
+    }
+    UPSTREAMS {
+        bigint id PK
+        bigint tenant_id FK
+        string name
+        string identifier UK
+        string spec_type "mcp_spec | static_header | none"
+        bytea encrypted_config
+        boolean enabled
+        timestamp created_at
+    }
+    UPSTREAM_LINKS {
+        bigint id PK
+        bigint upstream_id FK
+        string zitadel_client_id
+        string auth_method
+        string token_endpoint_auth_method
+        string grant_type
+        string scope
+        timestamp created_at
+    }
+```
 
 ## Key Types
 
