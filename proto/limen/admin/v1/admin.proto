@@ -47,6 +47,16 @@ service AdminService {
   rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+
+  // Service account management. Admin floor (ExitImpersonation at member).
+  // Service accounts are Zitadel machine users mirrored locally. See
+  // docs/phases/phase-09i-service-accounts.md.
+  rpc CreateServiceAccount(CreateServiceAccountRequest) returns (CreateServiceAccountResponse);
+  rpc ListServiceAccounts(ListServiceAccountsRequest) returns (ListServiceAccountsResponse);
+  rpc DeleteServiceAccount(DeleteServiceAccountRequest) returns (DeleteServiceAccountResponse);
+  rpc RegenerateServiceAccountToken(RegenerateServiceAccountTokenRequest) returns (RegenerateServiceAccountTokenResponse);
+  rpc ImpersonateServiceAccount(ImpersonateServiceAccountRequest) returns (ImpersonateServiceAccountResponse);
+  rpc ExitImpersonation(ExitImpersonationRequest) returns (ExitImpersonationResponse);
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -371,3 +381,79 @@ message RemoveMemberRequest {
   string user_id = 1;
 }
 message RemoveMemberResponse {}
+
+// ---- Service accounts -----------------------------------------------
+
+// ServiceAccountRole is the closed set of roles a service account can
+// hold. Owner is intentionally absent — service accounts must never be
+// tenant owners.
+enum ServiceAccountRole {
+  SERVICE_ACCOUNT_ROLE_UNSPECIFIED = 0;
+  SERVICE_ACCOUNT_ROLE_MEMBER = 1;
+  SERVICE_ACCOUNT_ROLE_ADMIN = 2;
+}
+
+message ServiceAccount {
+  // "sa_<ULID>" — public identifier.
+  string public_id = 1;
+  string name = 2;
+  string description = 3;
+  ServiceAccountRole role = 4;
+  // Public ID of the user who created this service account.
+  string created_by_id = 5;
+  // RFC3339 creation timestamp.
+  string created_at = 6;
+}
+
+message CreateServiceAccountRequest {
+  string name = 1;
+  string description = 2;
+  // Required. UNSPECIFIED and owner-equivalent values reject with
+  // invalid_argument. Only MEMBER and ADMIN are accepted.
+  ServiceAccountRole role = 3;
+  // Days until the PAT expires. 0 means no expiry. Default 365 when 0.
+  uint32 expiry_days = 4;
+}
+
+message CreateServiceAccountResponse {
+  ServiceAccount service_account = 1;
+  // One-time PAT. Only returned on creation; never stored server-side.
+  string token = 2;
+}
+
+message ListServiceAccountsRequest {}
+
+message ListServiceAccountsResponse {
+  repeated ServiceAccount service_accounts = 1;
+}
+
+message DeleteServiceAccountRequest {
+  string public_id = 1;
+}
+
+message DeleteServiceAccountResponse {}
+
+message RegenerateServiceAccountTokenRequest {
+  string public_id = 1;
+  // Days until the new PAT expires. 0 means no expiry. Default 365.
+  uint32 expiry_days = 2;
+}
+
+message RegenerateServiceAccountTokenResponse {
+  // One-time PAT. Old tokens are revoked.
+  string token = 1;
+}
+
+message ImpersonateServiceAccountRequest {
+  string public_id = 1;
+}
+
+// Empty: the response carries only a Set-Cookie header with the
+// impersonation session cookie.
+message ImpersonateServiceAccountResponse {}
+
+message ExitImpersonationRequest {}
+
+// Empty: the response carries only a Set-Cookie header clearing
+// the impersonation cookie.
+message ExitImpersonationResponse {}
