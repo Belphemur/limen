@@ -367,7 +367,7 @@ func (o *OIDC) CallbackHandler(
 				return
 			}
 		}
-		if err := o.writePortalCookie(w, resolvedPublicID, tokens.IDToken, tokens.RefreshToken, claims.GetExpiration()); err != nil {
+		if err := o.writePortalCookie(w, resolvedPublicID, tokens.IDToken, tokens.RefreshToken, tokens.AccessToken, claims.GetExpiration()); err != nil {
 			o.logger.Error("portal cookie seal", zap.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -457,7 +457,7 @@ func (o *OIDC) RequireSession() func(http.Handler) http.Handler {
 				if newRefresh == "" {
 					newRefresh = tok.RefreshToken
 				}
-				if werr := o.writePortalCookie(w, t.PublicID, refreshed.IDToken, newRefresh, refreshed.IDTokenClaims.GetExpiration()); werr != nil {
+				if werr := o.writePortalCookie(w, t.PublicID, refreshed.IDToken, newRefresh, refreshed.AccessToken, refreshed.IDTokenClaims.GetExpiration()); werr != nil {
 					o.logger.Error("rewrite cookie after refresh", zap.Error(werr))
 					http.Error(w, "internal error", http.StatusInternalServerError)
 					return
@@ -500,11 +500,12 @@ func (o *OIDC) RequireRole(want ...string) func(http.Handler) http.Handler {
 type portalCookieValue struct {
 	IDToken      string    `json:"id"`
 	RefreshToken string    `json:"r,omitempty"`
+	AccessToken  string    `json:"a,omitempty"`
 	ExpiresAt    time.Time `json:"e"`
 }
 
-func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refreshToken string, idExp time.Time) error {
-	cookie, err := o.buildPortalCookie(tenant, idToken, refreshToken, idExp)
+func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refreshToken, accessToken string, idExp time.Time) error {
+	cookie, err := o.buildPortalCookie(tenant, idToken, refreshToken, accessToken, idExp)
 	if err != nil {
 		return err
 	}
@@ -516,10 +517,11 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refresh
 // cookie. Factored out of writePortalCookie so the Connect-RPC portal
 // interceptor can attach a refreshed cookie to its response without
 // owning an http.ResponseWriter.
-func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken string, idExp time.Time) (*http.Cookie, error) {
+func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken, accessToken string, idExp time.Time) (*http.Cookie, error) {
 	payload, err := json.Marshal(portalCookieValue{
 		IDToken:      idToken,
 		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
 		ExpiresAt:    idExp,
 	})
 	if err != nil {
@@ -549,32 +551,32 @@ func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken string, idExp tim
 // public id, verifies the ID token, and transparently refreshes it on
 // expiry. The returned setCookie, when non-nil, MUST be attached to the
 // response so the refreshed tokens persist on the client.
-func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, *http.Cookie, error) {
+func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error) {
 	r := &http.Request{Header: header}
 	tok, err := o.readPortalCookie(r, tenant)
 	if err != nil {
-		return nil, nil, err
+		return nil, "", nil, err
 	}
 	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.defaultParty.IDTokenVerifier())
 	if err == nil {
-		return claims, nil, nil
+		return claims, tok.AccessToken, nil, nil
 	}
 	if tok.RefreshToken == "" {
-		return nil, nil, fmt.Errorf("auth: id token invalid, no refresh: %w", err)
+		return nil, "", nil, fmt.Errorf("auth: id token invalid, no refresh: %w", err)
 	}
 	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.defaultParty, tok.RefreshToken, "", "")
 	if rerr != nil {
-		return nil, nil, fmt.Errorf("auth: refresh failed: %w", rerr)
+		return nil, "", nil, fmt.Errorf("auth: refresh failed: %w", rerr)
 	}
 	newRefresh := refreshed.RefreshToken
 	if newRefresh == "" {
 		newRefresh = tok.RefreshToken
 	}
-	setCookie, err := o.buildPortalCookie(tenant, refreshed.IDToken, newRefresh, refreshed.IDTokenClaims.GetExpiration())
+	setCookie, err := o.buildPortalCookie(tenant, refreshed.IDToken, newRefresh, refreshed.AccessToken, refreshed.IDTokenClaims.GetExpiration())
 	if err != nil {
-		return nil, nil, fmt.Errorf("auth: rebuild cookie after refresh: %w", err)
+		return nil, "", nil, fmt.Errorf("auth: rebuild cookie after refresh: %w", err)
 	}
-	return refreshed.IDTokenClaims, setCookie, nil
+	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
 }
 
 func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (portalCookieValue, error) {

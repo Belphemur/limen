@@ -28,11 +28,12 @@ import (
 // pins on ctx. Sourced from the verified Zitadel ID token; never from
 // Limen-side identity tables.
 type UserSession struct {
-	Subject   string
-	Email     string
-	FirstName string
-	LastName  string
-	Roles     []string
+	Subject     string
+	Email       string
+	FirstName   string
+	LastName    string
+	Roles       []string
+	AccessToken string
 }
 
 // Resolver turns the request's Cookie header into a verified session
@@ -45,7 +46,7 @@ type Resolver func(ctx context.Context, header http.Header, tenantPublicID strin
 // resolver needs so callers can drop in a fake without dragging RP
 // discovery into tests.
 type OIDCAdapter interface {
-	ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, *http.Cookie, error)
+	ResolvePortalSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error)
 }
 
 // OIDCResolver adapts an OIDCAdapter (production: *auth.OIDC) into a
@@ -53,11 +54,13 @@ type OIDCAdapter interface {
 // plumbing.
 func OIDCResolver(o OIDCAdapter) Resolver {
 	return func(ctx context.Context, header http.Header, tenantPublicID string) (*UserSession, *http.Cookie, error) {
-		claims, setCookie, err := o.ResolvePortalSession(ctx, header, tenantPublicID)
+		claims, accessToken, setCookie, err := o.ResolvePortalSession(ctx, header, tenantPublicID)
 		if err != nil {
 			return nil, nil, err
 		}
-		return claimsToSession(claims), setCookie, nil
+		sess := claimsToSession(claims)
+		sess.AccessToken = accessToken
+		return sess, setCookie, nil
 	}
 }
 
@@ -114,12 +117,22 @@ func extractRolesFromClaims(c *oidc.IDTokenClaims) []string {
 // below.
 type ctxKey int
 
-const ctxKeyUser ctxKey = 1
+const (
+	ctxKeyUser        ctxKey = 1
+	ctxKeyAccessToken ctxKey = 2
+)
 
 // WithUser pins a verified UserSession on ctx. Only the session
 // interceptor calls this in production.
 func WithUser(ctx context.Context, u *UserSession) context.Context {
+	ctx = context.WithValue(ctx, ctxKeyAccessToken, u.AccessToken)
 	return context.WithValue(ctx, ctxKeyUser, u)
+}
+
+// AccessTokenFromContext returns the access token bound by WithUser.
+func AccessTokenFromContext(ctx context.Context) (string, bool) {
+	tok, ok := ctx.Value(ctxKeyAccessToken).(string)
+	return tok, ok && tok != ""
 }
 
 // UserFromContext returns the verified user session pinned by the
