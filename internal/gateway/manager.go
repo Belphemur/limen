@@ -19,6 +19,7 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/upstream"
+	"github.com/belphemur/limen/internal/valkey"
 )
 
 // ManagerOptions configures a Manager. All fields are required except
@@ -36,6 +37,10 @@ type ManagerOptions struct {
 	// disables circuit-breaker + retry (MaxRetries=0), which is the
 	// current behaviour.
 	ResiliencePolicy config.ResiliencePolicy
+	// ValkeyClient is optional; when set, circuit breakers use
+	// distributed mode backed by Valkey so every gateway instance
+	// shares the same breaker state.
+	ValkeyClient valkey.Client
 }
 
 // Manager owns the per-(tenant, upstream) Bundle cache and serves the
@@ -378,7 +383,7 @@ func (m *Manager) buildBundle(ctx context.Context, tenant *storage.Tenant, upstr
 	// AuthInjectingTransport wraps the resilience transport so every
 	// physical attempt (including the 401→refresh retry) inherits the same
 	// retry/breaker policy independently.
-	resilienceClient := resilience.Client("upstream."+up.Identifier+".calls", m.opts.ResiliencePolicy, m.opts.Logger)
+	resilienceClient := resilience.Client("upstream."+up.Identifier+".calls", m.opts.ResiliencePolicy, m.opts.Logger, m.opts.ValkeyClient)
 
 	rt := &AuthInjectingTransport{
 		Base:             resilienceClient.Transport,

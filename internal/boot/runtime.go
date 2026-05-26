@@ -79,6 +79,7 @@ type Runtime struct {
 	Signer           *auth.StateSigner
 	UpstreamService  *upstream.Service
 	UpstreamRegistry *upstream.Registry
+	Valkey           valkey.Client
 
 	// cleanups runs in reverse order of registration.
 	cleanups []func()
@@ -213,6 +214,7 @@ func bootUpstream(rt *Runtime) error {
 	if err != nil {
 		return fmt.Errorf("open valkey: %w", err)
 	}
+	rt.Valkey = vk
 	rt.AddCleanup(vk.Close)
 
 	stateStore := oauthstate.New(vk, rt.Cipher, oauthstate.DefaultTTL)

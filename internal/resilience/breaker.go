@@ -10,31 +10,65 @@ import (
 	"go.uber.org/zap"
 )
 
+type breakerExecutor interface {
+	Execute(func() (struct{}, error)) (struct{}, error)
+}
+
 type breakerTransport struct {
 	base    http.RoundTripper
-	breaker *gobreaker.CircuitBreaker[struct{}]
+	breaker breakerExecutor
 	name    string
 }
 
-func newBreakerTransport(name string, cfg config.ResiliencePolicy, base http.RoundTripper, logger *zap.Logger) http.RoundTripper {
-	settings := gobreaker.Settings{
+func buildBreakerSettings(name string, cfg config.ResiliencePolicy, logger *zap.Logger, distributed bool) gobreaker.Settings {
+	prefix := "circuit breaker"
+	if distributed {
+		prefix = "distributed circuit breaker"
+	}
+	return gobreaker.Settings{
 		Name: name,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= uint32(cfg.BreakerConsecutiveFails)
 		},
 		Timeout: cfg.BreakerOpenDuration,
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
-			logger.Info("circuit breaker state changed",
+			logger.Info(prefix+" state changed",
 				zap.String("dependency", name),
 				zap.String("from", from.String()),
 				zap.String("to", to.String()),
 			)
 		},
 	}
+}
 
+func newBreakerTransport(name string, cfg config.ResiliencePolicy, base http.RoundTripper, logger *zap.Logger) http.RoundTripper {
+	settings := buildBreakerSettings(name, cfg, logger, false)
 	return &breakerTransport{
 		base:    base,
 		breaker: gobreaker.NewCircuitBreaker[struct{}](settings),
+		name:    name,
+	}
+}
+
+func newDistributedBreakerTransport(name string, cfg config.ResiliencePolicy, base http.RoundTripper, store gobreaker.SharedDataStore, logger *zap.Logger) (bt http.RoundTripper) {
+	settings := buildBreakerSettings(name, cfg, logger, true)
+	var dcb *gobreaker.DistributedCircuitBreaker[struct{}]
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic creating distributed circuit breaker: %v", r)
+			}
+		}()
+		dcb, err = gobreaker.NewDistributedCircuitBreaker[struct{}](store, settings)
+	}()
+	if err != nil {
+		logger.Error("failed to create distributed circuit breaker, falling back to local", zap.Error(err))
+		return newBreakerTransport(name, cfg, base, logger)
+	}
+	return &breakerTransport{
+		base:    base,
+		breaker: dcb,
 		name:    name,
 	}
 }

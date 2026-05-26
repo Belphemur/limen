@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/belphemur/limen/internal/config"
+	"github.com/belphemur/limen/internal/valkey"
 	"go.uber.org/zap"
 )
 
@@ -28,7 +29,7 @@ func TestRetryOn503(t *testing.T) {
 		BreakerConsecutiveFails: 100, // high so breaker never opens during this test
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.503", cfg, zap.NewNop())
+	client := Client("test.503", cfg, zap.NewNop(), nil)
 
 	req, err := http.NewRequest("GET", server.URL, nil)
 	if err != nil {
@@ -60,7 +61,7 @@ func TestNoRetryOn401(t *testing.T) {
 		BreakerConsecutiveFails: 100,
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.401", cfg, zap.NewNop())
+	client := Client("test.401", cfg, zap.NewNop(), nil)
 
 	req, err := http.NewRequest("GET", server.URL, nil)
 	if err != nil {
@@ -96,7 +97,7 @@ func TestRetryOn429(t *testing.T) {
 		BreakerConsecutiveFails: 100,
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.429", cfg, zap.NewNop())
+	client := Client("test.429", cfg, zap.NewNop(), nil)
 
 	req, err := http.NewRequest("GET", server.URL, nil)
 	if err != nil {
@@ -142,7 +143,7 @@ func TestContextCancellation(t *testing.T) {
 		BreakerConsecutiveFails: 100,
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.ctx", cfg, zap.NewNop())
+	client := Client("test.ctx", cfg, zap.NewNop(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req, err := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
@@ -179,7 +180,7 @@ func TestBreakerOpens(t *testing.T) {
 		BreakerConsecutiveFails: 3,
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.breaker.open", cfg, zap.NewNop())
+	client := Client("test.breaker.open", cfg, zap.NewNop(), nil)
 
 	for i := range 3 {
 		req, _ := http.NewRequest("GET", server.URL, nil)
@@ -227,7 +228,7 @@ func TestBreakerHalfOpen(t *testing.T) {
 		BreakerConsecutiveFails: 3,
 		BreakerOpenDuration:     100 * time.Millisecond,
 	}
-	client := Client("test.breaker.halfopen", cfg, zap.NewNop())
+	client := Client("test.breaker.halfopen", cfg, zap.NewNop(), nil)
 
 	for i := range 3 {
 		req, _ := http.NewRequest("GET", server.URL, nil)
@@ -272,7 +273,7 @@ func TestBreakerCloses(t *testing.T) {
 		BreakerConsecutiveFails: 3,
 		BreakerOpenDuration:     100 * time.Millisecond,
 	}
-	client := Client("test.breaker.close", cfg, zap.NewNop())
+	client := Client("test.breaker.close", cfg, zap.NewNop(), nil)
 
 	for i := range 3 {
 		req, _ := http.NewRequest("GET", server.URL, nil)
@@ -322,7 +323,7 @@ func TestBreakerOpenError(t *testing.T) {
 		BreakerConsecutiveFails: 3,
 		BreakerOpenDuration:     30 * time.Second,
 	}
-	client := Client("test.breaker.error", cfg, zap.NewNop())
+	client := Client("test.breaker.error", cfg, zap.NewNop(), nil)
 
 	for i := range 3 {
 		req, _ := http.NewRequest("GET", server.URL, nil)
@@ -346,5 +347,127 @@ func TestBreakerOpenError(t *testing.T) {
 	}
 	if count.Load() != 3 {
 		t.Fatalf("expected 3 server requests, got %d", count.Load())
+	}
+}
+
+func TestDistributedBreakerOpens(t *testing.T) {
+	var count atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	cfg := config.ResiliencePolicy{
+		MaxRetries:              0,
+		BaseBackoff:             10 * time.Millisecond,
+		MaxBackoff:              50 * time.Millisecond,
+		BreakerConsecutiveFails: 3,
+		BreakerOpenDuration:     30 * time.Second,
+	}
+
+	vk := valkey.NewInMemory()
+	client1 := Client("test.dist.opens", cfg, zap.NewNop(), vk)
+	client2 := Client("test.dist.opens", cfg, zap.NewNop(), vk)
+
+	for i := range 3 {
+		req, _ := http.NewRequest("GET", server.URL, nil)
+		_, err := client1.Do(req)
+		if err == nil {
+			t.Fatalf("attempt %d: expected error", i)
+		}
+		var breakerOpen *BreakerOpenError
+		if errors.As(err, &breakerOpen) {
+			t.Fatalf("attempt %d: breaker opened too early", i)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	_, err := client2.Do(req)
+	if err == nil {
+		t.Fatal("expected breaker open error from client2")
+	}
+	var breakerOpen *BreakerOpenError
+	if !errors.As(err, &breakerOpen) {
+		t.Fatalf("expected BreakerOpenError from client2, got: %v", err)
+	}
+
+	req, _ = http.NewRequest("GET", server.URL, nil)
+	_, err = client1.Do(req)
+	if err == nil {
+		t.Fatal("expected breaker open error from client1")
+	}
+	if !errors.As(err, &breakerOpen) {
+		t.Fatalf("expected BreakerOpenError from client1, got: %v", err)
+	}
+
+	if count.Load() != 3 {
+		t.Fatalf("expected 3 server requests, got %d", count.Load())
+	}
+}
+
+func TestLocalBreakerWhenValkeyNil(t *testing.T) {
+	var count atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	cfg := config.ResiliencePolicy{
+		MaxRetries:              0,
+		BaseBackoff:             10 * time.Millisecond,
+		MaxBackoff:              50 * time.Millisecond,
+		BreakerConsecutiveFails: 100,
+		BreakerOpenDuration:     30 * time.Second,
+	}
+
+	client := Client("test.fallback", cfg, zap.NewNop(), nil)
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	_, err := client.Do(req)
+	if err == nil {
+		t.Fatal("expected error from 503 response")
+	}
+	if count.Load() != 1 {
+		t.Fatalf("expected 1 server request, got %d", count.Load())
+	}
+}
+
+type errorClient struct {
+	valkey.InMemory
+}
+
+func (c *errorClient) SetEX(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return errors.New("simulated valkey error")
+}
+
+func TestDistributedBreakerErrorFallback(t *testing.T) {
+	var count atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := config.ResiliencePolicy{
+		MaxRetries:              0,
+		BaseBackoff:             10 * time.Millisecond,
+		MaxBackoff:              50 * time.Millisecond,
+		BreakerConsecutiveFails: 3,
+		BreakerOpenDuration:     30 * time.Second,
+	}
+
+	ec := &errorClient{InMemory: *valkey.NewInMemory()}
+	client := Client("test.dist.fallback", cfg, zap.NewNop(), ec)
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("expected request to succeed after fallback to local breaker, got: %v", err)
+	}
+	resp.Body.Close()
+	if count.Load() != 1 {
+		t.Fatalf("expected 1 server request, got %d", count.Load())
 	}
 }

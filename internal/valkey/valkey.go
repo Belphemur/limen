@@ -27,14 +27,25 @@ var ErrNotFound = errors.New("valkey: key not found")
 // Client is the narrow surface Limen consumes.
 type Client interface {
 	// SetEX writes value with a hard server-side TTL. Overwrites are
-	// allowed; callers that need atomic create-or-fail should use SetNX
-	// (not currently exposed; add when the first consumer needs it).
+	// allowed; callers that need atomic create-or-fail should use SetNX.
 	SetEX(ctx context.Context, key string, value []byte, ttl time.Duration) error
+
+	// SetNX sets key to value with a TTL, but only if key does not
+	// already exist. Returns true if the key was set, false if the key
+	// already existed.
+	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
 
 	// GetDel atomically reads and deletes the key. Returns ErrNotFound
 	// when the key is absent. The atomicity is what gives Phase 7 its
 	// one-shot OAuth state guarantee.
 	GetDel(ctx context.Context, key string) ([]byte, error)
+
+	// Del removes the key. No error if key does not exist.
+	Del(ctx context.Context, key string) error
+
+	// Get returns the value for key, or ErrNotFound if the key is absent
+	// or expired. Unlike GetDel, this does NOT delete the key.
+	Get(ctx context.Context, key string) ([]byte, error)
 
 	// Close releases the underlying connection pool.
 	Close()
@@ -95,6 +106,43 @@ func (r *realClient) GetDel(ctx context.Context, key string) ([]byte, error) {
 	return []byte(s), nil
 }
 
+func (r *realClient) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		return false, errors.New("valkey: ttl must be > 0")
+	}
+	cmd := r.c.B().Set().Key(key).Value(vk.BinaryString(value)).Nx().ExSeconds(int64(ttl.Seconds())).Build()
+	resp := r.c.Do(ctx, cmd)
+	s, err := resp.ToString()
+	if err != nil && vk.IsValkeyNil(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("valkey: SETNX %s: %w", key, err)
+	}
+	return s == "OK", nil
+}
+
+func (r *realClient) Del(ctx context.Context, key string) error {
+	cmd := r.c.B().Del().Key(key).Build()
+	if _, err := r.c.Do(ctx, cmd).AsInt64(); err != nil {
+		return fmt.Errorf("valkey: DEL %s: %w", key, err)
+	}
+	return nil
+}
+
+func (r *realClient) Get(ctx context.Context, key string) ([]byte, error) {
+	cmd := r.c.B().Get().Key(key).Build()
+	resp := r.c.Do(ctx, cmd)
+	s, err := resp.ToString()
+	if err != nil {
+		if vk.IsValkeyNil(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("valkey: GET %s: %w", key, err)
+	}
+	return []byte(s), nil
+}
+
 func (r *realClient) Close() { r.c.Close() }
 
 // InMemory is a test fake honoring TTLs via wall-clock comparisons. Safe
@@ -149,6 +197,44 @@ func (m *InMemory) GetDel(_ context.Context, key string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	return e.value, nil
+}
+
+func (m *InMemory) SetNX(_ context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		return false, errors.New("valkey: ttl must be > 0")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[key]
+	if ok && (e.expiresAt.IsZero() || m.now().Before(e.expiresAt)) {
+		return false, nil
+	}
+	buf := make([]byte, len(value))
+	copy(buf, value)
+	m.entries[key] = inMemoryEntry{value: buf, expiresAt: m.now().Add(ttl)}
+	return true, nil
+}
+
+func (m *InMemory) Del(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.entries, key)
+	return nil
+}
+
+func (m *InMemory) Get(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !e.expiresAt.IsZero() && !m.now().Before(e.expiresAt) {
+		return nil, ErrNotFound
+	}
+	buf := make([]byte, len(e.value))
+	copy(buf, e.value)
+	return buf, nil
 }
 
 // Close is a no-op for the in-memory fake.
