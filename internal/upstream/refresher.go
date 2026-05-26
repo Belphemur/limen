@@ -162,7 +162,7 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 	var user storage.User
 	if link.UserID == nil {
 		_ = commit()
-		return fmt.Errorf("link %d has no user_id", link.ID)
+		return fmt.Errorf("link %d is a service account link (refresher requires user-based links)", link.ID)
 	}
 	if err := tx.Where("id = ?", *link.UserID).First(&user).Error; err != nil {
 		_ = commit()
@@ -294,6 +294,9 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 	_ = commit()
 
 	if link != nil {
+		if link.UserID == nil {
+			return fmt.Errorf("link %d is a service account link (refresher requires user-based links)", link.ID)
+		}
 		tenantStr := strconv.FormatInt(tenant.ID, 10)
 		userStr := strconv.FormatInt(*link.UserID, 10)
 		if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {

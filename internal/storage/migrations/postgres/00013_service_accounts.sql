@@ -61,6 +61,13 @@ CREATE UNIQUE INDEX idx_link_tenant_user_upstream
 CREATE UNIQUE INDEX idx_link_tenant_sa_upstream
     ON upstream_links (tenant_id, service_account_id, upstream_id)
     WHERE deleted_at IS NULL AND service_account_id IS NOT NULL;
+
+-- Drop redundant single-column unique indexes created by AutoMigrate.
+-- The model tags uniqueIndex:idx_link_tenant_user_id_upstream and
+-- uniqueIndex:idx_link_tenant_sa_id_upstream cause AutoMigrate to create
+-- single-column indexes; the composite indexes above replace them.
+DROP INDEX IF EXISTS idx_link_tenant_user_id_upstream;
+DROP INDEX IF EXISTS idx_link_tenant_sa_id_upstream;
 -- +goose StatementEnd
 
 -- +goose Down
@@ -86,6 +93,11 @@ ALTER TABLE upstream_links
 CREATE UNIQUE INDEX idx_link_tenant_user_upstream
     ON upstream_links (tenant_id, user_id, upstream_id)
     WHERE deleted_at IS NULL;
+
+-- Recreate the single-column unique indexes that AutoMigrate would expect.
+CREATE UNIQUE INDEX idx_link_tenant_user_id_upstream
+    ON upstream_links (user_id)
+    WHERE deleted_at IS NULL AND user_id IS NOT NULL;
 
 -- Restore user_id to NOT NULL (all existing rows have it set).
 ALTER TABLE upstream_links
