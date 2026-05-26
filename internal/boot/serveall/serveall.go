@@ -49,7 +49,7 @@ func Run(configPath string) error {
 	r.Get("/", boot.LandingPage)
 	boot.MountHealth(r)
 
-	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient, zclient)
+	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient)
 	if err != nil {
 		return err
 	}

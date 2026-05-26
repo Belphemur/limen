@@ -25,7 +25,6 @@
 package admin
 
 import (
-	"context"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -38,46 +37,32 @@ import (
 	"github.com/belphemur/limen/internal/upstream"
 )
 
-// ProjectGrantLookup resolves the Zitadel project-grant ID for
-// (projectID, grantedOrgID). Implemented by *zitadel.Client. The
-// admin Service depends on this small interface (SOLID/ISP) so the
-// MCP gateway hot path never transitively links the Zitadel client.
-type ProjectGrantLookup interface {
-	FindProjectGrantID(ctx context.Context, projectID, grantedOrgID string) (string, error)
-}
-
 // Service is the AdminServiceHandler implementation.
 type Service struct {
-	store         *storage.Store
-	upstream      *upstream.Service
-	tenant        *tenant.Service
-	resolver      session.Resolver
-	projectGrants ProjectGrantLookup
-	projectID     string
-	members       MemberDirectory
-	logger        *zap.Logger
+	store    *storage.Store
+	upstream *upstream.Service
+	tenant   *tenant.Service
+	resolver session.Resolver
+	members  MemberDirectory
+	logger   *zap.Logger
 }
 
 // NewService builds the admin Connect-RPC service. resolver MUST
 // verify the portal cookie against the Zitadel ID-token issuer.
-// projectGrants and projectID are best-effort: when projectGrants is
-// nil or projectID is empty, GetTenantSettings simply omits the
-// role-assignment deep-link fields. members is the Zitadel directory
-// pass-through used by the ListMembers/InviteMember/UpdateMemberRole/
-// RemoveMember RPCs; when nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, projectGrants ProjectGrantLookup, projectID string, members MemberDirectory, logger *zap.Logger) *Service {
+// members is the Zitadel directory pass-through used by the
+// ListMembers/InviteMember/UpdateMemberRole/RemoveMember RPCs; when
+// nil those RPCs return CodeUnimplemented.
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, members MemberDirectory, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Service{
-		store:         store,
-		upstream:      upstreamSvc,
-		tenant:        tenantSvc,
-		resolver:      resolver,
-		projectGrants: projectGrants,
-		projectID:     projectID,
-		members:       members,
-		logger:        logger,
+		store:    store,
+		upstream: upstreamSvc,
+		tenant:   tenantSvc,
+		resolver: resolver,
+		members:  members,
+		logger:   logger,
 	}
 }
 

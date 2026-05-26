@@ -65,8 +65,6 @@ function buildTransport(): { spies: Spies } {
             configuredAt: '',
           }),
           zitadelOrgId: 'org-123',
-          zitadelProjectId: 'proj-1',
-          zitadelProjectGrantId: 'grant-1',
         }),
       listMembers: (req: ListMembersRequest) => {
         spies.list(req)
@@ -256,7 +254,7 @@ describe('Members', () => {
     expect(spies.remove.mock.calls[0][0].userId).toBe('u-2')
   })
 
-  it('renders the identity & policies disclosure with deep-link cards and role-assignment link', async () => {
+  it('renders the identity & policies disclosure with deep-link cards', async () => {
     buildTransport()
     const w = mount(Members)
     await flushPromises()
@@ -268,8 +266,7 @@ describe('Members', () => {
       expect(href.startsWith('https://id.example.com')).toBe(true)
       expect(href).toContain('org=org-123')
     }
-    const roleLink = w.find('[data-testid="members-role-assignment-link"]')
-    expect(roleLink.exists()).toBe(true)
-    expect(roleLink.attributes('href')).toContain('granted-projects/proj-1/grant/grant-1')
+    // The role-assignment deep-link has been removed; Limen now manages roles in-app.
+    expect(w.find('[data-testid="members-role-assignment-link"]').exists()).toBe(false)
   })
 })

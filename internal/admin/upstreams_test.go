@@ -91,7 +91,7 @@ func mountReal(t *testing.T, roles []string) (adminv1connect.AdminServiceClient,
 	resolver := func(_ context.Context, _ http.Header, _ string) (*session.UserSession, *http.Cookie, error) {
 		return &session.UserSession{Subject: "sub-admin-test", Email: "owner@example.com", Roles: roles}, nil, nil
 	}
-	svc := NewService(store, upstreamSvc, tenantSvc, resolver, nil, "", nil, zap.NewNop())
+	svc := NewService(store, upstreamSvc, tenantSvc, resolver, nil, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))

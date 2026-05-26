@@ -49,19 +49,3 @@ export function zitadelConsoleUrl(
   return `${base}${path}${sep}org=${encodeURIComponent(orgId)}`;
 }
 
-// zitadelRoleAssignmentUrl returns the Console deep-link for managing
-// the role assignments of a single project grant. All four arguments
-// are required — return "" otherwise so callers can render a disabled
-// link.
-export function zitadelRoleAssignmentUrl(
-  issuer: string,
-  orgId: string,
-  projectId: string,
-  grantId: string,
-): string {
-  if (!issuer || !projectId || !grantId) return "";
-  const base = issuer.replace(/\/+$/, "");
-  const path = `/ui/console/granted-projects/${encodeURIComponent(projectId)}/grant/${encodeURIComponent(grantId)}`;
-  if (!orgId) return `${base}${path}`;
-  return `${base}${path}?org=${encodeURIComponent(orgId)}`;
-}

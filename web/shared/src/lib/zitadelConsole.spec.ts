@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { zitadelConsoleUrl, zitadelRoleAssignmentUrl } from "./zitadelConsole";
+import { zitadelConsoleUrl } from "./zitadelConsole";
 
 describe("zitadelConsoleUrl", () => {
   it.each([
@@ -69,49 +69,3 @@ describe("zitadelConsoleUrl", () => {
   });
 });
 
-describe("zitadelRoleAssignmentUrl", () => {
-  it("builds a granted-projects deep-link", () => {
-    expect(
-      zitadelRoleAssignmentUrl(
-        "https://idp.example",
-        "org_1",
-        "proj_1",
-        "grant_1",
-      ),
-    ).toBe(
-      "https://idp.example/ui/console/granted-projects/proj_1/grant/grant_1?org=org_1",
-    );
-  });
-
-  it("omits the org query when orgId is empty", () => {
-    expect(
-      zitadelRoleAssignmentUrl("https://idp.example", "", "proj_1", "grant_1"),
-    ).toBe(
-      "https://idp.example/ui/console/granted-projects/proj_1/grant/grant_1",
-    );
-  });
-
-  it.each([
-    ["", "org", "p", "g"],
-    ["https://idp.example", "org", "", "g"],
-    ["https://idp.example", "org", "p", ""],
-  ])(
-    "returns '' when a required argument is empty (%s,%s,%s,%s)",
-    (issuer, org, project, grant) => {
-      expect(zitadelRoleAssignmentUrl(issuer, org, project, grant)).toBe("");
-    },
-  );
-
-  it("URL-encodes IDs", () => {
-    expect(
-      zitadelRoleAssignmentUrl(
-        "https://idp.example/",
-        "org/1",
-        "proj 1",
-        "grant 1",
-      ),
-    ).toBe(
-      "https://idp.example/ui/console/granted-projects/proj%201/grant/grant%201?org=org%2F1",
-    );
-  });
-});

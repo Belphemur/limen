@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, Cog, Code2, ArrowRight, ExternalLink, Copy, Share2 } from '@lucide/vue'
-import { fetchDiscovery, useSessionStore, zitadelConsoleUrl } from '@limen/shared'
+import { Server, Users, Cog, Code2, ArrowRight, Copy, Share2 } from '@lucide/vue'
+import { fetchDiscovery, useSessionStore } from '@limen/shared'
 import { tenantPrefix } from '@limen/shared/session'
 import { create } from '@bufbuild/protobuf'
 import { adminClient, portalClient } from '@/transport/adminClient'
@@ -97,8 +97,7 @@ async function copyPortalUrl() {
   }
 }
 
-async function openZitadelConsole() {
-  const url = zitadelConsoleUrl(issuer.value, zitadelOrgId.value, 'users')
+async function openMembers() {
   try {
     const resp = await adminClient().updateTenantSettings(
       create(UpdateTenantSettingsRequestSchema, { invitedTeamAtNow: true }),
@@ -107,9 +106,7 @@ async function openZitadelConsole() {
   } catch {
     settings.value.invitedTeam = true
   }
-  if (url) {
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
+  void router.push(ROUTES.members)
 }
 
 async function skipIDEChoice() {
@@ -190,11 +187,11 @@ async function openSettings() {
         :icon="Users"
         title="Invite Your Team"
         body="Add collaborators to your organization to manage resources."
-        cta-label="Manage Users in Zitadel"
-        :cta-icon="ExternalLink"
+        cta-label="Manage Users"
+        :cta-icon="ArrowRight"
         :done="isDone('invite')"
         data-step="invite"
-        @activate="openZitadelConsole"
+        @activate="openMembers"
       />
       <TaskBentoCard
         variant="secondary"

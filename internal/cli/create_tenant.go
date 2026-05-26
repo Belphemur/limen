@@ -146,6 +146,10 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 
 				orgID = org.ID
 				ownerUserID = org.AdminUserID
+
+				if err := zclient.DisableOrgRegistration(ctx, orgID); err != nil {
+					return fmt.Errorf("disable org registration: %w", err)
+				}
 			}
 
 			tenant := &storage.Tenant{

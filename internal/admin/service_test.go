@@ -26,7 +26,7 @@ func resolverFor(roles []string) session.Resolver {
 func mount(t *testing.T, roles []string) adminv1connect.AdminServiceClient {
 	t.Helper()
 	tenant := &storage.Tenant{Base: storage.Base{PublicID: "tnt_test"}, Name: "Acme"}
-	svc := NewService(nil, nil, nil, resolverFor(roles), nil, "", nil, zap.NewNop())
+	svc := NewService(nil, nil, nil, resolverFor(roles), nil, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))

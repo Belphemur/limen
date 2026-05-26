@@ -447,6 +447,80 @@ func (b *bootstrap) ensureOrgOwnerMembership(ctx context.Context, orgID, userID 
 	return nil
 }
 
+// ensureUserRegistrationDisabled disables self-registration on the given org.
+// It reads the current login policy, then either creates or updates the
+// custom policy with AllowRegister set to false while preserving all other
+// settings. This uses the v1 ManagementService (org-scoped via
+// x-zitadel-orgid), following the same header pattern as
+// ensureOrgOwnerMembership.
+func (b *bootstrap) ensureUserRegistrationDisabled(ctx context.Context, orgID string) error {
+	ctx = metadata.AppendToOutgoingContext(ctx, zsdk.OrgHeader, orgID)
+
+	p, err := b.api.ManagementService().GetLoginPolicy(ctx, &management.GetLoginPolicyRequest{})
+	if err != nil {
+		return fmt.Errorf("get login policy (org=%s): %w", orgID, err)
+	}
+	cur := p.GetPolicy()
+	if !cur.GetAllowRegister() {
+		log.Printf("user registration already disabled for org %s", orgID)
+		return nil
+	}
+
+	if p.GetIsDefault() {
+		// No custom policy yet — create one with current values + AllowRegister=false.
+		_, err = b.api.ManagementService().AddCustomLoginPolicy(ctx, &management.AddCustomLoginPolicyRequest{
+			AllowUsernamePassword:      cur.GetAllowUsernamePassword(),
+			AllowRegister:              false,
+			AllowExternalIdp:           cur.GetAllowExternalIdp(),
+			ForceMfa:                   cur.GetForceMfa(),
+			ForceMfaLocalOnly:          cur.GetForceMfaLocalOnly(),
+			PasswordlessType:           cur.GetPasswordlessType(),
+			HidePasswordReset:          cur.GetHidePasswordReset(),
+			IgnoreUnknownUsernames:     cur.GetIgnoreUnknownUsernames(),
+			AllowDomainDiscovery:       cur.GetAllowDomainDiscovery(),
+			DisableLoginWithEmail:      cur.GetDisableLoginWithEmail(),
+			DisableLoginWithPhone:      cur.GetDisableLoginWithPhone(),
+			DefaultRedirectUri:         cur.GetDefaultRedirectUri(),
+			PasswordCheckLifetime:      cur.GetPasswordCheckLifetime(),
+			ExternalLoginCheckLifetime: cur.GetExternalLoginCheckLifetime(),
+			MfaInitSkipLifetime:        cur.GetMfaInitSkipLifetime(),
+			SecondFactorCheckLifetime:  cur.GetSecondFactorCheckLifetime(),
+			MultiFactorCheckLifetime:   cur.GetMultiFactorCheckLifetime(),
+			SecondFactors:              cur.GetSecondFactors(),
+			MultiFactors:               cur.GetMultiFactors(),
+		})
+		if err != nil {
+			return fmt.Errorf("add custom login policy (org=%s): %w", orgID, err)
+		}
+	} else {
+		// Custom policy exists — update AllowRegister only.
+		_, err = b.api.ManagementService().UpdateCustomLoginPolicy(ctx, &management.UpdateCustomLoginPolicyRequest{
+			AllowUsernamePassword:      cur.GetAllowUsernamePassword(),
+			AllowRegister:              false,
+			AllowExternalIdp:           cur.GetAllowExternalIdp(),
+			ForceMfa:                   cur.GetForceMfa(),
+			ForceMfaLocalOnly:          cur.GetForceMfaLocalOnly(),
+			PasswordlessType:           cur.GetPasswordlessType(),
+			HidePasswordReset:          cur.GetHidePasswordReset(),
+			IgnoreUnknownUsernames:     cur.GetIgnoreUnknownUsernames(),
+			AllowDomainDiscovery:       cur.GetAllowDomainDiscovery(),
+			DisableLoginWithEmail:      cur.GetDisableLoginWithEmail(),
+			DisableLoginWithPhone:      cur.GetDisableLoginWithPhone(),
+			DefaultRedirectUri:         cur.GetDefaultRedirectUri(),
+			PasswordCheckLifetime:      cur.GetPasswordCheckLifetime(),
+			ExternalLoginCheckLifetime: cur.GetExternalLoginCheckLifetime(),
+			MfaInitSkipLifetime:        cur.GetMfaInitSkipLifetime(),
+			SecondFactorCheckLifetime:  cur.GetSecondFactorCheckLifetime(),
+			MultiFactorCheckLifetime:   cur.GetMultiFactorCheckLifetime(),
+		})
+		if err != nil {
+			return fmt.Errorf("update custom login policy (org=%s): %w", orgID, err)
+		}
+	}
+	log.Printf("disabled user registration for org %s", orgID)
+	return nil
+}
+
 func ptr[T any](v T) *T { return &v }
 
 func main() {
@@ -574,6 +648,10 @@ func main() {
 	}
 	log.Printf("granted ORG_OWNER to %s in sample org", sampleOwnerEmail)
 
+	if err := b.ensureUserRegistrationDisabled(ctx, orgID); err != nil {
+		log.Fatalf("ensure user registration disabled (sample org): %v", err)
+	}
+
 	// Staff (operator) org — see docs/phases/phase-12-staff-backoffice.md.
 	staffOrgName := getenvDefault("LIMEN_STAFF_ORG_NAME", "limen-staff")
 	staffOrgID, err := b.ensureOrg(ctx, staffOrgName)
@@ -598,6 +676,10 @@ func main() {
 		log.Fatalf("ensure staff authorization: %v", err)
 	}
 	log.Printf("granted super_admin to %s in staff org", staffEmail)
+
+	if err := b.ensureUserRegistrationDisabled(ctx, staffOrgID); err != nil {
+		log.Fatalf("ensure user registration disabled (staff org): %v", err)
+	}
 
 	out := map[string]string{
 		"LIMEN_OIDC_PORTAL_CLIENT_ID": portalClientID,

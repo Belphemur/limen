@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
@@ -20,26 +19,9 @@ func (s *Service) GetTenantSettings(ctx context.Context, _ *connect.Request[admi
 	if err != nil {
 		return nil, s.internal("load tenant settings", err)
 	}
-	// Best-effort: a Zitadel hiccup or a tenant whose project grant
-	// has been removed must not block reading settings — the SPA
-	// disables the role-assignment card when the grant id is empty.
-	var grantID string
-	if s.projectGrants != nil && s.projectID != "" && t.ZitadelOrgID != "" {
-		gid, err := s.projectGrants.FindProjectGrantID(ctx, s.projectID, t.ZitadelOrgID)
-		if err != nil {
-			s.logger.Warn("find project grant id",
-				zap.String("project_id", s.projectID),
-				zap.String("org_id", t.ZitadelOrgID),
-				zap.Error(err))
-		} else {
-			grantID = gid
-		}
-	}
 	return connect.NewResponse(&adminv1.GetTenantSettingsResponse{
-		Settings:              toTenantSettingsProto(t, settings),
-		ZitadelOrgId:          t.ZitadelOrgID,
-		ZitadelProjectId:      s.projectID,
-		ZitadelProjectGrantId: grantID,
+		Settings:     toTenantSettingsProto(t, settings),
+		ZitadelOrgId: t.ZitadelOrgID,
 	}), nil
 }
 

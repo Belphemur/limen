@@ -26,15 +26,11 @@ import (
 // plus the tenant-agnostic SignupService + /auth/discovery at the
 // root. apps is the Zitadel client used by the MCP client management
 // RPCs (Phase 9b slice 4); pass nil only in non-portal binaries that
-// should never see those routes. projectGrants resolves the Zitadel
-// project-grant ID for the Members → role assignment Console
-// deep-link; the same *zitadel.Client typically satisfies both. The
-// Limen project ID comes from rt.Cfg.Zitadel.ProjectID. members is
-// the Zitadel directory pass-through used by the Members tab
-// (List/Invite/UpdateRole/Remove); the same *zitadel.Client also
-// satisfies admin.MemberDirectory. signupZitadel is the Zitadel
-// client SignupService uses to provision new orgs; the same
-// *zitadel.Client also satisfies signup.ZitadelClient.
+// should never see those routes. members is the Zitadel directory
+// pass-through used by the Members tab (List/Invite/UpdateRole/Remove);
+// the same *zitadel.Client also satisfies admin.MemberDirectory.
+// signupZitadel is the Zitadel client SignupService uses to provision
+// new orgs; the same *zitadel.Client also satisfies signup.ZitadelClient.
 //
 // PortalService, SessionService, and AdminService share the same
 // /t/{tenant}/api/ mount point — they're multiplexed via an
@@ -45,14 +41,14 @@ import (
 // the background sweeper goroutine on its lifetime. Returns an error
 // when SignupService construction fails (template load, mailer
 // build, captcha provider invalid).
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, projectGrants admin.ProjectGrantLookup, members admin.MemberDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, members admin.MemberDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
 	resolver := session.OIDCResolver(oidc)
 
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
 	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, projectGrants, rt.Cfg.Zitadel.ProjectID, members)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, members)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect

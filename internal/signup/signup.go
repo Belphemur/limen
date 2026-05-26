@@ -126,6 +126,7 @@ type ZitadelClient interface {
 	SetOrgMetadata(ctx context.Context, orgID, key string, value []byte) error
 	GetPasswordComplexitySettings(ctx context.Context, orgID string) (*zitadel.PasswordComplexitySettings, error)
 	AddOrgOwner(ctx context.Context, orgID, userID string) error
+	DisableOrgRegistration(ctx context.Context, orgID string) error
 }
 
 // Service is the SignupServiceHandler implementation.
@@ -449,6 +450,10 @@ func (s *Service) CompleteSignup(ctx context.Context, req *connect.Request[signu
 	}
 	if err := s.deps.Zitadel.AddOrgOwner(ctx, org.ID, userID); err != nil {
 		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("add org owner membership: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
+	}
+	if err := s.deps.Zitadel.DisableOrgRegistration(ctx, org.ID); err != nil {
+		s.log(req, publicID, outcomeProvisionFailed, fmt.Errorf("disable org registration: %w", err))
 		return nil, connect.NewError(connect.CodeInternal, errors.New("provisioning failed"))
 	}
 

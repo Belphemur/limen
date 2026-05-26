@@ -34,7 +34,6 @@ import {
   ZitadelDirectory,
   fetchDiscovery,
   type ZitadelDirectoryCard,
-  zitadelRoleAssignmentUrl,
 } from '@limen/shared'
 import { adminClient } from '@/transport/adminClient'
 import {
@@ -49,9 +48,6 @@ import {
 
 const issuer = ref('')
 const orgId = ref('')
-const projectId = ref('')
-const projectGrantId = ref('')
-
 const members = ref<Member[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -170,10 +166,6 @@ const directoryCards = computed<ZitadelDirectoryCard[]>(() => [
   },
 ])
 
-const roleAssignmentUrl = computed(() =>
-  zitadelRoleAssignmentUrl(issuer.value, orgId.value, projectId.value, projectGrantId.value),
-)
-
 let debounceHandle: ReturnType<typeof setTimeout> | null = null
 
 async function loadMembers() {
@@ -214,8 +206,6 @@ onMounted(async () => {
     ])
     issuer.value = disc.zitadelIssuer
     orgId.value = settings.zitadelOrgId
-    projectId.value = settings.zitadelProjectId
-    projectGrantId.value = settings.zitadelProjectGrantId
   } catch {
     // best-effort; the deep-link cards just won't carry an org scope.
   }
@@ -445,13 +435,6 @@ async function confirmRemove() {
           These settings live in Zitadel Console and are not duplicated in Limen.
         </p>
         <ZitadelDirectory :issuer="issuer" :org-id="orgId" :cards="directoryCards" />
-        <div v-if="roleAssignmentUrl" class="mt-4">
-          <a :href="roleAssignmentUrl" target="_blank" rel="noopener noreferrer"
-            data-testid="members-role-assignment-link"
-            class="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
-            Manage project-grant role assignment in Zitadel Console →
-          </a>
-        </div>
       </div>
     </details>
 
