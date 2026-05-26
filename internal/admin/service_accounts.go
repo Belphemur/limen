@@ -203,6 +203,8 @@ func (s *Service) ListServiceAccounts(ctx context.Context, req *connect.Request[
 		return nil, s.internal("list service accounts", err)
 	}
 
+	// Fetch all grants for the org+project. For orgs with many members this
+	// is a full scan; optimize with userID filter if latency becomes a concern.
 	grants, err := s.serviceAccounts.ListUserGrants(ctx, t.ZitadelOrgID, "")
 	if err != nil {
 		return nil, s.internal("list user grants", err)
@@ -306,11 +308,6 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 		expiry = &t
 	}
 
-	_, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
-	if err != nil {
-		return nil, s.internal("create new PAT", err)
-	}
-
 	existingTokens, err := s.serviceAccounts.ListPersonalAccessTokens(ctx, sa.ZitadelUserID)
 	if err != nil {
 		s.logger.Warn("regenerate token: list existing PATs failed", zap.String("zitadel_user_id", sa.ZitadelUserID), zap.Error(err))
@@ -321,6 +318,12 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 			}
 		}
 	}
+
+	tokenID, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
+	if err != nil {
+		return nil, s.internal("create new PAT", err)
+	}
+	_ = tokenID
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil
 }
@@ -380,6 +383,9 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 	form.Set("actor_token_type", "urn:ietf:params:oauth:token-type:access_token")
 	form.Set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:id:"+s.zitadelProjectID+":aud")
 
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
@@ -387,21 +393,24 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	httpResp, err := httpClient.Do(httpReq)
+	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
 	}
 	defer httpResp.Body.Close()
 
-	body, err := io.ReadAll(httpResp.Body)
+	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
 	if err != nil {
 		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, s.internal("read token exchange response", err)
 	}
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		s.logger.Warn("token exchange failed",
+			zap.Int("status", httpResp.StatusCode),
+			zap.String("response", string(body)),
+		)
 		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		switch {
 		case httpResp.StatusCode == 400 || httpResp.StatusCode == 401:
