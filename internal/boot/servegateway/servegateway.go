@@ -12,8 +12,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/mcpmount"
+	"github.com/belphemur/limen/internal/mcprs"
 )
 
 // Run boots a runtime + MCP-only mux and serves until SIGINT/SIGTERM.
@@ -35,7 +37,18 @@ func Run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := mcpmount.Mount(r, rt, mcpServer); err != nil {
+	metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{BaseURL: rt.Cfg.Server.BaseURL})
+	if err != nil {
+		return err
+	}
+	mcpAuth, err := auth.NewMCPAuth(rt.Ctx, auth.MCPAuthConfig{
+		Issuer:   rt.Cfg.OIDC.Issuer,
+		Audience: rt.Cfg.Zitadel.MCPResourceAudience,
+	}, metadataHandler, rt.Store, rt.Logger)
+	if err != nil {
+		return err
+	}
+	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth); err != nil {
 		return err
 	}
 

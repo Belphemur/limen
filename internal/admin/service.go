@@ -45,6 +45,7 @@ type Service struct {
 	tenant                *tenant.Service
 	resolver              session.Resolver
 	impersonationResolver session.Resolver
+	bearerIntercept       connect.UnaryInterceptorFunc
 	members               MemberDirectory
 	serviceAccounts       ServiceAccountDirectory
 	zitadelDomain         string
@@ -64,7 +65,7 @@ type Service struct {
 // nil those RPCs return CodeUnimplemented. serviceAccounts is the
 // Zitadel directory pass-through used by the service account RPCs;
 // when nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, impersonationResolver session.Resolver, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -74,6 +75,7 @@ func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *
 		tenant:                tenantSvc,
 		resolver:              resolver,
 		impersonationResolver: impersonationResolver,
+		bearerIntercept:       bearerIntercept,
 		members:               members,
 		serviceAccounts:       serviceAccounts,
 		zitadelDomain:         zitadelDomain,
@@ -87,12 +89,15 @@ func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *
 // Handler returns the URL-path-prefix + http.Handler pair to mount on
 // a chi router behind tenancy.RequireTenant.
 func (s *Service) Handler() (string, http.Handler) {
-	return adminv1connect.NewAdminServiceHandler(
-		s,
-		connect.WithInterceptors(
-			session.TenancyInterceptor(),
-			session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
-			session.RoleInterceptor(requiredRole, s.logger),
-		),
+	interceptors := []connect.Interceptor{
+		session.TenancyInterceptor(),
+	}
+	if s.bearerIntercept != nil {
+		interceptors = append(interceptors, s.bearerIntercept)
+	}
+	interceptors = append(interceptors,
+		session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
+		session.RoleInterceptor(requiredRole, s.logger),
 	)
+	return adminv1connect.NewAdminServiceHandler(s, connect.WithInterceptors(interceptors...))
 }

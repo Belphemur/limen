@@ -47,6 +47,10 @@ func Interceptor(resolve Resolver, impersonationResolve Resolver, logger *zap.Lo
 	}
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if _, ok := UserFromContext(ctx); ok {
+				return next(ctx, req)
+			}
+
 			t := tenancy.MustTenant(ctx)
 
 			var sess *UserSession

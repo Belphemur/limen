@@ -10,6 +10,8 @@ package adminmount
 import (
 	"net/http"
 
+	"connectrpc.com/connect"
+
 	"github.com/belphemur/limen/internal/admin"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/session"
@@ -24,8 +26,8 @@ import (
 // gateway hot-path binary does not transitively pull in
 // internal/oauthproxy via internal/tenant's redirect-URI validator —
 // see cmd/gateway/import_graph_test.go.
-func NewHandler(rt *boot.Runtime, resolver session.Resolver, impersonationResolver session.Resolver, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory) (string, http.Handler) {
+func NewHandler(rt *boot.Runtime, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory) (string, http.Handler) {
 	tenantSvc := tenant.NewService(rt.Store)
-	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, impersonationResolver, members, serviceAccounts, rt.Cfg.Zitadel.Domain, rt.Cfg.Zitadel.ProjectID, rt.Cipher, rt.Cfg.Security.PortalSessionCookieSecure, rt.Logger)
+	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, impersonationResolver, bearerIntercept, members, serviceAccounts, rt.Cfg.Zitadel.Domain, rt.Cfg.Zitadel.ProjectID, rt.Cipher, rt.Cfg.Security.PortalSessionCookieSecure, rt.Logger)
 	return svc.Handler()
 }

@@ -6,9 +6,11 @@
 package serveall
 
 import (
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/mcpmount"
 	"github.com/belphemur/limen/internal/boot/oauthproxymount"
@@ -16,6 +18,8 @@ import (
 	"github.com/belphemur/limen/internal/boot/portalmount"
 	"github.com/belphemur/limen/internal/boot/upstreammount"
 	"github.com/belphemur/limen/internal/boot/zitadelboot"
+	"github.com/belphemur/limen/internal/mcprs"
+	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/signup"
 )
 
@@ -41,6 +45,27 @@ func Run(configPath string) error {
 		return err
 	}
 
+	metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{BaseURL: rt.Cfg.Server.BaseURL})
+	if err != nil {
+		return err
+	}
+	mcpAuth, err := auth.NewMCPAuth(rt.Ctx, auth.MCPAuthConfig{
+		Issuer:   rt.Cfg.OIDC.Issuer,
+		Audience: rt.Cfg.Zitadel.MCPResourceAudience,
+	}, metadataHandler, rt.Store, rt.Logger)
+	if err != nil {
+		return err
+	}
+
+	var bearerIntercept connect.UnaryInterceptorFunc
+	if mcpAuth != nil {
+		bearerIntercept = session.BearerTokenInterceptor(
+			session.BearerTokenConfig{Verifier: mcpAuth.Verifier()},
+			rt.Store,
+			rt.Logger,
+		)
+	}
+
 	r := chi.NewRouter()
 	r.Use(boot.PermissiveCORS)
 	r.Use(middleware.Recoverer)
@@ -49,7 +74,7 @@ func Run(configPath string) error {
 	r.Get("/", boot.LandingPage)
 	boot.MountHealth(r)
 
-	signupSvc, err := portalmount.Mount(r, rt, oidc, zclient, zclient, zclient, zclient)
+	signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, zclient, zclient, zclient, zclient)
 	if err != nil {
 		return err
 	}
@@ -59,7 +84,7 @@ func Run(configPath string) error {
 	if err := oauthproxymount.Mount(r, rt, zclient); err != nil {
 		return err
 	}
-	if err := mcpmount.Mount(r, rt, mcpServer); err != nil {
+	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth); err != nil {
 		return err
 	}
 	upstreammount.Mount(r, rt, oidc)

@@ -170,6 +170,13 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 		user, err := m.lookupUser(r.Context(), t.ID, claims.Subject)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				sa, saErr := m.lookupServiceAccount(r.Context(), claims.Subject)
+				if saErr == nil {
+					ctx := withMCPServiceAccount(r.Context(), sa)
+					ctx = withMCPClaims(ctx, claims)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 				m.logger.Info("unknown user for valid token",
 					zap.String("tenant", t.PublicID),
 					zap.String("sub", claims.Subject))
@@ -187,6 +194,26 @@ func (m *MCPAuth) RequireMCPAuth(next http.Handler) http.Handler {
 		ctx = withMCPClaims(ctx, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (m *MCPAuth) Verifier() *op.AccessTokenVerifier {
+	return m.verifier
+}
+
+func (m *MCPAuth) lookupServiceAccount(ctx context.Context, zitadelUserID string) (*storage.ServiceAccount, error) {
+	tx, commit, err := m.store.Session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var sa storage.ServiceAccount
+	qerr := tx.Where("zitadel_user_id = ?", zitadelUserID).First(&sa).Error
+	if cerr := commit(); cerr != nil && qerr == nil {
+		return nil, cerr
+	}
+	if qerr != nil {
+		return nil, qerr
+	}
+	return &sa, nil
 }
 
 func (m *MCPAuth) lookupUser(ctx context.Context, tenantID int64, subject string) (*storage.User, error) {
@@ -260,4 +287,16 @@ func withMCPClaims(ctx context.Context, c *MCPAccessClaims) context.Context {
 func MCPClaimsFromContext(ctx context.Context) (*MCPAccessClaims, bool) {
 	c, ok := ctx.Value(ctxKeyMCPClaims).(*MCPAccessClaims)
 	return c, ok && c != nil
+}
+
+const ctxKeyMCPServiceAccount mcpCtxKey = iota + 3
+
+func withMCPServiceAccount(ctx context.Context, sa *storage.ServiceAccount) context.Context {
+	return context.WithValue(ctx, ctxKeyMCPServiceAccount, sa)
+}
+
+// MCPServiceAccountFromContext returns the *storage.ServiceAccount pinned by RequireMCPAuth.
+func MCPServiceAccountFromContext(ctx context.Context) (*storage.ServiceAccount, bool) {
+	sa, ok := ctx.Value(ctxKeyMCPServiceAccount).(*storage.ServiceAccount)
+	return sa, ok && sa != nil
 }

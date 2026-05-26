@@ -19,6 +19,7 @@ import (
 type Service struct {
 	resolver              Resolver
 	impersonationResolver Resolver
+	bearerIntercept       connect.UnaryInterceptorFunc
 	logger                *zap.Logger
 }
 
@@ -28,11 +29,11 @@ type Service struct {
 // impersonationResolver, when non-nil, is tried first so the
 // interceptor stack reads the limen_portal_impersonate cookie before
 // falling back to the normal portal cookie.
-func NewService(resolver Resolver, impersonationResolver Resolver, logger *zap.Logger) *Service {
+func NewService(resolver Resolver, impersonationResolver Resolver, bearerIntercept connect.UnaryInterceptorFunc, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{resolver: resolver, impersonationResolver: impersonationResolver, logger: logger}
+	return &Service{resolver: resolver, impersonationResolver: impersonationResolver, bearerIntercept: bearerIntercept, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
@@ -42,13 +43,14 @@ func NewService(resolver Resolver, impersonationResolver Resolver, logger *zap.L
 // authenticated user is the correct gate (the caller doesn't yet know
 // what role it holds).
 func (s *Service) Handler() (string, http.Handler) {
-	return sessionv1connect.NewSessionServiceHandler(
-		s,
-		connect.WithInterceptors(
-			TenancyInterceptor(),
-			Interceptor(s.resolver, s.impersonationResolver, s.logger),
-		),
-	)
+	interceptors := []connect.Interceptor{
+		TenancyInterceptor(),
+	}
+	if s.bearerIntercept != nil {
+		interceptors = append(interceptors, s.bearerIntercept)
+	}
+	interceptors = append(interceptors, Interceptor(s.resolver, s.impersonationResolver, s.logger))
+	return sessionv1connect.NewSessionServiceHandler(s, connect.WithInterceptors(interceptors...))
 }
 
 // GetSession returns the tenant + user + highest role pinned on ctx by

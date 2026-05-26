@@ -47,22 +47,14 @@ func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 }
 
 // Mount attaches the MCP Resource Server under /t/{tenant}/mcp/*.
-// Builds the PRM handler first, then the access-token middleware (which
-// performs OIDC discovery against the configured issuer to fetch
-// jwks_uri at startup).
-func Mount(r chi.Router, rt *boot.Runtime, mcpServer *transport.MCPServer) error {
+// The caller must supply a pre-built MCPAuth (which performs OIDC
+// discovery against the configured issuer to fetch jwks_uri at startup).
+func Mount(r chi.Router, rt *boot.Runtime, mcpServer *transport.MCPServer, mcpAuth *auth.MCPAuth) error {
 	metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{
 		BaseURL: rt.Cfg.Server.BaseURL,
 	})
 	if err != nil {
 		return fmt.Errorf("build mcp resource metadata: %w", err)
-	}
-	mcpAuth, err := auth.NewMCPAuth(rt.Ctx, auth.MCPAuthConfig{
-		Issuer:   rt.Cfg.OIDC.Issuer,
-		Audience: rt.Cfg.Zitadel.MCPResourceAudience,
-	}, metadataHandler, rt.Store, rt.Logger)
-	if err != nil {
-		return fmt.Errorf("build mcp auth: %w", err)
 	}
 	if err := transport.MountMCPRS(r, transport.MCPRSDeps{
 		Store:     rt.Store,

@@ -41,6 +41,7 @@ type Service struct {
 	apps                  AppManager
 	resolver              session.Resolver
 	impersonationResolver session.Resolver
+	bearerIntercept       connect.UnaryInterceptorFunc
 	logger                *zap.Logger
 }
 
@@ -59,22 +60,25 @@ type AppManager interface {
 // interceptor stack reads the limen_portal_impersonate cookie before
 // falling back to the normal portal cookie. apps may be nil in tests
 // that don't exercise the MCP-client RPCs.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, apps AppManager, resolver session.Resolver, impersonationResolver session.Resolver, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, apps AppManager, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{store: store, upstream: upstreamSvc, apps: apps, resolver: resolver, impersonationResolver: impersonationResolver, logger: logger}
+	return &Service{store: store, upstream: upstreamSvc, apps: apps, resolver: resolver, impersonationResolver: impersonationResolver, bearerIntercept: bearerIntercept, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
 // on a chi router behind tenancy.RequireTenant.
 func (s *Service) Handler() (string, http.Handler) {
-	return portalv1connect.NewPortalServiceHandler(
-		s,
-		connect.WithInterceptors(
-			session.TenancyInterceptor(),
-			session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
-			session.RoleInterceptor(requiredRole, s.logger),
-		),
+	interceptors := []connect.Interceptor{
+		session.TenancyInterceptor(),
+	}
+	if s.bearerIntercept != nil {
+		interceptors = append(interceptors, s.bearerIntercept)
+	}
+	interceptors = append(interceptors,
+		session.Interceptor(s.resolver, s.impersonationResolver, s.logger),
+		session.RoleInterceptor(requiredRole, s.logger),
 	)
+	return portalv1connect.NewPortalServiceHandler(s, connect.WithInterceptors(interceptors...))
 }

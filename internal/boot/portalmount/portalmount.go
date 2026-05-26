@@ -7,6 +7,7 @@ package portalmount
 import (
 	"net/http"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/belphemur/limen/internal/admin"
@@ -41,15 +42,15 @@ import (
 // the background sweeper goroutine on its lifetime. Returns an error
 // when SignupService construction fails (template load, mailer
 // build, captcha provider invalid).
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
 	resolver := session.OIDCResolver(oidc)
 	impersonationResolver := session.OIDCImpersonationResolver(oidc)
 
-	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, impersonationResolver, rt.Logger)
+	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, impersonationResolver, bearerIntercept, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
-	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver, impersonationResolver)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, impersonationResolver, members, serviceAccounts)
+	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver, impersonationResolver, bearerIntercept)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, impersonationResolver, bearerIntercept, members, serviceAccounts)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect
