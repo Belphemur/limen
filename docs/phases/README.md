@@ -40,6 +40,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9f  | [IDE presets & per-tenant redirect-URI allowlist as a relation](phase-09f-ide-presets-and-allowlist.md)        | 5, 9c                   | ☐            |
 | 9g  | [Static-header rework (shared secret + opt-in user override)](phase-09g-static-header-rework.md)               | 7, 8, 9b, 9c            | ☐            |
 | 9h  | [Self-serve signup (Portal-side)](phase-09h-signup.md)                                                        | 5, 9a, 9b, 9c           | ☐            |
+| 9i  | [Service accounts & API tokens](phase-09i-service-accounts.md)                                                | 5, 9c, 9d               | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | ☐            |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
@@ -203,6 +204,45 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Unit tests for the role-enforcement interceptor
 - [ ] Integration test: `static_header` user-mode `SubmitUpstreamAPIKey` → visible → `SetUpstreamLinkEnabled(false)` hides → re-enable shows _(moved from Phase 7)_
 - [ ] Integration test (recovery half): `SetUpstreamLinkEnabled(true)` on an auto-disabled link clears `AutoDisabledAt` + `ConsecutiveFailures`; next successful call keeps it healthy _(moved from Phase 7)_
+
+### Phase 9i — Service accounts & API tokens
+
+- [ ] `PrefixServiceAccount = "sa"` added to `internal/ids/prefixes.go`
+- [ ] `ServiceAccount` storage model created with partial unique index on `(tenant_id, zitadel_user_id)`
+- [ ] Goose migration `00004_service_accounts.sql`: `service_accounts` table + `upstream_links.service_account_id` + XOR CHECK + FKs + updated indexes
+- [ ] `ServiceAccount` registered in `AllModels()`
+- [ ] `UpstreamLink.ServiceAccountID` + `ServiceAccount` association added
+- [ ] `internal/zitadel/service_accounts.go` wrappers: `CreateMachineUser`, `GetMachineUser`, `DeleteMachineUser`, `AddPersonalAccessToken`, `ListPersonalAccessTokens`, `RemovePersonalAccessToken`
+- [ ] Proto: `ServiceAccount` message, `TokenType` enum, 6 new RPCs on `AdminService`
+- [ ] `buf generate` re-run; Go + Connect bindings regenerated
+- [ ] `access_token` field added to portal cookie seal/unseal; captured on OIDC callback
+- [ ] `ServiceAccountDirectory` interface defined (ISP pattern)
+- [ ] `CreateServiceAccount` handler with Zitadel-first compensation (machine user → grant → PAT → local row)
+- [ ] `ListServiceAccounts` handler with batch grant lookup
+- [ ] `DeleteServiceAccount` handler with best-effort Zitadel cleanup
+- [ ] `RegenerateServiceAccountToken` handler (new PAT before old removed)
+- [ ] `ImpersonateServiceAccount` handler via Zitadel Token Exchange (RFC 8693)
+- [ ] `ExitImpersonation` handler (cookie clear)
+- [ ] Zitadel gRPC → Connect error mapper shared across handlers
+- [ ] `requiredRole` map updated: CRUD + Impersonate at `RoleAdmin`, Exit at `RoleMember`
+- [ ] `serviceAccounts ServiceAccountDirectory` field added to `Service` struct + wired in `adminmount`
+- [ ] Session `Interceptor` checks `limen_portal_impersonate` cookie first; clears invalid cookies
+- [ ] Cookie `Seal`/`Unseal` supports Kind `"portal.impersonate"`
+- [ ] `SessionAccountFromContext` accessor returns user or SA; upstream link creation uses SA ID when impersonating
+- [ ] `BearerTokenInterceptor` created: JWT validation → SA lookup → `UserSession` synthesis
+- [ ] `BearerTokenInterceptor` wired into Connect stack after `Interceptor`, before `RoleInterceptor`
+- [ ] `lookupServiceAccount` fallback in `RequireMCPAuth` for MCP RS path
+- [ ] `AccountFromContext` accessor in MCP auth middleware
+- [ ] `ServiceAccountsPage.vue`: table + create modal + one-time token display + delete/regenerate/impersonate actions + impersonation banner
+- [ ] Route `'/org/service-accounts'` added to router + sidebar under Organization with `KeyRound` icon
+- [ ] Admin `Dashboard.vue` step 4 changed from "Configure Organization" to "Create Service Account" with `KeyRound` icon
+- [ ] Portal dashboard unchanged
+- [ ] `go build ./...`, `golangci-lint run ./...`, `go test ./...` all pass
+- [ ] Upstream link query code updated for nullable `UserID` / new `ServiceAccountID`
+- [ ] Integration test: full Create → List → Delete → Regenerate → Impersonate → Exit → UpstreamLink flow
+- [ ] PAT works for both Connect-RPC and MCP endpoints
+- [ ] Impersonation cookie isolated; exit clears correctly
+- [ ] SA role ceiling enforced (member/admin only, owner rejected)
 
 ### Phase 10 — Wiring, verification, hardening
 
