@@ -208,7 +208,8 @@ async function impersonate(sa: ServiceAccount) {
           Service Accounts
         </h1>
         <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-          Create and manage service accounts for API access, cloud agents, and CLI tools.
+          Machine identities for AI agents and automation. Create a service account, impersonate it
+          to set up MCP connections, then use its API token for programmatic access.
         </p>
       </div>
       <button
@@ -221,6 +222,59 @@ async function impersonate(sa: ServiceAccount) {
         Create Service Account
       </button>
     </header>
+
+    <!-- Workflow guide -->
+    <div
+      v-if="serviceAccounts.length > 0 && !loading"
+      class="rounded-lg border border-outline-variant bg-surface-variant/20 p-5"
+    >
+      <h2 class="mb-3 font-display text-base font-semibold text-on-surface">
+        Using Service Accounts
+      </h2>
+      <ol class="space-y-3 text-sm text-on-surface-variant">
+        <li class="flex gap-3">
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+            >1</span
+          >
+          <span
+            ><strong class="text-on-surface">Create a service account</strong> — copy the token when
+            prompted. Store it securely (e.g. in a secrets manager or CI/CD variable).</span
+          >
+        </li>
+        <li class="flex gap-3">
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+            >2</span
+          >
+          <span
+            ><strong class="text-on-surface">Impersonate the account</strong> — click
+            <span
+              class="inline-flex items-center gap-1 rounded bg-surface-variant px-1.5 py-0.5 text-xs"
+              ><UserCheck class="size-3" /> Impersonate</span
+            >
+            on a service account to configure its MCP connections in the portal. During
+            impersonation, any upstream MCP server you add will be owned by this service
+            account.</span
+          >
+        </li>
+        <li class="flex gap-3">
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+            >3</span
+          >
+          <span
+            ><strong class="text-on-surface">Exit impersonation</strong> — once MCP servers are
+            configured, exit impersonation from the top banner. Your AI agent or CLI tool can now
+            use the token with
+            <code class="rounded bg-surface-variant px-1 py-0.5 font-mono text-xs"
+              >Authorization: Bearer &lt;token&gt;</code
+            >
+            against the gateway.</span
+          >
+        </li>
+      </ol>
+    </div>
 
     <!-- Table -->
     <section
@@ -239,17 +293,26 @@ async function impersonate(sa: ServiceAccount) {
       </div>
       <div
         v-else-if="serviceAccounts.length === 0"
-        class="p-6 text-center text-sm text-on-surface-variant"
+        class="space-y-4 p-6 text-center text-sm text-on-surface-variant"
         data-testid="sa-empty"
       >
-        <p class="mb-3">No service accounts yet.</p>
+        <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/15">
+          <KeyRound class="size-6 text-primary" />
+        </div>
+        <div class="space-y-2">
+          <p class="font-medium text-on-surface">No service accounts yet</p>
+          <p class="mx-auto max-w-md">
+            Service accounts are machine identities for AI agents, CI/CD pipelines, and CLI tools.
+            They authenticate with long-lived API tokens instead of browser logins.
+          </p>
+        </div>
         <button
           type="button"
           class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90"
           @click="openCreate"
         >
           <Plus class="size-4" />
-          Create one
+          Create your first service account
         </button>
       </div>
       <table v-else class="w-full text-left text-sm">
@@ -302,7 +365,7 @@ async function impersonate(sa: ServiceAccount) {
                 <button
                   type="button"
                   class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Impersonate ${sa.name}`"
+                  :title="`Configure MCP connections as ${sa.name}`"
                   :data-testid="`sa-impersonate-${sa.publicId}`"
                   @click="impersonate(sa)"
                 >
@@ -394,7 +457,7 @@ async function impersonate(sa: ServiceAccount) {
               </select>
             </label>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium text-on-surface">Expiry Days</span>
+              <span class="mb-1 block font-medium text-on-surface">Token Expiry (days)</span>
               <input
                 v-model.number="createForm.expiryDays"
                 type="number"
@@ -402,7 +465,9 @@ async function impersonate(sa: ServiceAccount) {
                 data-testid="sa-create-expiry"
                 class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none"
               />
-              <p class="mt-1 text-xs text-on-surface-variant">0 = no expiry</p>
+              <p class="mt-1 text-xs text-on-surface-variant">
+                Number of days until the API token expires. 0 = no expiry.
+              </p>
             </label>
             <p
               v-if="mutationError"
@@ -462,6 +527,17 @@ async function impersonate(sa: ServiceAccount) {
               class="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
             >
               Copy this token now. It won't be shown again.
+            </div>
+            <div class="space-y-2 text-sm text-on-surface-variant">
+              <p>
+                <strong class="text-on-surface">Next:</strong> Impersonate this account to set up
+                MCP connections, then use the token with your AI agent or CLI tool:
+              </p>
+              <div class="rounded border border-outline-variant bg-surface-variant p-2">
+                <code class="block break-all font-mono text-xs text-on-surface">
+                  curl -H "Authorization: Bearer YOUR_TOKEN" https://your-gateway/t/{tenant}/mcp/sse
+                </code>
+              </div>
             </div>
             <div class="rounded border border-outline-variant bg-surface-variant p-3">
               <code class="block break-all font-mono text-sm text-on-surface">{{ newToken }}</code>
