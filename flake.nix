@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
-    nixpkgs-upstream.url = "github:NixOS/nixpkgs/422c7ae3878366e2f011a40cc3e31b45b51c560c";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv";
     devenv.inputs.nixpkgs.follows = "nixpkgs";
@@ -20,15 +19,8 @@
         "x86_64-darwin"
       ];
 
-      perSystem = { pkgs, inputs', ... }: {
+      perSystem = { pkgs, ... }: {
         devenv.shells.default = {
-          overlays = [
-            (final: prev: {
-              nodejs-slim_24 = inputs'.nixpkgs-upstream.legacyPackages.nodejs-slim_24;
-              go_1_26 = inputs'.nixpkgs-upstream.legacyPackages.go_1_26;
-            })
-          ];
-
           languages.go = {
             enable = true;
             package = pkgs.go_1_26;
