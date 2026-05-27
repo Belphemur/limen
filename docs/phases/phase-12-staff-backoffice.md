@@ -3,7 +3,7 @@ phase: "12"
 title: "Staff tenant & backoffice (super-admin, impersonation)"
 status: planned
 progress: 0
-depends_on: ["0", "3", "4", "9a", "9b", "10", "11"]
+depends_on: ["0", "3", "4", "9a", "9b", "9j", "10", "11"]
 updated: "2026-03-20"
 ---
 
@@ -18,7 +18,7 @@ Give the SaaS operator (the human/team running the Limen instance) a first-class
 - A **backoffice SPA** at `/t/_staff/portal/` exposes tenant lists, per-user upstream link health, system status (refresh-queue depth, circuit-breaker states from [Phase 10](phase-10-wiring-hardening.md)), and an audit-log view.
 - A "View as" / **impersonation** flow lets staff act as a specific customer user via Zitadel, with a hard time cap, MFA precondition, and an audit trail. The impersonated customer session is visually distinguishable in the customer SPA at all times.
 
-This phase intentionally sits **after** the customer-facing portal (Phase 9b) and hardening (Phase 10), and **after** production deployment (Phase 11) only on paper — in practice the staff bootstrap step must run as part of the first deploy. Phase 11's `limen-migrate` is extended here to provision the staff tenant idempotently.
+This phase intentionally sits **after** the customer-facing portal (Phase 9b), the impersonation UX & cookie fix (Phase 09J), and hardening (Phase 10), and **after** production deployment (Phase 11) only on paper — in practice the staff bootstrap step must run as part of the first deploy. Phase 11's `limen-migrate` is extended here to provision the staff tenant idempotently.
 
 ## Design
 
