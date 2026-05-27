@@ -11,22 +11,22 @@ const (
 
 // OrgRolesForLimenRole returns the Zitadel org-level administrator
 // roles that correspond to a Limen project role key.
-// Owners receive the 4-role set that matches what the Zitadel console
+// Owners receive the 3-role set that matches what the Zitadel console
 // assigns via ManagementService.UpdateOrgMember:
 //
-//	ORG_OWNER_VIEWER, ORG_SETTINGS_MANAGER, ORG_USER_MANAGER, ORG_ADMIN_IMPERSONATOR
+//	ORG_OWNER_VIEWER, ORG_SETTINGS_MANAGER, ORG_USER_MANAGER
 //
 // Admins receive:
 //
-//	ORG_END_USER_IMPERSONATOR, ORG_USER_MANAGER
+//	ORG_USER_MANAGER
 //
 // Members receive no org-level roles.
 func OrgRolesForLimenRole(roleKey string) []string {
 	switch roleKey {
 	case RoleKeyOwner:
-		return []string{"ORG_OWNER_VIEWER", "ORG_SETTINGS_MANAGER", "ORG_USER_MANAGER", "ORG_ADMIN_IMPERSONATOR"}
+		return []string{"ORG_OWNER_VIEWER", "ORG_SETTINGS_MANAGER", "ORG_USER_MANAGER"}
 	case RoleKeyAdmin:
-		return []string{"ORG_END_USER_IMPERSONATOR", "ORG_USER_MANAGER"}
+		return []string{"ORG_USER_MANAGER"}
 	default:
 		return nil
 	}

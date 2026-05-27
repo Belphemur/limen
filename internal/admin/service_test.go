@@ -26,7 +26,7 @@ func resolverFor(roles []string) session.Resolver {
 func mount(t *testing.T, roles []string) adminv1connect.AdminServiceClient {
 	t.Helper()
 	tenant := &storage.Tenant{Base: storage.Base{PublicID: "tnt_test"}, Name: "Acme"}
-	svc := NewService(nil, nil, nil, resolverFor(roles), nil, nil, nil, nil, "", "", OIDCCredentials{}, nil, false, zap.NewNop())
+	svc := NewService(nil, nil, nil, resolverFor(roles), nil, nil, nil, "", "", OIDCCredentials{}, nil, false, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
@@ -90,14 +90,6 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 			_, err := c.RegenerateServiceAccountToken(ctx, connect.NewRequest(&adminv1.RegenerateServiceAccountTokenRequest{}))
 			return err
 		},
-		"ImpersonateServiceAccount": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
-			_, err := c.ImpersonateServiceAccount(ctx, connect.NewRequest(&adminv1.ImpersonateServiceAccountRequest{}))
-			return err
-		},
-		"ExitImpersonation": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
-			_, err := c.ExitImpersonation(ctx, connect.NewRequest(&adminv1.ExitImpersonationRequest{}))
-			return err
-		},
 	}
 }
 
@@ -138,8 +130,6 @@ var implementedRPCs = map[string]bool{
 	"ListServiceAccounts":           true,
 	"DeleteServiceAccount":          true,
 	"RegenerateServiceAccountToken": true,
-	"ImpersonateServiceAccount":     true,
-	"ExitImpersonation":             true,
 }
 
 // TestMember_DeniedOnEveryRPC: a member session never satisfies

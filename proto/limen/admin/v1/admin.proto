@@ -48,15 +48,14 @@ service AdminService {
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
 
-  // Service account management. Admin floor (ExitImpersonation at member).
+  // Service account management. Admin floor.
   // Service accounts are Zitadel machine users mirrored locally. See
   // docs/phases/phase-09i-service-accounts.md.
   rpc CreateServiceAccount(CreateServiceAccountRequest) returns (CreateServiceAccountResponse);
   rpc ListServiceAccounts(ListServiceAccountsRequest) returns (ListServiceAccountsResponse);
   rpc DeleteServiceAccount(DeleteServiceAccountRequest) returns (DeleteServiceAccountResponse);
   rpc RegenerateServiceAccountToken(RegenerateServiceAccountTokenRequest) returns (RegenerateServiceAccountTokenResponse);
-  rpc ImpersonateServiceAccount(ImpersonateServiceAccountRequest) returns (ImpersonateServiceAccountResponse);
-  rpc ExitImpersonation(ExitImpersonationRequest) returns (ExitImpersonationResponse);
+
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -444,16 +443,4 @@ message RegenerateServiceAccountTokenResponse {
   string token = 1;
 }
 
-message ImpersonateServiceAccountRequest {
-  string public_id = 1;
-}
 
-// Empty: the response carries only a Set-Cookie header with the
-// impersonation session cookie.
-message ImpersonateServiceAccountResponse {}
-
-message ExitImpersonationRequest {}
-
-// Empty: the response carries only a Set-Cookie header clearing
-// the impersonation cookie.
-message ExitImpersonationResponse {}

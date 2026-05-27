@@ -105,12 +105,6 @@ const (
 	// AdminServiceRegenerateServiceAccountTokenProcedure is the fully-qualified name of the
 	// AdminService's RegenerateServiceAccountToken RPC.
 	AdminServiceRegenerateServiceAccountTokenProcedure = "/limen.admin.v1.AdminService/RegenerateServiceAccountToken"
-	// AdminServiceImpersonateServiceAccountProcedure is the fully-qualified name of the AdminService's
-	// ImpersonateServiceAccount RPC.
-	AdminServiceImpersonateServiceAccountProcedure = "/limen.admin.v1.AdminService/ImpersonateServiceAccount"
-	// AdminServiceExitImpersonationProcedure is the fully-qualified name of the AdminService's
-	// ExitImpersonation RPC.
-	AdminServiceExitImpersonationProcedure = "/limen.admin.v1.AdminService/ExitImpersonation"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -144,15 +138,13 @@ type AdminServiceClient interface {
 	InviteMember(context.Context, *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error)
 	UpdateMemberRole(context.Context, *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error)
 	RemoveMember(context.Context, *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error)
-	// Service account management. Admin floor (ExitImpersonation at member).
+	// Service account management. Admin floor.
 	// Service accounts are Zitadel machine users mirrored locally. See
 	// docs/phases/phase-09i-service-accounts.md.
 	CreateServiceAccount(context.Context, *connect.Request[adminv1.CreateServiceAccountRequest]) (*connect.Response[adminv1.CreateServiceAccountResponse], error)
 	ListServiceAccounts(context.Context, *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error)
 	DeleteServiceAccount(context.Context, *connect.Request[adminv1.DeleteServiceAccountRequest]) (*connect.Response[adminv1.DeleteServiceAccountResponse], error)
 	RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error)
-	ImpersonateServiceAccount(context.Context, *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error)
-	ExitImpersonation(context.Context, *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -310,18 +302,6 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("RegenerateServiceAccountToken")),
 			connect.WithClientOptions(opts...),
 		),
-		impersonateServiceAccount: connect.NewClient[adminv1.ImpersonateServiceAccountRequest, adminv1.ImpersonateServiceAccountResponse](
-			httpClient,
-			baseURL+AdminServiceImpersonateServiceAccountProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ImpersonateServiceAccount")),
-			connect.WithClientOptions(opts...),
-		),
-		exitImpersonation: connect.NewClient[adminv1.ExitImpersonationRequest, adminv1.ExitImpersonationResponse](
-			httpClient,
-			baseURL+AdminServiceExitImpersonationProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ExitImpersonation")),
-			connect.WithClientOptions(opts...),
-		),
 	}
 }
 
@@ -351,8 +331,6 @@ type adminServiceClient struct {
 	listServiceAccounts           *connect.Client[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse]
 	deleteServiceAccount          *connect.Client[adminv1.DeleteServiceAccountRequest, adminv1.DeleteServiceAccountResponse]
 	regenerateServiceAccountToken *connect.Client[adminv1.RegenerateServiceAccountTokenRequest, adminv1.RegenerateServiceAccountTokenResponse]
-	impersonateServiceAccount     *connect.Client[adminv1.ImpersonateServiceAccountRequest, adminv1.ImpersonateServiceAccountResponse]
-	exitImpersonation             *connect.Client[adminv1.ExitImpersonationRequest, adminv1.ExitImpersonationResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -475,16 +453,6 @@ func (c *adminServiceClient) RegenerateServiceAccountToken(ctx context.Context, 
 	return c.regenerateServiceAccountToken.CallUnary(ctx, req)
 }
 
-// ImpersonateServiceAccount calls limen.admin.v1.AdminService.ImpersonateServiceAccount.
-func (c *adminServiceClient) ImpersonateServiceAccount(ctx context.Context, req *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error) {
-	return c.impersonateServiceAccount.CallUnary(ctx, req)
-}
-
-// ExitImpersonation calls limen.admin.v1.AdminService.ExitImpersonation.
-func (c *adminServiceClient) ExitImpersonation(ctx context.Context, req *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error) {
-	return c.exitImpersonation.CallUnary(ctx, req)
-}
-
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
 type AdminServiceHandler interface {
 	// Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
@@ -516,15 +484,13 @@ type AdminServiceHandler interface {
 	InviteMember(context.Context, *connect.Request[adminv1.InviteMemberRequest]) (*connect.Response[adminv1.InviteMemberResponse], error)
 	UpdateMemberRole(context.Context, *connect.Request[adminv1.UpdateMemberRoleRequest]) (*connect.Response[adminv1.UpdateMemberRoleResponse], error)
 	RemoveMember(context.Context, *connect.Request[adminv1.RemoveMemberRequest]) (*connect.Response[adminv1.RemoveMemberResponse], error)
-	// Service account management. Admin floor (ExitImpersonation at member).
+	// Service account management. Admin floor.
 	// Service accounts are Zitadel machine users mirrored locally. See
 	// docs/phases/phase-09i-service-accounts.md.
 	CreateServiceAccount(context.Context, *connect.Request[adminv1.CreateServiceAccountRequest]) (*connect.Response[adminv1.CreateServiceAccountResponse], error)
 	ListServiceAccounts(context.Context, *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error)
 	DeleteServiceAccount(context.Context, *connect.Request[adminv1.DeleteServiceAccountRequest]) (*connect.Response[adminv1.DeleteServiceAccountResponse], error)
 	RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error)
-	ImpersonateServiceAccount(context.Context, *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error)
-	ExitImpersonation(context.Context, *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -678,18 +644,6 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("RegenerateServiceAccountToken")),
 		connect.WithHandlerOptions(opts...),
 	)
-	adminServiceImpersonateServiceAccountHandler := connect.NewUnaryHandler(
-		AdminServiceImpersonateServiceAccountProcedure,
-		svc.ImpersonateServiceAccount,
-		connect.WithSchema(adminServiceMethods.ByName("ImpersonateServiceAccount")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceExitImpersonationHandler := connect.NewUnaryHandler(
-		AdminServiceExitImpersonationProcedure,
-		svc.ExitImpersonation,
-		connect.WithSchema(adminServiceMethods.ByName("ExitImpersonation")),
-		connect.WithHandlerOptions(opts...),
-	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceCreateUpstreamProcedure:
@@ -740,10 +694,6 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceDeleteServiceAccountHandler.ServeHTTP(w, r)
 		case AdminServiceRegenerateServiceAccountTokenProcedure:
 			adminServiceRegenerateServiceAccountTokenHandler.ServeHTTP(w, r)
-		case AdminServiceImpersonateServiceAccountProcedure:
-			adminServiceImpersonateServiceAccountHandler.ServeHTTP(w, r)
-		case AdminServiceExitImpersonationProcedure:
-			adminServiceExitImpersonationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -847,12 +797,4 @@ func (UnimplementedAdminServiceHandler) DeleteServiceAccount(context.Context, *c
 
 func (UnimplementedAdminServiceHandler) RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.RegenerateServiceAccountToken is not implemented"))
-}
-
-func (UnimplementedAdminServiceHandler) ImpersonateServiceAccount(context.Context, *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ImpersonateServiceAccount is not implemented"))
-}
-
-func (UnimplementedAdminServiceHandler) ExitImpersonation(context.Context, *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ExitImpersonation is not implemented"))
 }

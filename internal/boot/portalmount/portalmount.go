@@ -44,13 +44,12 @@ import (
 // build, captcha provider invalid).
 func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
 	resolver := session.OIDCResolver(oidc)
-	impersonationResolver := session.OIDCImpersonationResolver(oidc)
 
-	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, impersonationResolver, bearerIntercept, rt.Logger)
+	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, bearerIntercept, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
-	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver, impersonationResolver, bearerIntercept)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, impersonationResolver, bearerIntercept, members, serviceAccounts)
+	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver, bearerIntercept)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, bearerIntercept, members, serviceAccounts)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect

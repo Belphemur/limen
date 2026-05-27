@@ -8,13 +8,11 @@ import {
   ListServiceAccountsRequestSchema,
   DeleteServiceAccountRequestSchema,
   RegenerateServiceAccountTokenRequestSchema,
-  ImpersonateServiceAccountRequestSchema,
   ServiceAccountRole,
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
 import { ConfirmDeleteModal } from '@limen/shared'
-import { tenantPrefix } from '@limen/shared/session'
-import { KeyRound, Plus, Trash2, RefreshCw, UserCheck, Copy, X, Loader2 } from '@lucide/vue'
+import { KeyRound, Plus, Trash2, RefreshCw, Copy, X, Loader2 } from '@lucide/vue'
 
 const serviceAccounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
@@ -188,17 +186,6 @@ async function regenerateToken(sa: ServiceAccount) {
   }
 }
 
-async function impersonate(sa: ServiceAccount) {
-  mutationError.value = null
-  try {
-    await adminClient().impersonateServiceAccount(
-      create(ImpersonateServiceAccountRequestSchema, { publicId: sa.publicId }),
-    )
-    window.location.href = `${tenantPrefix()}/portal/`
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  }
-}
 </script>
 
 <template>
@@ -209,8 +196,7 @@ async function impersonate(sa: ServiceAccount) {
           Service Accounts
         </h1>
         <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-          Machine identities for AI agents and automation. Create a service account, impersonate it
-          to set up MCP connections, then use its API token for programmatic access.
+          Machine identities for AI agents and automation. Create a service account and use its API token for programmatic access.
         </p>
       </div>
       <button
@@ -249,25 +235,8 @@ async function impersonate(sa: ServiceAccount) {
             >2</span
           >
           <span
-            ><strong class="text-on-surface">Impersonate the account</strong> — click
-            <span
-              class="inline-flex items-center gap-1 rounded bg-surface-variant px-1.5 py-0.5 text-xs"
-              ><UserCheck class="size-3" /> Impersonate</span
-            >
-            on a service account to configure its MCP connections in the portal. During
-            impersonation, any upstream MCP server you add will be owned by this service
-            account.</span
-          >
-        </li>
-        <li class="flex gap-3">
-          <span
-            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
-            >3</span
-          >
-          <span
-            ><strong class="text-on-surface">Exit impersonation</strong> — once MCP servers are
-            configured, exit impersonation from the top banner. Your AI agent or CLI tool can now
-            use the token with
+            ><strong class="text-on-surface">Use the token</strong> — your AI agent or CLI tool can now
+            authenticate with
             <code class="rounded bg-surface-variant px-1 py-0.5 font-mono text-xs"
               >Authorization: Bearer &lt;token&gt;</code
             >
@@ -363,15 +332,6 @@ async function impersonate(sa: ServiceAccount) {
             </td>
             <td class="px-4 py-3">
               <div class="flex justify-end gap-1">
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Configure MCP connections as ${sa.name}`"
-                  :data-testid="`sa-impersonate-${sa.publicId}`"
-                  @click="impersonate(sa)"
-                >
-                  <UserCheck class="size-4" />
-                </button>
                 <button
                   type="button"
                   class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"

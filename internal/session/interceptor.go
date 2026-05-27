@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"net/http"
 	"path"
 	"strings"
 
@@ -28,20 +27,18 @@ func TenancyInterceptor() connect.UnaryInterceptorFunc {
 	}
 }
 
-// Interceptor decrypts the limen_portal cookie (or the
-// limen_portal_impersonate cookie when impersonationResolve is
-// non-nil), validates the ID token, refreshes transparently on expiry,
-// and pins UserSession into ctx. Every Connect RPC behind this
-// interceptor is guaranteed to see an authenticated user via
-// MustUser(ctx) — including the shared SessionService.GetSession,
-// which is the first RPC each SPA calls and is the place 401s surface
-// for unauthenticated callers.
+// Interceptor decrypts the limen_portal cookie, validates the ID
+// token, refreshes transparently on expiry, and pins UserSession into
+// ctx. Every Connect RPC behind this interceptor is guaranteed to see
+// an authenticated user via MustUser(ctx) — including the shared
+// SessionService.GetSession, which is the first RPC each SPA calls and
+// is the place 401s surface for unauthenticated callers.
 //
 // The cookie's AEAD AAD includes the URL-derived tenant public id; a
 // cookie minted for tenant A cannot be decrypted under tenant B, so
 // cross-tenant cookie replay fails at the cryptographic layer rather
 // than via a string comparison.
-func Interceptor(resolve Resolver, impersonationResolve Resolver, logger *zap.Logger) connect.UnaryInterceptorFunc {
+func Interceptor(resolve Resolver, logger *zap.Logger) connect.UnaryInterceptorFunc {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -53,29 +50,13 @@ func Interceptor(resolve Resolver, impersonationResolve Resolver, logger *zap.Lo
 
 			t := tenancy.MustTenant(ctx)
 
-			var sess *UserSession
-			var setCookie *http.Cookie
-			var err error
-
-			if impersonationResolve != nil {
-				sess, setCookie, err = impersonationResolve(ctx, req.Header(), t.PublicID)
-				if err != nil {
-					logger.Debug("impersonation resolve failed, falling back to portal session",
-						zap.String("tenant", t.PublicID),
-						zap.Error(err),
-					)
-				}
-			}
-
-			if sess == nil {
-				sess, setCookie, err = resolve(ctx, req.Header(), t.PublicID)
-				if err != nil || sess == nil {
-					logger.Debug("session reject",
-						zap.String("procedure", req.Spec().Procedure),
-						zap.String("tenant", t.PublicID),
-						zap.Error(err))
-					return nil, errUnauthenticated("session invalid")
-				}
+			sess, setCookie, err := resolve(ctx, req.Header(), t.PublicID)
+			if err != nil || sess == nil {
+				logger.Debug("session reject",
+					zap.String("procedure", req.Spec().Procedure),
+					zap.String("tenant", t.PublicID),
+					zap.Error(err))
+				return nil, errUnauthenticated("session invalid")
 			}
 
 			resp, rerr := next(WithUser(ctx, sess), req)

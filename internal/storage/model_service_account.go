@@ -10,8 +10,7 @@ import (
 // represents a non-human identity that can hold a long-lived API token
 // (PAT) and authenticate to Connect-RPC and MCP endpoints via Bearer token.
 // Service accounts cannot log in through the browser OIDC flow — admins
-// impersonate them via Zitadel Token Exchange to configure upstream links
-// on their behalf.
+// configure upstream links for service accounts via the admin UI.
 type ServiceAccount struct {
 	Base
 	TenantID      int64  `gorm:"not null;index;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`

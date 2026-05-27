@@ -2,39 +2,21 @@ package admin
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"math"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"connectrpc.com/connect"
-	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
-	"github.com/belphemur/limen/internal/auth"
-	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/zitadel"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
-
-var zstdEnc, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedFastest))
-
-func compressZstd(src []byte) ([]byte, error) {
-	return zstdEnc.EncodeAll(src, nil), nil
-}
 
 // ServiceAccountDirectory is the slice of the Zitadel client the admin
 // Service uses to read+write service accounts. Defined here (SOLID/ISP)
@@ -336,208 +318,4 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 	}
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil
-}
-
-// ImpersonateServiceAccount starts an impersonation session for the
-// caller, scoped to the requested service account. The response carries
-// a Set-Cookie header with the impersonation session cookie.
-func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error) {
-	if s.serviceAccounts == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("admin: service account directory not wired"))
-	}
-	if s.zitadelDomain == "" {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("admin: zitadel domain not configured"))
-	}
-	if s.oidc.TokenExchangeClientID == "" || s.oidc.TokenExchangeClientSecret == "" {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("admin: token exchange credentials not configured"))
-	}
-
-	publicID := strings.TrimSpace(req.Msg.GetPublicId())
-	if publicID == "" {
-		return nil, s.invalidArg("public_id", "required")
-	}
-
-	t := tenancy.MustTenant(ctx)
-
-	db, commit, err := s.store.Session(ctx)
-	if err != nil {
-		return nil, s.internal("db session", err)
-	}
-	defer func() { _ = commit() }()
-
-	var sa storage.ServiceAccount
-	if err := db.Where("public_id = ?", publicID).First(&sa).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
-		}
-		return nil, s.internal("find service account", err)
-	}
-
-	if sa.DeletedAt.Valid {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
-	}
-
-	// Defense-in-depth: verify the SA belongs to the requesting tenant.
-	// RLS covers this, but an explicit check makes the security boundary visible.
-	if sa.TenantID != t.ID {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
-	}
-
-	accessToken, ok := session.AccessTokenFromContext(ctx)
-	if !ok || accessToken == "" {
-		return nil, s.internal("no access token", errors.New("admin: access token missing from session"))
-	}
-
-	// Per Zitadel token exchange docs, the SA's Zitadel user ID is accepted
-	// directly with subject_token_type=urn:zitadel:params:oauth:token-type:user_id.
-	// No temporary PAT is needed.
-	exchangeURL := strings.TrimSuffix(s.zitadelDomain, "/") + "/oauth/v2/token"
-	form := url.Values{}
-	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
-	form.Set("subject_token", sa.ZitadelUserID)
-	form.Set("subject_token_type", "urn:zitadel:params:oauth:token-type:user_id")
-	form.Set("actor_token", accessToken)
-	form.Set("actor_token_type", "urn:ietf:params:oauth:token-type:access_token")
-	form.Set("requested_token_type", "urn:ietf:params:oauth:token-type:jwt")
-	form.Set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:id:"+s.zitadelProjectID+":aud")
-
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, s.internal("build token exchange request", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	httpReq.SetBasicAuth(s.oidc.TokenExchangeClientID, s.oidc.TokenExchangeClientSecret)
-
-	httpResp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
-	}
-	defer httpResp.Body.Close()
-
-	body, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return nil, s.internal("read token exchange response", err)
-	}
-
-	bodyPreviewLen := int(math.Min(200, float64(len(body))))
-	bodyPreview := string(body[:bodyPreviewLen])
-	if !utf8.ValidString(bodyPreview) {
-		bodyPreview = hex.EncodeToString(body[:bodyPreviewLen])
-	}
-	s.logger.Debug("token exchange response",
-		zap.Int("status", httpResp.StatusCode),
-		zap.String("content_type", httpResp.Header.Get("Content-Type")),
-		zap.String("content_length", httpResp.Header.Get("Content-Length")),
-		zap.String("location", httpResp.Header.Get("Location")),
-		zap.String("exchange_url", exchangeURL),
-		zap.Int("body_len", len(body)),
-		zap.String("body_preview", bodyPreview),
-	)
-
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		var errBody struct {
-			Error            string `json:"error"`
-			ErrorDescription string `json:"error_description"`
-		}
-		if jsonErr := json.Unmarshal(body, &errBody); jsonErr == nil {
-			s.logger.Warn("token exchange denied",
-				zap.String("error", errBody.Error),
-				zap.String("error_description", errBody.ErrorDescription),
-			)
-		} else {
-			s.logger.Warn("token exchange failed",
-				zap.Int("status", httpResp.StatusCode),
-			)
-		}
-		switch {
-		case httpResp.StatusCode == 400 || httpResp.StatusCode == 401:
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("admin: token exchange denied"))
-		case httpResp.StatusCode >= 500:
-			return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
-		default:
-			return nil, connect.NewError(connect.CodeInternal, errors.New("admin: token exchange failed"))
-		}
-	}
-
-	var exchange struct {
-		AccessToken  string `json:"access_token"`
-		IDToken      string `json:"id_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.Unmarshal(body, &exchange); err != nil {
-		return nil, s.internal("parse token exchange response", err)
-	}
-
-	expiresAt := time.Now().Add(time.Duration(exchange.ExpiresIn) * time.Second)
-	if exchange.ExpiresIn == 0 {
-		expiresAt = time.Now().Add(24 * time.Hour)
-	}
-
-	cookieValue, err := s.buildImpersonationCookieValue(t.PublicID, exchange.IDToken, exchange.AccessToken, exchange.RefreshToken, expiresAt)
-	if err != nil {
-		return nil, s.internal("build impersonation cookie", err)
-	}
-
-	cookie := &http.Cookie{
-		Name:     "limen_portal_impersonate",
-		Value:    cookieValue,
-		Path:     "/t/" + t.PublicID,
-		HttpOnly: true,
-		Secure:   s.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
-	}
-
-	resp := connect.NewResponse(&adminv1.ImpersonateServiceAccountResponse{})
-	resp.Header().Set("Set-Cookie", cookie.String())
-	return resp, nil
-}
-
-// ExitImpersonation ends the current impersonation session. The
-// response carries a Set-Cookie header clearing the impersonation cookie.
-func (s *Service) ExitImpersonation(ctx context.Context, req *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error) {
-	t := tenancy.MustTenant(ctx)
-
-	clearCookie := &http.Cookie{
-		Name:     "limen_portal_impersonate",
-		Value:    "",
-		Path:     "/t/" + t.PublicID,
-		HttpOnly: true,
-		Secure:   s.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	}
-
-	resp := connect.NewResponse(&adminv1.ExitImpersonationResponse{})
-	resp.Header().Set("Set-Cookie", clearCookie.String())
-	return resp, nil
-}
-
-func (s *Service) buildImpersonationCookieValue(tenantID, idToken, accessToken, refreshToken string, expiresAt time.Time) (string, error) {
-	if s.cipher == nil {
-		return "", errors.New("admin: cipher not configured")
-	}
-
-	packed := auth.PackPortalCookie(auth.PortalCookieValue{
-		IDToken:      idToken,
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		ExpiresAt:    expiresAt,
-	})
-
-	compressed, err := compressZstd(packed)
-	if err != nil {
-		return "", fmt.Errorf("compress impersonation payload: %w", err)
-	}
-
-	sealed, err := s.cipher.Encrypt(compressed, crypto.AAD{TenantID: tenantID, Kind: "portal.impersonate"})
-	if err != nil {
-		return "", fmt.Errorf("encrypt impersonation payload: %w", err)
-	}
-
-	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }

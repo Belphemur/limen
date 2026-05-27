@@ -45,9 +45,6 @@ const (
 
 	// cookieAADKind binds the portal cookie ciphertext to its purpose.
 	cookieAADKind = "portal.oidc.tokens"
-
-	impersonationCookieName    = "limen_portal_impersonate"
-	impersonationCookieAADKind = "portal.impersonate"
 )
 
 // OIDCConfig wires the relying-party handlers to a configured Zitadel
@@ -637,33 +634,6 @@ func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken, accessToken stri
 	}, nil
 }
 
-func (o *OIDC) buildImpersonationCookie(tenant, idToken, refreshToken, accessToken string, idExp time.Time) (*http.Cookie, error) {
-	payload := PackPortalCookie(PortalCookieValue{
-		IDToken:      idToken,
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		ExpiresAt:    idExp,
-	})
-	payload, err := zstdCompress(payload)
-	if err != nil {
-		return nil, fmt.Errorf("auth: cookie compress: %w", err)
-	}
-	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: impersonationCookieAADKind})
-	if err != nil {
-		return nil, err
-	}
-	const maxAge = 30 * 24 * 3600
-	return &http.Cookie{
-		Name:     impersonationCookieName,
-		Value:    base64.RawURLEncoding.EncodeToString(sealed),
-		Path:     "/t/" + tenant,
-		HttpOnly: true,
-		Secure:   o.cfg.Secure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   maxAge,
-	}, nil
-}
-
 // ResolvePortalSession is the Connect-RPC interceptor entry point: it
 // decrypts the portal cookie carried in header for the given tenant
 // public id, verifies the ID token, and transparently refreshes it on
@@ -697,40 +667,6 @@ func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, ten
 	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
 }
 
-// ResolveImpersonationSession is the Connect-RPC interceptor entry point
-// for the impersonation cookie. It decrypts the
-// limen_portal_impersonate cookie, verifies the ID token, and
-// transparently refreshes it on expiry. On error it does NOT return a
-// clear-cookie — the caller should fall back to the normal portal
-// session.
-func (o *OIDC) ResolveImpersonationSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error) {
-	r := &http.Request{Header: header}
-	tok, err := o.readImpersonationCookie(r, tenant)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.defaultParty.IDTokenVerifier())
-	if err == nil {
-		return claims, tok.AccessToken, nil, nil
-	}
-	if tok.RefreshToken == "" {
-		return nil, "", nil, fmt.Errorf("auth: impersonation id token invalid, no refresh: %w", err)
-	}
-	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.defaultParty, tok.RefreshToken, "", "")
-	if rerr != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation refresh failed: %w", rerr)
-	}
-	newRefresh := refreshed.RefreshToken
-	if newRefresh == "" {
-		newRefresh = tok.RefreshToken
-	}
-	setCookie, err := o.buildImpersonationCookie(tenant, refreshed.IDToken, newRefresh, refreshed.AccessToken, refreshed.IDTokenClaims.GetExpiration())
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: rebuild impersonation cookie after refresh: %w", err)
-	}
-	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
-}
-
 func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (PortalCookieValue, error) {
 	var zero PortalCookieValue
 	c, err := r.Cookie(name)
@@ -758,10 +694,6 @@ func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (Portal
 
 func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (PortalCookieValue, error) {
 	return o.readCookie(r, tenant, portalCookieName, cookieAADKind)
-}
-
-func (o *OIDC) readImpersonationCookie(r *http.Request, tenant string) (PortalCookieValue, error) {
-	return o.readCookie(r, tenant, impersonationCookieName, impersonationCookieAADKind)
 }
 
 // ExtractRoles parses the Zitadel project-roles claim into a flat slice of

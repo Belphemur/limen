@@ -28,16 +28,6 @@ export interface SessionTenant {
   name: string
 }
 
-export interface ImpersonationInfo {
-  isImpersonating: boolean
-  actorUserId: string
-  actorEmail: string
-  actorFirstName: string
-  actorLastName: string
-  reason: string
-  targetUserType: string
-  expiresAt: string
-}
 
 function roleToString(r: Role): SessionRole {
   switch (r) {
@@ -85,7 +75,6 @@ export const useSessionStore = defineStore('session', () => {
   const user = ref<SessionUser | null>(null)
   const role = ref<SessionRole>('unspecified')
   const error = ref<SessionAuthErrorKind | null>(null)
-  const impersonation = ref<ImpersonationInfo | null>(null)
   let inFlight: Promise<void> | null = null
 
   async function refresh(): Promise<void> {
@@ -103,24 +92,11 @@ export const useSessionStore = defineStore('session', () => {
           }
         : null
       role.value = roleToString(resp.role)
-      impersonation.value = resp.impersonation
-        ? {
-            isImpersonating: resp.impersonation.isImpersonating,
-            actorUserId: resp.impersonation.actorUserId,
-            actorEmail: resp.impersonation.actorEmail,
-            actorFirstName: resp.impersonation.actorFirstName,
-            actorLastName: resp.impersonation.actorLastName,
-            reason: resp.impersonation.reason,
-            targetUserType: resp.impersonation.targetUserType,
-            expiresAt: resp.impersonation.expiresAt,
-          }
-        : null
       error.value = null
     } catch (err) {
       tenant.value = null
       user.value = null
       role.value = 'unspecified'
-      impersonation.value = null
       const mapped = mapConnectError(err)
       if (mapped) {
         error.value = mapped.kind
@@ -149,5 +125,5 @@ export const useSessionStore = defineStore('session', () => {
     window.location.href = `${prefix}/auth/logout`
   }
 
-  return { loaded, tenant, user, role, error, impersonation, refresh, bootstrap, logout }
+  return { loaded, tenant, user, role, error, refresh, bootstrap, logout }
 })

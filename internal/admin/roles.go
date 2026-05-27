@@ -35,6 +35,4 @@ var requiredRole = map[string]session.Role{
 	"ListServiceAccounts":           session.RoleAdmin,
 	"DeleteServiceAccount":          session.RoleAdmin,
 	"RegenerateServiceAccountToken": session.RoleAdmin,
-	"ImpersonateServiceAccount":     session.RoleAdmin,
-	"ExitImpersonation":             session.RoleMember,
 }

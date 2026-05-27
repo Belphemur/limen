@@ -21,7 +21,7 @@ import (
 // shared SessionService. The caller is responsible for placing the
 // returned handler behind tenancy.RequireTenant (typically via
 // transport.MountPortal's /api mount).
-func NewHandler(rt *boot.Runtime, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc) (string, http.Handler) {
-	svc := session.NewService(resolver, impersonationResolver, bearerIntercept, rt.Logger)
+func NewHandler(rt *boot.Runtime, resolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc) (string, http.Handler) {
+	svc := session.NewService(resolver, bearerIntercept, rt.Logger)
 	return svc.Handler()
 }

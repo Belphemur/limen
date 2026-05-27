@@ -29,7 +29,7 @@ func (f *fakeResolver) resolve(_ context.Context, _ http.Header, _ string) (*Use
 
 func mountFixture(t *testing.T, r Resolver, tenant *storage.Tenant) *httptest.Server {
 	t.Helper()
-	svc := NewService(r, nil, nil, zap.NewNop())
+	svc := NewService(r, nil, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if tenant != nil {

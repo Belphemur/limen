@@ -36,8 +36,6 @@ type MemberDirectory interface {
 	RemoveOrgRoles(ctx context.Context, orgID, userID string) error
 }
 
-
-
 // roleKeyFromProto returns the Zitadel role key for the wire enum.
 // ok is false when role is UNSPECIFIED (callers reject the request).
 func roleKeyFromProto(r adminv1.MemberRole) (string, bool) {

@@ -109,126 +109,18 @@ func (*GetSessionRequest) Descriptor() ([]byte, []int) {
 	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{0}
 }
 
-// ImpersonationInfo is present in GetSessionResponse when the caller is
-// operating under an impersonation session (CookiePayloadV2).
-type ImpersonationInfo struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	IsImpersonating bool                   `protobuf:"varint,1,opt,name=is_impersonating,json=isImpersonating,proto3" json:"is_impersonating,omitempty"`
-	// Zitadel subject of the admin who initiated impersonation.
-	ActorUserId    string `protobuf:"bytes,2,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
-	ActorEmail     string `protobuf:"bytes,3,opt,name=actor_email,json=actorEmail,proto3" json:"actor_email,omitempty"`
-	ActorFirstName string `protobuf:"bytes,4,opt,name=actor_first_name,json=actorFirstName,proto3" json:"actor_first_name,omitempty"`
-	ActorLastName  string `protobuf:"bytes,5,opt,name=actor_last_name,json=actorLastName,proto3" json:"actor_last_name,omitempty"`
-	// Reason provided at impersonation start (may be empty for v1).
-	Reason string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
-	// "service_account" or "user" — what type of entity is being impersonated.
-	TargetUserType string `protobuf:"bytes,7,opt,name=target_user_type,json=targetUserType,proto3" json:"target_user_type,omitempty"`
-	// RFC3339 timestamp when the impersonation session expires.
-	ExpiresAt     string `protobuf:"bytes,8,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ImpersonationInfo) Reset() {
-	*x = ImpersonationInfo{}
-	mi := &file_limen_session_v1_session_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ImpersonationInfo) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ImpersonationInfo) ProtoMessage() {}
-
-func (x *ImpersonationInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_session_v1_session_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ImpersonationInfo.ProtoReflect.Descriptor instead.
-func (*ImpersonationInfo) Descriptor() ([]byte, []int) {
-	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ImpersonationInfo) GetIsImpersonating() bool {
-	if x != nil {
-		return x.IsImpersonating
-	}
-	return false
-}
-
-func (x *ImpersonationInfo) GetActorUserId() string {
-	if x != nil {
-		return x.ActorUserId
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetActorEmail() string {
-	if x != nil {
-		return x.ActorEmail
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetActorFirstName() string {
-	if x != nil {
-		return x.ActorFirstName
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetActorLastName() string {
-	if x != nil {
-		return x.ActorLastName
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetTargetUserType() string {
-	if x != nil {
-		return x.TargetUserType
-	}
-	return ""
-}
-
-func (x *ImpersonationInfo) GetExpiresAt() string {
-	if x != nil {
-		return x.ExpiresAt
-	}
-	return ""
-}
-
 type GetSessionResponse struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Tenant *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	User   *User                  `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
-	Role   Role                   `protobuf:"varint,3,opt,name=role,proto3,enum=limen.session.v1.Role" json:"role,omitempty"`
-	// Present only when the session was resolved from an impersonation cookie.
-	Impersonation *ImpersonationInfo `protobuf:"bytes,4,opt,name=impersonation,proto3" json:"impersonation,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tenant        *Tenant                `protobuf:"bytes,2,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	User          *User                  `protobuf:"bytes,3,opt,name=user,proto3" json:"user,omitempty"`
+	Role          Role                   `protobuf:"varint,5,opt,name=role,proto3,enum=limen.session.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_limen_session_v1_session_proto_msgTypes[2]
+	mi := &file_limen_session_v1_session_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -240,7 +132,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_session_v1_session_proto_msgTypes[2]
+	mi := &file_limen_session_v1_session_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -253,7 +145,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{2}
+	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *GetSessionResponse) GetTenant() *Tenant {
@@ -277,13 +169,6 @@ func (x *GetSessionResponse) GetRole() Role {
 	return Role_ROLE_UNSPECIFIED
 }
 
-func (x *GetSessionResponse) GetImpersonation() *ImpersonationInfo {
-	if x != nil {
-		return x.Impersonation
-	}
-	return nil
-}
-
 type Tenant struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicId      string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"` // "tnt_<ULID>"
@@ -294,7 +179,7 @@ type Tenant struct {
 
 func (x *Tenant) Reset() {
 	*x = Tenant{}
-	mi := &file_limen_session_v1_session_proto_msgTypes[3]
+	mi := &file_limen_session_v1_session_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -306,7 +191,7 @@ func (x *Tenant) String() string {
 func (*Tenant) ProtoMessage() {}
 
 func (x *Tenant) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_session_v1_session_proto_msgTypes[3]
+	mi := &file_limen_session_v1_session_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -319,7 +204,7 @@ func (x *Tenant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Tenant.ProtoReflect.Descriptor instead.
 func (*Tenant) Descriptor() ([]byte, []int) {
-	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{3}
+	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Tenant) GetPublicId() string {
@@ -348,7 +233,7 @@ type User struct {
 
 func (x *User) Reset() {
 	*x = User{}
-	mi := &file_limen_session_v1_session_proto_msgTypes[4]
+	mi := &file_limen_session_v1_session_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -360,7 +245,7 @@ func (x *User) String() string {
 func (*User) ProtoMessage() {}
 
 func (x *User) ProtoReflect() protoreflect.Message {
-	mi := &file_limen_session_v1_session_proto_msgTypes[4]
+	mi := &file_limen_session_v1_session_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -373,7 +258,7 @@ func (x *User) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use User.ProtoReflect.Descriptor instead.
 func (*User) Descriptor() ([]byte, []int) {
-	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{4}
+	return file_limen_session_v1_session_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *User) GetId() string {
@@ -409,23 +294,11 @@ var File_limen_session_v1_session_proto protoreflect.FileDescriptor
 const file_limen_session_v1_session_proto_rawDesc = "" +
 	"\n" +
 	"\x1elimen/session/v1/session.proto\x12\x10limen.session.v1\"\x13\n" +
-	"\x11GetSessionRequest\"\xb6\x02\n" +
-	"\x11ImpersonationInfo\x12)\n" +
-	"\x10is_impersonating\x18\x01 \x01(\bR\x0fisImpersonating\x12\"\n" +
-	"\ractor_user_id\x18\x02 \x01(\tR\vactorUserId\x12\x1f\n" +
-	"\vactor_email\x18\x03 \x01(\tR\n" +
-	"actorEmail\x12(\n" +
-	"\x10actor_first_name\x18\x04 \x01(\tR\x0eactorFirstName\x12&\n" +
-	"\x0factor_last_name\x18\x05 \x01(\tR\ractorLastName\x12\x16\n" +
-	"\x06reason\x18\x06 \x01(\tR\x06reason\x12(\n" +
-	"\x10target_user_type\x18\a \x01(\tR\x0etargetUserType\x12\x1d\n" +
-	"\n" +
-	"expires_at\x18\b \x01(\tR\texpiresAt\"\xe9\x01\n" +
+	"\x11GetSessionRequest\"\x9e\x01\n" +
 	"\x12GetSessionResponse\x120\n" +
-	"\x06tenant\x18\x01 \x01(\v2\x18.limen.session.v1.TenantR\x06tenant\x12*\n" +
-	"\x04user\x18\x02 \x01(\v2\x16.limen.session.v1.UserR\x04user\x12*\n" +
-	"\x04role\x18\x03 \x01(\x0e2\x16.limen.session.v1.RoleR\x04role\x12I\n" +
-	"\rimpersonation\x18\x04 \x01(\v2#.limen.session.v1.ImpersonationInfoR\rimpersonation\"9\n" +
+	"\x06tenant\x18\x02 \x01(\v2\x18.limen.session.v1.TenantR\x06tenant\x12*\n" +
+	"\x04user\x18\x03 \x01(\v2\x16.limen.session.v1.UserR\x04user\x12*\n" +
+	"\x04role\x18\x05 \x01(\x0e2\x16.limen.session.v1.RoleR\x04role\"9\n" +
 	"\x06Tenant\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"h\n" +
@@ -459,27 +332,25 @@ func file_limen_session_v1_session_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_session_v1_session_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_limen_session_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_limen_session_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_limen_session_v1_session_proto_goTypes = []any{
 	(Role)(0),                  // 0: limen.session.v1.Role
 	(*GetSessionRequest)(nil),  // 1: limen.session.v1.GetSessionRequest
-	(*ImpersonationInfo)(nil),  // 2: limen.session.v1.ImpersonationInfo
-	(*GetSessionResponse)(nil), // 3: limen.session.v1.GetSessionResponse
-	(*Tenant)(nil),             // 4: limen.session.v1.Tenant
-	(*User)(nil),               // 5: limen.session.v1.User
+	(*GetSessionResponse)(nil), // 2: limen.session.v1.GetSessionResponse
+	(*Tenant)(nil),             // 3: limen.session.v1.Tenant
+	(*User)(nil),               // 4: limen.session.v1.User
 }
 var file_limen_session_v1_session_proto_depIdxs = []int32{
-	4, // 0: limen.session.v1.GetSessionResponse.tenant:type_name -> limen.session.v1.Tenant
-	5, // 1: limen.session.v1.GetSessionResponse.user:type_name -> limen.session.v1.User
+	3, // 0: limen.session.v1.GetSessionResponse.tenant:type_name -> limen.session.v1.Tenant
+	4, // 1: limen.session.v1.GetSessionResponse.user:type_name -> limen.session.v1.User
 	0, // 2: limen.session.v1.GetSessionResponse.role:type_name -> limen.session.v1.Role
-	2, // 3: limen.session.v1.GetSessionResponse.impersonation:type_name -> limen.session.v1.ImpersonationInfo
-	1, // 4: limen.session.v1.SessionService.GetSession:input_type -> limen.session.v1.GetSessionRequest
-	3, // 5: limen.session.v1.SessionService.GetSession:output_type -> limen.session.v1.GetSessionResponse
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	1, // 3: limen.session.v1.SessionService.GetSession:input_type -> limen.session.v1.GetSessionRequest
+	2, // 4: limen.session.v1.SessionService.GetSession:output_type -> limen.session.v1.GetSessionResponse
+	4, // [4:5] is the sub-list for method output_type
+	3, // [3:4] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_limen_session_v1_session_proto_init() }
@@ -493,7 +364,7 @@ func file_limen_session_v1_session_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_session_v1_session_proto_rawDesc), len(file_limen_session_v1_session_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

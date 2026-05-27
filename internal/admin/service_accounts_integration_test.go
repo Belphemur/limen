@@ -2,11 +2,9 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -171,7 +169,7 @@ func mountRealSAWithConfig(t *testing.T, roles []string, zitadelDomain, zitadelP
 	fakeSA := newFakeServiceAccountDirectory()
 	t.Cleanup(fakeSA.cleanup)
 
-	svc := NewService(store, nil, nil, resolver, nil, nil, nil, fakeSA, zitadelDomain, zitadelProjectID, OIDCCredentials{}, cipher, false, zap.NewNop())
+	svc := NewService(store, nil, nil, resolver, nil, nil, fakeSA, zitadelDomain, zitadelProjectID, OIDCCredentials{}, cipher, false, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
@@ -186,25 +184,6 @@ func mountRealSAWithConfig(t *testing.T, roles []string, zitadelDomain, zitadelP
 func mountRealSA(t *testing.T, roles []string) (adminv1connect.AdminServiceClient, *storage.Tenant, *storage.User, *fakeServiceAccountDirectory) {
 	t.Helper()
 	return mountRealSAWithConfig(t, roles, "", "", nil)
-}
-
-func fakeTokenExchangeServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/oauth/v2/token" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  "exchanged-access",
-			"id_token":      "exchanged-id",
-			"refresh_token": "exchanged-refresh",
-			"expires_in":    3600,
-		})
-	}))
-	t.Cleanup(srv.Close)
-	return srv
 }
 
 func TestCreateServiceAccount_Success(t *testing.T) {
@@ -353,56 +332,5 @@ func TestRegenerateServiceAccountToken_ReturnsNewToken(t *testing.T) {
 	}
 	if regenResp.Msg.GetToken() == oldToken {
 		t.Error("new token should differ from old token")
-	}
-}
-
-func TestImpersonateServiceAccount_SetsCookie(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires postgres")
-	}
-	exchangeSrv := fakeTokenExchangeServer(t)
-	cipher := newAdminCipher(t)
-	c, _, _, _ := mountRealSAWithConfig(t, []string{"admin"}, exchangeSrv.URL, "proj-1", cipher)
-
-	created, err := c.CreateServiceAccount(context.Background(), connect.NewRequest(&adminv1.CreateServiceAccountRequest{
-		Name: "impersonate-test",
-		Role: adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_MEMBER,
-	}))
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	resp, err := c.ImpersonateServiceAccount(context.Background(), connect.NewRequest(&adminv1.ImpersonateServiceAccountRequest{
-		PublicId: created.Msg.GetServiceAccount().GetPublicId(),
-	}))
-	if err != nil {
-		t.Fatalf("impersonate: %v", err)
-	}
-
-	cookies := resp.Header()["Set-Cookie"]
-	if len(cookies) == 0 {
-		t.Fatal("expected Set-Cookie header")
-	}
-}
-
-func TestExitImpersonation_ClearsCookie(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires postgres")
-	}
-	c, _, _, _ := mountRealSA(t, []string{"admin"})
-
-	resp, err := c.ExitImpersonation(context.Background(), connect.NewRequest(&adminv1.ExitImpersonationRequest{}))
-	if err != nil {
-		t.Fatalf("exit impersonation: %v", err)
-	}
-
-	cookies := resp.Header()["Set-Cookie"]
-	if len(cookies) == 0 {
-		t.Fatal("expected Set-Cookie header")
-	}
-
-	cookieStr := cookies[0]
-	if !strings.Contains(cookieStr, "Max-Age=0") && !strings.Contains(cookieStr, "Expires=") {
-		t.Errorf("expected cookie to be cleared, got: %s", cookieStr)
 	}
 }

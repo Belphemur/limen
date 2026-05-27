@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +39,6 @@ import (
 	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	projectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
-	settingsV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/settings/v2"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
 	"google.golang.org/grpc"
@@ -170,20 +168,13 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, r
 		needsRedirect := !containsAll(oidc.GetRedirectUris(), redirectURIs)
 		needsPostLogout := len(expandedPostLogout) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), expandedPostLogout)
 
-		// Check if TOKEN_EXCHANGE grant type is missing (needed for service account impersonation).
-		existingGrants := oidc.GetGrantTypes()
-		needsTokenExchange := !slices.Contains(existingGrants, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE)
-
-		if needsRedirect || needsPostLogout || needsTokenExchange {
+		if needsRedirect || needsPostLogout {
 			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{}
 			if needsRedirect {
 				cfg.RedirectUris = mergeUnique(oidc.GetRedirectUris(), redirectURIs)
 			}
 			if needsPostLogout {
 				cfg.PostLogoutRedirectUris = mergeUnique(oidc.GetPostLogoutRedirectUris(), expandedPostLogout)
-			}
-			if needsTokenExchange {
-				cfg.GrantTypes = append(existingGrants, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE)
 			}
 			if _, err := b.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
 				ProjectId:     projectID,
@@ -200,9 +191,6 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, r
 			if needsPostLogout {
 				log.Printf("updated %s post-logout URIs: %v", name, cfg.PostLogoutRedirectUris)
 			}
-			if needsTokenExchange {
-				log.Printf("added TOKEN_EXCHANGE grant type to %s", name)
-			}
 		}
 		return oidc.GetClientId(), nil
 	}
@@ -214,7 +202,7 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, r
 				RedirectUris:             redirectURIs,
 				PostLogoutRedirectUris:   expandedPostLogout,
 				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
-				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE},
+				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_REFRESH_TOKEN},
 				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
 				AuthMethodType:           applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE,
 				DevelopmentMode:          true,
@@ -234,92 +222,6 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, r
 		return "", fmt.Errorf("create OIDC app %q: %w", name, err)
 	}
 	return resp.GetOidcConfiguration().GetClientId(), nil
-}
-
-// ensureImpersonationEnabled enables the instance-level impersonation
-// setting if it is not already enabled. Without this, token-exchange
-// impersonation (service accounts) will fail with "Impersonation.PolicyDisabled".
-// ensureTokenExchangeApp creates (or idempotently updates) a confidential
-// OIDC application used exclusively for RFC 8693 token exchange from the
-// admin service. Returns client_id and client_secret.
-func (b *bootstrap) ensureTokenExchangeApp(ctx context.Context, projectID, name string) (clientID, clientSecret string, err error) {
-	if existing, err := b.findAppRaw(ctx, projectID, name); err == nil && existing != nil {
-		oidc := existing.GetOidcConfiguration()
-		if oidc == nil {
-			return "", "", fmt.Errorf("app %q exists but is not OIDC", name)
-		}
-
-		needsGrant := !slices.Contains(oidc.GetGrantTypes(), applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE)
-		needsAuthCode := !slices.Contains(oidc.GetGrantTypes(), applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE)
-		needsAuthMethod := oidc.GetAuthMethodType() != applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
-
-		if needsGrant || needsAuthCode || needsAuthMethod {
-			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{
-				GrantTypes: []applicationV2.OIDCGrantType{
-					applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE,
-					applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE,
-				},
-			}
-			if needsAuthMethod {
-				cfg.AuthMethodType = ptr(applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC)
-			}
-			if _, err := b.api.ApplicationServiceV2().UpdateApplication(ctx, &applicationV2.UpdateApplicationRequest{
-				ProjectId:       projectID,
-				ApplicationId:   existing.GetApplicationId(),
-				ApplicationType: &applicationV2.UpdateApplicationRequest_OidcConfiguration{OidcConfiguration: cfg},
-			}); err != nil {
-				return "", "", fmt.Errorf("update token exchange app %q: %w", name, err)
-			}
-			log.Printf("updated token exchange app %s settings", name)
-		}
-		log.Printf("WARNING: token exchange app %s already exists; client_secret is not returned on update. Rotate the secret manually in Zitadel Console if needed.", name)
-		return oidc.GetClientId(), "", nil
-	}
-
-	resp, err := b.api.ApplicationServiceV2().CreateApplication(ctx, &applicationV2.CreateApplicationRequest{
-		ProjectId: projectID,
-		Name:      name,
-		ApplicationType: &applicationV2.CreateApplicationRequest_OidcConfiguration{
-			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
-				RedirectUris:             []string{"http://localhost:0/callback"},
-				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
-				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE},
-				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
-				AuthMethodType:           applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC,
-				DevelopmentMode:          true,
-				AccessTokenType:          applicationV2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT,
-				AccessTokenRoleAssertion: true,
-			},
-		},
-	})
-	if err != nil {
-		if alreadyExists(err) {
-			if cid, lookupErr := b.findApp(ctx, projectID, name); lookupErr == nil && cid != "" {
-				log.Printf("WARNING: token exchange app %s already exists; client_secret is not returned on lookup. Rotate the secret manually in Zitadel Console if needed.", name)
-				return cid, "", nil
-			}
-		}
-		return "", "", fmt.Errorf("create token exchange app %q: %w", name, err)
-	}
-	return resp.GetOidcConfiguration().GetClientId(), resp.GetOidcConfiguration().GetClientSecret(), nil
-}
-
-func (b *bootstrap) ensureImpersonationEnabled(ctx context.Context) error {
-	resp, err := b.api.SettingsServiceV2().GetSecuritySettings(ctx, &settingsV2.GetSecuritySettingsRequest{})
-	if err != nil {
-		return fmt.Errorf("get security settings: %w", err)
-	}
-	if resp.GetSettings().GetEnableImpersonation() {
-		log.Printf("impersonation already enabled")
-		return nil
-	}
-	if _, err := b.api.SettingsServiceV2().SetSecuritySettings(ctx, &settingsV2.SetSecuritySettingsRequest{
-		EnableImpersonation: true,
-	}); err != nil {
-		return fmt.Errorf("enable impersonation: %w", err)
-	}
-	log.Printf("enabled impersonation at instance level")
-	return nil
 }
 
 func containsString(s []string, v string) bool {
@@ -531,18 +433,16 @@ func (b *bootstrap) ensureProjectGrant(ctx context.Context, projectID, grantedOr
 // to userID within orgID via the v2 InternalPermissionServiceV2 RPC.
 // The exact roles are defined in the main module as
 // zitadel.OrgRolesForLimenRole(zitadel.RoleKeyOwner) and currently are:
-// ORG_OWNER_VIEWER, ORG_SETTINGS_MANAGER, ORG_USER_MANAGER, and
-// ORG_ADMIN_IMPERSONATOR.
+// ORG_OWNER_VIEWER, ORG_SETTINGS_MANAGER, and ORG_USER_MANAGER.
 //
 // ORG_OWNER_VIEWER + ORG_SETTINGS_MANAGER let the user self-serve invites,
 // role changes, IdP federation, and branding from `<issuer>/ui/console`.
-// ORG_ADMIN_IMPERSONATOR enables RFC 8693 token-exchange impersonation of
-// service accounts. ORG_USER_MANAGER is required for user management.
+// ORG_USER_MANAGER is required for user management.
 // Idempotent — AlreadyExists errors are tolerated.
 func (b *bootstrap) ensureOrgOwnerMembership(ctx context.Context, orgID, userID string) error {
 	_, err := b.api.InternalPermissionServiceV2().CreateAdministrator(ctx, &internalPermissionV2.CreateAdministratorRequest{
 		UserId: userID,
-		Roles:  []string{"ORG_OWNER_VIEWER", "ORG_SETTINGS_MANAGER", "ORG_USER_MANAGER", "ORG_ADMIN_IMPERSONATOR"},
+		Roles:  []string{"ORG_OWNER_VIEWER", "ORG_SETTINGS_MANAGER", "ORG_USER_MANAGER"},
 		Resource: &internalPermissionV2.ResourceType{
 			Resource: &internalPermissionV2.ResourceType_OrganizationId{
 				OrganizationId: orgID,
@@ -660,10 +560,6 @@ func main() {
 	}
 	b := &bootstrap{api: api}
 
-	if err := b.ensureImpersonationEnabled(ctx); err != nil {
-		log.Fatalf("enable impersonation: %v", err)
-	}
-
 	// The Limen Gateway lives in its own organization (default 'limen') so
 	// the Zitadel instance default org stays free of Limen-specific objects.
 	gatewayOrgName := getenvDefault("LIMEN_GATEWAY_ORG_NAME", "limen")
@@ -708,12 +604,6 @@ func main() {
 		log.Fatalf("ensure MCP RS app: %v", err)
 	}
 	log.Printf("mcp RS client_id: %s", mcpClientID)
-
-	tokenExchangeClientID, tokenExchangeClientSecret, err := b.ensureTokenExchangeApp(ctx, projectID, "Limen Token Exchange")
-	if err != nil {
-		log.Fatalf("ensure token exchange app: %v", err)
-	}
-	log.Printf("token exchange client_id: %s", tokenExchangeClientID)
 
 	for _, r := range []struct{ key, display string }{
 		{"member", "Member"},
@@ -812,12 +702,6 @@ func main() {
 		"LIMEN_SAMPLE_OWNER_PASSWORD": sampleOwnerPassword,
 		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
 		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
-	}
-	if tokenExchangeClientSecret != "" {
-		out["LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID"] = tokenExchangeClientID
-		out["LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET"] = tokenExchangeClientSecret
-	} else {
-		log.Printf("WARNING: LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET is empty — rotate the secret manually in Zitadel Console for client_id=%s", tokenExchangeClientID)
 	}
 	if path := os.Getenv("LIMEN_BOOTSTRAP_OUT"); path != "" {
 		if err := writeEnvFile(path, out); err != nil {
