@@ -2,7 +2,7 @@
 phase: "8"
 title: "Per-tenant, per-user upstream injection"
 status: in_progress
-progress: 74
+progress: 77
 depends_on: ["6", "7"]
 updated: "2026-03-01"
 ---

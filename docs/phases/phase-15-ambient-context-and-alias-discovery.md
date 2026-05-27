@@ -2,7 +2,7 @@
 phase: "8c"
 title: "Ambient context, alias autodiscovery, empty-filter hints"
 status: completed
-progress: 100
+progress: 87
 depends_on: ["8"]
 updated: "2026-04-01"
 ---
