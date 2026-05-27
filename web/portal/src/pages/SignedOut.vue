@@ -8,11 +8,11 @@
 </script>
 
 <template>
-    <div class="mx-auto mt-24 max-w-md text-center">
-        <h1 class="text-2xl font-semibold">Signed out</h1>
-        <p class="mt-2 text-sm text-slate-500">
-            You've been signed out of Limen. Navigate to your tenant URL
-            (<code>/t/&lt;tenant&gt;/</code>) to sign in again.
-        </p>
-    </div>
+  <div class="mx-auto mt-24 max-w-md text-center">
+    <h1 class="text-2xl font-semibold">Signed out</h1>
+    <p class="mt-2 text-sm text-slate-500">
+      You've been signed out of Limen. Navigate to your tenant URL (<code>/t/&lt;tenant&gt;/</code>)
+      to sign in again.
+    </p>
+  </div>
 </template>

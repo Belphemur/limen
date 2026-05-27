@@ -58,7 +58,13 @@ func Interceptor(resolve Resolver, impersonationResolve Resolver, logger *zap.Lo
 			var err error
 
 			if impersonationResolve != nil {
-				sess, setCookie, _ = impersonationResolve(ctx, req.Header(), t.PublicID)
+				sess, setCookie, err = impersonationResolve(ctx, req.Header(), t.PublicID)
+				if err != nil {
+					logger.Debug("impersonation resolve failed, falling back to portal session",
+						zap.String("tenant", t.PublicID),
+						zap.Error(err),
+					)
+				}
 			}
 
 			if sess == nil {

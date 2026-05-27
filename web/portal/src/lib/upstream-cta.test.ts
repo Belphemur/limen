@@ -69,9 +69,7 @@ describe('upstreamCTAs — static_header shared', () => {
   })
   it('CONNECTED → Disable + Disconnect', () => {
     expect(
-      upstreamCTAs(summary({ ...sharedHeader, linkState: LinkState.CONNECTED })).map(
-        (c) => c.kind,
-      ),
+      upstreamCTAs(summary({ ...sharedHeader, linkState: LinkState.CONNECTED })).map((c) => c.kind),
     ).toEqual(['disable', 'disconnect'])
   })
   it('DISABLED → Enable + Disconnect', () => {
@@ -110,23 +108,13 @@ describe('upstreamCTAs — static_header override (user secret set)', () => {
     const cta = upstreamCTAs(
       summary({ ...overrideHeader, hasUserOverride: true, linkState: LinkState.CONNECTED }),
     )
-    expect(cta.map((c) => c.kind)).toEqual([
-      'rotateKey',
-      'clearOverride',
-      'disable',
-      'disconnect',
-    ])
+    expect(cta.map((c) => c.kind)).toEqual(['rotateKey', 'clearOverride', 'disable', 'disconnect'])
   })
   it('NEEDS_RELINK → Re-enter key + Clear override + Disable + Disconnect (tools still work via shared)', () => {
     const cta = upstreamCTAs(
       summary({ ...overrideHeader, hasUserOverride: true, linkState: LinkState.NEEDS_RELINK }),
     )
-    expect(cta.map((c) => c.kind)).toEqual([
-      'submitKey',
-      'clearOverride',
-      'disable',
-      'disconnect',
-    ])
+    expect(cta.map((c) => c.kind)).toEqual(['submitKey', 'clearOverride', 'disable', 'disconnect'])
     expect(cta[0].label).toBe('Re-enter API key')
   })
   it('AUTO_DISABLED → Re-enable + Clear override + Disconnect', () => {

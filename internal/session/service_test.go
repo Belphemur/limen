@@ -184,3 +184,25 @@ func TestClaimsToSession_Nil(t *testing.T) {
 		t.Fatalf("expected nil session, got %+v", s)
 	}
 }
+
+func TestExtractRolesFromClaims_WithSyntheticRoleMap(t *testing.T) {
+	c := &oidc.IDTokenClaims{
+		Claims: map[string]any{
+			"urn:zitadel:iam:org:project:roles": map[string]any{
+				"admin":  map[string]any{},
+				"member": map[string]any{},
+			},
+		},
+	}
+	got := extractRolesFromClaims(c)
+	if len(got) != 2 {
+		t.Fatalf("want 2 roles, got %v", got)
+	}
+	seen := map[string]bool{}
+	for _, r := range got {
+		seen[r] = true
+	}
+	if !seen["admin"] || !seen["member"] {
+		t.Fatalf("missing role: %v", got)
+	}
+}

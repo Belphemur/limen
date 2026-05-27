@@ -61,7 +61,11 @@ Backoffice users can launch a "View as" session for a specific customer user. Th
 2. Limen verifies the staff user has MFA-on-current-session via `SessionService.GetSession` (`factors.mfa.verified_at` recent). If not, redirect to Zitadel `prompt=mfa`. This is enforced server-side; the SPA cannot skip it.
 3. Limen calls Zitadel token-exchange (RFC 8693, `urn:ietf:params:oauth:grant-type:token-exchange`) with `actor_token = <staff session token>` and `subject_token` referencing the target user. If the running Zitadel version doesn't expose token-exchange, fall back to `SessionService.CreateSession` with `checks.user.userId = <target>` and `actor = <staff_sub>` annotated on the new session.
 4. Limen mints a **separate** impersonation cookie at `Path=/t/<target-tenant>; HttpOnly; Secure; SameSite=Lax; Max-Age=900` (15 min hard cap, configurable down — never up). The cookie payload includes `impersonation: true`, `actor_user_id: <staff_sub>`, and `acted_reason_id: <audit_row_id>`. The staff session cookie at `Path=/t/_staff` is untouched, so staff returns to the backoffice cleanly when impersonation ends.
+
+   > **Phase 09J note**: Phase 09J establishes the `CookiePayloadV2` format with a version byte (`0x01`), baked-in identity claims, actor metadata, and a zero-refresh design. Phase 12 reuses this exact format with `UserType=0` (real user) and adds staff-specific fields: a hard 15-minute TTL and a separate `limen_impersonating` cookie scoped to `Path=/t/` for cross-tenant awareness.
 5. SPA at `/t/<target-tenant>/portal/` detects `impersonation=true` (from the bootstrap call's response) and renders a **persistent red banner**: _"You are viewing **`alice@example.com`** on behalf of **`staff@limen.dev`**. Reason: `<reason>`. Expires in `09:42`. [End impersonation]"_. The banner cannot be dismissed; it pins to the viewport.
+
+   > **Phase 09J note**: Phase 09J implements the portal banner component (`ImpersonationBanner.vue`) with a live countdown and an "End impersonation" button. Phase 12 extends this component for staff-specific actor display (e.g. "Support staff") and wires it to the separate backoffice redirect flow when impersonation ends.
 6. `EndImpersonation` (or cookie expiry) terminates the Zitadel session, clears the impersonation cookie, writes the audit row's `ended_at`, and bounces back to `/t/_staff/portal/`.
 
 #### Hard constraints
@@ -205,6 +209,8 @@ A single `internal/audit/` package owns the writer (`audit.Append(ctx, Event)`),
 - [ ] Impersonation cookie is separate from the staff session cookie, scoped to `/t/<target-tenant>`, hard 15-min TTL, never auto-renewed
 - [ ] MFA freshness check on the staff session before any impersonation start
 - [ ] Customer SPA shows a non-dismissible banner whenever an impersonation cookie is present
+- [ ] Phase 09J's `CookiePayloadV2` format reused for staff impersonation with `UserType=0` and staff-specific fields (hard 15-min TTL, separate `limen_impersonating` cookie at `Path=/t/`)
+- [ ] Phase 09J's `ImpersonationBanner.vue` extended with staff-specific copy ("Support staff", "On behalf of Limen staff")
 - [ ] OAuth-handshake CTAs disabled in impersonated sessions
 - [ ] Upstream tokens remain encrypted-at-rest; decryption still happens only inside the upstream-call transport
 - [ ] `staff_tenant_tags` + `staff_tenant_tag_bindings` tables (staff-only, no RLS, accessed via `WithStaffRead`); `StaffService` RPCs `ListTenantTags`, `CreateTenantTag`, `BindTenantTag`, `UnbindTenantTag`; Tenants list gains a key/value filter chip row

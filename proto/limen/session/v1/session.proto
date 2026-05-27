@@ -20,10 +20,29 @@ service SessionService {
 
 message GetSessionRequest {}
 
+// ImpersonationInfo is present in GetSessionResponse when the caller is
+// operating under an impersonation session (CookiePayloadV2).
+message ImpersonationInfo {
+  bool is_impersonating = 1;
+  // Zitadel subject of the admin who initiated impersonation.
+  string actor_user_id = 2;
+  string actor_email = 3;
+  string actor_first_name = 4;
+  string actor_last_name = 5;
+  // Reason provided at impersonation start (may be empty for v1).
+  string reason = 6;
+  // "service_account" or "user" — what type of entity is being impersonated.
+  string target_user_type = 7;
+  // RFC3339 timestamp when the impersonation session expires.
+  string expires_at = 8;
+}
+
 message GetSessionResponse {
   Tenant tenant = 1;
   User user = 2;
   Role role = 3;
+  // Present only when the session was resolved from an impersonation cookie.
+  ImpersonationInfo impersonation = 4;
 }
 
 message Tenant {

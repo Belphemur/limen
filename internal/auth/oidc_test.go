@@ -296,3 +296,162 @@ func TestPackPortalCookie_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestPackCookieV2_RoundTrip(t *testing.T) {
+	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	original := CookiePayloadV2{
+		Version:        CookieVersionV2,
+		AccessToken:    "at_v2_abc123",
+		Subject:        "sub_sa_001",
+		Email:          "sa@example.com",
+		FirstName:      "Service",
+		LastName:       "Account",
+		Roles:          []string{"admin", "member"},
+		ActorUserID:    "actor_001",
+		ActorEmail:     "actor@example.com",
+		ActorFirstName: "Alice",
+		ActorLastName:  "Admin",
+		Reason:         "debugging",
+		UserType:       ImpersonatedUserTypeServiceAccount,
+		Impersonated:   true,
+		ExpiresAt:      now,
+	}
+
+	packed := PackCookieV2(original)
+	got, err := UnpackCookieV2(packed)
+	if err != nil {
+		t.Fatalf("UnpackCookieV2: unexpected error: %v", err)
+	}
+
+	if got.Version != original.Version {
+		t.Errorf("Version mismatch: got %d, want %d", got.Version, original.Version)
+	}
+	if got.AccessToken != original.AccessToken {
+		t.Errorf("AccessToken mismatch: got %q, want %q", got.AccessToken, original.AccessToken)
+	}
+	if got.Subject != original.Subject {
+		t.Errorf("Subject mismatch: got %q, want %q", got.Subject, original.Subject)
+	}
+	if got.Email != original.Email {
+		t.Errorf("Email mismatch: got %q, want %q", got.Email, original.Email)
+	}
+	if got.FirstName != original.FirstName {
+		t.Errorf("FirstName mismatch: got %q, want %q", got.FirstName, original.FirstName)
+	}
+	if got.LastName != original.LastName {
+		t.Errorf("LastName mismatch: got %q, want %q", got.LastName, original.LastName)
+	}
+	if len(got.Roles) != len(original.Roles) || got.Roles[0] != original.Roles[0] || got.Roles[1] != original.Roles[1] {
+		t.Errorf("Roles mismatch: got %v, want %v", got.Roles, original.Roles)
+	}
+	if got.ActorUserID != original.ActorUserID {
+		t.Errorf("ActorUserID mismatch: got %q, want %q", got.ActorUserID, original.ActorUserID)
+	}
+	if got.ActorEmail != original.ActorEmail {
+		t.Errorf("ActorEmail mismatch: got %q, want %q", got.ActorEmail, original.ActorEmail)
+	}
+	if got.ActorFirstName != original.ActorFirstName {
+		t.Errorf("ActorFirstName mismatch: got %q, want %q", got.ActorFirstName, original.ActorFirstName)
+	}
+	if got.ActorLastName != original.ActorLastName {
+		t.Errorf("ActorLastName mismatch: got %q, want %q", got.ActorLastName, original.ActorLastName)
+	}
+	if got.Reason != original.Reason {
+		t.Errorf("Reason mismatch: got %q, want %q", got.Reason, original.Reason)
+	}
+	if got.UserType != original.UserType {
+		t.Errorf("UserType mismatch: got %d, want %d", got.UserType, original.UserType)
+	}
+	if got.Impersonated != original.Impersonated {
+		t.Errorf("Impersonated mismatch: got %v, want %v", got.Impersonated, original.Impersonated)
+	}
+	if !got.ExpiresAt.Equal(now) {
+		t.Errorf("ExpiresAt mismatch: got %v, want %v", got.ExpiresAt, now)
+	}
+}
+
+func TestPackCookieV2_EmptyFields(t *testing.T) {
+	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	original := CookiePayloadV2{
+		Version:      CookieVersionV2,
+		AccessToken:  "",
+		Subject:      "",
+		Email:        "",
+		FirstName:    "",
+		LastName:     "",
+		Roles:        nil,
+		UserType:     ImpersonatedUserTypeUser,
+		Impersonated: false,
+		ExpiresAt:    now,
+	}
+
+	packed := PackCookieV2(original)
+	got, err := UnpackCookieV2(packed)
+	if err != nil {
+		t.Fatalf("UnpackCookieV2: unexpected error: %v", err)
+	}
+
+	if got.AccessToken != "" {
+		t.Errorf("AccessToken should be empty, got %q", got.AccessToken)
+	}
+	if got.Subject != "" {
+		t.Errorf("Subject should be empty, got %q", got.Subject)
+	}
+	if got.Email != "" {
+		t.Errorf("Email should be empty, got %q", got.Email)
+	}
+	if len(got.Roles) != 0 {
+		t.Errorf("Roles should be empty, got %v", got.Roles)
+	}
+	if got.Impersonated {
+		t.Error("Impersonated should be false")
+	}
+	if !got.ExpiresAt.Equal(now) {
+		t.Errorf("ExpiresAt mismatch: got %v, want %v", got.ExpiresAt, now)
+	}
+}
+
+func TestUnpackCookieV2_UnknownVersion(t *testing.T) {
+	data := []byte{0x02} // version 2 is not supported
+	_, err := UnpackCookieV2(data)
+	if err == nil {
+		t.Fatal("expected error for unknown version")
+	}
+	if !strings.Contains(err.Error(), "unsupported cookie version") {
+		t.Fatalf("expected 'unsupported cookie version' error, got: %v", err)
+	}
+}
+
+func TestUnpackCookieV2_Truncated(t *testing.T) {
+	// Only version byte — not enough to read the first length prefix
+	data := []byte{CookieVersionV2, 0x01}
+	_, err := UnpackCookieV2(data)
+	if err == nil {
+		t.Fatal("expected error for truncated data")
+	}
+}
+
+func TestPackCookieV2_Deterministic(t *testing.T) {
+	v := CookiePayloadV2{
+		Version:     CookieVersionV2,
+		AccessToken: "at1",
+		Subject:     "sub1",
+		Email:       "u@example.com",
+		FirstName:   "Alice",
+		LastName:    "Admin",
+		Roles:       []string{"admin", "member"},
+		ExpiresAt:   time.Unix(1718400000, 0),
+	}
+
+	packed1 := PackCookieV2(v)
+	packed2 := PackCookieV2(v)
+
+	if len(packed1) != len(packed2) {
+		t.Fatal("PackCookieV2 is not deterministic")
+	}
+	for i := range packed1 {
+		if packed1[i] != packed2[i] {
+			t.Fatalf("PackCookieV2 is not deterministic at byte %d", i)
+		}
+	}
+}

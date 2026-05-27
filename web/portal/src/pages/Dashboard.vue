@@ -34,10 +34,9 @@ async function copyUrl() {
         <span v-if="session.role !== 'unspecified'"> · {{ session.role }}</span>
       </p>
       <p class="mt-3 max-w-3xl text-sm text-on-surface-variant">
-        Limen is your team's MCP gateway. Connect your personal accounts to
-        each MCP server your organization has set up, then plug the gateway URL
-        into your AI IDE — every tool from every server becomes available in
-        one place.
+        Limen is your team's MCP gateway. Connect your personal accounts to each MCP server your
+        organization has set up, then plug the gateway URL into your AI IDE — every tool from every
+        server becomes available in one place.
       </p>
     </header>
 
@@ -52,7 +51,9 @@ async function copyUrl() {
         data-testid="step-connect"
       >
         <div class="flex items-center gap-3">
-          <span class="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary"
+          >
             <Server :size="18" aria-hidden="true" />
           </span>
           <h2 class="text-base font-semibold text-on-surface">
@@ -60,9 +61,9 @@ async function copyUrl() {
           </h2>
         </div>
         <p class="text-sm text-on-surface-variant">
-          Sign in to each upstream so the gateway can call its tools on your
-          behalf. Verify every server is connected before wiring up your IDE —
-          a missing link means the matching tools will be unavailable.
+          Sign in to each upstream so the gateway can call its tools on your behalf. Verify every
+          server is connected before wiring up your IDE — a missing link means the matching tools
+          will be unavailable.
         </p>
         <RouterLink
           to="/mcp-servers"
@@ -77,17 +78,16 @@ async function copyUrl() {
         data-testid="step-ide"
       >
         <div class="flex items-center gap-3">
-          <span class="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary"
+          >
             <Code2 :size="18" aria-hidden="true" />
           </span>
-          <h2 class="text-base font-semibold text-on-surface">
-            2. Configure your IDE
-          </h2>
+          <h2 class="text-base font-semibold text-on-surface">2. Configure your IDE</h2>
         </div>
         <p class="text-sm text-on-surface-variant">
-          Point your AI IDE at the gateway URL below. Limen is OAuth 2.0 DCR
-          compliant (RFC 7591), so each IDE registers itself on first connect —
-          no client IDs or secrets to copy.
+          Point your AI IDE at the gateway URL below. Limen is OAuth 2.0 DCR compliant (RFC 7591),
+          so each IDE registers itself on first connect — no client IDs or secrets to copy.
         </p>
         <a
           href="#ide-examples"
@@ -139,9 +139,8 @@ async function copyUrl() {
         IDE configuration snippets
       </h2>
       <p class="text-sm text-on-surface-variant">
-        Drop one of these into the matching IDE's config. Field names track
-        each IDE's current documentation — check the vendor docs if a release
-        renames a key.
+        Drop one of these into the matching IDE's config. Field names track each IDE's current
+        documentation — check the vendor docs if a release renames a key.
       </p>
       <IDEExamples :mcp-url="mcpUrl" />
     </section>

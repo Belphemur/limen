@@ -13,7 +13,7 @@
       // No-flash theme boot. Runs synchronously before the SPA paints so the
       // initial frame already has the correct .dark class. See
       // docs/frontend-design.md §3.4.
-      (function () {
+      ;(function () {
         try {
           var mode = localStorage.getItem('limen.theme') || 'system'
           var prefersDark =

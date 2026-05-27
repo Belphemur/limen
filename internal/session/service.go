@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"go.uber.org/zap"
@@ -59,7 +60,7 @@ func (s *Service) Handler() (string, http.Handler) {
 func (s *Service) GetSession(ctx context.Context, _ *connect.Request[sessionv1.GetSessionRequest]) (*connect.Response[sessionv1.GetSessionResponse], error) {
 	t := tenancy.MustTenant(ctx)
 	u := MustUser(ctx)
-	return connect.NewResponse(&sessionv1.GetSessionResponse{
+	resp := &sessionv1.GetSessionResponse{
 		Tenant: &sessionv1.Tenant{
 			PublicId: t.PublicID,
 			Name:     t.Name,
@@ -71,5 +72,18 @@ func (s *Service) GetSession(ctx context.Context, _ *connect.Request[sessionv1.G
 			LastName:  u.LastName,
 		},
 		Role: HighestRole(u.Roles),
-	}), nil
+	}
+	if u.IsImpersonating {
+		resp.Impersonation = &sessionv1.ImpersonationInfo{
+			IsImpersonating: true,
+			ActorUserId:     u.ActorUserID,
+			ActorEmail:      u.ActorEmail,
+			ActorFirstName:  u.ActorFirstName,
+			ActorLastName:   u.ActorLastName,
+			Reason:          u.Reason,
+			TargetUserType:  u.TargetUserType,
+			ExpiresAt:       u.ExpiresAt.Format(time.RFC3339),
+		}
+	}
+	return connect.NewResponse(resp), nil
 }

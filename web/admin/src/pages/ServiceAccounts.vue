@@ -13,6 +13,7 @@ import {
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
 import { ConfirmDeleteModal } from '@limen/shared'
+import { tenantPrefix } from '@limen/shared/session'
 import { KeyRound, Plus, Trash2, RefreshCw, UserCheck, Copy, X, Loader2 } from '@lucide/vue'
 
 const serviceAccounts = ref<ServiceAccount[]>([])
@@ -193,7 +194,7 @@ async function impersonate(sa: ServiceAccount) {
     await adminClient().impersonateServiceAccount(
       create(ImpersonateServiceAccountRequestSchema, { publicId: sa.publicId }),
     )
-    window.location.href = '/portal'
+    window.location.href = `${tenantPrefix()}/portal/`
   } catch (e) {
     mutationError.value = e instanceof ConnectError ? e.message : String(e)
   }

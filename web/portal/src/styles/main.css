@@ -24,8 +24,10 @@
 @theme {
   /* ───── Type families ───── */
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-display:
+    'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* ───── Spacing aliases (Stitch parity) ───── */
   --spacing-sidebar-width: 280px;
@@ -95,6 +97,7 @@
   --z-sticky: 10;
   --z-sidebar: 20;
   --z-topbar: 40;
+  --z-banner: 45;
   --z-dropdown: 50;
   --z-modal: 60;
   --z-toast: 70;

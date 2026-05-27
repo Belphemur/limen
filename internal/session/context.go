@@ -19,7 +19,9 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -34,6 +36,15 @@ type UserSession struct {
 	LastName    string
 	Roles       []string
 	AccessToken string
+	// Impersonation fields (set when resolved from impersonation cookie)
+	IsImpersonating bool
+	ActorUserID     string
+	ActorEmail      string
+	ActorFirstName  string
+	ActorLastName   string
+	Reason          string
+	TargetUserType  string
+	ExpiresAt       time.Time
 }
 
 // Resolver turns the request's Cookie header into a verified session
@@ -68,16 +79,86 @@ func OIDCResolver(o OIDCAdapter) Resolver {
 // OIDCImpersonationResolver adapts an OIDCAdapter into a Resolver
 // that reads the impersonation cookie. Callers should try this
 // resolver first and fall back to OIDCResolver.
+//
+// It bypasses claimsToSession and builds UserSession directly from the
+// raw claims map — synthetic claims don't need struct-field gymnastics.
 func OIDCImpersonationResolver(o OIDCAdapter) Resolver {
 	return func(ctx context.Context, header http.Header, tenantPublicID string) (*UserSession, *http.Cookie, error) {
 		claims, accessToken, setCookie, err := o.ResolveImpersonationSession(ctx, header, tenantPublicID)
 		if err != nil {
 			return nil, nil, err
 		}
-		sess := claimsToSession(claims)
-		sess.AccessToken = accessToken
+		if claims == nil {
+			return nil, nil, fmt.Errorf("impersonation resolver: nil claims")
+		}
+
+		first := stringClaim(claims, "given_name")
+		last := stringClaim(claims, "family_name")
+		if first == "" && last == "" {
+			first, last = splitName(stringClaim(claims, "name"))
+		}
+
+		sess := &UserSession{
+			Subject:     claims.GetSubject(),
+			Email:       stringClaim(claims, "email"),
+			FirstName:   first,
+			LastName:    last,
+			Roles:       extractRolesFromClaims(claims),
+			AccessToken: accessToken,
+		}
+		if claims.Claims != nil {
+			sess.IsImpersonating = true
+			if v, ok := claims.Claims["actor_user_id"].(string); ok {
+				sess.ActorUserID = v
+			}
+			if v, ok := claims.Claims["actor_email"].(string); ok {
+				sess.ActorEmail = v
+			}
+			if v, ok := claims.Claims["actor_first_name"].(string); ok {
+				sess.ActorFirstName = v
+			}
+			if v, ok := claims.Claims["actor_last_name"].(string); ok {
+				sess.ActorLastName = v
+			}
+			if v, ok := claims.Claims["impersonation_reason"].(string); ok {
+				sess.Reason = v
+			}
+			if v, ok := claims.Claims["target_user_type"].(string); ok {
+				sess.TargetUserType = v
+			}
+			if v, ok := claims.Claims["impersonation_expires_at"].(string); ok {
+				if t, err := time.Parse(time.RFC3339, v); err == nil {
+					sess.ExpiresAt = t
+				}
+			}
+		}
 		return sess, setCookie, nil
 	}
+}
+
+// stringClaim reads a string value from the claims map.
+func stringClaim(c *oidc.IDTokenClaims, key string) string {
+	if c == nil || c.Claims == nil {
+		return ""
+	}
+	if v, ok := c.Claims[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// splitName splits a combined full name into first and last on the first
+// space. If there is no space, the whole string becomes first.
+func splitName(name string) (first, last string) {
+	if name == "" {
+		return "", ""
+	}
+	for i := 0; i < len(name); i++ {
+		if name[i] == ' ' {
+			return name[:i], name[i+1:]
+		}
+	}
+	return name, ""
 }
 
 // projectRolesClaim is the Zitadel-side wire constant carrying the

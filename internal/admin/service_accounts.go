@@ -97,6 +97,49 @@ func saModelToProto(sa *storage.ServiceAccount) *adminv1.ServiceAccount {
 	}
 }
 
+type exchangeTokenClaims struct {
+	Subject   string
+	Email     string
+	FirstName string
+	LastName  string
+	Roles     []string
+}
+
+func parseExchangeTokenClaims(idToken string) (exchangeTokenClaims, error) {
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return exchangeTokenClaims{}, fmt.Errorf("invalid JWT format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return exchangeTokenClaims{}, fmt.Errorf("decode JWT payload: %w", err)
+	}
+	var raw struct {
+		Sub        string `json:"sub"`
+		Email      string `json:"email"`
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
+	}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return exchangeTokenClaims{}, fmt.Errorf("parse JWT payload: %w", err)
+	}
+	var rawRoles struct {
+		Roles map[string]map[string]string `json:"urn:zitadel:iam:org:project:roles"`
+	}
+	_ = json.Unmarshal(payload, &rawRoles) // ignore error — roles may not exist
+	var roles []string
+	for role := range rawRoles.Roles {
+		roles = append(roles, role)
+	}
+	return exchangeTokenClaims{
+		Subject:   raw.Sub,
+		Email:     raw.Email,
+		FirstName: raw.GivenName,
+		LastName:  raw.FamilyName,
+		Roles:     roles,
+	}, nil
+}
+
 // CreateServiceAccount creates a Zitadel machine user and stores a
 // local mirror row. Returns the service account and a one-time PAT.
 func (s *Service) CreateServiceAccount(ctx context.Context, req *connect.Request[adminv1.CreateServiceAccountRequest]) (*connect.Response[adminv1.CreateServiceAccountResponse], error) {
@@ -472,12 +515,41 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 		return nil, s.internal("parse token exchange response", err)
 	}
 
-	expiresAt := time.Now().Add(time.Duration(exchange.ExpiresIn) * time.Second)
-	if exchange.ExpiresIn == 0 {
-		expiresAt = time.Now().Add(24 * time.Hour)
+	claims, err := parseExchangeTokenClaims(exchange.IDToken)
+	if err != nil {
+		return nil, s.internal("parse exchange token claims", err)
 	}
 
-	cookieValue, err := s.buildImpersonationCookieValue(t.PublicID, exchange.IDToken, exchange.AccessToken, exchange.RefreshToken, expiresAt)
+	adminSession := session.MustUser(ctx)
+
+	expiresAt := time.Now().Add(time.Duration(exchange.ExpiresIn) * time.Second)
+	maxAge := 12 * time.Hour
+	if time.Until(expiresAt) > maxAge {
+		expiresAt = time.Now().Add(maxAge)
+	}
+	if exchange.ExpiresIn == 0 {
+		expiresAt = time.Now().Add(maxAge)
+	}
+
+	payload := auth.CookiePayloadV2{
+		Version:        auth.CookieVersionV2,
+		AccessToken:    exchange.AccessToken,
+		Subject:        claims.Subject,
+		Email:          claims.Email,
+		FirstName:      claims.FirstName,
+		LastName:       claims.LastName,
+		Roles:          claims.Roles,
+		ActorUserID:    adminSession.Subject,
+		ActorEmail:     adminSession.Email,
+		ActorFirstName: adminSession.FirstName,
+		ActorLastName:  adminSession.LastName,
+		Reason:         "",
+		UserType:       auth.ImpersonatedUserTypeServiceAccount,
+		Impersonated:   true,
+		ExpiresAt:      expiresAt,
+	}
+
+	cookieValue, err := s.buildImpersonationCookieV2(t.PublicID, payload)
 	if err != nil {
 		return nil, s.internal("build impersonation cookie", err)
 	}
@@ -489,7 +561,7 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 		HttpOnly: true,
 		Secure:   s.secureCookie,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	}
 
 	resp := connect.NewResponse(&adminv1.ImpersonateServiceAccountResponse{})
@@ -517,26 +589,21 @@ func (s *Service) ExitImpersonation(ctx context.Context, req *connect.Request[ad
 	return resp, nil
 }
 
-func (s *Service) buildImpersonationCookieValue(tenantID, idToken, accessToken, refreshToken string, expiresAt time.Time) (string, error) {
+func (s *Service) buildImpersonationCookieV2(tenantID string, payload auth.CookiePayloadV2) (string, error) {
 	if s.cipher == nil {
 		return "", errors.New("admin: cipher not configured")
 	}
 
-	packed := auth.PackPortalCookie(auth.PortalCookieValue{
-		IDToken:      idToken,
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		ExpiresAt:    expiresAt,
-	})
+	packed := auth.PackCookieV2(payload)
 
 	compressed, err := compressZstd(packed)
 	if err != nil {
-		return "", fmt.Errorf("compress impersonation payload: %w", err)
+		return "", fmt.Errorf("compress impersonation cookie: %w", err)
 	}
 
 	sealed, err := s.cipher.Encrypt(compressed, crypto.AAD{TenantID: tenantID, Kind: "portal.impersonate"})
 	if err != nil {
-		return "", fmt.Errorf("encrypt impersonation payload: %w", err)
+		return "", fmt.Errorf("encrypt impersonation cookie: %w", err)
 	}
 
 	return base64.RawURLEncoding.EncodeToString(sealed), nil

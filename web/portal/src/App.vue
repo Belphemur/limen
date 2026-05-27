@@ -4,6 +4,7 @@ import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { LogOut, Shield, User } from '@lucide/vue'
 import { useSessionStore, tenantPrefix } from '@limen/shared/session'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
+import ImpersonationBanner from '@/components/ImpersonationBanner.vue'
 import logoUrl from '@/assets/limen-logo.svg'
 
 const session = useSessionStore()
@@ -128,6 +129,8 @@ function closeMenu() {
         </div>
       </div>
     </header>
+
+    <ImpersonationBanner />
 
     <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
       <RouterView />
