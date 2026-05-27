@@ -2,7 +2,8 @@
   description = "Limen dev environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
+    nixpkgs-upstream.url = "github:NixOS/nixpkgs/422c7ae3878366e2f011a40cc3e31b45b51c560c";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv";
     devenv.inputs.nixpkgs.follows = "nixpkgs";
@@ -12,7 +13,6 @@
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [ inputs.devenv.flakeModule ];
 
-      # All platforms your team uses.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -20,13 +20,18 @@
         "x86_64-darwin"
       ];
 
-      perSystem = { pkgs, ... }: {
+      perSystem = { pkgs, inputs', ... }: {
         devenv.shells.default = {
-          # Languages
+          overlays = [
+            (final: prev: {
+              nodejs-slim_24 = inputs'.nixpkgs-upstream.legacyPackages.nodejs-slim_24;
+              go_1_26 = inputs'.nixpkgs-upstream.legacyPackages.go_1_26;
+            })
+          ];
+
           languages.go = {
             enable = true;
             package = pkgs.go_1_26;
-            # Required for Delve on Linux with Nix hardening.
             enableHardeningWorkaround = true;
           };
 
@@ -36,7 +41,6 @@
             corepack.enable = true;
           };
 
-          # Extra tooling
           packages = with pkgs; [
             buf
             protobuf
@@ -75,7 +79,6 @@
             gofmt.enable = true;
             golangci-lint.enable = true;
 
-            # Custom pre-commit hook to run go fix ./...
             gofix = {
               enable = true;
               name = "go fix";
@@ -84,7 +87,6 @@
               pass_filenames = false;
             };
 
-            # Custom pre-commit hook to run go vet ./...
             govet = {
               enable = true;
               name = "go vet";
@@ -96,7 +98,6 @@
 
           enterShell = ''
             export PATH="$PWD/bin:$PWD/web/portal/node_modules/.bin:$PATH"
-
 
             echo ""
             echo "  Limen devshell"
