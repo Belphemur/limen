@@ -1,3 +1,12 @@
+---
+phase: "9"
+title: "Portal SPA (LEGACY — superseded by phase-09b)"
+status: superseded
+progress: 0
+depends_on: []
+updated: "2025-11-15"
+---
+
 # Phase 9b — Portal backend (Connect-RPC) + Vue 3 SPA
 
 **Depends on**: Phases 4 (portal session), 7 (upstream connect/disconnect)

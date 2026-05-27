@@ -1,3 +1,12 @@
+---
+phase: "10"
+title: "Wiring, hardening, resilience"
+status: in_progress
+progress: 60
+depends_on: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9a", "9b", "9c", "9d"]
+updated: "2026-05-15"
+---
+
 # Phase 10 — Wiring, Hardening, Resilience
 
 **Status: Core complete. Distributed circuit breaker (10b) planned. Integration tests deferred.**

@@ -41,6 +41,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9g  | [Static-header rework (shared secret + opt-in user override)](phase-09g-static-header-rework.md)               | 7, 8, 9b, 9c            | ☐            |
 | 9h  | [Self-serve signup (Portal-side)](phase-09h-signup.md)                                                        | 5, 9a, 9b, 9c           | ☐            |
 | 9i  | [Service accounts & API tokens](phase-09i-service-accounts.md)                                                | 5, 9c, 9d               | ☐            |
+| 9j  | [Impersonation UX & cookie fix](phase-09j-impersonation-ux.md)                                                 | 9i, 9d, 9b, 4           | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | ☐            |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
@@ -50,7 +51,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
 | 18  | [Social signup (GitHub / Google / Microsoft / Apple)](phase-18-social-signup.md)                              | 5, 9h                   | ☐ (deferred)  |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 74% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9h (IDE presets, static-header rework, self-serve signup). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 74% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9j (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
@@ -244,6 +245,29 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Impersonation cookie isolated; exit clears correctly
 - [ ] SA role ceiling enforced (member/admin only, owner rejected)
 
+### Phase 9j — Impersonation UX & cookie fix
+
+- [ ] `CookiePayloadV2` struct defined with version byte + identity claims + actor metadata + user type
+- [ ] `PackCookieV2` / `UnpackCookieV2` with version dispatch (0x01 only); unknown versions rejected
+- [ ] Unit tests: round-trip, empty fields, zero roles, unknown version rejection
+- [ ] `readImpersonationCookie` detects version byte → dispatches to `UnpackCookieV2`
+- [ ] `ResolveImpersonationSession` removes all refresh logic; checks expiry; builds from cached claims
+- [ ] `OIDCImpersonationResolver` builds `UserSession` directly from `CookiePayloadV2`
+- [ ] Unit tests: fresh v2 cookie resolves; expired returns error; zero Zitadel HTTP calls
+- [ ] JWT claim extraction helper parses exchange ID token payload without re-verification
+- [ ] `ImpersonateServiceAccount` extracts claims + builds `CookiePayloadV2` with `UserType=1`, `Impersonated=true`
+- [ ] `buildImpersonationCookieV2` replaces old `buildImpersonationCookieValue`
+- [ ] Unit tests: cookie round-trip through write→read pipeline
+- [ ] `ImpersonationInfo` message added to `session.proto` (is_impersonating, actor fields, reason, target_user_type, expires_at)
+- [ ] `impersonation` field added to `GetSessionResponse` (absent when not impersonating)
+- [ ] `buf generate` re-run; Go + TypeScript bindings regenerated
+- [ ] `GetSession` handler populates `ImpersonationInfo` from session context
+- [ ] Shared session store captures impersonation field from `GetSessionResponse`
+- [ ] `ImpersonationBanner.vue`: red sticky banner with countdown, identity display, "End impersonation" button, non-dismissible, auto-redirect at zero
+- [ ] Banner wired into `App.vue` above RouterView when impersonating
+- [ ] `endImpersonation()` added to session client — calls `ExitImpersonation` → redirects to /admin/
+- [ ] Integration test: impersonation creates v2 cookie → GetSession returns impersonation info → exit clears cookie → redirect to admin
+
 ### Phase 10 — Wiring, verification, hardening
 
 - [ ] `cmd/gateway/main.go` wires DB → migrate → crypto → Zitadel client → OIDC RP → upstream registry → refresher → gateway → oauthproxy → middleware → portal → transport
@@ -332,4 +356,4 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ## Explicitly out of scope this iteration
 
-SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; usage-based / metered billing (Phase 13 ships seat-only — usage metering is designed-for but deferred); fine-grained per-tool scopes; outbound strategies beyond `mcp_spec`, `static_header`, and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose).
+SAML / SCIM (use Zitadel's roadmap for these); MFA enforcement policy (configured in Zitadel directly); audit logging beyond structured-log events; per-tenant rate limits at the application layer; usage-based / metered billing (Phase 13 ships seat-only — usage metering is designed-for but deferred); fine-grained per-tool scopes; outbound strategies beyond `mcp_spec`, `static_header`, and `none`; HA Kubernetes manifests (Phase 11 ships the single-VM reference compose). Phase 12 staff impersonation (separate `limen_impersonating` cookie at `Path=/t/` for cross-tenant awareness during staff impersonation of real users) is NOT covered by Phase 09J — it will reuse the `CookiePayloadV2` format but requires its own cookie scope and staff-specific metadata.

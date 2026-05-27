@@ -1,3 +1,12 @@
+---
+phase: "6"
+title: "Limen as MCP Resource Server"
+status: completed
+progress: 100
+depends_on: ["5"]
+updated: "2025-11-01"
+---
+
 # Phase 6 — Limen as MCP Resource Server
 
 **Depends on**: Phase 5 (Zitadel integration + AS metadata proxy)

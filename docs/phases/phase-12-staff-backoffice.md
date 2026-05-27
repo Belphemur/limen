@@ -1,3 +1,12 @@
+---
+phase: "12"
+title: "Staff tenant & backoffice (super-admin, impersonation)"
+status: planned
+progress: 0
+depends_on: ["0", "3", "4", "9a", "9b", "10", "11"]
+updated: "2026-03-20"
+---
+
 # Phase 12 — Staff tenant & backoffice (super-admin, impersonation)
 
 ## Goal

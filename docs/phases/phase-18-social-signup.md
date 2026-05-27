@@ -1,3 +1,12 @@
+---
+phase: "18"
+title: "Social signup (GitHub / Google / Microsoft / Apple)"
+status: deferred
+progress: 0
+depends_on: ["5", "9h"]
+updated: "2026-04-15"
+---
+
 # Phase 18 — Social signup
 
 > **Status: deferred.** Captured here so [Phase 9h](phase-09h-signup.md) can

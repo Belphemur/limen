@@ -1,3 +1,12 @@
+---
+phase: "9a"
+title: "Binary split (gateway / portal / staff)"
+status: in_progress
+progress: 73
+depends_on: ["7", "8"]
+updated: "2026-02-20"
+---
+
 # Phase 9a — Binary split (gateway / portal / staff)
 
 **Depends on**: Phase 7 (upstream linking engine), Phase 8 (per-user

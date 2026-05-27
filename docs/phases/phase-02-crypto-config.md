@@ -1,3 +1,12 @@
+---
+phase: "2"
+title: "Crypto + config"
+status: completed
+progress: 100
+depends_on: []
+updated: "2025-09-22"
+---
+
 # Phase 2 — Crypto + config
 
 **Depends on**: nothing (can run in parallel with Phase 1)

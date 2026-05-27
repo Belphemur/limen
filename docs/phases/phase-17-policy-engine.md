@@ -1,3 +1,12 @@
+---
+phase: "17"
+title: "Policy engine (tag-based IAM)"
+status: planned
+progress: 0
+depends_on: ["4", "6", "7", "8", "9c", "16"]
+updated: "2026-04-10"
+---
+
 # Phase 17 — Policy engine (tag-based IAM for users, upstreams, tools, clients)
 
 **Depends on**: [Phase 4](phase-04-tenant-auth-session.md) (users + roles claim),

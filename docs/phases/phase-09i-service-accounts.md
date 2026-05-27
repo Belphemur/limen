@@ -1,3 +1,12 @@
+---
+phase: "9i"
+title: "Service Accounts & API Tokens"
+status: planned
+progress: 0
+depends_on: ["5", "9c", "9d"]
+updated: "2026-05-10"
+---
+
 # Phase 9i — Service Accounts & API Tokens
 
 > **Depends on**: Phase 5 (Zitadel integration), Phase 9c (tenant admin SPA), Phase 9d (shared session service)

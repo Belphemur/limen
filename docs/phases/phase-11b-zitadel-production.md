@@ -1,3 +1,12 @@
+---
+phase: "11b"
+title: "Zitadel production hardening"
+status: planned
+progress: 0
+depends_on: ["11"]
+updated: "2026-03-10"
+---
+
 # Phase 11b — Zitadel production hardening
 
 **Depends on**: [Phase 11](phase-11-production-deployment.md).

@@ -1,3 +1,12 @@
+---
+phase: "4"
+title: "Tenant resolution, OIDC login, portal session"
+status: completed
+progress: 100
+depends_on: ["0", "1", "2", "3"]
+updated: "2025-10-10"
+---
+
 # Phase 4 — Tenant resolution, OIDC login, portal session
 
 **Depends on**: Phases 1, 2, 3 (and the Zitadel stack from [Phase 0](phase-00-dev-environment.md))

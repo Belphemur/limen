@@ -1,3 +1,12 @@
+---
+phase: "11"
+title: "Production deployment (Docker Compose)"
+status: planned
+progress: 0
+depends_on: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9a", "9b", "9c", "10"]
+updated: "2026-03-01"
+---
+
 # Phase 11 — Production deployment (Docker Compose)
 
 **Depends on**: every other phase delivered and verified.

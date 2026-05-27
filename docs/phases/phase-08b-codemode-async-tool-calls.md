@@ -1,3 +1,12 @@
+---
+phase: "8b"
+title: "Codemode async tool calls (event loop + Promise proxies)"
+status: completed
+progress: 100
+depends_on: ["8"]
+updated: "2026-02-10"
+---
+
 # Phase 8b — Make codemode tool calls actually async
 
 **Depends on**: Phase 8 (per-tenant injection — gives the sandbox a real auth-injecting upstream client)

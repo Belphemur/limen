@@ -1,3 +1,12 @@
+---
+phase: "3"
+title: "PostgreSQL Row-Level Security"
+status: completed
+progress: 100
+depends_on: ["1"]
+updated: "2025-09-25"
+---
+
 # Phase 3 — PostgreSQL Row-Level Security
 
 **Depends on**: Phase 1 (models + `Session(ctx)` contract)

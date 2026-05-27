@@ -1,3 +1,12 @@
+---
+phase: "9c"
+title: "Tenant administrative portal (Connect-RPC + Vue 3 SPA)"
+status: in_progress
+progress: 82
+depends_on: ["4", "7", "9a", "9b"]
+updated: "2026-04-20"
+---
+
 # Phase 9c — Tenant administrative portal (Connect-RPC + Vue 3 SPA)
 
 **Depends on**: Phases 4 (portal session, OIDC RP, role claim), 7 (upstream catalog), 9 (shared `web/` codebase, build pipeline, Connect-RPC infrastructure)
