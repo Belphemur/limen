@@ -52,9 +52,15 @@ service AdminService {
   // Service accounts are Zitadel machine users mirrored locally. See
   // docs/phases/phase-09i-service-accounts.md.
   rpc CreateServiceAccount(CreateServiceAccountRequest) returns (CreateServiceAccountResponse);
+  rpc GetServiceAccount(GetServiceAccountRequest) returns (GetServiceAccountResponse);
+  rpc UpdateServiceAccount(UpdateServiceAccountRequest) returns (UpdateServiceAccountResponse);
   rpc ListServiceAccounts(ListServiceAccountsRequest) returns (ListServiceAccountsResponse);
   rpc DeleteServiceAccount(DeleteServiceAccountRequest) returns (DeleteServiceAccountResponse);
   rpc RegenerateServiceAccountToken(RegenerateServiceAccountTokenRequest) returns (RegenerateServiceAccountTokenResponse);
+
+  // Service account upstream link management. Admin floor.
+  rpc ListServiceAccountUpstreamLinks(ListServiceAccountUpstreamLinksRequest) returns (ListServiceAccountUpstreamLinksResponse);
+  rpc SetServiceAccountLinkEnabled(SetServiceAccountLinkEnabledRequest) returns (SetServiceAccountLinkEnabledResponse);
 
 }
 
@@ -442,5 +448,42 @@ message RegenerateServiceAccountTokenResponse {
   // One-time PAT. Old tokens are revoked.
   string token = 1;
 }
+
+message GetServiceAccountRequest {
+  string public_id = 1;
+}
+message GetServiceAccountResponse {
+  ServiceAccount service_account = 1;
+}
+
+message UpdateServiceAccountRequest {
+  string public_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+message UpdateServiceAccountResponse {
+  ServiceAccount service_account = 1;
+}
+
+message ServiceAccountUpstreamLink {
+  string upstream_public_id = 1;
+  string upstream_name = 2;
+  string upstream_url = 3;
+  bool enabled = 4;
+  string connected_at = 5;
+}
+message ListServiceAccountUpstreamLinksRequest {
+  string service_account_public_id = 1;
+}
+message ListServiceAccountUpstreamLinksResponse {
+  repeated ServiceAccountUpstreamLink links = 1;
+}
+
+message SetServiceAccountLinkEnabledRequest {
+  string service_account_public_id = 1;
+  string upstream_public_id = 2;
+  bool enabled = 3;
+}
+message SetServiceAccountLinkEnabledResponse {}
 
 

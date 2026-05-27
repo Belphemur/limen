@@ -90,6 +90,22 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 			_, err := c.RegenerateServiceAccountToken(ctx, connect.NewRequest(&adminv1.RegenerateServiceAccountTokenRequest{}))
 			return err
 		},
+		"GetServiceAccount": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.GetServiceAccount(ctx, connect.NewRequest(&adminv1.GetServiceAccountRequest{}))
+			return err
+		},
+		"UpdateServiceAccount": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.UpdateServiceAccount(ctx, connect.NewRequest(&adminv1.UpdateServiceAccountRequest{}))
+			return err
+		},
+		"ListServiceAccountUpstreamLinks": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.ListServiceAccountUpstreamLinks(ctx, connect.NewRequest(&adminv1.ListServiceAccountUpstreamLinksRequest{}))
+			return err
+		},
+		"SetServiceAccountLinkEnabled": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.SetServiceAccountLinkEnabled(ctx, connect.NewRequest(&adminv1.SetServiceAccountLinkEnabledRequest{}))
+			return err
+		},
 	}
 }
 
@@ -118,18 +134,22 @@ func TestRequiredRole_CoversEveryHandlerMethod(t *testing.T) {
 // CodeUnimplemented on them here would conflate routing with
 // implementation.
 var implementedRPCs = map[string]bool{
-	"CreateUpstream":                true,
-	"UpdateUpstream":                true,
-	"DeleteUpstream":                true,
-	"ReindexUpstreamCatalog":        true,
-	"PreviewUpstreamContext":        true,
-	"GetTenantSettings":             true,
-	"UpdateTenantSettings":          true,
-	"DeleteTenant":                  true,
-	"CreateServiceAccount":          true,
-	"ListServiceAccounts":           true,
-	"DeleteServiceAccount":          true,
-	"RegenerateServiceAccountToken": true,
+	"CreateUpstream":                  true,
+	"UpdateUpstream":                  true,
+	"DeleteUpstream":                  true,
+	"ReindexUpstreamCatalog":          true,
+	"PreviewUpstreamContext":          true,
+	"GetTenantSettings":               true,
+	"UpdateTenantSettings":            true,
+	"DeleteTenant":                    true,
+	"CreateServiceAccount":            true,
+	"GetServiceAccount":               true,
+	"UpdateServiceAccount":            true,
+	"ListServiceAccounts":             true,
+	"DeleteServiceAccount":            true,
+	"RegenerateServiceAccountToken":   true,
+	"ListServiceAccountUpstreamLinks": true,
+	"SetServiceAccountLinkEnabled":    true,
 }
 
 // TestMember_DeniedOnEveryRPC: a member session never satisfies

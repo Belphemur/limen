@@ -6,13 +6,11 @@ import { adminClient } from '@/transport/adminClient'
 import {
   CreateServiceAccountRequestSchema,
   ListServiceAccountsRequestSchema,
-  DeleteServiceAccountRequestSchema,
-  RegenerateServiceAccountTokenRequestSchema,
   ServiceAccountRole,
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
-import { ConfirmDeleteModal } from '@limen/shared'
-import { KeyRound, Plus, Trash2, RefreshCw, Copy, X, Loader2 } from '@lucide/vue'
+import { ROUTES } from '@/router/routes'
+import { KeyRound, Plus, Copy, X, Loader2 } from '@lucide/vue'
 
 const serviceAccounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
@@ -20,8 +18,6 @@ const error = ref('')
 const showCreateModal = ref(false)
 const showTokenModal = ref(false)
 const newToken = ref('')
-const selectedSA = ref<ServiceAccount | null>(null)
-const deleteBusy = ref(false)
 const mutating = ref(false)
 const mutationError = ref<string | null>(null)
 
@@ -136,53 +132,6 @@ async function copyToken() {
     copyTimeout = setTimeout(() => (copied.value = false), 2000)
   } catch {
     copied.value = false
-  }
-}
-
-function askDelete(sa: ServiceAccount) {
-  selectedSA.value = sa
-  mutationError.value = null
-}
-
-function closeDelete() {
-  selectedSA.value = null
-  mutationError.value = null
-}
-
-async function confirmDelete() {
-  if (!selectedSA.value) return
-  deleteBusy.value = true
-  mutationError.value = null
-  const target = selectedSA.value
-  try {
-    await adminClient().deleteServiceAccount(
-      create(DeleteServiceAccountRequestSchema, { publicId: target.publicId }),
-    )
-    serviceAccounts.value = serviceAccounts.value.filter((sa) => sa.publicId !== target.publicId)
-    selectedSA.value = null
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  } finally {
-    deleteBusy.value = false
-  }
-}
-
-async function regenerateToken(sa: ServiceAccount) {
-  mutating.value = true
-  mutationError.value = null
-  try {
-    const resp = await adminClient().regenerateServiceAccountToken(
-      create(RegenerateServiceAccountTokenRequestSchema, {
-        publicId: sa.publicId,
-        expiryDays: 365,
-      }),
-    )
-    newToken.value = resp.token
-    showTokenModal.value = true
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  } finally {
-    mutating.value = false
   }
 }
 
@@ -311,7 +260,12 @@ async function regenerateToken(sa: ServiceAccount) {
                   <KeyRound class="size-4" />
                 </div>
                 <div class="min-w-0">
-                  <div class="truncate font-medium text-on-surface">{{ sa.name }}</div>
+                  <router-link
+                    :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}`"
+                    class="truncate font-medium text-on-surface hover:text-primary hover:underline"
+                  >
+                    {{ sa.name }}
+                  </router-link>
                   <div class="truncate text-xs text-on-surface-variant">{{ sa.publicId }}</div>
                 </div>
               </div>
@@ -332,24 +286,13 @@ async function regenerateToken(sa: ServiceAccount) {
             </td>
             <td class="px-4 py-3">
               <div class="flex justify-end gap-1">
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Regenerate token for ${sa.name}`"
-                  :data-testid="`sa-regenerate-${sa.publicId}`"
-                  @click="regenerateToken(sa)"
+                <router-link
+                  :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}`"
+                  class="rounded p-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+                  :data-testid="`sa-manage-${sa.publicId}`"
                 >
-                  <RefreshCw class="size-4" />
-                </button>
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-error/10 hover:text-error"
-                  :title="`Delete ${sa.name}`"
-                  :data-testid="`sa-delete-${sa.publicId}`"
-                  @click="askDelete(sa)"
-                >
-                  <Trash2 class="size-4" />
-                </button>
+                  Manage
+                </router-link>
               </div>
             </td>
           </tr>
@@ -527,16 +470,6 @@ async function regenerateToken(sa: ServiceAccount) {
       </div>
     </Teleport>
 
-    <!-- Delete confirmation -->
-    <ConfirmDeleteModal
-      :open="!!selectedSA"
-      title="Delete Service Account"
-      message="This action cannot be undone. Any active token for this service account will stop working immediately."
-      confirm-token="delete"
-      confirm-label="Delete"
-      :busy="deleteBusy"
-      @confirm="confirmDelete"
-      @cancel="closeDelete"
-    />
+
   </div>
 </template>

@@ -3024,6 +3024,458 @@ func (x *RegenerateServiceAccountTokenResponse) GetToken() string {
 	return ""
 }
 
+type GetServiceAccountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublicId      string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceAccountRequest) Reset() {
+	*x = GetServiceAccountRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceAccountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceAccountRequest) ProtoMessage() {}
+
+func (x *GetServiceAccountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceAccountRequest.ProtoReflect.Descriptor instead.
+func (*GetServiceAccountRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *GetServiceAccountRequest) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+type GetServiceAccountResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ServiceAccount *ServiceAccount        `protobuf:"bytes,1,opt,name=service_account,json=serviceAccount,proto3" json:"service_account,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GetServiceAccountResponse) Reset() {
+	*x = GetServiceAccountResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceAccountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceAccountResponse) ProtoMessage() {}
+
+func (x *GetServiceAccountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceAccountResponse.ProtoReflect.Descriptor instead.
+func (*GetServiceAccountResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *GetServiceAccountResponse) GetServiceAccount() *ServiceAccount {
+	if x != nil {
+		return x.ServiceAccount
+	}
+	return nil
+}
+
+type UpdateServiceAccountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublicId      string                 `protobuf:"bytes,1,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Description   *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateServiceAccountRequest) Reset() {
+	*x = UpdateServiceAccountRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateServiceAccountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateServiceAccountRequest) ProtoMessage() {}
+
+func (x *UpdateServiceAccountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateServiceAccountRequest.ProtoReflect.Descriptor instead.
+func (*UpdateServiceAccountRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *UpdateServiceAccountRequest) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+func (x *UpdateServiceAccountRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *UpdateServiceAccountRequest) GetDescription() string {
+	if x != nil && x.Description != nil {
+		return *x.Description
+	}
+	return ""
+}
+
+type UpdateServiceAccountResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ServiceAccount *ServiceAccount        `protobuf:"bytes,1,opt,name=service_account,json=serviceAccount,proto3" json:"service_account,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UpdateServiceAccountResponse) Reset() {
+	*x = UpdateServiceAccountResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateServiceAccountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateServiceAccountResponse) ProtoMessage() {}
+
+func (x *UpdateServiceAccountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateServiceAccountResponse.ProtoReflect.Descriptor instead.
+func (*UpdateServiceAccountResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *UpdateServiceAccountResponse) GetServiceAccount() *ServiceAccount {
+	if x != nil {
+		return x.ServiceAccount
+	}
+	return nil
+}
+
+type ServiceAccountUpstreamLink struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	UpstreamName     string                 `protobuf:"bytes,2,opt,name=upstream_name,json=upstreamName,proto3" json:"upstream_name,omitempty"`
+	UpstreamUrl      string                 `protobuf:"bytes,3,opt,name=upstream_url,json=upstreamUrl,proto3" json:"upstream_url,omitempty"`
+	Enabled          bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	ConnectedAt      string                 `protobuf:"bytes,5,opt,name=connected_at,json=connectedAt,proto3" json:"connected_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ServiceAccountUpstreamLink) Reset() {
+	*x = ServiceAccountUpstreamLink{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceAccountUpstreamLink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceAccountUpstreamLink) ProtoMessage() {}
+
+func (x *ServiceAccountUpstreamLink) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceAccountUpstreamLink.ProtoReflect.Descriptor instead.
+func (*ServiceAccountUpstreamLink) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *ServiceAccountUpstreamLink) GetUpstreamPublicId() string {
+	if x != nil {
+		return x.UpstreamPublicId
+	}
+	return ""
+}
+
+func (x *ServiceAccountUpstreamLink) GetUpstreamName() string {
+	if x != nil {
+		return x.UpstreamName
+	}
+	return ""
+}
+
+func (x *ServiceAccountUpstreamLink) GetUpstreamUrl() string {
+	if x != nil {
+		return x.UpstreamUrl
+	}
+	return ""
+}
+
+func (x *ServiceAccountUpstreamLink) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *ServiceAccountUpstreamLink) GetConnectedAt() string {
+	if x != nil {
+		return x.ConnectedAt
+	}
+	return ""
+}
+
+type ListServiceAccountUpstreamLinksRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ServiceAccountPublicId string                 `protobuf:"bytes,1,opt,name=service_account_public_id,json=serviceAccountPublicId,proto3" json:"service_account_public_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ListServiceAccountUpstreamLinksRequest) Reset() {
+	*x = ListServiceAccountUpstreamLinksRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServiceAccountUpstreamLinksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServiceAccountUpstreamLinksRequest) ProtoMessage() {}
+
+func (x *ListServiceAccountUpstreamLinksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServiceAccountUpstreamLinksRequest.ProtoReflect.Descriptor instead.
+func (*ListServiceAccountUpstreamLinksRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *ListServiceAccountUpstreamLinksRequest) GetServiceAccountPublicId() string {
+	if x != nil {
+		return x.ServiceAccountPublicId
+	}
+	return ""
+}
+
+type ListServiceAccountUpstreamLinksResponse struct {
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	Links         []*ServiceAccountUpstreamLink `protobuf:"bytes,1,rep,name=links,proto3" json:"links,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServiceAccountUpstreamLinksResponse) Reset() {
+	*x = ListServiceAccountUpstreamLinksResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServiceAccountUpstreamLinksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServiceAccountUpstreamLinksResponse) ProtoMessage() {}
+
+func (x *ListServiceAccountUpstreamLinksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServiceAccountUpstreamLinksResponse.ProtoReflect.Descriptor instead.
+func (*ListServiceAccountUpstreamLinksResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *ListServiceAccountUpstreamLinksResponse) GetLinks() []*ServiceAccountUpstreamLink {
+	if x != nil {
+		return x.Links
+	}
+	return nil
+}
+
+type SetServiceAccountLinkEnabledRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ServiceAccountPublicId string                 `protobuf:"bytes,1,opt,name=service_account_public_id,json=serviceAccountPublicId,proto3" json:"service_account_public_id,omitempty"`
+	UpstreamPublicId       string                 `protobuf:"bytes,2,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	Enabled                bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SetServiceAccountLinkEnabledRequest) Reset() {
+	*x = SetServiceAccountLinkEnabledRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetServiceAccountLinkEnabledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetServiceAccountLinkEnabledRequest) ProtoMessage() {}
+
+func (x *SetServiceAccountLinkEnabledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetServiceAccountLinkEnabledRequest.ProtoReflect.Descriptor instead.
+func (*SetServiceAccountLinkEnabledRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *SetServiceAccountLinkEnabledRequest) GetServiceAccountPublicId() string {
+	if x != nil {
+		return x.ServiceAccountPublicId
+	}
+	return ""
+}
+
+func (x *SetServiceAccountLinkEnabledRequest) GetUpstreamPublicId() string {
+	if x != nil {
+		return x.UpstreamPublicId
+	}
+	return ""
+}
+
+func (x *SetServiceAccountLinkEnabledRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type SetServiceAccountLinkEnabledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetServiceAccountLinkEnabledResponse) Reset() {
+	*x = SetServiceAccountLinkEnabledResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetServiceAccountLinkEnabledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetServiceAccountLinkEnabledResponse) ProtoMessage() {}
+
+func (x *SetServiceAccountLinkEnabledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetServiceAccountLinkEnabledResponse.ProtoReflect.Descriptor instead.
+func (*SetServiceAccountLinkEnabledResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{62}
+}
+
 var File_limen_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_limen_admin_v1_admin_proto_rawDesc = "" +
@@ -3202,7 +3654,34 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\vexpiry_days\x18\x02 \x01(\rR\n" +
 	"expiryDays\"=\n" +
 	"%RegenerateServiceAccountTokenResponse\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token*o\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"7\n" +
+	"\x18GetServiceAccountRequest\x12\x1b\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\"d\n" +
+	"\x19GetServiceAccountResponse\x12G\n" +
+	"\x0fservice_account\x18\x01 \x01(\v2\x1e.limen.admin.v1.ServiceAccountR\x0eserviceAccount\"\x93\x01\n" +
+	"\x1bUpdateServiceAccountRequest\x12\x1b\n" +
+	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x17\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
+	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01B\a\n" +
+	"\x05_nameB\x0e\n" +
+	"\f_description\"g\n" +
+	"\x1cUpdateServiceAccountResponse\x12G\n" +
+	"\x0fservice_account\x18\x01 \x01(\v2\x1e.limen.admin.v1.ServiceAccountR\x0eserviceAccount\"\xcf\x01\n" +
+	"\x1aServiceAccountUpstreamLink\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\x12#\n" +
+	"\rupstream_name\x18\x02 \x01(\tR\fupstreamName\x12!\n" +
+	"\fupstream_url\x18\x03 \x01(\tR\vupstreamUrl\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\x12!\n" +
+	"\fconnected_at\x18\x05 \x01(\tR\vconnectedAt\"c\n" +
+	"&ListServiceAccountUpstreamLinksRequest\x129\n" +
+	"\x19service_account_public_id\x18\x01 \x01(\tR\x16serviceAccountPublicId\"k\n" +
+	"'ListServiceAccountUpstreamLinksResponse\x12@\n" +
+	"\x05links\x18\x01 \x03(\v2*.limen.admin.v1.ServiceAccountUpstreamLinkR\x05links\"\xa8\x01\n" +
+	"#SetServiceAccountLinkEnabledRequest\x129\n" +
+	"\x19service_account_public_id\x18\x01 \x01(\tR\x16serviceAccountPublicId\x12,\n" +
+	"\x12upstream_public_id\x18\x02 \x01(\tR\x10upstreamPublicId\x12\x18\n" +
+	"\aenabled\x18\x03 \x01(\bR\aenabled\"&\n" +
+	"$SetServiceAccountLinkEnabledResponse*o\n" +
 	"\n" +
 	"MemberRole\x12\x1b\n" +
 	"\x17MEMBER_ROLE_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -3218,7 +3697,7 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x12ServiceAccountRole\x12$\n" +
 	" SERVICE_ACCOUNT_ROLE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bSERVICE_ACCOUNT_ROLE_MEMBER\x10\x01\x12\x1e\n" +
-	"\x1aSERVICE_ACCOUNT_ROLE_ADMIN\x10\x022\x91\x14\n" +
+	"\x1aSERVICE_ACCOUNT_ROLE_ADMIN\x10\x022\x8f\x18\n" +
 	"\fAdminService\x12_\n" +
 	"\x0eCreateUpstream\x12%.limen.admin.v1.CreateUpstreamRequest\x1a&.limen.admin.v1.CreateUpstreamResponse\x12_\n" +
 	"\x0eUpdateUpstream\x12%.limen.admin.v1.UpdateUpstreamRequest\x1a&.limen.admin.v1.UpdateUpstreamResponse\x12_\n" +
@@ -3240,10 +3719,14 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\fInviteMember\x12#.limen.admin.v1.InviteMemberRequest\x1a$.limen.admin.v1.InviteMemberResponse\x12e\n" +
 	"\x10UpdateMemberRole\x12'.limen.admin.v1.UpdateMemberRoleRequest\x1a(.limen.admin.v1.UpdateMemberRoleResponse\x12Y\n" +
 	"\fRemoveMember\x12#.limen.admin.v1.RemoveMemberRequest\x1a$.limen.admin.v1.RemoveMemberResponse\x12q\n" +
-	"\x14CreateServiceAccount\x12+.limen.admin.v1.CreateServiceAccountRequest\x1a,.limen.admin.v1.CreateServiceAccountResponse\x12n\n" +
+	"\x14CreateServiceAccount\x12+.limen.admin.v1.CreateServiceAccountRequest\x1a,.limen.admin.v1.CreateServiceAccountResponse\x12h\n" +
+	"\x11GetServiceAccount\x12(.limen.admin.v1.GetServiceAccountRequest\x1a).limen.admin.v1.GetServiceAccountResponse\x12q\n" +
+	"\x14UpdateServiceAccount\x12+.limen.admin.v1.UpdateServiceAccountRequest\x1a,.limen.admin.v1.UpdateServiceAccountResponse\x12n\n" +
 	"\x13ListServiceAccounts\x12*.limen.admin.v1.ListServiceAccountsRequest\x1a+.limen.admin.v1.ListServiceAccountsResponse\x12q\n" +
 	"\x14DeleteServiceAccount\x12+.limen.admin.v1.DeleteServiceAccountRequest\x1a,.limen.admin.v1.DeleteServiceAccountResponse\x12\x8c\x01\n" +
-	"\x1dRegenerateServiceAccountToken\x124.limen.admin.v1.RegenerateServiceAccountTokenRequest\x1a5.limen.admin.v1.RegenerateServiceAccountTokenResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
+	"\x1dRegenerateServiceAccountToken\x124.limen.admin.v1.RegenerateServiceAccountTokenRequest\x1a5.limen.admin.v1.RegenerateServiceAccountTokenResponse\x12\x92\x01\n" +
+	"\x1fListServiceAccountUpstreamLinks\x126.limen.admin.v1.ListServiceAccountUpstreamLinksRequest\x1a7.limen.admin.v1.ListServiceAccountUpstreamLinksResponse\x12\x89\x01\n" +
+	"\x1cSetServiceAccountLinkEnabled\x123.limen.admin.v1.SetServiceAccountLinkEnabledRequest\x1a4.limen.admin.v1.SetServiceAccountLinkEnabledResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
 
 var (
 	file_limen_admin_v1_admin_proto_rawDescOnce sync.Once
@@ -3258,76 +3741,85 @@ func file_limen_admin_v1_admin_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
 var file_limen_admin_v1_admin_proto_goTypes = []any{
-	(MemberRole)(0),                               // 0: limen.admin.v1.MemberRole
-	(MemberState)(0),                              // 1: limen.admin.v1.MemberState
-	(ServiceAccountRole)(0),                       // 2: limen.admin.v1.ServiceAccountRole
-	(*OAuthClientOverride)(nil),                   // 3: limen.admin.v1.OAuthClientOverride
-	(*CreateUpstreamRequest)(nil),                 // 4: limen.admin.v1.CreateUpstreamRequest
-	(*CreateUpstreamResponse)(nil),                // 5: limen.admin.v1.CreateUpstreamResponse
-	(*UpdateUpstreamRequest)(nil),                 // 6: limen.admin.v1.UpdateUpstreamRequest
-	(*UpdateUpstreamResponse)(nil),                // 7: limen.admin.v1.UpdateUpstreamResponse
-	(*DeleteUpstreamRequest)(nil),                 // 8: limen.admin.v1.DeleteUpstreamRequest
-	(*DeleteUpstreamResponse)(nil),                // 9: limen.admin.v1.DeleteUpstreamResponse
-	(*ReindexUpstreamCatalogRequest)(nil),         // 10: limen.admin.v1.ReindexUpstreamCatalogRequest
-	(*ReindexUpstreamCatalogResponse)(nil),        // 11: limen.admin.v1.ReindexUpstreamCatalogResponse
-	(*PreviewUpstreamContextRequest)(nil),         // 12: limen.admin.v1.PreviewUpstreamContextRequest
-	(*PreviewUpstreamContextResponse)(nil),        // 13: limen.admin.v1.PreviewUpstreamContextResponse
-	(*GetTenantSettingsRequest)(nil),              // 14: limen.admin.v1.GetTenantSettingsRequest
-	(*GetTenantSettingsResponse)(nil),             // 15: limen.admin.v1.GetTenantSettingsResponse
-	(*UpdateTenantSettingsRequest)(nil),           // 16: limen.admin.v1.UpdateTenantSettingsRequest
-	(*TenantSettings)(nil),                        // 17: limen.admin.v1.TenantSettings
-	(*UpdateTenantSettingsResponse)(nil),          // 18: limen.admin.v1.UpdateTenantSettingsResponse
-	(*IDEPreset)(nil),                             // 19: limen.admin.v1.IDEPreset
-	(*AllowlistEntry)(nil),                        // 20: limen.admin.v1.AllowlistEntry
-	(*ListIDEPresetsRequest)(nil),                 // 21: limen.admin.v1.ListIDEPresetsRequest
-	(*ListIDEPresetsResponse)(nil),                // 22: limen.admin.v1.ListIDEPresetsResponse
-	(*ListAllowlistEntriesRequest)(nil),           // 23: limen.admin.v1.ListAllowlistEntriesRequest
-	(*ListAllowlistEntriesResponse)(nil),          // 24: limen.admin.v1.ListAllowlistEntriesResponse
-	(*AddAllowlistEntryRequest)(nil),              // 25: limen.admin.v1.AddAllowlistEntryRequest
-	(*AddAllowlistEntryResponse)(nil),             // 26: limen.admin.v1.AddAllowlistEntryResponse
-	(*UpdateAllowlistEntryRequest)(nil),           // 27: limen.admin.v1.UpdateAllowlistEntryRequest
-	(*UpdateAllowlistEntryResponse)(nil),          // 28: limen.admin.v1.UpdateAllowlistEntryResponse
-	(*RemoveAllowlistEntryRequest)(nil),           // 29: limen.admin.v1.RemoveAllowlistEntryRequest
-	(*RemoveAllowlistEntryResponse)(nil),          // 30: limen.admin.v1.RemoveAllowlistEntryResponse
-	(*ApplyIDEPresetRequest)(nil),                 // 31: limen.admin.v1.ApplyIDEPresetRequest
-	(*ApplyIDEPresetResponse)(nil),                // 32: limen.admin.v1.ApplyIDEPresetResponse
-	(*RemoveIDEPresetRequest)(nil),                // 33: limen.admin.v1.RemoveIDEPresetRequest
-	(*RemoveIDEPresetResponse)(nil),               // 34: limen.admin.v1.RemoveIDEPresetResponse
-	(*MarkIDEChoiceSkippedRequest)(nil),           // 35: limen.admin.v1.MarkIDEChoiceSkippedRequest
-	(*MarkIDEChoiceSkippedResponse)(nil),          // 36: limen.admin.v1.MarkIDEChoiceSkippedResponse
-	(*DeleteTenantRequest)(nil),                   // 37: limen.admin.v1.DeleteTenantRequest
-	(*DeleteTenantResponse)(nil),                  // 38: limen.admin.v1.DeleteTenantResponse
-	(*Member)(nil),                                // 39: limen.admin.v1.Member
-	(*ListMembersRequest)(nil),                    // 40: limen.admin.v1.ListMembersRequest
-	(*ListMembersResponse)(nil),                   // 41: limen.admin.v1.ListMembersResponse
-	(*InviteMemberRequest)(nil),                   // 42: limen.admin.v1.InviteMemberRequest
-	(*InviteMemberResponse)(nil),                  // 43: limen.admin.v1.InviteMemberResponse
-	(*UpdateMemberRoleRequest)(nil),               // 44: limen.admin.v1.UpdateMemberRoleRequest
-	(*UpdateMemberRoleResponse)(nil),              // 45: limen.admin.v1.UpdateMemberRoleResponse
-	(*RemoveMemberRequest)(nil),                   // 46: limen.admin.v1.RemoveMemberRequest
-	(*RemoveMemberResponse)(nil),                  // 47: limen.admin.v1.RemoveMemberResponse
-	(*ServiceAccount)(nil),                        // 48: limen.admin.v1.ServiceAccount
-	(*CreateServiceAccountRequest)(nil),           // 49: limen.admin.v1.CreateServiceAccountRequest
-	(*CreateServiceAccountResponse)(nil),          // 50: limen.admin.v1.CreateServiceAccountResponse
-	(*ListServiceAccountsRequest)(nil),            // 51: limen.admin.v1.ListServiceAccountsRequest
-	(*ListServiceAccountsResponse)(nil),           // 52: limen.admin.v1.ListServiceAccountsResponse
-	(*DeleteServiceAccountRequest)(nil),           // 53: limen.admin.v1.DeleteServiceAccountRequest
-	(*DeleteServiceAccountResponse)(nil),          // 54: limen.admin.v1.DeleteServiceAccountResponse
-	(*RegenerateServiceAccountTokenRequest)(nil),  // 55: limen.admin.v1.RegenerateServiceAccountTokenRequest
-	(*RegenerateServiceAccountTokenResponse)(nil), // 56: limen.admin.v1.RegenerateServiceAccountTokenResponse
-	nil,                              // 57: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
-	nil,                              // 58: limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
-	(*portalv1.UpstreamSummary)(nil), // 59: limen.portal.v1.UpstreamSummary
+	(MemberRole)(0),                                 // 0: limen.admin.v1.MemberRole
+	(MemberState)(0),                                // 1: limen.admin.v1.MemberState
+	(ServiceAccountRole)(0),                         // 2: limen.admin.v1.ServiceAccountRole
+	(*OAuthClientOverride)(nil),                     // 3: limen.admin.v1.OAuthClientOverride
+	(*CreateUpstreamRequest)(nil),                   // 4: limen.admin.v1.CreateUpstreamRequest
+	(*CreateUpstreamResponse)(nil),                  // 5: limen.admin.v1.CreateUpstreamResponse
+	(*UpdateUpstreamRequest)(nil),                   // 6: limen.admin.v1.UpdateUpstreamRequest
+	(*UpdateUpstreamResponse)(nil),                  // 7: limen.admin.v1.UpdateUpstreamResponse
+	(*DeleteUpstreamRequest)(nil),                   // 8: limen.admin.v1.DeleteUpstreamRequest
+	(*DeleteUpstreamResponse)(nil),                  // 9: limen.admin.v1.DeleteUpstreamResponse
+	(*ReindexUpstreamCatalogRequest)(nil),           // 10: limen.admin.v1.ReindexUpstreamCatalogRequest
+	(*ReindexUpstreamCatalogResponse)(nil),          // 11: limen.admin.v1.ReindexUpstreamCatalogResponse
+	(*PreviewUpstreamContextRequest)(nil),           // 12: limen.admin.v1.PreviewUpstreamContextRequest
+	(*PreviewUpstreamContextResponse)(nil),          // 13: limen.admin.v1.PreviewUpstreamContextResponse
+	(*GetTenantSettingsRequest)(nil),                // 14: limen.admin.v1.GetTenantSettingsRequest
+	(*GetTenantSettingsResponse)(nil),               // 15: limen.admin.v1.GetTenantSettingsResponse
+	(*UpdateTenantSettingsRequest)(nil),             // 16: limen.admin.v1.UpdateTenantSettingsRequest
+	(*TenantSettings)(nil),                          // 17: limen.admin.v1.TenantSettings
+	(*UpdateTenantSettingsResponse)(nil),            // 18: limen.admin.v1.UpdateTenantSettingsResponse
+	(*IDEPreset)(nil),                               // 19: limen.admin.v1.IDEPreset
+	(*AllowlistEntry)(nil),                          // 20: limen.admin.v1.AllowlistEntry
+	(*ListIDEPresetsRequest)(nil),                   // 21: limen.admin.v1.ListIDEPresetsRequest
+	(*ListIDEPresetsResponse)(nil),                  // 22: limen.admin.v1.ListIDEPresetsResponse
+	(*ListAllowlistEntriesRequest)(nil),             // 23: limen.admin.v1.ListAllowlistEntriesRequest
+	(*ListAllowlistEntriesResponse)(nil),            // 24: limen.admin.v1.ListAllowlistEntriesResponse
+	(*AddAllowlistEntryRequest)(nil),                // 25: limen.admin.v1.AddAllowlistEntryRequest
+	(*AddAllowlistEntryResponse)(nil),               // 26: limen.admin.v1.AddAllowlistEntryResponse
+	(*UpdateAllowlistEntryRequest)(nil),             // 27: limen.admin.v1.UpdateAllowlistEntryRequest
+	(*UpdateAllowlistEntryResponse)(nil),            // 28: limen.admin.v1.UpdateAllowlistEntryResponse
+	(*RemoveAllowlistEntryRequest)(nil),             // 29: limen.admin.v1.RemoveAllowlistEntryRequest
+	(*RemoveAllowlistEntryResponse)(nil),            // 30: limen.admin.v1.RemoveAllowlistEntryResponse
+	(*ApplyIDEPresetRequest)(nil),                   // 31: limen.admin.v1.ApplyIDEPresetRequest
+	(*ApplyIDEPresetResponse)(nil),                  // 32: limen.admin.v1.ApplyIDEPresetResponse
+	(*RemoveIDEPresetRequest)(nil),                  // 33: limen.admin.v1.RemoveIDEPresetRequest
+	(*RemoveIDEPresetResponse)(nil),                 // 34: limen.admin.v1.RemoveIDEPresetResponse
+	(*MarkIDEChoiceSkippedRequest)(nil),             // 35: limen.admin.v1.MarkIDEChoiceSkippedRequest
+	(*MarkIDEChoiceSkippedResponse)(nil),            // 36: limen.admin.v1.MarkIDEChoiceSkippedResponse
+	(*DeleteTenantRequest)(nil),                     // 37: limen.admin.v1.DeleteTenantRequest
+	(*DeleteTenantResponse)(nil),                    // 38: limen.admin.v1.DeleteTenantResponse
+	(*Member)(nil),                                  // 39: limen.admin.v1.Member
+	(*ListMembersRequest)(nil),                      // 40: limen.admin.v1.ListMembersRequest
+	(*ListMembersResponse)(nil),                     // 41: limen.admin.v1.ListMembersResponse
+	(*InviteMemberRequest)(nil),                     // 42: limen.admin.v1.InviteMemberRequest
+	(*InviteMemberResponse)(nil),                    // 43: limen.admin.v1.InviteMemberResponse
+	(*UpdateMemberRoleRequest)(nil),                 // 44: limen.admin.v1.UpdateMemberRoleRequest
+	(*UpdateMemberRoleResponse)(nil),                // 45: limen.admin.v1.UpdateMemberRoleResponse
+	(*RemoveMemberRequest)(nil),                     // 46: limen.admin.v1.RemoveMemberRequest
+	(*RemoveMemberResponse)(nil),                    // 47: limen.admin.v1.RemoveMemberResponse
+	(*ServiceAccount)(nil),                          // 48: limen.admin.v1.ServiceAccount
+	(*CreateServiceAccountRequest)(nil),             // 49: limen.admin.v1.CreateServiceAccountRequest
+	(*CreateServiceAccountResponse)(nil),            // 50: limen.admin.v1.CreateServiceAccountResponse
+	(*ListServiceAccountsRequest)(nil),              // 51: limen.admin.v1.ListServiceAccountsRequest
+	(*ListServiceAccountsResponse)(nil),             // 52: limen.admin.v1.ListServiceAccountsResponse
+	(*DeleteServiceAccountRequest)(nil),             // 53: limen.admin.v1.DeleteServiceAccountRequest
+	(*DeleteServiceAccountResponse)(nil),            // 54: limen.admin.v1.DeleteServiceAccountResponse
+	(*RegenerateServiceAccountTokenRequest)(nil),    // 55: limen.admin.v1.RegenerateServiceAccountTokenRequest
+	(*RegenerateServiceAccountTokenResponse)(nil),   // 56: limen.admin.v1.RegenerateServiceAccountTokenResponse
+	(*GetServiceAccountRequest)(nil),                // 57: limen.admin.v1.GetServiceAccountRequest
+	(*GetServiceAccountResponse)(nil),               // 58: limen.admin.v1.GetServiceAccountResponse
+	(*UpdateServiceAccountRequest)(nil),             // 59: limen.admin.v1.UpdateServiceAccountRequest
+	(*UpdateServiceAccountResponse)(nil),            // 60: limen.admin.v1.UpdateServiceAccountResponse
+	(*ServiceAccountUpstreamLink)(nil),              // 61: limen.admin.v1.ServiceAccountUpstreamLink
+	(*ListServiceAccountUpstreamLinksRequest)(nil),  // 62: limen.admin.v1.ListServiceAccountUpstreamLinksRequest
+	(*ListServiceAccountUpstreamLinksResponse)(nil), // 63: limen.admin.v1.ListServiceAccountUpstreamLinksResponse
+	(*SetServiceAccountLinkEnabledRequest)(nil),     // 64: limen.admin.v1.SetServiceAccountLinkEnabledRequest
+	(*SetServiceAccountLinkEnabledResponse)(nil),    // 65: limen.admin.v1.SetServiceAccountLinkEnabledResponse
+	nil,                              // 66: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	nil,                              // 67: limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	(*portalv1.UpstreamSummary)(nil), // 68: limen.portal.v1.UpstreamSummary
 }
 var file_limen_admin_v1_admin_proto_depIdxs = []int32{
-	57, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	66, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
 	3,  // 1: limen.admin.v1.CreateUpstreamRequest.oauth_client_override:type_name -> limen.admin.v1.OAuthClientOverride
-	59, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	58, // 3: limen.admin.v1.UpdateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
-	59, // 4: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	59, // 5: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	68, // 2: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	67, // 3: limen.admin.v1.UpdateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	68, // 4: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	68, // 5: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
 	17, // 6: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
 	17, // 7: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
 	19, // 8: limen.admin.v1.ListIDEPresetsResponse.presets:type_name -> limen.admin.v1.IDEPreset
@@ -3347,59 +3839,70 @@ var file_limen_admin_v1_admin_proto_depIdxs = []int32{
 	2,  // 22: limen.admin.v1.CreateServiceAccountRequest.role:type_name -> limen.admin.v1.ServiceAccountRole
 	48, // 23: limen.admin.v1.CreateServiceAccountResponse.service_account:type_name -> limen.admin.v1.ServiceAccount
 	48, // 24: limen.admin.v1.ListServiceAccountsResponse.service_accounts:type_name -> limen.admin.v1.ServiceAccount
-	4,  // 25: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
-	6,  // 26: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
-	8,  // 27: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
-	10, // 28: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
-	12, // 29: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
-	14, // 30: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
-	16, // 31: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
-	21, // 32: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
-	23, // 33: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
-	25, // 34: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
-	27, // 35: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
-	29, // 36: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
-	31, // 37: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
-	33, // 38: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
-	35, // 39: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
-	37, // 40: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
-	40, // 41: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
-	42, // 42: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
-	44, // 43: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
-	46, // 44: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
-	49, // 45: limen.admin.v1.AdminService.CreateServiceAccount:input_type -> limen.admin.v1.CreateServiceAccountRequest
-	51, // 46: limen.admin.v1.AdminService.ListServiceAccounts:input_type -> limen.admin.v1.ListServiceAccountsRequest
-	53, // 47: limen.admin.v1.AdminService.DeleteServiceAccount:input_type -> limen.admin.v1.DeleteServiceAccountRequest
-	55, // 48: limen.admin.v1.AdminService.RegenerateServiceAccountToken:input_type -> limen.admin.v1.RegenerateServiceAccountTokenRequest
-	5,  // 49: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
-	7,  // 50: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
-	9,  // 51: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
-	11, // 52: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
-	13, // 53: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
-	15, // 54: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
-	18, // 55: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
-	22, // 56: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
-	24, // 57: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
-	26, // 58: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
-	28, // 59: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
-	30, // 60: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
-	32, // 61: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
-	34, // 62: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
-	36, // 63: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
-	38, // 64: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
-	41, // 65: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
-	43, // 66: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
-	45, // 67: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
-	47, // 68: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
-	50, // 69: limen.admin.v1.AdminService.CreateServiceAccount:output_type -> limen.admin.v1.CreateServiceAccountResponse
-	52, // 70: limen.admin.v1.AdminService.ListServiceAccounts:output_type -> limen.admin.v1.ListServiceAccountsResponse
-	54, // 71: limen.admin.v1.AdminService.DeleteServiceAccount:output_type -> limen.admin.v1.DeleteServiceAccountResponse
-	56, // 72: limen.admin.v1.AdminService.RegenerateServiceAccountToken:output_type -> limen.admin.v1.RegenerateServiceAccountTokenResponse
-	49, // [49:73] is the sub-list for method output_type
-	25, // [25:49] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	48, // 25: limen.admin.v1.GetServiceAccountResponse.service_account:type_name -> limen.admin.v1.ServiceAccount
+	48, // 26: limen.admin.v1.UpdateServiceAccountResponse.service_account:type_name -> limen.admin.v1.ServiceAccount
+	61, // 27: limen.admin.v1.ListServiceAccountUpstreamLinksResponse.links:type_name -> limen.admin.v1.ServiceAccountUpstreamLink
+	4,  // 28: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
+	6,  // 29: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
+	8,  // 30: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
+	10, // 31: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
+	12, // 32: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
+	14, // 33: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
+	16, // 34: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
+	21, // 35: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
+	23, // 36: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
+	25, // 37: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
+	27, // 38: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
+	29, // 39: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
+	31, // 40: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
+	33, // 41: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
+	35, // 42: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
+	37, // 43: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
+	40, // 44: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
+	42, // 45: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
+	44, // 46: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
+	46, // 47: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
+	49, // 48: limen.admin.v1.AdminService.CreateServiceAccount:input_type -> limen.admin.v1.CreateServiceAccountRequest
+	57, // 49: limen.admin.v1.AdminService.GetServiceAccount:input_type -> limen.admin.v1.GetServiceAccountRequest
+	59, // 50: limen.admin.v1.AdminService.UpdateServiceAccount:input_type -> limen.admin.v1.UpdateServiceAccountRequest
+	51, // 51: limen.admin.v1.AdminService.ListServiceAccounts:input_type -> limen.admin.v1.ListServiceAccountsRequest
+	53, // 52: limen.admin.v1.AdminService.DeleteServiceAccount:input_type -> limen.admin.v1.DeleteServiceAccountRequest
+	55, // 53: limen.admin.v1.AdminService.RegenerateServiceAccountToken:input_type -> limen.admin.v1.RegenerateServiceAccountTokenRequest
+	62, // 54: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:input_type -> limen.admin.v1.ListServiceAccountUpstreamLinksRequest
+	64, // 55: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:input_type -> limen.admin.v1.SetServiceAccountLinkEnabledRequest
+	5,  // 56: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
+	7,  // 57: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
+	9,  // 58: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
+	11, // 59: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
+	13, // 60: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
+	15, // 61: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
+	18, // 62: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
+	22, // 63: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
+	24, // 64: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
+	26, // 65: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
+	28, // 66: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
+	30, // 67: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
+	32, // 68: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
+	34, // 69: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
+	36, // 70: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
+	38, // 71: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
+	41, // 72: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
+	43, // 73: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
+	45, // 74: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
+	47, // 75: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
+	50, // 76: limen.admin.v1.AdminService.CreateServiceAccount:output_type -> limen.admin.v1.CreateServiceAccountResponse
+	58, // 77: limen.admin.v1.AdminService.GetServiceAccount:output_type -> limen.admin.v1.GetServiceAccountResponse
+	60, // 78: limen.admin.v1.AdminService.UpdateServiceAccount:output_type -> limen.admin.v1.UpdateServiceAccountResponse
+	52, // 79: limen.admin.v1.AdminService.ListServiceAccounts:output_type -> limen.admin.v1.ListServiceAccountsResponse
+	54, // 80: limen.admin.v1.AdminService.DeleteServiceAccount:output_type -> limen.admin.v1.DeleteServiceAccountResponse
+	56, // 81: limen.admin.v1.AdminService.RegenerateServiceAccountToken:output_type -> limen.admin.v1.RegenerateServiceAccountTokenResponse
+	63, // 82: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:output_type -> limen.admin.v1.ListServiceAccountUpstreamLinksResponse
+	65, // 83: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:output_type -> limen.admin.v1.SetServiceAccountLinkEnabledResponse
+	56, // [56:84] is the sub-list for method output_type
+	28, // [28:56] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_limen_admin_v1_admin_proto_init() }
@@ -3407,13 +3910,14 @@ func file_limen_admin_v1_admin_proto_init() {
 	if File_limen_admin_v1_admin_proto != nil {
 		return
 	}
+	file_limen_admin_v1_admin_proto_msgTypes[56].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_admin_v1_admin_proto_rawDesc), len(file_limen_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   56,
+			NumMessages:   65,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

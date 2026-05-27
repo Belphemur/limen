@@ -96,6 +96,12 @@ const (
 	// AdminServiceCreateServiceAccountProcedure is the fully-qualified name of the AdminService's
 	// CreateServiceAccount RPC.
 	AdminServiceCreateServiceAccountProcedure = "/limen.admin.v1.AdminService/CreateServiceAccount"
+	// AdminServiceGetServiceAccountProcedure is the fully-qualified name of the AdminService's
+	// GetServiceAccount RPC.
+	AdminServiceGetServiceAccountProcedure = "/limen.admin.v1.AdminService/GetServiceAccount"
+	// AdminServiceUpdateServiceAccountProcedure is the fully-qualified name of the AdminService's
+	// UpdateServiceAccount RPC.
+	AdminServiceUpdateServiceAccountProcedure = "/limen.admin.v1.AdminService/UpdateServiceAccount"
 	// AdminServiceListServiceAccountsProcedure is the fully-qualified name of the AdminService's
 	// ListServiceAccounts RPC.
 	AdminServiceListServiceAccountsProcedure = "/limen.admin.v1.AdminService/ListServiceAccounts"
@@ -105,6 +111,12 @@ const (
 	// AdminServiceRegenerateServiceAccountTokenProcedure is the fully-qualified name of the
 	// AdminService's RegenerateServiceAccountToken RPC.
 	AdminServiceRegenerateServiceAccountTokenProcedure = "/limen.admin.v1.AdminService/RegenerateServiceAccountToken"
+	// AdminServiceListServiceAccountUpstreamLinksProcedure is the fully-qualified name of the
+	// AdminService's ListServiceAccountUpstreamLinks RPC.
+	AdminServiceListServiceAccountUpstreamLinksProcedure = "/limen.admin.v1.AdminService/ListServiceAccountUpstreamLinks"
+	// AdminServiceSetServiceAccountLinkEnabledProcedure is the fully-qualified name of the
+	// AdminService's SetServiceAccountLinkEnabled RPC.
+	AdminServiceSetServiceAccountLinkEnabledProcedure = "/limen.admin.v1.AdminService/SetServiceAccountLinkEnabled"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -142,9 +154,14 @@ type AdminServiceClient interface {
 	// Service accounts are Zitadel machine users mirrored locally. See
 	// docs/phases/phase-09i-service-accounts.md.
 	CreateServiceAccount(context.Context, *connect.Request[adminv1.CreateServiceAccountRequest]) (*connect.Response[adminv1.CreateServiceAccountResponse], error)
+	GetServiceAccount(context.Context, *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error)
+	UpdateServiceAccount(context.Context, *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error)
 	ListServiceAccounts(context.Context, *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error)
 	DeleteServiceAccount(context.Context, *connect.Request[adminv1.DeleteServiceAccountRequest]) (*connect.Response[adminv1.DeleteServiceAccountResponse], error)
 	RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error)
+	// Service account upstream link management. Admin floor.
+	ListServiceAccountUpstreamLinks(context.Context, *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error)
+	SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -284,6 +301,18 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("CreateServiceAccount")),
 			connect.WithClientOptions(opts...),
 		),
+		getServiceAccount: connect.NewClient[adminv1.GetServiceAccountRequest, adminv1.GetServiceAccountResponse](
+			httpClient,
+			baseURL+AdminServiceGetServiceAccountProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("GetServiceAccount")),
+			connect.WithClientOptions(opts...),
+		),
+		updateServiceAccount: connect.NewClient[adminv1.UpdateServiceAccountRequest, adminv1.UpdateServiceAccountResponse](
+			httpClient,
+			baseURL+AdminServiceUpdateServiceAccountProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("UpdateServiceAccount")),
+			connect.WithClientOptions(opts...),
+		),
 		listServiceAccounts: connect.NewClient[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse](
 			httpClient,
 			baseURL+AdminServiceListServiceAccountsProcedure,
@@ -302,35 +331,51 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("RegenerateServiceAccountToken")),
 			connect.WithClientOptions(opts...),
 		),
+		listServiceAccountUpstreamLinks: connect.NewClient[adminv1.ListServiceAccountUpstreamLinksRequest, adminv1.ListServiceAccountUpstreamLinksResponse](
+			httpClient,
+			baseURL+AdminServiceListServiceAccountUpstreamLinksProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ListServiceAccountUpstreamLinks")),
+			connect.WithClientOptions(opts...),
+		),
+		setServiceAccountLinkEnabled: connect.NewClient[adminv1.SetServiceAccountLinkEnabledRequest, adminv1.SetServiceAccountLinkEnabledResponse](
+			httpClient,
+			baseURL+AdminServiceSetServiceAccountLinkEnabledProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("SetServiceAccountLinkEnabled")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // adminServiceClient implements AdminServiceClient.
 type adminServiceClient struct {
-	createUpstream                *connect.Client[adminv1.CreateUpstreamRequest, adminv1.CreateUpstreamResponse]
-	updateUpstream                *connect.Client[adminv1.UpdateUpstreamRequest, adminv1.UpdateUpstreamResponse]
-	deleteUpstream                *connect.Client[adminv1.DeleteUpstreamRequest, adminv1.DeleteUpstreamResponse]
-	reindexUpstreamCatalog        *connect.Client[adminv1.ReindexUpstreamCatalogRequest, adminv1.ReindexUpstreamCatalogResponse]
-	previewUpstreamContext        *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
-	getTenantSettings             *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
-	updateTenantSettings          *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
-	listIDEPresets                *connect.Client[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse]
-	listAllowlistEntries          *connect.Client[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse]
-	addAllowlistEntry             *connect.Client[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse]
-	updateAllowlistEntry          *connect.Client[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse]
-	removeAllowlistEntry          *connect.Client[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse]
-	applyIDEPreset                *connect.Client[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse]
-	removeIDEPreset               *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
-	markIDEChoiceSkipped          *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
-	deleteTenant                  *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
-	listMembers                   *connect.Client[adminv1.ListMembersRequest, adminv1.ListMembersResponse]
-	inviteMember                  *connect.Client[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse]
-	updateMemberRole              *connect.Client[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse]
-	removeMember                  *connect.Client[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse]
-	createServiceAccount          *connect.Client[adminv1.CreateServiceAccountRequest, adminv1.CreateServiceAccountResponse]
-	listServiceAccounts           *connect.Client[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse]
-	deleteServiceAccount          *connect.Client[adminv1.DeleteServiceAccountRequest, adminv1.DeleteServiceAccountResponse]
-	regenerateServiceAccountToken *connect.Client[adminv1.RegenerateServiceAccountTokenRequest, adminv1.RegenerateServiceAccountTokenResponse]
+	createUpstream                  *connect.Client[adminv1.CreateUpstreamRequest, adminv1.CreateUpstreamResponse]
+	updateUpstream                  *connect.Client[adminv1.UpdateUpstreamRequest, adminv1.UpdateUpstreamResponse]
+	deleteUpstream                  *connect.Client[adminv1.DeleteUpstreamRequest, adminv1.DeleteUpstreamResponse]
+	reindexUpstreamCatalog          *connect.Client[adminv1.ReindexUpstreamCatalogRequest, adminv1.ReindexUpstreamCatalogResponse]
+	previewUpstreamContext          *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
+	getTenantSettings               *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
+	updateTenantSettings            *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
+	listIDEPresets                  *connect.Client[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse]
+	listAllowlistEntries            *connect.Client[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse]
+	addAllowlistEntry               *connect.Client[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse]
+	updateAllowlistEntry            *connect.Client[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse]
+	removeAllowlistEntry            *connect.Client[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse]
+	applyIDEPreset                  *connect.Client[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse]
+	removeIDEPreset                 *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
+	markIDEChoiceSkipped            *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
+	deleteTenant                    *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
+	listMembers                     *connect.Client[adminv1.ListMembersRequest, adminv1.ListMembersResponse]
+	inviteMember                    *connect.Client[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse]
+	updateMemberRole                *connect.Client[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse]
+	removeMember                    *connect.Client[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse]
+	createServiceAccount            *connect.Client[adminv1.CreateServiceAccountRequest, adminv1.CreateServiceAccountResponse]
+	getServiceAccount               *connect.Client[adminv1.GetServiceAccountRequest, adminv1.GetServiceAccountResponse]
+	updateServiceAccount            *connect.Client[adminv1.UpdateServiceAccountRequest, adminv1.UpdateServiceAccountResponse]
+	listServiceAccounts             *connect.Client[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse]
+	deleteServiceAccount            *connect.Client[adminv1.DeleteServiceAccountRequest, adminv1.DeleteServiceAccountResponse]
+	regenerateServiceAccountToken   *connect.Client[adminv1.RegenerateServiceAccountTokenRequest, adminv1.RegenerateServiceAccountTokenResponse]
+	listServiceAccountUpstreamLinks *connect.Client[adminv1.ListServiceAccountUpstreamLinksRequest, adminv1.ListServiceAccountUpstreamLinksResponse]
+	setServiceAccountLinkEnabled    *connect.Client[adminv1.SetServiceAccountLinkEnabledRequest, adminv1.SetServiceAccountLinkEnabledResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -438,6 +483,16 @@ func (c *adminServiceClient) CreateServiceAccount(ctx context.Context, req *conn
 	return c.createServiceAccount.CallUnary(ctx, req)
 }
 
+// GetServiceAccount calls limen.admin.v1.AdminService.GetServiceAccount.
+func (c *adminServiceClient) GetServiceAccount(ctx context.Context, req *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error) {
+	return c.getServiceAccount.CallUnary(ctx, req)
+}
+
+// UpdateServiceAccount calls limen.admin.v1.AdminService.UpdateServiceAccount.
+func (c *adminServiceClient) UpdateServiceAccount(ctx context.Context, req *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error) {
+	return c.updateServiceAccount.CallUnary(ctx, req)
+}
+
 // ListServiceAccounts calls limen.admin.v1.AdminService.ListServiceAccounts.
 func (c *adminServiceClient) ListServiceAccounts(ctx context.Context, req *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error) {
 	return c.listServiceAccounts.CallUnary(ctx, req)
@@ -451,6 +506,17 @@ func (c *adminServiceClient) DeleteServiceAccount(ctx context.Context, req *conn
 // RegenerateServiceAccountToken calls limen.admin.v1.AdminService.RegenerateServiceAccountToken.
 func (c *adminServiceClient) RegenerateServiceAccountToken(ctx context.Context, req *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error) {
 	return c.regenerateServiceAccountToken.CallUnary(ctx, req)
+}
+
+// ListServiceAccountUpstreamLinks calls
+// limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks.
+func (c *adminServiceClient) ListServiceAccountUpstreamLinks(ctx context.Context, req *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error) {
+	return c.listServiceAccountUpstreamLinks.CallUnary(ctx, req)
+}
+
+// SetServiceAccountLinkEnabled calls limen.admin.v1.AdminService.SetServiceAccountLinkEnabled.
+func (c *adminServiceClient) SetServiceAccountLinkEnabled(ctx context.Context, req *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error) {
+	return c.setServiceAccountLinkEnabled.CallUnary(ctx, req)
 }
 
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
@@ -488,9 +554,14 @@ type AdminServiceHandler interface {
 	// Service accounts are Zitadel machine users mirrored locally. See
 	// docs/phases/phase-09i-service-accounts.md.
 	CreateServiceAccount(context.Context, *connect.Request[adminv1.CreateServiceAccountRequest]) (*connect.Response[adminv1.CreateServiceAccountResponse], error)
+	GetServiceAccount(context.Context, *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error)
+	UpdateServiceAccount(context.Context, *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error)
 	ListServiceAccounts(context.Context, *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error)
 	DeleteServiceAccount(context.Context, *connect.Request[adminv1.DeleteServiceAccountRequest]) (*connect.Response[adminv1.DeleteServiceAccountResponse], error)
 	RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error)
+	// Service account upstream link management. Admin floor.
+	ListServiceAccountUpstreamLinks(context.Context, *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error)
+	SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -626,6 +697,18 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("CreateServiceAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceGetServiceAccountHandler := connect.NewUnaryHandler(
+		AdminServiceGetServiceAccountProcedure,
+		svc.GetServiceAccount,
+		connect.WithSchema(adminServiceMethods.ByName("GetServiceAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceUpdateServiceAccountHandler := connect.NewUnaryHandler(
+		AdminServiceUpdateServiceAccountProcedure,
+		svc.UpdateServiceAccount,
+		connect.WithSchema(adminServiceMethods.ByName("UpdateServiceAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
 	adminServiceListServiceAccountsHandler := connect.NewUnaryHandler(
 		AdminServiceListServiceAccountsProcedure,
 		svc.ListServiceAccounts,
@@ -642,6 +725,18 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		AdminServiceRegenerateServiceAccountTokenProcedure,
 		svc.RegenerateServiceAccountToken,
 		connect.WithSchema(adminServiceMethods.ByName("RegenerateServiceAccountToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceListServiceAccountUpstreamLinksHandler := connect.NewUnaryHandler(
+		AdminServiceListServiceAccountUpstreamLinksProcedure,
+		svc.ListServiceAccountUpstreamLinks,
+		connect.WithSchema(adminServiceMethods.ByName("ListServiceAccountUpstreamLinks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceSetServiceAccountLinkEnabledHandler := connect.NewUnaryHandler(
+		AdminServiceSetServiceAccountLinkEnabledProcedure,
+		svc.SetServiceAccountLinkEnabled,
+		connect.WithSchema(adminServiceMethods.ByName("SetServiceAccountLinkEnabled")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -688,12 +783,20 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceRemoveMemberHandler.ServeHTTP(w, r)
 		case AdminServiceCreateServiceAccountProcedure:
 			adminServiceCreateServiceAccountHandler.ServeHTTP(w, r)
+		case AdminServiceGetServiceAccountProcedure:
+			adminServiceGetServiceAccountHandler.ServeHTTP(w, r)
+		case AdminServiceUpdateServiceAccountProcedure:
+			adminServiceUpdateServiceAccountHandler.ServeHTTP(w, r)
 		case AdminServiceListServiceAccountsProcedure:
 			adminServiceListServiceAccountsHandler.ServeHTTP(w, r)
 		case AdminServiceDeleteServiceAccountProcedure:
 			adminServiceDeleteServiceAccountHandler.ServeHTTP(w, r)
 		case AdminServiceRegenerateServiceAccountTokenProcedure:
 			adminServiceRegenerateServiceAccountTokenHandler.ServeHTTP(w, r)
+		case AdminServiceListServiceAccountUpstreamLinksProcedure:
+			adminServiceListServiceAccountUpstreamLinksHandler.ServeHTTP(w, r)
+		case AdminServiceSetServiceAccountLinkEnabledProcedure:
+			adminServiceSetServiceAccountLinkEnabledHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -787,6 +890,14 @@ func (UnimplementedAdminServiceHandler) CreateServiceAccount(context.Context, *c
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.CreateServiceAccount is not implemented"))
 }
 
+func (UnimplementedAdminServiceHandler) GetServiceAccount(context.Context, *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.GetServiceAccount is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) UpdateServiceAccount(context.Context, *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.UpdateServiceAccount is not implemented"))
+}
+
 func (UnimplementedAdminServiceHandler) ListServiceAccounts(context.Context, *connect.Request[adminv1.ListServiceAccountsRequest]) (*connect.Response[adminv1.ListServiceAccountsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ListServiceAccounts is not implemented"))
 }
@@ -797,4 +908,12 @@ func (UnimplementedAdminServiceHandler) DeleteServiceAccount(context.Context, *c
 
 func (UnimplementedAdminServiceHandler) RegenerateServiceAccountToken(context.Context, *connect.Request[adminv1.RegenerateServiceAccountTokenRequest]) (*connect.Response[adminv1.RegenerateServiceAccountTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.RegenerateServiceAccountToken is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ListServiceAccountUpstreamLinks(context.Context, *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.SetServiceAccountLinkEnabled is not implemented"))
 }

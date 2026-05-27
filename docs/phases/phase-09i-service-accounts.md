@@ -155,17 +155,52 @@ the admin selects the target service account when creating or editing the link.
 - [ ] Add `ServiceAccountID` field to `serviceAccountAdminPrefix` in the service test — add new handler names to `callers()` map and `implementedRPCs` set
 - [ ] Wire `ServiceAccountDirectory` (zitadel client) in `internal/boot/adminmount/adminmount.go`
 
-### 9i-e: Upstream-link management for service accounts
+### 9i-e: Service Account detail page
 
-Instead of impersonating a service account, an admin creates or edits an upstream link and selects
-the target service account from a dropdown. The link is stored with `UpstreamLink.ServiceAccountID`
-set and `UserID` left NULL.
+A dedicated detail page for each service account where admins manage upstream links and DCR clients
+associated with that account. Both the upstream-link management component and the upstream catalog
+selector are extracted/reused from Portal, so the Admin and Portal SPAs share the same UX pattern.
 
-- [ ] Update upstream connection code in `internal/portal/upstreams.go`:
-  - Read `SessionAccountFromContext(ctx)` — a new accessor that returns either `*storage.User` or `*storage.ServiceAccount`
-  - When the caller is a service account (Bearer token), set `UpstreamLink.ServiceAccountID`
-  - When the caller is a human user, set `UpstreamLink.UserID`
-  - Create `SessionAccountFromContext` in `internal/session/context.go`
+- [ ] Add detail page route `/admin/service-accounts/{public_id}` to `ROUTES` in `web/admin/src/router/routes.ts`
+- [ ] Create `web/admin/src/pages/ServiceAccountDetailPage.vue` with breadcrumb navigation:
+  `Admin > Service Accounts > {name}` and a back button that returns to the service account list
+- [ ] Render two main sections on the detail page:
+
+  **Section 1 — Upstream Links** (reuses shared component):
+  - [ ] Extract the upstream link management component into `web/shared/components/UpstreamLinkManager.vue`
+  - [ ] Component accepts `accountId` (public ID) and `accountType` (`'user' | 'service-account'`) props
+  - [ ] Lists all MCP upstream servers linked to this account: each row shows upstream name, URL,
+    connection status (connected / disconnected), and "last seen" timestamp
+  - [ ] Per-link actions: **Disable** (toggles active flag), **Disconnect** (unlinks — DELETE)
+  - [ ] **Add Upstream** button opens the upstream catalog selector (reused from Portal's upstream page)
+  - [ ] Shared component lives in `web/shared/` so both Portal and Admin import the same implementation
+  - [ ] Empty state: "No upstreams linked yet" with CTA "Link an Upstream"
+
+  **Section 2 — DCR Clients**:
+  - [ ] Lists all dynamic client registrations authorized for this service account
+  - [ ] Each row shows: client name, partial client ID (e.g. `abc…xyz`), created date
+  - [ ] Per-client action: **Disconnect** (deletes the DCR registration via AdminService RPC)
+  - [ ] Requires `GetDCRClients` and `DisconnectDCRClient` RPCs on `AdminService` (defined in proto, not in this phase's scope)
+  - [ ] Empty state: "No DCR clients registered" with helper text explaining that DCR clients appear when an IDE connects
+
+- [ ] Update `ServiceAccountsPage.vue` (list page) — clicking a row navigates to
+  `ServiceAccountDetailPage` via `router.push({ name: 'serviceAccountDetail', params: { public_id: row.publicId } })`
+  instead of performing inline actions
+- [ ] Move inline row actions (Delete, Regenerate Token) from the list page to the detail page header
+  (as header action buttons), keeping the list page as a read-only overview with clickable rows
+- [ ] Wire shared `UpstreamLinkManager` component in both `web/portal/` and `web/admin/` — verify
+  `web/shared/` alias resolves in both Vite configs
+
+### Implementation Status
+
+| Sub-item | Status |
+|----------|--------|
+| Shared `UpstreamLinkManager` component | Not started |
+| Detail page route + breadcrumb | Not started |
+| Detail page Section 1 (Upstream Links) | Not started |
+| Detail page Section 2 (DCR Clients) | Not started |
+| List page → detail page navigation | Not started |
+| Move inline actions to detail header | Not started |
 
 ### 9i-f: Bearer auth interceptor
 

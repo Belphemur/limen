@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -70,11 +71,16 @@ func pickHighestSARole(keys []string) string {
 }
 
 func saModelToProto(sa *storage.ServiceAccount) *adminv1.ServiceAccount {
+	createdById := ""
+	if sa.CreatedBy != nil {
+		createdById = sa.CreatedBy.PublicID
+	}
 	return &adminv1.ServiceAccount{
 		PublicId:    sa.PublicID,
 		Name:        sa.Name,
 		Description: sa.Description,
 		Role:        saRoleToProto(sa.Role),
+		CreatedById: createdById,
 		CreatedAt:   sa.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
@@ -192,7 +198,7 @@ func (s *Service) ListServiceAccounts(ctx context.Context, req *connect.Request[
 	defer func() { _ = commit() }()
 
 	var sas []storage.ServiceAccount
-	if err := db.Find(&sas).Error; err != nil {
+	if err := db.Preload("CreatedBy").Find(&sas).Error; err != nil {
 		return nil, s.internal("list service accounts", err)
 	}
 
@@ -318,4 +324,89 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 	}
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil
+}
+
+// GetServiceAccount returns a single service account by public ID.
+func (s *Service) GetServiceAccount(ctx context.Context, req *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error) {
+	if s.serviceAccounts == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("admin: service account directory not wired"))
+	}
+	publicID := strings.TrimSpace(req.Msg.GetPublicId())
+	if publicID == "" {
+		return nil, s.invalidArg("public_id", "required")
+	}
+
+	t := tenancy.MustTenant(ctx)
+
+	sa, err := s.store.GetServiceAccount(ctx, t.ID, publicID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("service account %q not found", publicID))
+		}
+		return nil, s.internal("get service account", err)
+	}
+
+	grants, err := s.serviceAccounts.ListUserGrants(ctx, t.ZitadelOrgID, sa.ZitadelUserID)
+	if err != nil {
+		return nil, s.internal("list user grants", err)
+	}
+	roleKey := pickHighestSARole(grantRoleKeys(grants))
+	protoSA := saModelToProto(sa)
+	protoSA.Role = saRoleToProto(roleKey)
+
+	return connect.NewResponse(&adminv1.GetServiceAccountResponse{
+		ServiceAccount: protoSA,
+	}), nil
+}
+
+// UpdateServiceAccount updates the name and/or description of a service account.
+func (s *Service) UpdateServiceAccount(ctx context.Context, req *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error) {
+	publicID := strings.TrimSpace(req.Msg.GetPublicId())
+	if publicID == "" {
+		return nil, s.invalidArg("public_id", "required")
+	}
+
+	t := tenancy.MustTenant(ctx)
+
+	sa, err := s.store.GetServiceAccount(ctx, t.ID, publicID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("service account %q not found", publicID))
+		}
+		return nil, s.internal("get service account", err)
+	}
+
+	changed := false
+	if req.Msg.Name != nil {
+		sa.Name = strings.TrimSpace(*req.Msg.Name)
+		if sa.Name == "" {
+			return nil, s.invalidArg("name", "name must not be empty")
+		}
+		changed = true
+	}
+	if req.Msg.Description != nil {
+		sa.Description = *req.Msg.Description
+		changed = true
+	}
+	if !changed {
+		return connect.NewResponse(&adminv1.UpdateServiceAccountResponse{
+			ServiceAccount: saModelToProto(sa),
+		}), nil
+	}
+
+	if err := s.store.UpdateServiceAccount(ctx, sa); err != nil {
+		return nil, s.internal("update service account", err)
+	}
+
+	return connect.NewResponse(&adminv1.UpdateServiceAccountResponse{
+		ServiceAccount: saModelToProto(sa),
+	}), nil
+}
+
+func grantRoleKeys(grants []zitadel.UserGrant) []string {
+	var keys []string
+	for _, g := range grants {
+		keys = append(keys, g.RoleKeys...)
+	}
+	return keys
 }

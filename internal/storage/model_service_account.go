@@ -18,6 +18,7 @@ type ServiceAccount struct {
 	Description   string `gorm:"type:text"`
 	ZitadelUserID string `gorm:"type:text;not null;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`
 	CreatedByID   int64  `gorm:"not null;index"`
+	CreatedBy     *User  `gorm:"foreignKey:CreatedByID"`
 	Role          string `gorm:"type:text;not null"`
 
 	Tenant *Tenant `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
