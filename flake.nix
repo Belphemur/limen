@@ -2,8 +2,7 @@
   description = "Limen dev environment";
 
   inputs = {
-    # devenv's own rolling nixpkgs - recommended over nixos-unstable for devenv
-    nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv";
     devenv.inputs.nixpkgs.follows = "nixpkgs";
