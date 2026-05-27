@@ -94,6 +94,10 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 			_, err := c.ImpersonateServiceAccount(ctx, connect.NewRequest(&adminv1.ImpersonateServiceAccountRequest{}))
 			return err
 		},
+		"ExitImpersonation": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.ExitImpersonation(ctx, connect.NewRequest(&adminv1.ExitImpersonationRequest{}))
+			return err
+		},
 	}
 }
 
@@ -135,15 +139,19 @@ var implementedRPCs = map[string]bool{
 	"DeleteServiceAccount":          true,
 	"RegenerateServiceAccountToken": true,
 	"ImpersonateServiceAccount":     true,
+	"ExitImpersonation":             true,
 }
 
 // TestMember_DeniedOnEveryRPC: a member session never satisfies
 // admin / owner, so every method must short-circuit at the role
-// interceptor.
+// interceptor. Methods that require only RoleMember are skipped.
 func TestMember_DeniedOnEveryRPC(t *testing.T) {
 	c := mount(t, []string{"member"})
 	for name, call := range callers() {
 		t.Run(name, func(t *testing.T) {
+			if requiredRole[name] == session.RoleMember {
+				t.Skip("members are allowed to call this RPC")
+			}
 			err := call(context.Background(), c)
 			if err == nil {
 				t.Fatalf("want CodePermissionDenied, got nil")

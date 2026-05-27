@@ -37,7 +37,10 @@ CREATE UNIQUE INDEX idx_sa_tenant_zitadel
 
 -- UpstreamLink: add service_account_id, enforce XOR with user_id.
 ALTER TABLE upstream_links
-    ADD COLUMN service_account_id BIGINT;
+    ADD COLUMN IF NOT EXISTS service_account_id BIGINT;
+
+ALTER TABLE upstream_links
+    DROP CONSTRAINT IF EXISTS fk_link_service_account;
 
 ALTER TABLE upstream_links
     ADD CONSTRAINT fk_link_service_account
@@ -46,6 +49,9 @@ ALTER TABLE upstream_links
 -- XOR: exactly one of user_id / service_account_id must be set.
 -- All existing rows have user_id set and service_account_id NULL, so
 -- this CHECK passes for existing data without a data migration.
+ALTER TABLE upstream_links
+    DROP CONSTRAINT IF EXISTS chk_link_owner_xor;
+
 ALTER TABLE upstream_links
     ADD CONSTRAINT chk_link_owner_xor
         CHECK ((user_id IS NULL) <> (service_account_id IS NULL));
@@ -98,6 +104,9 @@ CREATE UNIQUE INDEX idx_link_tenant_user_upstream
 CREATE UNIQUE INDEX idx_link_tenant_user_id_upstream
     ON upstream_links (user_id)
     WHERE deleted_at IS NULL AND user_id IS NOT NULL;
+
+-- Remove any SA-owned links that survived (shouldn't happen, but be safe).
+DELETE FROM upstream_links WHERE user_id IS NULL;
 
 -- Restore user_id to NOT NULL (all existing rows have it set).
 ALTER TABLE upstream_links
