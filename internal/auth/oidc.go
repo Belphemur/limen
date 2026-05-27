@@ -526,34 +526,6 @@ type PortalCookieValue struct {
 	ExpiresAt    time.Time
 }
 
-const CookieVersionV2 uint8 = 0x01
-
-const (
-	ImpersonatedUserTypeUser           uint8 = 0
-	ImpersonatedUserTypeServiceAccount uint8 = 1
-)
-
-// CookiePayloadV2 is the versioned impersonation cookie format.
-// It stores baked-in identity claims and actor metadata so the read
-// path requires zero Zitadel calls. Version byte 0x01.
-type CookiePayloadV2 struct {
-	Version        uint8
-	AccessToken    string
-	Subject        string
-	Email          string
-	FirstName      string
-	LastName       string
-	Roles          []string
-	ActorUserID    string
-	ActorEmail     string
-	ActorFirstName string
-	ActorLastName  string
-	Reason         string
-	UserType       uint8 // 0=user, 1=service_account
-	Impersonated   bool
-	ExpiresAt      time.Time
-}
-
 func PackPortalCookie(v PortalCookieValue) []byte {
 	var buf bytes.Buffer
 	mustWrite := func(data any) {
@@ -568,50 +540,6 @@ func PackPortalCookie(v PortalCookieValue) []byte {
 	buf.WriteString(v.RefreshToken)
 	mustWrite(uint16(len(v.AccessToken)))
 	buf.WriteString(v.AccessToken)
-	mustWrite(v.ExpiresAt.UnixNano())
-	return buf.Bytes()
-}
-
-func PackCookieV2(v CookiePayloadV2) []byte {
-	var buf bytes.Buffer
-	mustWrite := func(data any) {
-		if err := binary.Write(&buf, binary.LittleEndian, data); err != nil {
-			panic("auth: PackCookieV2 binary.Write: " + err.Error() +
-				" — this should never happen with a bytes.Buffer")
-		}
-	}
-	mustWrite(v.Version)
-	mustWrite(uint16(len(v.AccessToken)))
-	buf.WriteString(v.AccessToken)
-	mustWrite(uint16(len(v.Subject)))
-	buf.WriteString(v.Subject)
-	mustWrite(uint16(len(v.Email)))
-	buf.WriteString(v.Email)
-	mustWrite(uint16(len(v.FirstName)))
-	buf.WriteString(v.FirstName)
-	mustWrite(uint16(len(v.LastName)))
-	buf.WriteString(v.LastName)
-	mustWrite(uint16(len(v.Roles)))
-	for _, r := range v.Roles {
-		mustWrite(uint16(len(r)))
-		buf.WriteString(r)
-	}
-	mustWrite(uint16(len(v.ActorUserID)))
-	buf.WriteString(v.ActorUserID)
-	mustWrite(uint16(len(v.ActorEmail)))
-	buf.WriteString(v.ActorEmail)
-	mustWrite(uint16(len(v.ActorFirstName)))
-	buf.WriteString(v.ActorFirstName)
-	mustWrite(uint16(len(v.ActorLastName)))
-	buf.WriteString(v.ActorLastName)
-	mustWrite(uint16(len(v.Reason)))
-	buf.WriteString(v.Reason)
-	mustWrite(v.UserType)
-	var imp uint8
-	if v.Impersonated {
-		imp = 1
-	}
-	mustWrite(imp)
 	mustWrite(v.ExpiresAt.UnixNano())
 	return buf.Bytes()
 }
@@ -655,111 +583,6 @@ func UnpackPortalCookie(data []byte) (PortalCookieValue, error) {
 		}
 		v.AccessToken = string(at)
 	}
-
-	var expNano int64
-	if err := binary.Read(r, binary.LittleEndian, &expNano); err != nil {
-		return v, fmt.Errorf("auth: cookie unpack expires: %w", err)
-	}
-	v.ExpiresAt = time.Unix(0, expNano)
-
-	return v, nil
-}
-
-func UnpackCookieV2(data []byte) (CookiePayloadV2, error) {
-	var v CookiePayloadV2
-	r := bytes.NewReader(data)
-
-	var version uint8
-	if err := binary.Read(r, binary.LittleEndian, &version); err != nil {
-		return v, fmt.Errorf("auth: cookie unpack version: %w", err)
-	}
-	if version != CookieVersionV2 {
-		return v, fmt.Errorf("auth: unsupported cookie version: %d", version)
-	}
-	v.Version = version
-
-	readString := func(field string) (string, error) {
-		var l uint16
-		if err := binary.Read(r, binary.LittleEndian, &l); err != nil {
-			return "", fmt.Errorf("auth: cookie unpack %s len: %w", field, err)
-		}
-		if l == 0 {
-			return "", nil
-		}
-		b := make([]byte, l)
-		if _, err := io.ReadFull(r, b); err != nil {
-			return "", fmt.Errorf("auth: cookie unpack %s: %w", field, err)
-		}
-		return string(b), nil
-	}
-
-	var err error
-	v.AccessToken, err = readString("access_token")
-	if err != nil {
-		return v, err
-	}
-	v.Subject, err = readString("subject")
-	if err != nil {
-		return v, err
-	}
-	v.Email, err = readString("email")
-	if err != nil {
-		return v, err
-	}
-	v.FirstName, err = readString("first_name")
-	if err != nil {
-		return v, err
-	}
-	v.LastName, err = readString("last_name")
-	if err != nil {
-		return v, err
-	}
-
-	var roleCount uint16
-	if err := binary.Read(r, binary.LittleEndian, &roleCount); err != nil {
-		return v, fmt.Errorf("auth: cookie unpack role count: %w", err)
-	}
-	if roleCount > 0 {
-		v.Roles = make([]string, 0, roleCount)
-		for i := uint16(0); i < roleCount; i++ {
-			role, err := readString(fmt.Sprintf("role[%d]", i))
-			if err != nil {
-				return v, err
-			}
-			v.Roles = append(v.Roles, role)
-		}
-	}
-
-	v.ActorUserID, err = readString("actor_user_id")
-	if err != nil {
-		return v, err
-	}
-	v.ActorEmail, err = readString("actor_email")
-	if err != nil {
-		return v, err
-	}
-	v.ActorFirstName, err = readString("actor_first_name")
-	if err != nil {
-		return v, err
-	}
-	v.ActorLastName, err = readString("actor_last_name")
-	if err != nil {
-		return v, err
-	}
-	v.Reason, err = readString("reason")
-	if err != nil {
-		return v, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &v.UserType); err != nil {
-		return v, fmt.Errorf("auth: cookie unpack user_type: %w", err)
-	}
-
-	var imp uint8
-	if err := binary.Read(r, binary.LittleEndian, &imp); err != nil {
-		return v, fmt.Errorf("auth: cookie unpack impersonated: %w", err)
-	}
-	v.Impersonated = imp != 0
 
 	var expNano int64
 	if err := binary.Read(r, binary.LittleEndian, &expNano); err != nil {
@@ -814,6 +637,33 @@ func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken, accessToken stri
 	}, nil
 }
 
+func (o *OIDC) buildImpersonationCookie(tenant, idToken, refreshToken, accessToken string, idExp time.Time) (*http.Cookie, error) {
+	payload := PackPortalCookie(PortalCookieValue{
+		IDToken:      idToken,
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
+		ExpiresAt:    idExp,
+	})
+	payload, err := zstdCompress(payload)
+	if err != nil {
+		return nil, fmt.Errorf("auth: cookie compress: %w", err)
+	}
+	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: impersonationCookieAADKind})
+	if err != nil {
+		return nil, err
+	}
+	const maxAge = 30 * 24 * 3600
+	return &http.Cookie{
+		Name:     impersonationCookieName,
+		Value:    base64.RawURLEncoding.EncodeToString(sealed),
+		Path:     "/t/" + tenant,
+		HttpOnly: true,
+		Secure:   o.cfg.Secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}, nil
+}
+
 // ResolvePortalSession is the Connect-RPC interceptor entry point: it
 // decrypts the portal cookie carried in header for the given tenant
 // public id, verifies the ID token, and transparently refreshes it on
@@ -849,78 +699,36 @@ func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, ten
 
 // ResolveImpersonationSession is the Connect-RPC interceptor entry point
 // for the impersonation cookie. It decrypts the
-// limen_portal_impersonate cookie, unpacks the v2 payload, checks
-// expiry, and builds synthetic IDTokenClaims from cached data. Zero
-// Zitadel calls on the read path. On error it does NOT return a
+// limen_portal_impersonate cookie, verifies the ID token, and
+// transparently refreshes it on expiry. On error it does NOT return a
 // clear-cookie — the caller should fall back to the normal portal
 // session.
-func (o *OIDC) ResolveImpersonationSession(_ context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error) {
+func (o *OIDC) ResolveImpersonationSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error) {
 	r := &http.Request{Header: header}
-	c, err := r.Cookie(impersonationCookieName)
+	tok, err := o.readImpersonationCookie(r, tenant)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	sealed, err := base64.RawURLEncoding.DecodeString(c.Value)
+	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.defaultParty.IDTokenVerifier())
+	if err == nil {
+		return claims, tok.AccessToken, nil, nil
+	}
+	if tok.RefreshToken == "" {
+		return nil, "", nil, fmt.Errorf("auth: impersonation id token invalid, no refresh: %w", err)
+	}
+	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.defaultParty, tok.RefreshToken, "", "")
+	if rerr != nil {
+		return nil, "", nil, fmt.Errorf("auth: impersonation refresh failed: %w", rerr)
+	}
+	newRefresh := refreshed.RefreshToken
+	if newRefresh == "" {
+		newRefresh = tok.RefreshToken
+	}
+	setCookie, err := o.buildImpersonationCookie(tenant, refreshed.IDToken, newRefresh, refreshed.AccessToken, refreshed.IDTokenClaims.GetExpiration())
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation cookie decode: %w", err)
+		return nil, "", nil, fmt.Errorf("auth: rebuild impersonation cookie after refresh: %w", err)
 	}
-	plain, err := o.cipher.Decrypt(sealed, crypto.AAD{TenantID: tenant, Kind: impersonationCookieAADKind})
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation cookie open: %w", err)
-	}
-	plain, err = zstdDecompress(plain)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation cookie decompress: %w", err)
-	}
-
-	payload, err := UnpackCookieV2(plain)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation cookie unpack v2: %w", err)
-	}
-
-	if time.Now().After(payload.ExpiresAt) {
-		return nil, "", nil, fmt.Errorf("auth: impersonation cookie expired")
-	}
-
-	exp := oidc.FromTime(payload.ExpiresAt)
-	claims := &oidc.IDTokenClaims{
-		Claims: map[string]any{},
-	}
-	claims.Issuer = o.cfg.Issuer
-	claims.Subject = payload.Subject
-	claims.Expiration = exp
-	claims.Email = payload.Email
-	claims.GivenName = payload.FirstName
-	claims.FamilyName = payload.LastName
-
-	// Populate the Claims map so the read path can bypass struct fields
-	// entirely (defense against any embedding/nesting issues).
-	claims.Claims["email"] = payload.Email
-	claims.Claims["given_name"] = payload.FirstName
-	claims.Claims["family_name"] = payload.LastName
-	claims.Claims["name"] = strings.TrimSpace(payload.FirstName + " " + payload.LastName)
-
-	if len(payload.Roles) > 0 {
-		roleMap := make(map[string]any)
-		for _, r := range payload.Roles {
-			roleMap[r] = map[string]any{}
-		}
-		claims.Claims[rolesClaim] = roleMap
-	}
-
-	claims.Claims["actor_user_id"] = payload.ActorUserID
-	claims.Claims["actor_email"] = payload.ActorEmail
-	claims.Claims["actor_first_name"] = payload.ActorFirstName
-	claims.Claims["actor_last_name"] = payload.ActorLastName
-	claims.Claims["impersonation_reason"] = payload.Reason
-	if payload.UserType == ImpersonatedUserTypeServiceAccount {
-		claims.Claims["target_user_type"] = "service_account"
-	} else {
-		claims.Claims["target_user_type"] = "user"
-	}
-	claims.Claims["impersonation_expires_at"] = payload.ExpiresAt.Format(time.RFC3339)
-
-	return claims, payload.AccessToken, nil, nil
+	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
 }
 
 func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (PortalCookieValue, error) {
@@ -950,6 +758,10 @@ func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (Portal
 
 func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (PortalCookieValue, error) {
 	return o.readCookie(r, tenant, portalCookieName, cookieAADKind)
+}
+
+func (o *OIDC) readImpersonationCookie(r *http.Request, tenant string) (PortalCookieValue, error) {
+	return o.readCookie(r, tenant, impersonationCookieName, impersonationCookieAADKind)
 }
 
 // ExtractRoles parses the Zitadel project-roles claim into a flat slice of
