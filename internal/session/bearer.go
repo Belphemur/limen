@@ -3,7 +3,9 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -30,7 +32,7 @@ type bearerClaims struct {
 // a UserSession, and pins it on ctx. When no Bearer token is present, it passes
 // through to let the cookie interceptor handle authentication.
 //
-// Use BearerTokenConfig to construct via NewBearerTokenInterceptor.
+// Construct with `BearerTokenInterceptor(cfg, store, logger)`.
 func BearerTokenInterceptor(cfg BearerTokenConfig, store *storage.Store, logger *zap.Logger) connect.UnaryInterceptorFunc {
 	if logger == nil {
 		logger = zap.NewNop()
@@ -51,6 +53,10 @@ func BearerTokenInterceptor(cfg BearerTokenConfig, store *storage.Store, logger 
 			claims, err := op.VerifyAccessToken[*bearerClaims](ctx, token, cfg.Verifier)
 			if err != nil {
 				return nil, errUnauthenticated("invalid bearer token")
+			}
+
+			if !slices.Contains(claims.Audience, cfg.Audience) {
+				return nil, errPermissionDenied("audience mismatch")
 			}
 
 			if claims.ResourceOwnerID == "" || claims.ResourceOwnerID != t.ZitadelOrgID {
@@ -90,13 +96,8 @@ func BearerTokenInterceptor(cfg BearerTokenConfig, store *storage.Store, logger 
 				return nil, errInternal("user lookup", err)
 			}
 
-			sess := &UserSession{
-				Subject:   claims.Subject,
-				Email:     user.Email,
-				FirstName: user.Name,
-				Roles:     []string{},
-			}
-			return next(WithUser(ctx, sess), req)
+			// Human users should use browser login, not bearer tokens
+			return nil, errPermissionDenied("bearer auth requires a service account — human users must use browser login")
 		}
 	}
 }
@@ -104,6 +105,7 @@ func BearerTokenInterceptor(cfg BearerTokenConfig, store *storage.Store, logger 
 // BearerTokenConfig holds the pieces needed to validate bearer tokens.
 type BearerTokenConfig struct {
 	Verifier *op.AccessTokenVerifier
+	Audience string
 }
 
 // extractBearerToken returns the bearer token from Authorization header, or "".
@@ -119,5 +121,5 @@ func extractBearerToken(header http.Header) string {
 }
 
 func errInternal(desc string, err error) error {
-	return connect.NewError(connect.CodeInternal, err)
+	return connect.NewError(connect.CodeInternal, fmt.Errorf("session: %s: %w", desc, err))
 }

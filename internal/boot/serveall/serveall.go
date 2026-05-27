@@ -6,7 +6,6 @@
 package serveall
 
 import (
-	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -57,14 +56,11 @@ func Run(configPath string) error {
 		return err
 	}
 
-	var bearerIntercept connect.UnaryInterceptorFunc
-	if mcpAuth != nil {
-		bearerIntercept = session.BearerTokenInterceptor(
-			session.BearerTokenConfig{Verifier: mcpAuth.Verifier()},
-			rt.Store,
-			rt.Logger,
-		)
-	}
+	bearerIntercept := session.BearerTokenInterceptor(
+		session.BearerTokenConfig{Verifier: mcpAuth.Verifier(), Audience: rt.Cfg.Zitadel.MCPResourceAudience},
+		rt.Store,
+		rt.Logger,
+	)
 
 	r := chi.NewRouter()
 	r.Use(boot.PermissiveCORS)
