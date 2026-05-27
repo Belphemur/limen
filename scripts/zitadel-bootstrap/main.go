@@ -250,12 +250,15 @@ func (b *bootstrap) ensureTokenExchangeApp(ctx context.Context, projectID, name 
 		}
 
 		needsGrant := !slices.Contains(oidc.GetGrantTypes(), applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE)
+		needsAuthCode := !slices.Contains(oidc.GetGrantTypes(), applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE)
 		needsAuthMethod := oidc.GetAuthMethodType() != applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
 
-		if needsGrant || needsAuthMethod {
-			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{}
-			if needsGrant {
-				cfg.GrantTypes = append(oidc.GetGrantTypes(), applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE)
+		if needsGrant || needsAuthCode || needsAuthMethod {
+			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{
+				GrantTypes: []applicationV2.OIDCGrantType{
+					applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE,
+					applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE,
+				},
 			}
 			if needsAuthMethod {
 				cfg.AuthMethodType = ptr(applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC)
@@ -280,7 +283,7 @@ func (b *bootstrap) ensureTokenExchangeApp(ctx context.Context, projectID, name 
 			OidcConfiguration: &applicationV2.CreateOIDCApplicationRequest{
 				RedirectUris:             []string{"http://localhost:0/callback"},
 				ResponseTypes:            []applicationV2.OIDCResponseType{applicationV2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
-				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE},
+				GrantTypes:               []applicationV2.OIDCGrantType{applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE, applicationV2.OIDCGrantType_OIDC_GRANT_TYPE_TOKEN_EXCHANGE},
 				ApplicationType:          applicationV2.OIDCApplicationType_OIDC_APP_TYPE_WEB,
 				AuthMethodType:           applicationV2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC,
 				DevelopmentMode:          true,
