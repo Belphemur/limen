@@ -48,15 +48,20 @@ service AdminService {
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
 
-  // Service account management. Admin floor (ExitImpersonation at member).
+  // Service account management. Admin floor.
   // Service accounts are Zitadel machine users mirrored locally. See
   // docs/phases/phase-09i-service-accounts.md.
   rpc CreateServiceAccount(CreateServiceAccountRequest) returns (CreateServiceAccountResponse);
+  rpc GetServiceAccount(GetServiceAccountRequest) returns (GetServiceAccountResponse);
+  rpc UpdateServiceAccount(UpdateServiceAccountRequest) returns (UpdateServiceAccountResponse);
   rpc ListServiceAccounts(ListServiceAccountsRequest) returns (ListServiceAccountsResponse);
   rpc DeleteServiceAccount(DeleteServiceAccountRequest) returns (DeleteServiceAccountResponse);
   rpc RegenerateServiceAccountToken(RegenerateServiceAccountTokenRequest) returns (RegenerateServiceAccountTokenResponse);
-  rpc ImpersonateServiceAccount(ImpersonateServiceAccountRequest) returns (ImpersonateServiceAccountResponse);
-  rpc ExitImpersonation(ExitImpersonationRequest) returns (ExitImpersonationResponse);
+
+  // Service account upstream link management. Admin floor.
+  rpc ListServiceAccountUpstreamLinks(ListServiceAccountUpstreamLinksRequest) returns (ListServiceAccountUpstreamLinksResponse);
+  rpc SetServiceAccountLinkEnabled(SetServiceAccountLinkEnabledRequest) returns (SetServiceAccountLinkEnabledResponse);
+
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -444,16 +449,41 @@ message RegenerateServiceAccountTokenResponse {
   string token = 1;
 }
 
-message ImpersonateServiceAccountRequest {
+message GetServiceAccountRequest {
   string public_id = 1;
 }
+message GetServiceAccountResponse {
+  ServiceAccount service_account = 1;
+}
 
-// Empty: the response carries only a Set-Cookie header with the
-// impersonation session cookie.
-message ImpersonateServiceAccountResponse {}
+message UpdateServiceAccountRequest {
+  string public_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+message UpdateServiceAccountResponse {
+  ServiceAccount service_account = 1;
+}
 
-message ExitImpersonationRequest {}
+message ServiceAccountUpstreamLink {
+  string upstream_public_id = 1;
+  string upstream_name = 2;
+  string upstream_url = 3;
+  bool enabled = 4;
+  string connected_at = 5;
+}
+message ListServiceAccountUpstreamLinksRequest {
+  string service_account_public_id = 1;
+}
+message ListServiceAccountUpstreamLinksResponse {
+  repeated ServiceAccountUpstreamLink links = 1;
+}
 
-// Empty: the response carries only a Set-Cookie header clearing
-// the impersonation cookie.
-message ExitImpersonationResponse {}
+message SetServiceAccountLinkEnabledRequest {
+  string service_account_public_id = 1;
+  string upstream_public_id = 2;
+  bool enabled = 3;
+}
+message SetServiceAccountLinkEnabledResponse {}
+
+

@@ -1,3 +1,12 @@
+---
+phase: "9d"
+title: "Shared SessionService (DRY the session RPC + web/shared package)"
+status: completed
+progress: 100
+depends_on: ["4", "9b", "9c"]
+updated: "2026-04-10"
+---
+
 # Phase 9d — Shared `SessionService` (DRY the session)
 
 **Depends on**: Phases 4 (portal cookie + role claim), 9b (portal SPA scaffold), 9c (admin SPA scaffold)

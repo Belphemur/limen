@@ -12,7 +12,8 @@ const session = useSessionStore()
       and tenant membership.
     </p>
     <div class="mt-6 grid gap-3 sm:grid-cols-2">
-      <button type="button"
+      <button
+        type="button"
         class="cursor-pointer rounded-md border border-slate-200 bg-white p-3 text-left hover:border-rose-400 dark:border-slate-700 dark:bg-slate-800"
         @click="session.logout()"
       >
@@ -22,8 +23,6 @@ const session = useSessionStore()
         </p>
       </button>
     </div>
-    <p v-if="session.user" class="mt-6 text-xs text-slate-500">
-      subject: {{ session.user.id }}
-    </p>
+    <p v-if="session.user" class="mt-6 text-xs text-slate-500">subject: {{ session.user.id }}</p>
   </section>
 </template>

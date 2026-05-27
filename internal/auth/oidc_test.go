@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
@@ -169,5 +170,129 @@ func TestClearCookie_SetsExpiredHeader(t *testing.T) {
 	}
 	if !c.Secure || !c.HttpOnly {
 		t.Errorf("want HttpOnly+Secure, got %+v", c)
+	}
+}
+
+func TestPackPortalCookie_RoundTrip(t *testing.T) {
+	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	original := PortalCookieValue{
+		IDToken:      "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fakesig",
+		RefreshToken: "rt_secret_refresh_token_value_12345",
+		AccessToken:  "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJtcGNfcmVzb3VyY2UifQ.fakesig2",
+		ExpiresAt:    now,
+	}
+
+	packed := PackPortalCookie(original)
+
+	got, err := UnpackPortalCookie(packed)
+	if err != nil {
+		t.Fatalf("UnpackPortalCookie: unexpected error: %v", err)
+	}
+
+	if got.IDToken != original.IDToken {
+		t.Errorf("IDToken mismatch: got %q, want %q", got.IDToken, original.IDToken)
+	}
+	if got.RefreshToken != original.RefreshToken {
+		t.Errorf("RefreshToken mismatch: got %q, want %q", got.RefreshToken, original.RefreshToken)
+	}
+	if got.AccessToken != original.AccessToken {
+		t.Errorf("AccessToken mismatch: got %q, want %q", got.AccessToken, original.AccessToken)
+	}
+	if !got.ExpiresAt.Equal(now) {
+		t.Errorf("ExpiresAt mismatch: got %v, want %v", got.ExpiresAt, now)
+	}
+}
+
+func TestPackPortalCookie_EmptyFields(t *testing.T) {
+	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	original := PortalCookieValue{
+		IDToken:      "",
+		RefreshToken: "rt_nonempty",
+		AccessToken:  "",
+		ExpiresAt:    now,
+	}
+
+	packed := PackPortalCookie(original)
+
+	got, err := UnpackPortalCookie(packed)
+	if err != nil {
+		t.Fatalf("UnpackPortalCookie: unexpected error: %v", err)
+	}
+
+	if got.IDToken != "" {
+		t.Errorf("IDToken should be empty, got %q", got.IDToken)
+	}
+	if got.RefreshToken != "rt_nonempty" {
+		t.Errorf("RefreshToken mismatch: got %q", got.RefreshToken)
+	}
+	if got.AccessToken != "" {
+		t.Errorf("AccessToken should be empty, got %q", got.AccessToken)
+	}
+}
+
+func TestPackPortalCookie_SizeSmallerThanJSON(t *testing.T) {
+	// Simulate realistic JWT token sizes
+	jwtHeaderPayload := "eyJhbGciOiJSUzI1NiJ9."
+	jwtClaims := "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiZW1haWwiOiJqb2huQGV4YW1wbGUuY29tIn0."
+	jwtSig := "NHVaYe26MbtOYhSKkoKYdFVomY4ir3eoPrzA-_Z5J6A"
+
+	// Build a realistic ~800 byte JWT
+	idToken := jwtHeaderPayload + jwtClaims + strings.Repeat("a", 700) + jwtSig
+	accessToken := jwtHeaderPayload + strings.Repeat("x", 600) + jwtSig
+
+	v := PortalCookieValue{
+		IDToken:      idToken,
+		RefreshToken: "rt_",
+		AccessToken:  accessToken,
+		ExpiresAt:    time.Now(),
+	}
+
+	packed := PackPortalCookie(v)
+
+	// Binary packed should be roughly sum of string lengths + 14 bytes framing
+	expectedMinSize := len(v.IDToken) + len(v.RefreshToken) + len(v.AccessToken) + 14
+	if len(packed) < expectedMinSize || len(packed) > expectedMinSize+5 {
+		t.Errorf("packed size %d, expected ~%d", len(packed), expectedMinSize)
+	}
+
+	// Verify round-trip
+	got, err := UnpackPortalCookie(packed)
+	if err != nil {
+		t.Fatalf("round-trip failed: %v", err)
+	}
+	if got.IDToken != idToken {
+		t.Error("IDToken round-trip mismatch")
+	}
+	if got.AccessToken != accessToken {
+		t.Error("AccessToken round-trip mismatch")
+	}
+}
+
+func TestUnPackPortalCookie_TruncatedData(t *testing.T) {
+	// Only a partial uint16 — not enough bytes to read the first length prefix
+	_, err := UnpackPortalCookie([]byte{0x01})
+	if err == nil {
+		t.Fatal("expected error for truncated data")
+	}
+}
+
+func TestPackPortalCookie_Deterministic(t *testing.T) {
+	v := PortalCookieValue{
+		IDToken:      "id1",
+		RefreshToken: "rt1",
+		AccessToken:  "at1",
+		ExpiresAt:    time.Unix(1718400000, 0),
+	}
+
+	packed1 := PackPortalCookie(v)
+	packed2 := PackPortalCookie(v)
+
+	if len(packed1) != len(packed2) {
+		t.Fatal("PackPortalCookie is not deterministic")
+	}
+	for i := range packed1 {
+		if packed1[i] != packed2[i] {
+			t.Fatalf("PackPortalCookie is not deterministic at byte %d", i)
+		}
 	}
 }

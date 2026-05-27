@@ -1,3 +1,12 @@
+---
+phase: "11"
+title: "Production deployment (Docker Compose)"
+status: planned
+progress: 0
+depends_on: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9a", "9b", "9c", "10"]
+updated: "2026-03-01"
+---
+
 # Phase 11 — Production deployment (Docker Compose)
 
 **Depends on**: every other phase delivered and verified.
@@ -280,6 +289,8 @@ services:
       LIMEN_OIDC_ISSUER: "https://auth.limen.example.com"
       LIMEN_OIDC_PORTAL_CLIENT_ID_FILE: /run/secrets/limen_oidc_portal_client_id
       LIMEN_OIDC_MGMT_PAT_FILE: /run/secrets/limen_oidc_mgmt_pat
+      LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID_FILE: /run/secrets/limen_oidc_token_exchange_client_id
+      LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET_FILE: /run/secrets/limen_oidc_token_exchange_client_secret
       LIMEN_BASE_URL: "https://limen.example.com"
       LIMEN_VALKEY_ADDR: "valkey:6379"
       LIMEN_VALKEY_PASSWORD_FILE: /run/secrets/limen_valkey_password
@@ -370,6 +381,8 @@ secrets:
   limen_token_encryption_key: { file: ./secrets/limen_token_encryption_key }
   limen_oidc_portal_client_id:{ file: ./secrets/limen_oidc_portal_client_id }
   limen_oidc_mgmt_pat: { file: ./secrets/limen_oidc_mgmt_pat }
+  limen_oidc_token_exchange_client_id: { file: ./secrets/limen_oidc_token_exchange_client_id }
+  limen_oidc_token_exchange_client_secret: { file: ./secrets/limen_oidc_token_exchange_client_secret }
   limen_staff_zitadel_org_id: { file: ./secrets/limen_staff_zitadel_org_id }
   limen_valkey_password: { file: ./secrets/limen_valkey_password }
   zitadel_pg_user: { file: ./secrets/zitadel_pg_user }
@@ -614,6 +627,8 @@ The script creates the Zitadel control plane and exits with a summary of resourc
 | `PORTAL_CLIENT_ID` | `secrets/limen_oidc_portal_client_id` | `limen-portal` OIDC RP flow |
 | `STAFF_ZITADEL_ORG_ID` | `secrets/limen_staff_zitadel_org_id` | `limenctl migrate` — seeds the `_staff` tenant row |
 | `MCP_RS_CLIENT_ID` (optional) | `secrets/limen_mcp_rs_client_id` | MCP token audience validation |
+| TOKEN_EXCHANGE_CLIENT_ID   | secrets/limen_oidc_token_exchange_client_id   | limen-portal token exchange (service account impersonation) |
+| TOKEN_EXCHANGE_CLIENT_SECRET | secrets/limen_oidc_token_exchange_client_secret | limen-portal token exchange (service account impersonation) |
 
 The `limenctl-migrate` service depends on `zitadel-bootstrap` completing successfully, which in turn depends on `zitadel-api` being healthy:
 
@@ -698,7 +713,7 @@ Operators using the all-in-one profile should update their Caddyfile to point `@
 - VS Code MCP client configured against `https://limen.example.com/t/{tenant}/mcp` walks the discovery chain (PRM → AS metadata → token → success) end-to-end.
 - Stopping `postgres` and starting it again recovers — Limen binaries wait via the healthcheck-driven `depends_on` gates on `limenctl-migrate`.
 - A backup file taken yesterday can be restored on a fresh stack and the portal works end-to-end.
-- Zitadel bootstrap completes successfully and outputs expected resource IDs (`PROJECT_ID`, `PORTAL_CLIENT_ID`, `STAFF_ZITADEL_ORG_ID`).
+- Zitadel bootstrap completes successfully and outputs expected resource IDs (`PROJECT_ID`, `PORTAL_CLIENT_ID`, `TOKEN_EXCHANGE_CLIENT_ID`, `TOKEN_EXCHANGE_CLIENT_SECRET`, `STAFF_ZITADEL_ORG_ID`).
 
 ## Risks
 
@@ -718,7 +733,7 @@ Operators using the all-in-one profile should update their Caddyfile to point `@
 - [ ] Postgres images are `postgres:18-alpine`
 - [ ] All secrets sourced from `docker secret` files (never inline env values)
 - [ ] `zitadel-bootstrap` one-shot compose service provisions the gateway org, project, apps, roles, staff org, and project grants
-- [ ] Bootstrap output (`PROJECT_ID`, `PORTAL_CLIENT_ID`, `STAFF_ZITADEL_ORG_ID`) captured and stored in `secrets/`
+- [ ] Bootstrap output (`PROJECT_ID`, `PORTAL_CLIENT_ID`, `TOKEN_EXCHANGE_CLIENT_ID`, `TOKEN_EXCHANGE_CLIENT_SECRET`, `STAFF_ZITADEL_ORG_ID`) captured and stored in `secrets/`
 - [ ] Bootstrap service depends on Zitadel being healthy; migrate service runs after bootstrap
 - [ ] `limenctl-migrate` runs as a one-shot, gates `limen-gateway` + `limen-portal` + `limen-staff` via `condition: service_completed_successfully`
 - [ ] `limenctl-migrate` ensures the `_staff` tenant row exists (Phase 12) and refuses to start in prod without `LIMEN_STAFF_ZITADEL_ORG_ID`

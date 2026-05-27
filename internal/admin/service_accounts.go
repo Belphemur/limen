@@ -2,13 +2,8 @@ package admin
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -17,7 +12,6 @@ import (
 	"gorm.io/gorm"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
-	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
@@ -42,9 +36,9 @@ type ServiceAccountDirectory interface {
 func saRoleKeyFromProto(r adminv1.ServiceAccountRole) (string, bool) {
 	switch r {
 	case adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_MEMBER:
-		return roleKeyMember, true
+		return zitadel.RoleKeyMember, true
 	case adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_ADMIN:
-		return roleKeyAdmin, true
+		return zitadel.RoleKeyAdmin, true
 	default:
 		return "", false
 	}
@@ -52,9 +46,9 @@ func saRoleKeyFromProto(r adminv1.ServiceAccountRole) (string, bool) {
 
 func saRoleToProto(roleKey string) adminv1.ServiceAccountRole {
 	switch roleKey {
-	case roleKeyMember:
+	case zitadel.RoleKeyMember:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_MEMBER
-	case roleKeyAdmin:
+	case zitadel.RoleKeyAdmin:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_ADMIN
 	default:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_UNSPECIFIED
@@ -65,11 +59,11 @@ func pickHighestSARole(keys []string) string {
 	best := ""
 	for _, k := range keys {
 		switch k {
-		case roleKeyAdmin:
-			return roleKeyAdmin
-		case roleKeyMember:
-			if best != roleKeyAdmin {
-				best = roleKeyMember
+		case zitadel.RoleKeyAdmin:
+			return zitadel.RoleKeyAdmin
+		case zitadel.RoleKeyMember:
+			if best != zitadel.RoleKeyAdmin {
+				best = zitadel.RoleKeyMember
 			}
 		}
 	}
@@ -77,11 +71,16 @@ func pickHighestSARole(keys []string) string {
 }
 
 func saModelToProto(sa *storage.ServiceAccount) *adminv1.ServiceAccount {
+	createdById := ""
+	if sa.CreatedBy != nil {
+		createdById = sa.CreatedBy.PublicID
+	}
 	return &adminv1.ServiceAccount{
 		PublicId:    sa.PublicID,
 		Name:        sa.Name,
 		Description: sa.Description,
 		Role:        saRoleToProto(sa.Role),
+		CreatedById: createdById,
 		CreatedAt:   sa.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
@@ -199,7 +198,7 @@ func (s *Service) ListServiceAccounts(ctx context.Context, req *connect.Request[
 	defer func() { _ = commit() }()
 
 	var sas []storage.ServiceAccount
-	if err := db.Find(&sas).Error; err != nil {
+	if err := db.Preload("CreatedBy").Find(&sas).Error; err != nil {
 		return nil, s.internal("list service accounts", err)
 	}
 
@@ -319,26 +318,19 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 		}
 	}
 
-	tokenID, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
+	_, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
 	if err != nil {
 		return nil, s.internal("create new PAT", err)
 	}
-	_ = tokenID
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil
 }
 
-// ImpersonateServiceAccount starts an impersonation session for the
-// caller, scoped to the requested service account. The response carries
-// a Set-Cookie header with the impersonation session cookie.
-func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Request[adminv1.ImpersonateServiceAccountRequest]) (*connect.Response[adminv1.ImpersonateServiceAccountResponse], error) {
+// GetServiceAccount returns a single service account by public ID.
+func (s *Service) GetServiceAccount(ctx context.Context, req *connect.Request[adminv1.GetServiceAccountRequest]) (*connect.Response[adminv1.GetServiceAccountResponse], error) {
 	if s.serviceAccounts == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("admin: service account directory not wired"))
 	}
-	if s.zitadelDomain == "" {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("admin: zitadel domain not configured"))
-	}
-
 	publicID := strings.TrimSpace(req.Msg.GetPublicId())
 	if publicID == "" {
 		return nil, s.invalidArg("public_id", "required")
@@ -346,161 +338,75 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 
 	t := tenancy.MustTenant(ctx)
 
-	db, commit, err := s.store.Session(ctx)
+	sa, err := s.store.GetServiceAccount(ctx, t.ID, publicID)
 	if err != nil {
-		return nil, s.internal("db session", err)
-	}
-	defer func() { _ = commit() }()
-
-	var sa storage.ServiceAccount
-	if err := db.Where("public_id = ?", publicID).First(&sa).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("service account %q not found", publicID))
 		}
-		return nil, s.internal("find service account", err)
+		return nil, s.internal("get service account", err)
 	}
 
-	if sa.DeletedAt.Valid {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
-	}
-
-	accessToken, ok := session.AccessTokenFromContext(ctx)
-	if !ok || accessToken == "" {
-		return nil, s.internal("no access token", errors.New("admin: access token missing from session"))
-	}
-
-	patID, pat, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, nil)
+	grants, err := s.serviceAccounts.ListUserGrants(ctx, t.ZitadelOrgID, sa.ZitadelUserID)
 	if err != nil {
-		return nil, s.internal("create temporary PAT", err)
+		return nil, s.internal("list user grants", err)
 	}
+	roleKey := pickHighestSARole(grantRoleKeys(grants))
+	protoSA := saModelToProto(sa)
+	protoSA.Role = saRoleToProto(roleKey)
 
-	exchangeURL := strings.TrimSuffix(s.zitadelDomain, "/") + "/oauth/v2/token"
-	form := url.Values{}
-	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
-	form.Set("subject_token", pat)
-	form.Set("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
-	form.Set("actor_token", accessToken)
-	form.Set("actor_token_type", "urn:ietf:params:oauth:token-type:access_token")
-	form.Set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:id:"+s.zitadelProjectID+":aud")
-
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
-		return nil, s.internal("build token exchange request", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	httpResp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
-	}
-	defer httpResp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
-	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
-		return nil, s.internal("read token exchange response", err)
-	}
-
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		s.logger.Warn("token exchange failed",
-			zap.Int("status", httpResp.StatusCode),
-			zap.String("response", string(body)),
-		)
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
-		switch {
-		case httpResp.StatusCode == 400 || httpResp.StatusCode == 401:
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("admin: token exchange denied"))
-		case httpResp.StatusCode >= 500:
-			return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
-		default:
-			return nil, connect.NewError(connect.CodeInternal, errors.New("admin: token exchange failed"))
-		}
-	}
-
-	var exchange struct {
-		AccessToken  string `json:"access_token"`
-		IDToken      string `json:"id_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.Unmarshal(body, &exchange); err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
-		return nil, s.internal("parse token exchange response", err)
-	}
-
-	if rmErr := s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID); rmErr != nil {
-		s.logger.Warn("impersonate: remove temporary PAT failed", zap.String("zitadel_user_id", sa.ZitadelUserID), zap.Error(rmErr))
-	}
-
-	expiresAt := time.Now().Add(time.Duration(exchange.ExpiresIn) * time.Second)
-	if exchange.ExpiresIn == 0 {
-		expiresAt = time.Now().Add(24 * time.Hour)
-	}
-
-	cookieValue, err := s.buildImpersonationCookieValue(t.PublicID, exchange.IDToken, exchange.AccessToken, exchange.RefreshToken, expiresAt)
-	if err != nil {
-		return nil, s.internal("build impersonation cookie", err)
-	}
-
-	cookie := &http.Cookie{
-		Name:     "limen_portal_impersonate",
-		Value:    cookieValue,
-		Path:     "/t/" + t.PublicID,
-		HttpOnly: true,
-		Secure:   s.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
-	}
-
-	resp := connect.NewResponse(&adminv1.ImpersonateServiceAccountResponse{})
-	resp.Header().Set("Set-Cookie", cookie.String())
-	return resp, nil
+	return connect.NewResponse(&adminv1.GetServiceAccountResponse{
+		ServiceAccount: protoSA,
+	}), nil
 }
 
-// ExitImpersonation ends the current impersonation session. The
-// response carries a Set-Cookie header clearing the impersonation cookie.
-func (s *Service) ExitImpersonation(ctx context.Context, req *connect.Request[adminv1.ExitImpersonationRequest]) (*connect.Response[adminv1.ExitImpersonationResponse], error) {
+// UpdateServiceAccount updates the name and/or description of a service account.
+func (s *Service) UpdateServiceAccount(ctx context.Context, req *connect.Request[adminv1.UpdateServiceAccountRequest]) (*connect.Response[adminv1.UpdateServiceAccountResponse], error) {
+	publicID := strings.TrimSpace(req.Msg.GetPublicId())
+	if publicID == "" {
+		return nil, s.invalidArg("public_id", "required")
+	}
+
 	t := tenancy.MustTenant(ctx)
 
-	clearCookie := &http.Cookie{
-		Name:     "limen_portal_impersonate",
-		Value:    "",
-		Path:     "/t/" + t.PublicID,
-		HttpOnly: true,
-		Secure:   s.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
+	sa, err := s.store.GetServiceAccount(ctx, t.ID, publicID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("service account %q not found", publicID))
+		}
+		return nil, s.internal("get service account", err)
 	}
 
-	resp := connect.NewResponse(&adminv1.ExitImpersonationResponse{})
-	resp.Header().Set("Set-Cookie", clearCookie.String())
-	return resp, nil
+	changed := false
+	if req.Msg.Name != nil {
+		sa.Name = strings.TrimSpace(*req.Msg.Name)
+		if sa.Name == "" {
+			return nil, s.invalidArg("name", "name must not be empty")
+		}
+		changed = true
+	}
+	if req.Msg.Description != nil {
+		sa.Description = *req.Msg.Description
+		changed = true
+	}
+	if !changed {
+		return connect.NewResponse(&adminv1.UpdateServiceAccountResponse{
+			ServiceAccount: saModelToProto(sa),
+		}), nil
+	}
+
+	if err := s.store.UpdateServiceAccount(ctx, sa); err != nil {
+		return nil, s.internal("update service account", err)
+	}
+
+	return connect.NewResponse(&adminv1.UpdateServiceAccountResponse{
+		ServiceAccount: saModelToProto(sa),
+	}), nil
 }
 
-func (s *Service) buildImpersonationCookieValue(tenantID, idToken, accessToken, refreshToken string, expiresAt time.Time) (string, error) {
-	if s.cipher == nil {
-		return "", errors.New("admin: cipher not configured")
+func grantRoleKeys(grants []zitadel.UserGrant) []string {
+	var keys []string
+	for _, g := range grants {
+		keys = append(keys, g.RoleKeys...)
 	}
-
-	payload, err := json.Marshal(map[string]any{
-		"id_token":      idToken,
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_at":    expiresAt.UTC().Format(time.RFC3339),
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal impersonation payload: %w", err)
-	}
-
-	sealed, err := s.cipher.Encrypt(payload, crypto.AAD{TenantID: tenantID, Kind: "portal.impersonate"})
-	if err != nil {
-		return "", fmt.Errorf("encrypt impersonation payload: %w", err)
-	}
-
-	return base64.RawURLEncoding.EncodeToString(sealed), nil
+	return keys
 }

@@ -29,7 +29,7 @@ func (f *fakeResolver) resolve(_ context.Context, _ http.Header, _ string) (*Use
 
 func mountFixture(t *testing.T, r Resolver, tenant *storage.Tenant) *httptest.Server {
 	t.Helper()
-	svc := NewService(r, nil, nil, zap.NewNop())
+	svc := NewService(r, nil, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if tenant != nil {
@@ -182,5 +182,27 @@ func TestClaimsToSession_SplitsCombinedName(t *testing.T) {
 func TestClaimsToSession_Nil(t *testing.T) {
 	if s := claimsToSession(nil); s != nil {
 		t.Fatalf("expected nil session, got %+v", s)
+	}
+}
+
+func TestExtractRolesFromClaims_WithSyntheticRoleMap(t *testing.T) {
+	c := &oidc.IDTokenClaims{
+		Claims: map[string]any{
+			"urn:zitadel:iam:org:project:roles": map[string]any{
+				"admin":  map[string]any{},
+				"member": map[string]any{},
+			},
+		},
+	}
+	got := extractRolesFromClaims(c)
+	if len(got) != 2 {
+		t.Fatalf("want 2 roles, got %v", got)
+	}
+	seen := map[string]bool{}
+	for _, r := range got {
+		seen[r] = true
+	}
+	if !seen["admin"] || !seen["member"] {
+		t.Fatalf("missing role: %v", got)
 	}
 }

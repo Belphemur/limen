@@ -1,3 +1,12 @@
+---
+phase: "9b"
+title: "Portal backend (Connect-RPC) + Vue 3 SPA"
+status: in_progress
+progress: 92
+depends_on: ["9a", "4", "7"]
+updated: "2026-05-01"
+---
+
 # Phase 9b — Portal backend (Connect-RPC) + Vue 3 SPA
 
 **Depends on**: [Phase 9a](phase-09a-binary-split.md) (binary layout — this phase's deliverables live in `cmd/portal/` + `web/`), Phase 4 (portal session), Phase 7 (upstream connect/disconnect)

@@ -92,19 +92,28 @@ func (c *Client) SetOrgMetadata(ctx context.Context, orgID, key string, value []
 	return nil
 }
 
-// AddOrgOwner adds userID as an ORG_OWNER of orgID via the v2 InternalPermissionService RPC.
-// ORG_OWNER is the Zitadel-side role that lets the user self-serve invites, role changes,
-// IdP federation, etc. from `<issuer>/ui/console`.
+// AddOrgOwner grants userID the full org-level owner role set on orgID.
+// See OrgRolesForLimenRole(RoleKeyOwner) for the exact role set.
+// Idempotent — AlreadyExists errors are tolerated.
 func (c *Client) AddOrgOwner(ctx context.Context, orgID, userID string) error {
+	return c.AddOrgRoles(ctx, orgID, userID, OrgRolesForLimenRole(RoleKeyOwner))
+}
+
+// AddOrgRoles grants the given Zitadel org-level administrator roles
+// to userID within orgID. Idempotent — AlreadyExists errors are tolerated.
+func (c *Client) AddOrgRoles(ctx context.Context, orgID, userID string, roles []string) error {
 	if orgID == "" {
-		return fmt.Errorf("zitadel: AddOrgOwner: orgID is required")
+		return fmt.Errorf("zitadel: AddOrgRoles: orgID is required")
 	}
 	if userID == "" {
-		return fmt.Errorf("zitadel: AddOrgOwner: userID is required")
+		return fmt.Errorf("zitadel: AddOrgRoles: userID is required")
+	}
+	if len(roles) == 0 {
+		return nil
 	}
 	_, err := c.api.InternalPermissionServiceV2().CreateAdministrator(ctx, &internalPermissionV2.CreateAdministratorRequest{
 		UserId: userID,
-		Roles:  []string{"ORG_OWNER"},
+		Roles:  roles,
 		Resource: &internalPermissionV2.ResourceType{
 			Resource: &internalPermissionV2.ResourceType_OrganizationId{
 				OrganizationId: orgID,
@@ -112,7 +121,31 @@ func (c *Client) AddOrgOwner(ctx context.Context, orgID, userID string) error {
 		},
 	})
 	if err != nil && !IsAlreadyExists(err) {
-		return fmt.Errorf("zitadel: add org owner (user=%s org=%s): %w", userID, orgID, err)
+		return fmt.Errorf("zitadel: add org roles (user=%s org=%s roles=%v): %w", userID, orgID, roles, err)
+	}
+	return nil
+}
+
+// RemoveOrgRoles removes all Zitadel org-level administrator roles
+// from userID within orgID via DeleteAdministrator. Idempotent — NotFound
+// errors are tolerated.
+func (c *Client) RemoveOrgRoles(ctx context.Context, orgID, userID string) error {
+	if orgID == "" {
+		return fmt.Errorf("zitadel: RemoveOrgRoles: orgID is required")
+	}
+	if userID == "" {
+		return fmt.Errorf("zitadel: RemoveOrgRoles: userID is required")
+	}
+	_, err := c.api.InternalPermissionServiceV2().DeleteAdministrator(ctx, &internalPermissionV2.DeleteAdministratorRequest{
+		UserId: userID,
+		Resource: &internalPermissionV2.ResourceType{
+			Resource: &internalPermissionV2.ResourceType_OrganizationId{
+				OrganizationId: orgID,
+			},
+		},
+	})
+	if err != nil && !IsNotFound(err) {
+		return fmt.Errorf("zitadel: remove org roles (user=%s org=%s): %w", userID, orgID, err)
 	}
 	return nil
 }

@@ -1,7 +1,7 @@
 // Phase 9a sanity check: the staff binary excludes internal/oauthproxy
 // (DCR is portal-owned) and the MCP gateway hot-path packages — staff
 // surfaces never serve MCP traffic. internal/zitadel IS expected
-// (impersonation + audit land in Phase 12 via the admin client).
+// (audit lands in Phase 12 via the admin client).
 
 package main_test
 

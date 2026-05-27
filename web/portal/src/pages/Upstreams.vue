@@ -96,15 +96,29 @@ function cancelModal() {
     <p v-else-if="upstreams.error" class="mt-4 text-sm text-rose-600" data-state="error">
       {{ upstreams.error }}
     </p>
-    <p v-else-if="upstreams.items.length === 0" class="mt-4 text-sm text-slate-500" data-state="empty">
+    <p
+      v-else-if="upstreams.items.length === 0"
+      class="mt-4 text-sm text-slate-500"
+      data-state="empty"
+    >
       No MCP servers configured for this tenant.
     </p>
     <div v-else class="mt-4 grid gap-3">
-      <UpstreamCard v-for="up in upstreams.items" :key="up.publicId" :upstream="up" :busy="busyRow === up.publicId"
-        @action="(kind) => handleAction(up, kind)" />
+      <UpstreamCard
+        v-for="up in upstreams.items"
+        :key="up.publicId"
+        :upstream="up"
+        :busy="busyRow === up.publicId"
+        @action="(kind) => handleAction(up, kind)"
+      />
     </div>
 
-    <ApiKeyModal :open="modal.open" :upstream-label="modal.upstream?.displayName || modal.upstream?.identifier || ''"
-      :busy="busyRow !== null" @submit="submitApiKey" @cancel="cancelModal" />
+    <ApiKeyModal
+      :open="modal.open"
+      :upstream-label="modal.upstream?.displayName || modal.upstream?.identifier || ''"
+      :busy="busyRow !== null"
+      @submit="submitApiKey"
+      @cancel="cancelModal"
+    />
   </section>
 </template>

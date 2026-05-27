@@ -28,6 +28,7 @@ export interface SessionTenant {
   name: string
 }
 
+
 function roleToString(r: Role): SessionRole {
   switch (r) {
     case Role.OWNER:

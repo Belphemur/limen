@@ -17,23 +17,19 @@ import (
 // Zitadel calls happen inside the handler itself; the cookie was
 // already verified by the interceptor stack.
 type Service struct {
-	resolver              Resolver
-	impersonationResolver Resolver
-	bearerIntercept       connect.UnaryInterceptorFunc
-	logger                *zap.Logger
+	resolver        Resolver
+	bearerIntercept connect.UnaryInterceptorFunc
+	logger          *zap.Logger
 }
 
 // NewService builds the shared SessionService handler. resolver MUST
 // verify the portal cookie against the Zitadel ID-token issuer;
 // production wires this to auth.OIDC via OIDCResolver.
-// impersonationResolver, when non-nil, is tried first so the
-// interceptor stack reads the limen_portal_impersonate cookie before
-// falling back to the normal portal cookie.
-func NewService(resolver Resolver, impersonationResolver Resolver, bearerIntercept connect.UnaryInterceptorFunc, logger *zap.Logger) *Service {
+func NewService(resolver Resolver, bearerIntercept connect.UnaryInterceptorFunc, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Service{resolver: resolver, impersonationResolver: impersonationResolver, bearerIntercept: bearerIntercept, logger: logger}
+	return &Service{resolver: resolver, bearerIntercept: bearerIntercept, logger: logger}
 }
 
 // Handler returns the URL-path-prefix + http.Handler pair to register
@@ -49,7 +45,7 @@ func (s *Service) Handler() (string, http.Handler) {
 	if s.bearerIntercept != nil {
 		interceptors = append(interceptors, s.bearerIntercept)
 	}
-	interceptors = append(interceptors, Interceptor(s.resolver, s.impersonationResolver, s.logger))
+	interceptors = append(interceptors, Interceptor(s.resolver, s.logger))
 	return sessionv1connect.NewSessionServiceHandler(s, connect.WithInterceptors(interceptors...))
 }
 

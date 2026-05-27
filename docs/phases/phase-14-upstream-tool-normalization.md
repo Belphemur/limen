@@ -1,3 +1,12 @@
+---
+phase: "14"
+title: "Upstream tool description normalization (speculative)"
+status: deferred
+progress: 0
+depends_on: ["8", "10"]
+updated: "2026-04-01"
+---
+
 # Phase 14 — Upstream tool description normalization (speculative)
 
 **Depends on**: Phase 8 (per-tenant injection — gives the gateway a stable, cached, per-link view of upstream tool catalogs to normalize against).

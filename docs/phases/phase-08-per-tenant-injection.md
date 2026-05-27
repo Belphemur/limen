@@ -1,3 +1,12 @@
+---
+phase: "8"
+title: "Per-tenant, per-user upstream injection"
+status: in_progress
+progress: 77
+depends_on: ["6", "7"]
+updated: "2026-03-01"
+---
+
 # Phase 8 — Per-tenant, per-user upstream injection
 
 **Depends on**: Phases 6, 7

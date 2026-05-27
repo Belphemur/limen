@@ -84,7 +84,13 @@ Notes on the shape:
 - The PK is composite `(id, occurred_at)` because Postgres partitioned tables require the partition key to be part of every unique constraint. `public_id` is uniquely indexed separately for API lookups.
 - `payload_json` is **always cleartext**. Anything sensitive enough to need encryption belongs in `payload_ciphertext`, not in this column.
 - `actor_tenant_id` and `target_tenant_id` are distinct on purpose. For non-staff rows they match; for staff rows they diverge (`actor_tenant_id` is the staff tenant, `target_tenant_id` is the customer tenant being touched).
-- `on_behalf_of_user_id` is **only** populated on impersonation-context rows. Don't reuse it as a generic actor field.
+- `on_behalf_of_user_id` references the human user who is impersonating a
+  service account (or in staff context, the staff member performing the
+  impersonation). It MUST be populated on **every audit row** created
+  during an impersonation session, not just the `impersonation.started`
+  / `impersonation.ended` events. This ensures every action taken while
+  impersonating is traceable to the real human actor. For
+  non-impersonation rows this column is `NULL`.
 
 ### Partitioning
 
@@ -175,8 +181,13 @@ Other event classes leave `payload_ciphertext` `NULL` and put the necessary dige
 | `codemode.tool.completed`       | Phase 8                                            | `user`              | no                 | `payload_json` carries `outcome`, `duration_ms`, `result_bytes`                    |
 | `codemode.tool.error`           | Phase 8                                            | `user`              | no                 | `payload_json` carries `error_kind`, redacted `error_message`                      |
 | `codemode.invocation.completed` | Phase 8                                            | `user`              | **yes** (response) | `payload_json` carries `outcome`, `duration_ms`, `tool_calls_total`                |
-| `mcp_client.revoked`            | [Phase 9b](phases/phase-09b-portal-spa.md)         | `user`              | no                 | Portal action                                                                      |
-| `tenant.settings.updated`       | [Phase 9c](phases/phase-09c-tenant-admin-spa.md)   | `user`              | no                 |                                                                                    |
+| `mcp_client.revoked`                    | [Phase 9b](phases/phase-09b-portal-spa.md)         | `user`              | no                 | Portal action                                                                      |
+| `service_account.created`               | [Phase 9i](phases/phase-09i-service-accounts.md)   | `user`              | no                 | `target_kind='service_account'`, `target_public_id=<sa_public_id>`                 |
+| `service_account.deleted`               | [Phase 9i](phases/phase-09i-service-accounts.md)   | `user`              | no                 | `target_kind='service_account'`, `target_public_id=<sa_public_id>`                 |
+| `service_account.token_regenerated`     | [Phase 9i](phases/phase-09i-service-accounts.md)   | `user`              | no                 | `target_kind='service_account'`, `target_public_id=<sa_public_id>`                 |
+| `service_account.impersonation.started` | [Phase 9i](phases/phase-09i-service-accounts.md)   | `user`              | no                 | `target_kind='service_account'`, `target_public_id=<sa_public_id>`, `on_behalf_of_user_id` references the impersonating admin |
+| `service_account.impersonation.ended`   | [Phase 9i](phases/phase-09i-service-accounts.md)   | `user`              | no                 | `target_kind='service_account'`, `target_public_id=<sa_public_id>`                 |
+| `tenant.settings.updated`               | [Phase 9c](phases/phase-09c-tenant-admin-spa.md)   | `user`              | no                 |                                                                                    |
 | `staff.impersonate.start`       | [Phase 12](phases/phase-12-staff-backoffice.md)    | `staff`             | no                 | `reason` required; `target_user_id` set                                            |
 | `staff.impersonate.end`         | Phase 12                                           | `staff` or `system` | no                 | `system` when the 15-min TTL fires                                                 |
 | `staff.force.unlink`            | Phase 12                                           | `staff`             | no                 | `reason` required                                                                  |

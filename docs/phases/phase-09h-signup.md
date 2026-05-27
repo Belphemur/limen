@@ -1,3 +1,12 @@
+---
+phase: "9h"
+title: "Self-serve signup wizard (Portal-side)"
+status: planned
+progress: 0
+depends_on: ["5", "9a", "9b", "9c"]
+updated: "2026-04-30"
+---
+
 # Phase 9h — Self-serve signup wizard
 
 > **Status**: ready to implement. Closes the six unticked v1 bullets in

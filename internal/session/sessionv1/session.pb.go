@@ -111,9 +111,9 @@ func (*GetSessionRequest) Descriptor() ([]byte, []int) {
 
 type GetSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tenant        *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	User          *User                  `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
-	Role          Role                   `protobuf:"varint,3,opt,name=role,proto3,enum=limen.session.v1.Role" json:"role,omitempty"`
+	Tenant        *Tenant                `protobuf:"bytes,2,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	User          *User                  `protobuf:"bytes,3,opt,name=user,proto3" json:"user,omitempty"`
+	Role          Role                   `protobuf:"varint,5,opt,name=role,proto3,enum=limen.session.v1.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -296,9 +296,9 @@ const file_limen_session_v1_session_proto_rawDesc = "" +
 	"\x1elimen/session/v1/session.proto\x12\x10limen.session.v1\"\x13\n" +
 	"\x11GetSessionRequest\"\x9e\x01\n" +
 	"\x12GetSessionResponse\x120\n" +
-	"\x06tenant\x18\x01 \x01(\v2\x18.limen.session.v1.TenantR\x06tenant\x12*\n" +
-	"\x04user\x18\x02 \x01(\v2\x16.limen.session.v1.UserR\x04user\x12*\n" +
-	"\x04role\x18\x03 \x01(\x0e2\x16.limen.session.v1.RoleR\x04role\"9\n" +
+	"\x06tenant\x18\x02 \x01(\v2\x18.limen.session.v1.TenantR\x06tenant\x12*\n" +
+	"\x04user\x18\x03 \x01(\v2\x16.limen.session.v1.UserR\x04user\x12*\n" +
+	"\x04role\x18\x05 \x01(\x0e2\x16.limen.session.v1.RoleR\x04role\"9\n" +
 	"\x06Tenant\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"h\n" +

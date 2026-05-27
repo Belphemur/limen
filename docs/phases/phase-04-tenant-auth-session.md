@@ -1,3 +1,12 @@
+---
+phase: "4"
+title: "Tenant resolution, OIDC login, portal session"
+status: completed
+progress: 100
+depends_on: ["0", "1", "2", "3"]
+updated: "2025-10-10"
+---
+
 # Phase 4 — Tenant resolution, OIDC login, portal session
 
 **Depends on**: Phases 1, 2, 3 (and the Zitadel stack from [Phase 0](phase-00-dev-environment.md))
@@ -135,8 +144,8 @@ The cookie is a same-origin credential; the SPA and Limen API share `limen.examp
 
 Limen does **not** persist its own session state, and does **not** call Zitadel's SessionService. It is a textbook OIDC relying party using `github.com/zitadel/oidc/v3/pkg/client/rp`:
 
-- **Issuance**: on a successful OIDC callback, `rp.CodeExchange[*oidc.IDTokenClaims]` returns `id_token + refresh_token + claims`. The handler verifies `claims["urn:zitadel:iam:user:resourceowner:id"]` matches the tenant's `zitadel_org_id`, then seals `{id_token, refresh_token, expiresAt}` into the cookie.
-- **Cookie payload**: an authenticated-encrypted blob (AES-SIV with AAD `{TenantID: <tenant-public-id>, Kind: "portal.oidc.tokens"}`, from [Phase 2](phase-02-crypto-config.md)) containing `{idToken, refreshToken, expiresAt}`. The cookie itself is a single opaque base64 string. Cross-tenant replay fails on AAD mismatch even before the tokens are inspected.
+- **Issuance**: on a successful OIDC callback, `rp.CodeExchange[*oidc.IDTokenClaims]` returns `id_token + refresh_token + access_token + claims`. The handler verifies `claims["urn:zitadel:iam:user:resourceowner:id"]` matches the tenant's `zitadel_org_id`, then seals `{id_token, refresh_token, access_token, expiresAt}`, binary-packed and zstd-compressed, into the cookie.
+- **Cookie payload**: the binary-packed `{idToken, refreshToken, accessToken, expiresAt}` quadruple (uint16 LE length-prefixed strings, int64 LE timestamp — 14 bytes framing overhead), zstd-compressed, then AES-SIV encrypted with AAD `{TenantID: <tenant-public-id>, Kind: "portal.oidc.tokens"}` (from [Phase 2](phase-02-crypto-config.md)). The `accessToken` field was added in [Phase 9i](phase-09i-service-accounts.md) for Zitadel Token Exchange impersonation. Binary packing replaces JSON to eliminate field-name overhead; zstd shrinks JWT text by ~50%; the combination keeps the final cookie well under the browser 4KB limit. The cookie itself is a single opaque base64 string. Cross-tenant replay fails on AAD mismatch even before the tokens are inspected.
 - **Cookie attributes**: `Set-Cookie: limen_portal=<blob>; Path=/t/<tenant>; HttpOnly; Secure; SameSite=Lax; Max-Age=<refresh-ttl>`. The `Path=/t/<tenant>` scope means a browser carrying a session for tenant A _cannot_ leak it to tenant B even on the same domain.
 - **Validation** (`RequireSession`): decrypt cookie → `rp.VerifyIDToken[*oidc.IDTokenClaims]` against the cached JWKS (issuer signature + `exp` + `aud`). No network call on the hot path; the JWKS is fetched lazily and cached by the `rp` package's `RemoteKeySet`. On `exp` failure, attempt `rp.RefreshTokens[*oidc.IDTokenClaims]` once, rewrite the cookie with the new pair, and continue. On any other failure (signature, audience, refresh denied), clear the cookie and 302 to `/t/{tenant}/auth/login`.
 - **Logout**: clear the portal cookie and redirect to `rp.EndSession(...)`'s `end_session_endpoint` URL with `id_token_hint` so Zitadel terminates its own session and clears the IdP cookie. No DB row to delete.
@@ -275,7 +284,7 @@ User invitations, role changes, member removal, and tenant-level external IdP fe
 - [x] `User` upserted by `(tenant_id, zitadel_subject)` on successful callback
 - [x] **Roles delegated to Zitadel**: no `role` column on `User`; roles read from the `urn:zitadel:iam:org:project:roles` claim on the live (verified) ID token every request
 - [x] **User/permission management delegated to Zitadel Console**: no Limen CLI / RPC / UI for invite, role change, member removal, password reset, MFA enrollment, or IdP federation (verified by `grep` in CI for those terms in `internal/cli/` and the proto files)
-- [x] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: <tenant-public-id>, Kind: "portal.oidc.tokens"}`)
+- [x] `internal/auth/oidc.go` exchanges the auth code with `rp.CodeExchange`, verifies the tenant binding, and seals `{idToken, refreshToken, accessToken, expiresAt}` into an AES-SIV-encrypted cookie (AAD `{TenantID: <tenant-public-id>, Kind: "portal.oidc.tokens"}`)
 - [x] Session cookie has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/t/<tenant>` attributes
 - [x] `RequireSession` middleware decrypts cookie, calls `rp.VerifyIDToken` against the cached JWKS, transparently calls `rp.RefreshTokens` on `exp` failure, populates ctx with `*oidc.IDTokenClaims`
 - [x] `RequireRole(...)` middleware enforces role membership against the project-roles claim from those live claims

@@ -13,6 +13,7 @@ import (
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/zitadel"
+	"go.uber.org/zap"
 )
 
 // MemberDirectory is the slice of the Zitadel client the admin
@@ -28,27 +29,23 @@ type MemberDirectory interface {
 	UpdateUserGrant(ctx context.Context, grantID string, roleKeys []string) error
 	DeleteUserGrant(ctx context.Context, grantID string) error
 	DeleteUser(ctx context.Context, userID string) error
+	// AddOrgRoles grants Zitadel org-level administrator roles. Idempotent.
+	AddOrgRoles(ctx context.Context, orgID, userID string, roles []string) error
+	// RemoveOrgRoles removes ALL Zitadel org-level administrator roles for
+	// the user on the given org. Idempotent.
+	RemoveOrgRoles(ctx context.Context, orgID, userID string) error
 }
-
-// roleKeyOwner / Admin / Member are the Zitadel project-role keys the
-// Limen project ships. They MUST match the keys seeded by the
-// bootstrap (see scripts/zitadel-bootstrap).
-const (
-	roleKeyOwner  = "owner"
-	roleKeyAdmin  = "admin"
-	roleKeyMember = "member"
-)
 
 // roleKeyFromProto returns the Zitadel role key for the wire enum.
 // ok is false when role is UNSPECIFIED (callers reject the request).
 func roleKeyFromProto(r adminv1.MemberRole) (string, bool) {
 	switch r {
 	case adminv1.MemberRole_MEMBER_ROLE_OWNER:
-		return roleKeyOwner, true
+		return zitadel.RoleKeyOwner, true
 	case adminv1.MemberRole_MEMBER_ROLE_ADMIN:
-		return roleKeyAdmin, true
+		return zitadel.RoleKeyAdmin, true
 	case adminv1.MemberRole_MEMBER_ROLE_MEMBER:
-		return roleKeyMember, true
+		return zitadel.RoleKeyMember, true
 	default:
 		return "", false
 	}
@@ -63,13 +60,13 @@ func pickHighestRoleProto(keys []string) adminv1.MemberRole {
 	best := adminv1.MemberRole_MEMBER_ROLE_UNSPECIFIED
 	for _, k := range keys {
 		switch k {
-		case roleKeyOwner:
+		case zitadel.RoleKeyOwner:
 			return adminv1.MemberRole_MEMBER_ROLE_OWNER
-		case roleKeyAdmin:
+		case zitadel.RoleKeyAdmin:
 			if best < adminv1.MemberRole_MEMBER_ROLE_ADMIN {
 				best = adminv1.MemberRole_MEMBER_ROLE_ADMIN
 			}
-		case roleKeyMember:
+		case zitadel.RoleKeyMember:
 			if best < adminv1.MemberRole_MEMBER_ROLE_MEMBER {
 				best = adminv1.MemberRole_MEMBER_ROLE_MEMBER
 			}
@@ -202,6 +199,17 @@ func (s *Service) InviteMember(ctx context.Context, req *connect.Request[adminv1
 		return nil, s.internal("create invite code", err)
 	}
 
+	// Org roles are add-only here because the user was just created
+	// (they have no prior org roles). UpdateMemberRole uses remove-first
+	// because it handles role transitions where stale roles may exist.
+	// Sync Zitadel org-level roles for admin and owner.
+	if roles := zitadel.OrgRolesForLimenRole(roleKey); len(roles) > 0 {
+		if err := s.members.AddOrgRoles(ctx, orgID, userID, roles); err != nil {
+			s.logger.Warn("invite: failed to sync org roles, continuing",
+				zap.String("user_id", userID), zap.String("role_key", roleKey), zap.Error(err))
+		}
+	}
+
 	display := strings.TrimSpace(givenName + " " + familyName)
 	if display == "" {
 		display = email
@@ -254,7 +262,7 @@ func (s *Service) UpdateMemberRole(ctx context.Context, req *connect.Request[adm
 	wasOwner := false
 	var existingGrantID string
 	for _, g := range allGrants {
-		isOwner := slices.Contains(g.RoleKeys, roleKeyOwner)
+		isOwner := slices.Contains(g.RoleKeys, zitadel.RoleKeyOwner)
 		if isOwner {
 			owners++
 		}
@@ -263,7 +271,7 @@ func (s *Service) UpdateMemberRole(ctx context.Context, req *connect.Request[adm
 			wasOwner = isOwner
 		}
 	}
-	if wasOwner && roleKey != roleKeyOwner && owners <= 1 {
+	if wasOwner && roleKey != zitadel.RoleKeyOwner && owners <= 1 {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("admin: cannot demote the last owner"))
 	}
@@ -275,6 +283,30 @@ func (s *Service) UpdateMemberRole(ctx context.Context, req *connect.Request[adm
 	} else {
 		if _, err := s.members.AddUserGrant(ctx, orgID, userID, []string{roleKey}); err != nil {
 			return nil, s.internal("add user grant", err)
+		}
+	}
+
+	// Remove-first-then-add is not atomic: if RemoveOrgRoles succeeds
+	// but AddOrgRoles fails, Zitadel org roles will be absent until a
+	// subsequent retry or manual sync. Both failures are logged at WARN
+	// and the RPC success is not affected — org role sync is best-effort.
+	// Sync Zitadel org-level roles: reset to desired state.
+	if roles := zitadel.OrgRolesForLimenRole(roleKey); len(roles) > 0 {
+		// Going TO admin or owner: remove any existing roles first (clean slate),
+		// then add the desired set.
+		if err := s.members.RemoveOrgRoles(ctx, orgID, userID); err != nil {
+			s.logger.Warn("update_role: failed to remove org roles, continuing",
+				zap.String("user_id", userID), zap.String("role_key", roleKey), zap.Error(err))
+		}
+		if err := s.members.AddOrgRoles(ctx, orgID, userID, roles); err != nil {
+			s.logger.Warn("update_role: failed to add org roles, continuing",
+				zap.String("user_id", userID), zap.String("role_key", roleKey), zap.Error(err))
+		}
+	} else {
+		// Going TO member: remove all org-level administrator roles.
+		if err := s.members.RemoveOrgRoles(ctx, orgID, userID); err != nil {
+			s.logger.Warn("update_role: failed to remove org roles, continuing",
+				zap.String("user_id", userID), zap.Error(err))
 		}
 	}
 
@@ -312,7 +344,7 @@ func (s *Service) RemoveMember(ctx context.Context, req *connect.Request[adminv1
 	owners := 0
 	targetIsOwner := false
 	for _, g := range allGrants {
-		isOwner := slices.Contains(g.RoleKeys, roleKeyOwner)
+		isOwner := slices.Contains(g.RoleKeys, zitadel.RoleKeyOwner)
 		if isOwner {
 			owners++
 			if g.UserID == userID {

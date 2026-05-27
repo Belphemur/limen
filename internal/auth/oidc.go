@@ -1,16 +1,20 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -41,9 +45,6 @@ const (
 
 	// cookieAADKind binds the portal cookie ciphertext to its purpose.
 	cookieAADKind = "portal.oidc.tokens"
-
-	impersonationCookieName    = "limen_portal_impersonate"
-	impersonationCookieAADKind = "portal.impersonate"
 )
 
 // OIDCConfig wires the relying-party handlers to a configured Zitadel
@@ -499,12 +500,94 @@ func (o *OIDC) RequireRole(want ...string) func(http.Handler) http.Handler {
 	}
 }
 
-// portalCookieValue is the JSON shape sealed inside the portal cookie.
-type portalCookieValue struct {
-	IDToken      string    `json:"id"`
-	RefreshToken string    `json:"r,omitempty"`
-	AccessToken  string    `json:"a,omitempty"`
-	ExpiresAt    time.Time `json:"e"`
+var (
+	zstdEncoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedFastest))
+	zstdDecoder, _ = zstd.NewReader(nil)
+)
+
+func zstdCompress(src []byte) ([]byte, error) {
+	return zstdEncoder.EncodeAll(src, nil), nil
+}
+
+func zstdDecompress(src []byte) ([]byte, error) {
+	return zstdDecoder.DecodeAll(src, nil)
+}
+
+// PortalCookieValue is packed with a uint16-length-prefix binary format
+// (see PackPortalCookie / UnpackPortalCookie) before zstd compression
+// and AES-SIV encryption to fit within browser cookie limits.
+type PortalCookieValue struct {
+	IDToken      string
+	RefreshToken string
+	AccessToken  string
+	ExpiresAt    time.Time
+}
+
+func PackPortalCookie(v PortalCookieValue) []byte {
+	var buf bytes.Buffer
+	mustWrite := func(data any) {
+		if err := binary.Write(&buf, binary.LittleEndian, data); err != nil {
+			panic("auth: PackPortalCookie binary.Write: " + err.Error() +
+				" — this should never happen with a bytes.Buffer")
+		}
+	}
+	mustWrite(uint16(len(v.IDToken)))
+	buf.WriteString(v.IDToken)
+	mustWrite(uint16(len(v.RefreshToken)))
+	buf.WriteString(v.RefreshToken)
+	mustWrite(uint16(len(v.AccessToken)))
+	buf.WriteString(v.AccessToken)
+	mustWrite(v.ExpiresAt.UnixNano())
+	return buf.Bytes()
+}
+
+func UnpackPortalCookie(data []byte) (PortalCookieValue, error) {
+	var v PortalCookieValue
+	r := bytes.NewReader(data)
+
+	var idLen uint16
+	if err := binary.Read(r, binary.LittleEndian, &idLen); err != nil {
+		return v, fmt.Errorf("auth: cookie unpack id len: %w", err)
+	}
+	if idLen > 0 {
+		id := make([]byte, idLen)
+		if _, err := io.ReadFull(r, id); err != nil {
+			return v, fmt.Errorf("auth: cookie unpack id token: %w", err)
+		}
+		v.IDToken = string(id)
+	}
+
+	var rLen uint16
+	if err := binary.Read(r, binary.LittleEndian, &rLen); err != nil {
+		return v, fmt.Errorf("auth: cookie unpack refresh len: %w", err)
+	}
+	if rLen > 0 {
+		rt := make([]byte, rLen)
+		if _, err := io.ReadFull(r, rt); err != nil {
+			return v, fmt.Errorf("auth: cookie unpack refresh token: %w", err)
+		}
+		v.RefreshToken = string(rt)
+	}
+
+	var aLen uint16
+	if err := binary.Read(r, binary.LittleEndian, &aLen); err != nil {
+		return v, fmt.Errorf("auth: cookie unpack access len: %w", err)
+	}
+	if aLen > 0 {
+		at := make([]byte, aLen)
+		if _, err := io.ReadFull(r, at); err != nil {
+			return v, fmt.Errorf("auth: cookie unpack access token: %w", err)
+		}
+		v.AccessToken = string(at)
+	}
+
+	var expNano int64
+	if err := binary.Read(r, binary.LittleEndian, &expNano); err != nil {
+		return v, fmt.Errorf("auth: cookie unpack expires: %w", err)
+	}
+	v.ExpiresAt = time.Unix(0, expNano)
+
+	return v, nil
 }
 
 func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refreshToken, accessToken string, idExp time.Time) error {
@@ -516,19 +599,21 @@ func (o *OIDC) writePortalCookie(w http.ResponseWriter, tenant, idToken, refresh
 	return nil
 }
 
-// buildPortalCookie seals the (id, refresh, exp) triple into the portal
-// cookie. Factored out of writePortalCookie so the Connect-RPC portal
-// interceptor can attach a refreshed cookie to its response without
-// owning an http.ResponseWriter.
+// buildPortalCookie binary-packs the (id, refresh, access, exp)
+// quadruple, zstd-compresses the packed bytes, then AES-SIV encrypts
+// with tenant-scoped AAD. Factored out of writePortalCookie so the
+// Connect-RPC portal interceptor can attach a refreshed cookie to its
+// response without owning an http.ResponseWriter.
 func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken, accessToken string, idExp time.Time) (*http.Cookie, error) {
-	payload, err := json.Marshal(portalCookieValue{
+	payload := PackPortalCookie(PortalCookieValue{
 		IDToken:      idToken,
 		RefreshToken: refreshToken,
 		AccessToken:  accessToken,
 		ExpiresAt:    idExp,
 	})
+	payload, err := zstdCompress(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auth: cookie compress: %w", err)
 	}
 	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: cookieAADKind})
 	if err != nil {
@@ -540,32 +625,6 @@ func (o *OIDC) buildPortalCookie(tenant, idToken, refreshToken, accessToken stri
 	const maxAge = 30 * 24 * 3600
 	return &http.Cookie{
 		Name:     portalCookieName,
-		Value:    base64.RawURLEncoding.EncodeToString(sealed),
-		Path:     "/t/" + tenant,
-		HttpOnly: true,
-		Secure:   o.cfg.Secure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   maxAge,
-	}, nil
-}
-
-func (o *OIDC) buildImpersonationCookie(tenant, idToken, refreshToken, accessToken string, idExp time.Time) (*http.Cookie, error) {
-	payload, err := json.Marshal(portalCookieValue{
-		IDToken:      idToken,
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		ExpiresAt:    idExp,
-	})
-	if err != nil {
-		return nil, err
-	}
-	sealed, err := o.cipher.Encrypt(payload, crypto.AAD{TenantID: tenant, Kind: impersonationCookieAADKind})
-	if err != nil {
-		return nil, err
-	}
-	const maxAge = 30 * 24 * 3600
-	return &http.Cookie{
-		Name:     impersonationCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(sealed),
 		Path:     "/t/" + tenant,
 		HttpOnly: true,
@@ -608,42 +667,8 @@ func (o *OIDC) ResolvePortalSession(ctx context.Context, header http.Header, ten
 	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
 }
 
-// ResolveImpersonationSession is the Connect-RPC interceptor entry point
-// for the impersonation cookie. It decrypts the
-// limen_portal_impersonate cookie, verifies the ID token, and
-// transparently refreshes it on expiry. On error it does NOT return a
-// clear-cookie — the caller should fall back to the normal portal
-// session.
-func (o *OIDC) ResolveImpersonationSession(ctx context.Context, header http.Header, tenant string) (*oidc.IDTokenClaims, string, *http.Cookie, error) {
-	r := &http.Request{Header: header}
-	tok, err := o.readImpersonationCookie(r, tenant)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	claims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, tok.IDToken, o.defaultParty.IDTokenVerifier())
-	if err == nil {
-		return claims, tok.AccessToken, nil, nil
-	}
-	if tok.RefreshToken == "" {
-		return nil, "", nil, fmt.Errorf("auth: impersonation id token invalid, no refresh: %w", err)
-	}
-	refreshed, rerr := rp.RefreshTokens[*oidc.IDTokenClaims](ctx, o.defaultParty, tok.RefreshToken, "", "")
-	if rerr != nil {
-		return nil, "", nil, fmt.Errorf("auth: impersonation refresh failed: %w", rerr)
-	}
-	newRefresh := refreshed.RefreshToken
-	if newRefresh == "" {
-		newRefresh = tok.RefreshToken
-	}
-	setCookie, err := o.buildImpersonationCookie(tenant, refreshed.IDToken, newRefresh, refreshed.AccessToken, refreshed.IDTokenClaims.GetExpiration())
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("auth: rebuild impersonation cookie after refresh: %w", err)
-	}
-	return refreshed.IDTokenClaims, refreshed.AccessToken, setCookie, nil
-}
-
-func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (portalCookieValue, error) {
-	var zero portalCookieValue
+func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (PortalCookieValue, error) {
+	var zero PortalCookieValue
 	c, err := r.Cookie(name)
 	if err != nil {
 		return zero, err
@@ -656,19 +681,19 @@ func (o *OIDC) readCookie(r *http.Request, tenant, name, aadKind string) (portal
 	if err != nil {
 		return zero, fmt.Errorf("auth: cookie open: %w", err)
 	}
-	var v portalCookieValue
-	if err := json.Unmarshal(plain, &v); err != nil {
-		return zero, fmt.Errorf("auth: cookie parse: %w", err)
+	plain, err = zstdDecompress(plain)
+	if err != nil {
+		return zero, fmt.Errorf("auth: cookie decompress: %w", err)
+	}
+	v, err := UnpackPortalCookie(plain)
+	if err != nil {
+		return zero, err
 	}
 	return v, nil
 }
 
-func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (portalCookieValue, error) {
+func (o *OIDC) readPortalCookie(r *http.Request, tenant string) (PortalCookieValue, error) {
 	return o.readCookie(r, tenant, portalCookieName, cookieAADKind)
-}
-
-func (o *OIDC) readImpersonationCookie(r *http.Request, tenant string) (portalCookieValue, error) {
-	return o.readCookie(r, tenant, impersonationCookieName, impersonationCookieAADKind)
 }
 
 // ExtractRoles parses the Zitadel project-roles claim into a flat slice of

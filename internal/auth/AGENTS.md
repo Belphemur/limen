@@ -41,9 +41,11 @@ Routes:
 
 Cookies:
 
-- `limen_portal` — AAD-encrypted (`{TenantID: slug, Kind:
-  "portal.oidc.tokens"}`) JSON `{idToken, refreshToken, expiresAt}`.
-  `Path=/t/{slug}; HttpOnly; Secure; SameSite=Lax`.
+- `limen_portal` — binary-packed (`{idToken, refreshToken, accessToken,
+  expiresAt}`, uint16 LE length-prefixed strings + int64 LE timestamp),
+  zstd-compressed, then AES-SIV encrypted with AAD (`{TenantID: slug,
+  Kind: "portal.oidc.tokens"}`). `Path=/t/{slug}; HttpOnly; Secure;
+  SameSite=Lax`.
 - `limen_state` — HMAC-signed state from `StateSigner`.
   `Path=/auth/callback; HttpOnly; Secure; SameSite=Lax; Max-Age=600`.
 

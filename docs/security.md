@@ -149,6 +149,122 @@ zitadel:
   mcp_resource_audience: "my-zitadel-project-id"
 ```
 
+## Session Cookie Security
+
+Limen stores OIDC tokens in per-tenant session cookies. Each cookie is
+defense-in-depth layered:
+
+1. **Binary packed** — the `{idToken, refreshToken, accessToken, expiresAt}`
+   quadruple is packed with `uint16` LE length-prefixed strings and an
+   `int64` LE timestamp (14 bytes framing overhead, eliminates JSON
+   field-name bloat).
+
+2. **zstd compressed** — packed bytes are compressed (SpeedFastest) to
+   reduce JWT base64 text by ~50%, keeping the final cookie under the
+   browser 4KB limit even with 2-3KB access tokens.
+
+3. **AES-SIV encrypted** — compressed bytes are encrypted with AES-SIV
+   (RFC 5297) using tenant-scoped AAD (`{TenantID, Kind}`). Cross-tenant
+   replay fails cryptographically on AAD mismatch before any token is
+   inspected.
+
+Final cookie shape: `base64(aes_siv(zstd(binary_pack(tokens))))`.
+
+### Cookie attributes
+
+| Cookie                     | Path          | Kind AAD          | Purpose                                                    |
+| -------------------------- | ------------- | ----------------- | ---------------------------------------------------------- |
+| `limen_portal`               | `/t/{tenant}`   | `portal.oidc.tokens` | Browser login session (OIDC code flow)                       |
+| `limen_portal_impersonate`   | `/t/{tenant}`   | `portal.impersonate` | Admin-impersonating-service-account session (Token Exchange) |
+| `limen_state`                | `/auth/callback` | N/A (HMAC-SHA256)   | OIDC state parameter (anti-CSRF)                             |
+
+All token-carrying cookies use `HttpOnly; Secure; SameSite=Lax` (no
+`Domain`, no `SameSite=None`). The `Path=/t/{tenant}` scope provides
+physical cross-tenant isolation: a browser carrying tenant A's cookie
+cannot physically send it on a request to tenant B.
+
+## Service Account Impersonation Security
+
+Admins and owners can impersonate service accounts via Zitadel's RFC 8693
+Token Exchange to configure upstream MCP connections on behalf of the
+machine identity. For the full flow, role table, and token exchange app
+details, see the dedicated [Impersonation](impersonation.md) document.
+This section summarizes the security layers that protect the flow.
+
+### Defense layers
+
+1. **Zitadel instance policy.** Impersonation is disabled by default at
+   the Zitadel instance level. The bootstrap script idempotently enables
+   it via `SetSecuritySettings{EnableImpersonation: true}` at startup.
+
+2. **Zitadel org-level role gating.** The actor MUST hold the appropriate
+   Zitadel org membership role (see [Impersonation: Zitadel Roles](impersonation.md#zitadel-roles)
+   for the canonical role table): owners receive `ORG_ADMIN_IMPERSONATOR`
+   (plus `ORG_OWNER_VIEWER`, `ORG_SETTINGS_MANAGER`, `ORG_USER_MANAGER`)
+   which can impersonate any member in the org, while admins receive
+   `ORG_END_USER_IMPERSONATOR` (plus `ORG_USER_MANAGER`) which can
+   impersonate end users and service accounts but not other admins.
+   Roles are automatically granted on promotion and removed on
+   demotion (see [Member Management](phases/phase-04-tenant-auth-session.md)
+   — role sync). The bootstrap seed owner receives
+   `ORG_ADMIN_IMPERSONATOR` at provisioning time.
+
+3. **Zitadel project-level role gating (Limen side).** The
+   `RoleInterceptor` requires at least `RoleAdmin` to call
+   `ImpersonateServiceAccount`. The handler additionally rejects
+   impersonation of service accounts that do not belong to the requesting
+   tenant (`sa.TenantID != t.ID` — defense-in-depth on top of RLS).
+
+4. **Within-tenant only.** Token exchange is scoped to the same Zitadel
+   organization. An admin in tenant A cannot exchange for a service
+   account in tenant B. The `subject_token` is the service account's
+   Zitadel user ID, and Zitadel verifies both identities belong to the
+   same org before issuing the exchanged token.
+
+5. **Confidential client authentication.** The token exchange request to
+   Zitadel uses HTTP Basic Auth (`client_id` + `client_secret`) with a
+   dedicated confidential OIDC application ("Limen Token Exchange").
+   This app has `AuthMethodType: BASIC` and `GrantTypes: [TOKEN_EXCHANGE]`
+   — it is separate from the Portal PKCE app that browsers use.
+   Unauthenticated token exchange requests are rejected. See
+   [Impersonation](impersonation.md#token-exchange-app) for details.
+
+6. **Audit trail.** Every action taken during an impersonation session
+   carries the impersonating admin's user ID in the `on_behalf_of_user_id`
+   column of the audit event (see [Audit](audit.md)). The `act` claim on
+   the Zitadel-issued ID token provides a server-side audit record.
+
+7. **Cookie isolation.** Impersonation sessions use a dedicated cookie
+   (`limen_portal_impersonate`, AAD Kind `"portal.impersonate"`) that is
+   cryptographically isolated from the normal portal cookie (AAD Kind
+   `"portal.oidc.tokens"`). An impersonation cookie cannot be replayed as
+   a normal login session and vice versa. See [Session Cookie
+   Security](#session-cookie-security) for the full cookie format.
+
+8. **Exit is self-serve.** `ExitImpersonation` clears the impersonation
+   cookie immediately. The original portal cookie is untouched — the admin
+   returns to their own session. The `RoleInterceptor` allows
+   `ExitImpersonation` at `RoleMember`, so any authenticated user can
+   exit an impersonation session (even if their admin session expired
+   while impersonating).
+
+### What impersonation grants
+
+| Capability                                            | Yes / No |
+| ----------------------------------------------------- | -------- |
+| Create/configure upstream MCP connections             | Yes      |
+| Set upstream API keys and OAuth tokens                | Yes      |
+| View portal dashboard as the service account          | Yes      |
+| Create, delete, or regenerate service accounts        | No       |
+| Invite, update, or remove human members               | No       |
+| Change tenant settings or IDE presets                 | No       |
+| Delete the tenant                                     | No       |
+| Exit the impersonation session                        | Yes      |
+
+The impersonation session is scoped to `RoleMember` (the service
+account's own role, capped at admin). The admin's own higher role is NOT
+propagated — the impersonation is a "drop-privilege" operation.
+
 ## Tenant ↔ Zitadel org binding
 
 Limen is multi-tenant. Every tenant has its own URL prefix (`/t/{tenant}/...`)

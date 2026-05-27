@@ -6,14 +6,11 @@ import { adminClient } from '@/transport/adminClient'
 import {
   CreateServiceAccountRequestSchema,
   ListServiceAccountsRequestSchema,
-  DeleteServiceAccountRequestSchema,
-  RegenerateServiceAccountTokenRequestSchema,
-  ImpersonateServiceAccountRequestSchema,
   ServiceAccountRole,
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
-import { ConfirmDeleteModal } from '@limen/shared'
-import { KeyRound, Plus, Trash2, RefreshCw, UserCheck, Copy, X, Loader2 } from '@lucide/vue'
+import { ROUTES } from '@/router/routes'
+import { KeyRound, Plus, Copy, X, Loader2 } from '@lucide/vue'
 
 const serviceAccounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
@@ -21,8 +18,6 @@ const error = ref('')
 const showCreateModal = ref(false)
 const showTokenModal = ref(false)
 const newToken = ref('')
-const selectedSA = ref<ServiceAccount | null>(null)
-const deleteBusy = ref(false)
 const mutating = ref(false)
 const mutationError = ref<string | null>(null)
 
@@ -140,64 +135,6 @@ async function copyToken() {
   }
 }
 
-function askDelete(sa: ServiceAccount) {
-  selectedSA.value = sa
-  mutationError.value = null
-}
-
-function closeDelete() {
-  selectedSA.value = null
-  mutationError.value = null
-}
-
-async function confirmDelete() {
-  if (!selectedSA.value) return
-  deleteBusy.value = true
-  mutationError.value = null
-  const target = selectedSA.value
-  try {
-    await adminClient().deleteServiceAccount(
-      create(DeleteServiceAccountRequestSchema, { publicId: target.publicId }),
-    )
-    serviceAccounts.value = serviceAccounts.value.filter((sa) => sa.publicId !== target.publicId)
-    selectedSA.value = null
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  } finally {
-    deleteBusy.value = false
-  }
-}
-
-async function regenerateToken(sa: ServiceAccount) {
-  mutating.value = true
-  mutationError.value = null
-  try {
-    const resp = await adminClient().regenerateServiceAccountToken(
-      create(RegenerateServiceAccountTokenRequestSchema, {
-        publicId: sa.publicId,
-        expiryDays: 365,
-      }),
-    )
-    newToken.value = resp.token
-    showTokenModal.value = true
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  } finally {
-    mutating.value = false
-  }
-}
-
-async function impersonate(sa: ServiceAccount) {
-  mutationError.value = null
-  try {
-    await adminClient().impersonateServiceAccount(
-      create(ImpersonateServiceAccountRequestSchema, { publicId: sa.publicId }),
-    )
-    window.location.href = '/portal'
-  } catch (e) {
-    mutationError.value = e instanceof ConnectError ? e.message : String(e)
-  }
-}
 </script>
 
 <template>
@@ -208,7 +145,7 @@ async function impersonate(sa: ServiceAccount) {
           Service Accounts
         </h1>
         <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-          Create and manage service accounts for API access, cloud agents, and CLI tools.
+          Machine identities for AI agents and automation. Create a service account and use its API token for programmatic access.
         </p>
       </div>
       <button
@@ -221,6 +158,42 @@ async function impersonate(sa: ServiceAccount) {
         Create Service Account
       </button>
     </header>
+
+    <!-- Workflow guide -->
+    <div
+      v-if="serviceAccounts.length > 0 && !loading"
+      class="rounded-lg border border-outline-variant bg-surface-variant/20 p-5"
+    >
+      <h2 class="mb-3 font-display text-base font-semibold text-on-surface">
+        Using Service Accounts
+      </h2>
+      <ol class="space-y-3 text-sm text-on-surface-variant">
+        <li class="flex gap-3">
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+            >1</span
+          >
+          <span
+            ><strong class="text-on-surface">Create a service account</strong> — copy the token when
+            prompted. Store it securely (e.g. in a secrets manager or CI/CD variable).</span
+          >
+        </li>
+        <li class="flex gap-3">
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+            >2</span
+          >
+          <span
+            ><strong class="text-on-surface">Use the token</strong> — your AI agent or CLI tool can now
+            authenticate with
+            <code class="rounded bg-surface-variant px-1 py-0.5 font-mono text-xs"
+              >Authorization: Bearer &lt;token&gt;</code
+            >
+            against the gateway.</span
+          >
+        </li>
+      </ol>
+    </div>
 
     <!-- Table -->
     <section
@@ -239,17 +212,26 @@ async function impersonate(sa: ServiceAccount) {
       </div>
       <div
         v-else-if="serviceAccounts.length === 0"
-        class="p-6 text-center text-sm text-on-surface-variant"
+        class="space-y-4 p-6 text-center text-sm text-on-surface-variant"
         data-testid="sa-empty"
       >
-        <p class="mb-3">No service accounts yet.</p>
+        <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/15">
+          <KeyRound class="size-6 text-primary" />
+        </div>
+        <div class="space-y-2">
+          <p class="font-medium text-on-surface">No service accounts yet</p>
+          <p class="mx-auto max-w-md">
+            Service accounts are machine identities for AI agents, CI/CD pipelines, and CLI tools.
+            They authenticate with long-lived API tokens instead of browser logins.
+          </p>
+        </div>
         <button
           type="button"
           class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90"
           @click="openCreate"
         >
           <Plus class="size-4" />
-          Create one
+          Create your first service account
         </button>
       </div>
       <table v-else class="w-full text-left text-sm">
@@ -278,7 +260,12 @@ async function impersonate(sa: ServiceAccount) {
                   <KeyRound class="size-4" />
                 </div>
                 <div class="min-w-0">
-                  <div class="truncate font-medium text-on-surface">{{ sa.name }}</div>
+                  <router-link
+                    :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}`"
+                    class="truncate font-medium text-on-surface hover:text-primary hover:underline"
+                  >
+                    {{ sa.name }}
+                  </router-link>
                   <div class="truncate text-xs text-on-surface-variant">{{ sa.publicId }}</div>
                 </div>
               </div>
@@ -299,33 +286,13 @@ async function impersonate(sa: ServiceAccount) {
             </td>
             <td class="px-4 py-3">
               <div class="flex justify-end gap-1">
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Impersonate ${sa.name}`"
-                  :data-testid="`sa-impersonate-${sa.publicId}`"
-                  @click="impersonate(sa)"
+                <router-link
+                  :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}`"
+                  class="rounded p-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+                  :data-testid="`sa-manage-${sa.publicId}`"
                 >
-                  <UserCheck class="size-4" />
-                </button>
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Regenerate token for ${sa.name}`"
-                  :data-testid="`sa-regenerate-${sa.publicId}`"
-                  @click="regenerateToken(sa)"
-                >
-                  <RefreshCw class="size-4" />
-                </button>
-                <button
-                  type="button"
-                  class="rounded p-1.5 text-on-surface-variant hover:bg-error/10 hover:text-error"
-                  :title="`Delete ${sa.name}`"
-                  :data-testid="`sa-delete-${sa.publicId}`"
-                  @click="askDelete(sa)"
-                >
-                  <Trash2 class="size-4" />
-                </button>
+                  Manage
+                </router-link>
               </div>
             </td>
           </tr>
@@ -394,7 +361,7 @@ async function impersonate(sa: ServiceAccount) {
               </select>
             </label>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium text-on-surface">Expiry Days</span>
+              <span class="mb-1 block font-medium text-on-surface">Token Expiry (days)</span>
               <input
                 v-model.number="createForm.expiryDays"
                 type="number"
@@ -402,7 +369,9 @@ async function impersonate(sa: ServiceAccount) {
                 data-testid="sa-create-expiry"
                 class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none"
               />
-              <p class="mt-1 text-xs text-on-surface-variant">0 = no expiry</p>
+              <p class="mt-1 text-xs text-on-surface-variant">
+                Number of days until the API token expires. 0 = no expiry.
+              </p>
             </label>
             <p
               v-if="mutationError"
@@ -463,6 +432,17 @@ async function impersonate(sa: ServiceAccount) {
             >
               Copy this token now. It won't be shown again.
             </div>
+            <div class="space-y-2 text-sm text-on-surface-variant">
+              <p>
+                <strong class="text-on-surface">Next:</strong> Impersonate this account to set up
+                MCP connections, then use the token with your AI agent or CLI tool:
+              </p>
+              <div class="rounded border border-outline-variant bg-surface-variant p-2">
+                <code class="block break-all font-mono text-xs text-on-surface">
+                  curl -H "Authorization: Bearer YOUR_TOKEN" https://your-gateway/t/{tenant}/mcp/sse
+                </code>
+              </div>
+            </div>
             <div class="rounded border border-outline-variant bg-surface-variant p-3">
               <code class="block break-all font-mono text-sm text-on-surface">{{ newToken }}</code>
             </div>
@@ -490,16 +470,6 @@ async function impersonate(sa: ServiceAccount) {
       </div>
     </Teleport>
 
-    <!-- Delete confirmation -->
-    <ConfirmDeleteModal
-      :open="!!selectedSA"
-      title="Delete Service Account"
-      message="This action cannot be undone. Any active token for this service account will stop working immediately."
-      confirm-token="delete"
-      confirm-label="Delete"
-      :busy="deleteBusy"
-      @confirm="confirmDelete"
-      @cancel="closeDelete"
-    />
+
   </div>
 </template>

@@ -81,7 +81,8 @@ func (c *Client) DeleteMachineUser(ctx context.Context, zitadelUserID string) er
 }
 
 // AddPersonalAccessToken creates a PAT for a Zitadel user. When expiry is
-// nil no expiration is set; Zitadel treats this as "never expires".
+// nil a default 10-year expiration is set (Zitadel requires an expiration
+// date). Callers that need a specific expiry should pass an explicit time.
 // Returns the token ID and the token value. The token is only returned once.
 func (c *Client) AddPersonalAccessToken(ctx context.Context, zitadelUserID string, expiry *time.Time) (string, string, error) {
 	if zitadelUserID == "" {
@@ -93,6 +94,12 @@ func (c *Client) AddPersonalAccessToken(ctx context.Context, zitadelUserID strin
 	}
 	if expiry != nil {
 		req.ExpirationDate = timestamppb.New(*expiry)
+	} else {
+		// Zitadel v2 requires an expiration date. When the caller passes
+		// nil (meaning "no specific expiry"), default to 10 years so the
+		// token is effectively permanent. Callers that need short-lived
+		// tokens should pass an explicit expiry.
+		req.ExpirationDate = timestamppb.New(time.Now().Add(10 * 365 * 24 * time.Hour))
 	}
 
 	resp, err := c.api.UserServiceV2().AddPersonalAccessToken(ctx, req)

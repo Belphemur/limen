@@ -1,3 +1,12 @@
+---
+phase: "7"
+title: "Outbound upstream linking (strategies)"
+status: completed
+progress: 100
+depends_on: ["4"]
+updated: "2025-12-01"
+---
+
 # Phase 7 — Outbound upstream linking (strategies)
 
 **Depends on**: Phase 4 (portal session + tenant resolution); benefits from Phases 1–3 already landed.

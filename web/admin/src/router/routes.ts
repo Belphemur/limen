@@ -32,6 +32,7 @@ export const ROUTES = {
   settings: '/org/settings',
   ideConfiguration: '/org/ide-configuration',
   serviceAccounts: '/org/service-accounts',
+  serviceAccountDetail: '/org/service-accounts/:id',
   forbidden: '/forbidden',
   oauthPopupClose: '/oauth-popup-close',
   signup: '/signup',
@@ -106,6 +107,12 @@ export const routeDefs: RouteDef[] = [
     path: ROUTES.serviceAccounts,
     component: () => import('@/pages/ServiceAccounts.vue'),
     search: { mode: 'filter', placeholder: 'Filter service accounts…' },
+  },
+  {
+    name: 'service-account-detail',
+    path: ROUTES.serviceAccountDetail,
+    component: () => import('@/pages/ServiceAccountDetail.vue'),
+    search: { mode: 'hidden' },
   },
   {
     name: 'forbidden',

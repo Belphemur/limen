@@ -1,3 +1,12 @@
+---
+phase: "13"
+title: "Billing with Stripe (per-seat)"
+status: planned
+progress: 0
+depends_on: ["4", "9b", "10", "11", "12"]
+updated: "2026-03-25"
+---
+
 # Phase 13 — Billing with Stripe (per-seat)
 
 **Depends on**: [Phase 4](phase-04-tenant-auth-session.md) (tenant + Zitadel grants), [Phase 9b](phase-09b-portal-spa.md) (portal RPC + SPA), [Phase 12](phase-12-staff-backoffice.md) (staff visibility), [Phase 11](phase-11-production-deployment.md) (prod secrets + Caddy).

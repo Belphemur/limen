@@ -1,3 +1,12 @@
+---
+phase: "9f"
+title: "IDE presets & per-tenant redirect-URI allowlist"
+status: planned
+progress: 0
+depends_on: ["5", "9c"]
+updated: "2026-04-25"
+---
+
 # Phase 9f — IDE presets & per-tenant redirect-URI allowlist as a relation
 
 **Depends on**: Phase 5 (redirect-URI floor + glob matcher), Phase 9c (tenant admin SPA + Settings + Dashboard onboarding, current `dcr_redirect_uri_allowlist` JSONB on `tenant_settings`)

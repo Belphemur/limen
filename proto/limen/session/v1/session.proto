@@ -21,9 +21,9 @@ service SessionService {
 message GetSessionRequest {}
 
 message GetSessionResponse {
-  Tenant tenant = 1;
-  User user = 2;
-  Role role = 3;
+  Tenant tenant = 2;
+  User user = 3;
+  Role role = 5;
 }
 
 message Tenant {

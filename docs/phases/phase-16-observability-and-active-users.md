@@ -1,3 +1,12 @@
+---
+phase: "16"
+title: "Observability, active-user billing & service accounts"
+status: planned
+progress: 0
+depends_on: ["6", "8", "8b", "9c", "11", "13"]
+updated: "2026-04-05"
+---
+
 # Phase 16 — Observability, active-user billing & service accounts
 
 **Depends on**: [Phase 6](phase-06-resource-server.md) (tool-call hot path),

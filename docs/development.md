@@ -103,7 +103,7 @@ That single command brings the whole environment up. It:
 3. Runs the idempotent Zitadel bootstrap (`make dev-bootstrap`), which
    creates a dedicated **`limen`** organization (so the Zitadel instance
    default org stays clean), the **Limen Gateway** project inside it, the
-   Portal (OIDC) and MCP RS (API) apps, the project roles, a sample
+   Portal (OIDC), MCP RS (API), and Token Exchange apps, the project roles, a sample
    tenant org (`acme`), and the staff org. Tenant and staff orgs are
    wired up via project grants. Output lands in
    `scripts/zitadel-bootstrap/.bootstrap-out.env` (including
@@ -296,6 +296,9 @@ export LIMEN_OIDC_ISSUER=http://localhost:8081
 export LIMEN_OIDC_CLIENT_ID=$LIMEN_OIDC_PORTAL_CLIENT_ID
 export LIMEN_OIDC_REDIRECT_URI=http://localhost:8000/auth/callback
 export LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:8000/signed-out
+# Token exchange (service account impersonation) — provided by bootstrap
+export LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID=$LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID
+export LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET=$LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET
 export LIMEN_ZITADEL_DOMAIN=http://localhost:8081
 export LIMEN_ZITADEL_AUTH_MODE=pat
 export LIMEN_ZITADEL_PAT=$(docker run --rm -v limen-dev_zitadel-bootstrap:/p:ro alpine cat /p/admin-sa.pat)

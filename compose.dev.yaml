@@ -95,7 +95,7 @@ services:
     networks:
       - zitadel
 
-  # One-shot. Provisions the Limen project, Portal/MCP RS apps, project roles,
+  # One-shot. Provisions the Limen project, Portal/MCP RS/Token Exchange apps, project roles,
   # sample tenant org, and staff org via the Zitadel Management API.
   # Idempotent. Run via `make dev-bootstrap`.
   zitadel-bootstrap:

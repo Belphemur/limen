@@ -1,3 +1,12 @@
+---
+phase: "9g"
+title: "Static-header strategy rework (shared secret + opt-in user override)"
+status: planned
+progress: 0
+depends_on: ["7", "8", "9b", "9c"]
+updated: "2026-04-25"
+---
+
 # Phase 9g — Static-header strategy rework (shared secret + opt-in user override)
 
 **Depends on**: Phase 7 (upstream strategy interface, `static_header` v1), Phase 8 (per-user injection + reactive 401 path), Phase 9b (portal SPA), Phase 9c (admin SPA, `McpServerNew.vue`)

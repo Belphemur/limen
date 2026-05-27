@@ -1,3 +1,12 @@
+---
+phase: "8d"
+title: "Vendor context enrichment (Atlassian/GitHub/Linear/Sentry)"
+status: planned
+progress: 0
+depends_on: ["8c"]
+updated: "2026-04-15"
+---
+
 # Phase 8d — Vendor context enrichment
 
 **Depends on**: Phase 8c (context blob lives on `UpstreamLink.ContextJSON`,

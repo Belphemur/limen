@@ -11,6 +11,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// IsNotFound returns true when err is a Zitadel gRPC NotFound error.
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.NotFound
+	}
+	return false
+}
+
 // IsAlreadyExists reports whether err is an idempotent "already exists"
 // / "duplicate" condition from Zitadel. Some Zitadel handlers return
 // FailedPrecondition or Internal with an "already exists" message

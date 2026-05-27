@@ -1,3 +1,12 @@
+---
+phase: "11b"
+title: "Zitadel production hardening"
+status: planned
+progress: 0
+depends_on: ["11"]
+updated: "2026-03-10"
+---
+
 # Phase 11b — Zitadel production hardening
 
 **Depends on**: [Phase 11](phase-11-production-deployment.md).
@@ -324,7 +333,7 @@ The email domain matches the `ZITADEL_EXTERNALDOMAIN` set in the config.
 1. Visit `https://auth.limen.example.com/ui/console` in a browser.
 2. Log in as `zitadel-admin@auth.limen.example.com` with initial password `Password1!`.
 3. **Change the password immediately**. Zitadel forces this when `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: true` is set in the init environment (included in the overlay above).
-4. Create a named admin user for day-to-day operations (e.g., `ops@limen.example.com`). Assign it `ORG_OWNER` in the default organization.
+4. Create a named admin user for day-to-day operations (e.g., `ops@limen.example.com`). Assign it the org owner roles (`ORG_OWNER_VIEWER`, `ORG_SETTINGS_MANAGER`, `ORG_USER_MANAGER`, and `ORG_ADMIN_IMPERSONATOR`) in the default organization.
 5. Configure SMTP via the Console if the SMTP env vars were not set at init time: **Settings → SMTP**. This is the post-setup path for SMTP configuration.
 6. Bookmark the Console URL in the runbook.
 

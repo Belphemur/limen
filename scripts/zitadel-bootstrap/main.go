@@ -8,8 +8,7 @@ package main
 // a sample tenant org, and the staff org with a super_admin user. The
 // Zitadel instance default organization is intentionally left untouched so
 // it stays clean. All work is done through the official zitadel-go/v3 SDK,
-// preferring v2 services. The only v1 endpoint we touch is
-// ManagementService.AddOrgMember — see the "API surface" note below.
+// preferring v2 services.
 //
 // Connection topology (dev):
 //   - gRPC dial address: zitadel-api:8080 (internal docker DNS)
@@ -18,10 +17,10 @@ package main
 //     auth, not by PAT — irrelevant here)
 //
 // API surface: v2 services exclusively for everything Zitadel has shipped
-// in v2. The single exception is ManagementService.AddOrgMember (v1) —
-// Zitadel has not migrated org-member CRUD to v2 yet, and Console deep-
-// links from Limen require the seed user to be ORG_OWNER to self-serve
-// invites / roles / IdP / branding from `<issuer>/ui/console`.
+// in v2. Org-role management uses InternalPermissionServiceV2 (the same v2
+// surface the main Limen binary uses). The remaining v1 ManagementService
+// calls (ensureUserRegistrationDisabled) exist because Zitadel v2 has not
+// yet exposed login-policy CRUD.
 
 import (
 	"context"
@@ -35,6 +34,7 @@ import (
 	applicationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
 	authorizationV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authorization/v2"
 	filterV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	internalPermissionV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/internal_permission/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
@@ -167,6 +167,7 @@ func (b *bootstrap) ensureOIDCApp(ctx context.Context, projectID, name string, r
 		}
 		needsRedirect := !containsAll(oidc.GetRedirectUris(), redirectURIs)
 		needsPostLogout := len(expandedPostLogout) > 0 && !containsAll(oidc.GetPostLogoutRedirectUris(), expandedPostLogout)
+
 		if needsRedirect || needsPostLogout {
 			cfg := &applicationV2.UpdateOIDCApplicationConfigurationRequest{}
 			if needsRedirect {
@@ -428,21 +429,28 @@ func (b *bootstrap) ensureProjectGrant(ctx context.Context, projectID, grantedOr
 	return nil
 }
 
-// ensureOrgOwnerMembership makes userID an ORG_OWNER of orgID via the
-// v1 ManagementService.AddOrgMember RPC. Zitadel has not exposed
-// org-member CRUD on the v2 surface yet; the org context is selected by
-// the x-zitadel-orgid header rather than a request field. ORG_OWNER is
-// the Zitadel-side role that lets the user self-serve invites, role
-// changes, IdP federation, and branding from `<issuer>/ui/console` —
-// the deep-link targets the admin SPA renders.
+// ensureOrgOwnerMembership grants the canonical org-level owner role set
+// to userID within orgID via the v2 InternalPermissionServiceV2 RPC.
+// The exact roles are defined in the main module as
+// zitadel.OrgRolesForLimenRole(zitadel.RoleKeyOwner) and currently are:
+// ORG_OWNER_VIEWER, ORG_SETTINGS_MANAGER, and ORG_USER_MANAGER.
+//
+// ORG_OWNER_VIEWER + ORG_SETTINGS_MANAGER let the user self-serve invites,
+// role changes, IdP federation, and branding from `<issuer>/ui/console`.
+// ORG_USER_MANAGER is required for user management.
+// Idempotent — AlreadyExists errors are tolerated.
 func (b *bootstrap) ensureOrgOwnerMembership(ctx context.Context, orgID, userID string) error {
-	ctx = metadata.AppendToOutgoingContext(ctx, zsdk.OrgHeader, orgID)
-	_, err := b.api.ManagementService().AddOrgMember(ctx, &management.AddOrgMemberRequest{
+	_, err := b.api.InternalPermissionServiceV2().CreateAdministrator(ctx, &internalPermissionV2.CreateAdministratorRequest{
 		UserId: userID,
-		Roles:  []string{"ORG_OWNER"},
+		Roles:  []string{"ORG_OWNER_VIEWER", "ORG_SETTINGS_MANAGER", "ORG_USER_MANAGER"},
+		Resource: &internalPermissionV2.ResourceType{
+			Resource: &internalPermissionV2.ResourceType_OrganizationId{
+				OrganizationId: orgID,
+			},
+		},
 	})
 	if err != nil && !alreadyExists(err) {
-		return fmt.Errorf("add ORG_OWNER membership (user=%s org=%s): %w", userID, orgID, err)
+		return fmt.Errorf("add org roles (user=%s org=%s): %w", userID, orgID, err)
 	}
 	return nil
 }
@@ -640,13 +648,13 @@ func main() {
 	}
 	log.Printf("granted owner to %s in sample org", sampleOwnerEmail)
 
-	// ORG_OWNER (Zitadel side) lets the seed user self-serve invites,
+	// Org owner roles (Zitadel side) let the seed user self-serve invites,
 	// roles, IdP federation, and branding from Console — the surface
 	// the admin SPA's Members page deep-links into.
 	if err := b.ensureOrgOwnerMembership(ctx, orgID, sampleOwnerUserID); err != nil {
-		log.Fatalf("ensure sample owner ORG_OWNER membership: %v", err)
+		log.Fatalf("ensure sample owner org owner roles: %v", err)
 	}
-	log.Printf("granted ORG_OWNER to %s in sample org", sampleOwnerEmail)
+	log.Printf("granted org owner roles to %s in sample org", sampleOwnerEmail)
 
 	if err := b.ensureUserRegistrationDisabled(ctx, orgID); err != nil {
 		log.Fatalf("ensure user registration disabled (sample org): %v", err)

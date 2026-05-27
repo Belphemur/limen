@@ -22,8 +22,8 @@ func Run(configPath string) error {
 	defer cleanup()
 
 	// Built but not yet wired into any route — Phase 12 attaches it
-	// to the impersonation + audit surfaces. Held here so the
-	// dependency is exercised at boot.
+	// to the audit surface. Held here so the dependency is exercised
+	// at boot.
 	if _, err := zitadelboot.Build(rt); err != nil {
 		return err
 	}

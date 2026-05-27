@@ -1,3 +1,12 @@
+---
+phase: "9i"
+title: "Service Accounts & API Tokens"
+status: planned
+progress: 0
+depends_on: ["5", "9c", "9d"]
+updated: "2026-05-10"
+---
+
 # Phase 9i — Service Accounts & API Tokens
 
 > **Depends on**: Phase 5 (Zitadel integration), Phase 9c (tenant admin SPA), Phase 9d (shared session service)
@@ -7,8 +16,8 @@
 
 Allow tenant admins and owners to create Zitadel-backed service accounts (machine users) and obtain a
 one-time PAT (Personal Access Token) usable as `Authorization: Bearer <pat>` for both Connect-RPC
-and MCP endpoints, bypassing the browser OAuth flow. Admins/owners can impersonate service accounts
-via Zitadel Token Exchange (RFC 8693) to configure their upstream MCP connections in the portal.
+and MCP endpoints, bypassing the browser OAuth flow. Admins configure upstream links for service
+accounts via the admin UI instead of impersonating them.
 Update the admin onboarding to guide new tenants to create a service account as their first setup step.
 
 ## Background
@@ -23,12 +32,9 @@ The returned PAT is a JWT Bearer token that passes Zitadel's JWKS verification, 
 used by the MCP Resource Server. This means service accounts authenticate through the exact same
 JWT validation path as human MCP users — no separate auth subsystem.
 
-Service accounts cannot log in through the browser (no OIDC flow). To let admins configure upstream
-connections on behalf of a service account, Zitadel supports **Token Exchange** (RFC 8693): the admin
-exchanges their own access token for an ID token scoped to the service account. Zitadel manages the
-token lifetime and adds an `act` claim for the audit trail. Limen stores this ID token in a dedicated
-`limen_portal_impersonate` cookie (same AAD encryption as the portal cookie, different Kind) and the
-session middleware checks it before the regular portal cookie.
+Service accounts cannot log in through the browser (no OIDC flow). Upstream connections for a
+service account are configured by an admin through the shared upstream-link management UI;
+the admin selects the target service account when creating or editing the link.
 
 ## Sub-phases
 
@@ -81,18 +87,12 @@ session middleware checks it before the regular portal cookie.
   - `DeleteServiceAccountResponse`: (empty)
   - `RegenerateServiceAccountTokenRequest`: `public_id`, `expiry_days`
   - `RegenerateServiceAccountTokenResponse`: `token`
-  - `ImpersonateServiceAccountRequest`: `public_id`
-  - `ImpersonateServiceAccountResponse`: (empty — sets cookie via header)
-  - `ExitImpersonationRequest`: (empty)
-  - `ExitImpersonationResponse`: (empty)
   - RPCs on `AdminService`:
     ```protobuf
     rpc CreateServiceAccount(CreateServiceAccountRequest) returns (CreateServiceAccountResponse);
     rpc ListServiceAccounts(ListServiceAccountsRequest) returns (ListServiceAccountsResponse);
     rpc DeleteServiceAccount(DeleteServiceAccountRequest) returns (DeleteServiceAccountResponse);
     rpc RegenerateServiceAccountToken(RegenerateServiceAccountTokenRequest) returns (RegenerateServiceAccountTokenResponse);
-    rpc ImpersonateServiceAccount(ImpersonateServiceAccountRequest) returns (ImpersonateServiceAccountResponse);
-    rpc ExitImpersonation(ExitImpersonationRequest) returns (ExitImpersonationResponse);
     ```
 - [ ] Run `buf generate` to regenerate Go + Connect bindings
 
@@ -143,29 +143,6 @@ session middleware checks it before the regular portal cookie.
   - Remove ALL old PATs (best-effort, log failures)
   - Write audit entry `"service_account.token_regenerated"`
   - Return new token (shown only in this response)
-- [ ] Implement `ImpersonateServiceAccount` handler:
-  - Look up SA + role grant; return `NotFound` if missing or soft-deleted
-  - Extract admin's access_token from session context via `AccessTokenFromContext(ctx)`
-  - Call Zitadel token endpoint with Token Exchange (RFC 8693):
-    ```
-    POST {zitadel}/oauth/v2/token
-    grant_type=urn:ietf:params:oauth:grant-type:token-exchange
-    subject_token={sa_zitadel_user_id}
-    actor_token={admin_access_token}
-    scope=openid profile email offline_access urn:zitadel:iam:org:project:id:{project_id}:aud
-    ```
-  - Error mapping for Zitadel failures:
-    - Network/timeout → `CodeUnavailable` ("Zitadel identity provider unavailable")
-    - `invalid_grant` / `unauthorized_client` → `CodePermissionDenied` ("Cannot impersonate this service account")
-    - Other 4xx → `CodeInvalidArgument` with Zitadel error detail
-    - Other 5xx → `CodeInternal`
-  - On success: encrypt resulting ID token + access token + refresh token into `limen_portal_impersonate` cookie (AAD Kind = `"portal.impersonate"`)
-  - Set cookie via `connect.Response.Header().Set("Set-Cookie", ...)` with `Path=/t/{tenant}; HttpOnly; Secure; SameSite=Lax`
-  - Write audit entry `"service_account.impersonation_started"`
-  - Audit failures: log `"service_account.impersonation_failed"` with error reason
-- [ ] Implement `ExitImpersonation` handler:
-  - Clear `limen_portal_impersonate` cookie via `Set-Cookie: ...=; Max-Age=0; Path=/t/{tenant}`
-  - Write audit entry `"service_account.impersonation_ended"`
 - [ ] Add shared error mapper: Zitadel gRPC status codes → Connect codes (used by all handlers)
 - [ ] Add entries to `requiredRole` map in `internal/admin/roles.go`:
   ```go
@@ -173,26 +150,57 @@ session middleware checks it before the regular portal cookie.
   "ListServiceAccounts":           session.RoleAdmin,
   "DeleteServiceAccount":          session.RoleAdmin,
   "RegenerateServiceAccountToken": session.RoleAdmin,
-  "ImpersonateServiceAccount":     session.RoleAdmin,
-  "ExitImpersonation":             session.RoleMember,
   ```
 - [ ] Add `serviceAccounts ServiceAccountDirectory` field to `Service` struct in `internal/admin/service.go`
 - [ ] Add `ServiceAccountID` field to `serviceAccountAdminPrefix` in the service test — add new handler names to `callers()` map and `implementedRPCs` set
 - [ ] Wire `ServiceAccountDirectory` (zitadel client) in `internal/boot/adminmount/adminmount.go`
 
-### 9i-e: Session middleware — impersonation cookie
+### 9i-e: Service Account detail page
 
-- [ ] Update session `Interceptor` (`internal/session/interceptor.go`) to:
-  - Check `limen_portal_impersonate` cookie first
-  - Fall through to `limen_portal` if impersonation cookie is absent or invalid
-  - Clear invalid/expired impersonation cookies automatically (set `Max-Age=0` on response)
-- [ ] Update cookie sealing/unsealing in `internal/auth/oidc.go`:
-  - Support Kind `"portal.impersonate"` (reuse same encrypt/decrypt functions, pass Kind as parameter)
-  - Both cookies coexist; impersonation takes priority
-- [ ] Update upstream connection code in `internal/portal/upstreams.go`:
-  - Read `SessionAccountFromContext(ctx)` — a new accessor that returns either `*storage.User` or `*storage.ServiceAccount`
-  - If impersonating, set `UpstreamLink.ServiceAccountID` instead of `UserID`
-  - Create `SessionAccountFromContext` in `internal/session/context.go`
+A dedicated detail page for each service account where admins manage upstream links and DCR clients
+associated with that account. Both the upstream-link management component and the upstream catalog
+selector are extracted/reused from Portal, so the Admin and Portal SPAs share the same UX pattern.
+
+- [ ] Add detail page route `/admin/service-accounts/{public_id}` to `ROUTES` in `web/admin/src/router/routes.ts`
+- [ ] Create `web/admin/src/pages/ServiceAccountDetailPage.vue` with breadcrumb navigation:
+  `Admin > Service Accounts > {name}` and a back button that returns to the service account list
+- [ ] Render two main sections on the detail page:
+
+  **Section 1 — Upstream Links** (reuses shared component):
+  - [ ] Extract the upstream link management component into `web/shared/components/UpstreamLinkManager.vue`
+  - [ ] Component accepts `accountId` (public ID) and `accountType` (`'user' | 'service-account'`) props
+  - [ ] Lists all MCP upstream servers linked to this account: each row shows upstream name, URL,
+    connection status (connected / disconnected), and "last seen" timestamp
+  - [ ] Per-link actions: **Disable** (toggles active flag), **Disconnect** (unlinks — DELETE)
+  - [ ] **Add Upstream** button opens the upstream catalog selector (reused from Portal's upstream page)
+  - [ ] Shared component lives in `web/shared/` so both Portal and Admin import the same implementation
+  - [ ] Empty state: "No upstreams linked yet" with CTA "Link an Upstream"
+
+  **Section 2 — DCR Clients**:
+  - [ ] Lists all dynamic client registrations authorized for this service account
+  - [ ] Each row shows: client name, partial client ID (e.g. `abc…xyz`), created date
+  - [ ] Per-client action: **Disconnect** (deletes the DCR registration via AdminService RPC)
+  - [ ] Requires `GetDCRClients` and `DisconnectDCRClient` RPCs on `AdminService` (defined in proto, not in this phase's scope)
+  - [ ] Empty state: "No DCR clients registered" with helper text explaining that DCR clients appear when an IDE connects
+
+- [ ] Update `ServiceAccountsPage.vue` (list page) — clicking a row navigates to
+  `ServiceAccountDetailPage` via `router.push({ name: 'serviceAccountDetail', params: { public_id: row.publicId } })`
+  instead of performing inline actions
+- [ ] Move inline row actions (Delete, Regenerate Token) from the list page to the detail page header
+  (as header action buttons), keeping the list page as a read-only overview with clickable rows
+- [ ] Wire shared `UpstreamLinkManager` component in both `web/portal/` and `web/admin/` — verify
+  `web/shared/` alias resolves in both Vite configs
+
+### Implementation Status
+
+| Sub-item | Status |
+|----------|--------|
+| Shared `UpstreamLinkManager` component | Not started |
+| Detail page route + breadcrumb | Not started |
+| Detail page Section 1 (Upstream Links) | Not started |
+| Detail page Section 2 (DCR Clients) | Not started |
+| List page → detail page navigation | Not started |
+| Move inline actions to detail header | Not started |
 
 ### 9i-f: Bearer auth interceptor
 
@@ -231,8 +239,6 @@ session middleware checks it before the regular portal cookie.
   - Each row actions:
     - Delete button (confirmation dialog: "Delete service account 'X'? This will revoke all tokens and disable any integrations using it.")
     - Regenerate Token button (warning dialog: "This will invalidate the current token and generate a new one." → shows new token once)
-    - Impersonate button (calls RPC, sets impersonation cookie via response header, redirects to `/t/{tenant}/portal/`)
-  - If currently impersonating, show banner: "Impersonating {name}" with "Exit impersonation" button
   - Empty state: "No service accounts yet" with CTA button "Create your first service account"
 - [ ] Add route `serviceAccounts: '/org/service-accounts'` to `ROUTES` in `web/admin/src/router/routes.ts`
 - [ ] Add route definition entry for service accounts page (lazy-import with `() => import(...)`)
@@ -264,18 +270,21 @@ session middleware checks it before the regular portal cookie.
   - `internal/upstream/` package: check `GetUpstreamLink`, `ListUpstreamLinks`, `UpsertUpstreamLink` — make `UserID` optional when `ServiceAccountID` is set
   - `internal/gateway/` package: check link resolution during request dispatch — must work when owner is a service account
   - `internal/transport/` package: check upstream callback handlers — owner resolution must handle SA-owned links
-- [ ] Integration test: full Create → List → Delete → Regenerate → Impersonate → Exit → UpstreamLink flow
+- [ ] Integration test: full Create → List → Delete → Regenerate → UpstreamLink flow
 
 ## Design decisions
 
 ### Why Zitadel PAT (not JWT Profile Key)
 PAT is a ready-to-use JWT Bearer token. JWT Profile Key requires the client to sign a JWT assertion on every request — more complex for end users. PAT passes the same JWKS verification as other tokens.
 
-### Why Token Exchange for impersonation (not custom cookies)
-Zitadel natively supports RFC 8693 Token Exchange. The admin presents their access token as the `actor_token` and receives an ID token scoped to the service account. Zitadel manages the token lifetime and adds an `act` claim for audit trail. This eliminates custom impersonation crypto and cookie infrastructure. Limen only needs to store the resulting ID token in its existing AES-SIV cookie format.
+### Why shared upstream-link management (not impersonation)
+Admins configure upstream links for service accounts directly through the admin UI. The upstream link
+stores `service_account_id` instead of `user_id`, so the service account owns the link. This avoids
+RFC 8693 token exchange, dedicated impersonation cookies, and session-middleware complexity.
+The admin never operates "as" the service account; they simply target it when creating or editing a link.
 
 ### Why XOR constraint on UpstreamLink
-Service accounts own upstream links during impersonation. The owning identity is either a human user or a service account — never both, never neither. The CHECK constraint `((user_id IS NULL) <> (service_account_id IS NULL))` makes this illegal state unrepresentable at the database level (Parse, Don't Validate).
+Service accounts own upstream links directly. The owning identity is either a human user or a service account — never both, never neither. The CHECK constraint `((user_id IS NULL) <> (service_account_id IS NULL))` makes this illegal state unrepresentable at the database level (Parse, Don't Validate).
 
 ### Why compensation ordering (Zitadel-first, local DB last)
 Creating a service account spans two systems (Zitadel + local DB). The flow is Zitadel-first: create machine user → grant role → generate PAT → insert local row. If any Zitadel step fails, the operation aborts cleanly. If the local DB insert fails, best-effort rollback cleans up the orphaned Zitadel resources. This minimizes the window where Zitadel has state the local DB doesn't.
@@ -289,7 +298,7 @@ Service accounts are capped at `member` or `admin`. They can never be `owner`. T
 ### Interceptor stack ordering
 The Connect-RPC interceptor stack for the admin API is:
 1. `TenancyInterceptor` — validates tenant is on ctx
-2. `Interceptor` (session) — decrypts `limen_portal_impersonate` first, falls back to `limen_portal`
+2. `Interceptor` (session) — decrypts `limen_portal`
 3. `BearerTokenInterceptor` — checks `Authorization: Bearer <pat>`, skips if session already on ctx
 4. `RoleInterceptor` — enforces per-RPC minimum role from `requiredRole` map
 
@@ -299,9 +308,8 @@ This allows both browser-authenticated admins (via cookie) and service accounts 
 
 - [ ] Admin creates a service account, receives a PAT, uses it with `curl -H "Authorization: Bearer <pat>"` against a Connect-RPC endpoint
 - [ ] Admin creates a service account, receives a PAT, uses it with an MCP SSE connection at `/t/{tenant}/mcp/sse`
-- [ ] Admin impersonates a service account, is redirected to portal, can create an upstream link
-- [ ] Upstream link created during impersonation is owned by the service account (checked in DB)
-- [ ] Admin exits impersonation, `limen_portal_impersonate` cookie is cleared
+- [ ] Admin creates an upstream link targeted at a service account; link row has `service_account_id` set and `user_id` NULL
+- [ ] Service account uses its PAT to call an MCP tool through an upstream link it owns
 - [ ] Regenerate token invalidates old PAT; new PAT works, old PAT returns 401
 - [ ] Delete service account soft-deletes local row, removes Zitadel user; old PAT returns 401
 - [ ] Attempt to create SA with owner role is rejected with InvalidArgument
