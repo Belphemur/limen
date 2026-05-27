@@ -3,14 +3,17 @@ package admin
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/klauspost/compress/zstd"
@@ -414,10 +417,25 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 	}
 	defer httpResp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
+	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return nil, s.internal("read token exchange response", err)
 	}
+
+	bodyPreviewLen := int(math.Min(200, float64(len(body))))
+	bodyPreview := string(body[:bodyPreviewLen])
+	if !utf8.ValidString(bodyPreview) {
+		bodyPreview = hex.EncodeToString(body[:bodyPreviewLen])
+	}
+	s.logger.Debug("token exchange response",
+		zap.Int("status", httpResp.StatusCode),
+		zap.String("content_type", httpResp.Header.Get("Content-Type")),
+		zap.String("content_length", httpResp.Header.Get("Content-Length")),
+		zap.String("location", httpResp.Header.Get("Location")),
+		zap.String("exchange_url", exchangeURL),
+		zap.Int("body_len", len(body)),
+		zap.String("body_preview", bodyPreview),
+	)
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		var errBody struct {
