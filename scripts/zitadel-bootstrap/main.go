@@ -800,21 +800,21 @@ func main() {
 	}
 
 	out := map[string]string{
-		"LIMEN_OIDC_PORTAL_CLIENT_ID":         portalClientID,
-		"LIMEN_OIDC_MCP_RS_CLIENT_ID":         mcpClientID,
-		"LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID": tokenExchangeClientID,
-		"LIMEN_OIDC_PROJECT_ID":               projectID,
-		"LIMEN_GATEWAY_ORG_ID":                gatewayOrgID,
-		"LIMEN_GATEWAY_ORG_NAME":              gatewayOrgName,
-		"LIMEN_SAMPLE_TENANT_ORG_ID":          orgID,
-		"LIMEN_SAMPLE_TENANT_NAME":            sampleName,
-		"LIMEN_SAMPLE_OWNER_USER_ID":          sampleOwnerUserID,
-		"LIMEN_SAMPLE_OWNER_EMAIL":            sampleOwnerEmail,
-		"LIMEN_SAMPLE_OWNER_PASSWORD":         sampleOwnerPassword,
-		"LIMEN_STAFF_ZITADEL_ORG_ID":          staffOrgID,
-		"LIMEN_STAFF_BOOTSTRAP_EMAIL":         staffEmail,
+		"LIMEN_OIDC_PORTAL_CLIENT_ID": portalClientID,
+		"LIMEN_OIDC_MCP_RS_CLIENT_ID": mcpClientID,
+		"LIMEN_OIDC_PROJECT_ID":       projectID,
+		"LIMEN_GATEWAY_ORG_ID":        gatewayOrgID,
+		"LIMEN_GATEWAY_ORG_NAME":      gatewayOrgName,
+		"LIMEN_SAMPLE_TENANT_ORG_ID":  orgID,
+		"LIMEN_SAMPLE_TENANT_NAME":    sampleName,
+		"LIMEN_SAMPLE_OWNER_USER_ID":  sampleOwnerUserID,
+		"LIMEN_SAMPLE_OWNER_EMAIL":    sampleOwnerEmail,
+		"LIMEN_SAMPLE_OWNER_PASSWORD": sampleOwnerPassword,
+		"LIMEN_STAFF_ZITADEL_ORG_ID":  staffOrgID,
+		"LIMEN_STAFF_BOOTSTRAP_EMAIL": staffEmail,
 	}
 	if tokenExchangeClientSecret != "" {
+		out["LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID"] = tokenExchangeClientID
 		out["LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET"] = tokenExchangeClientSecret
 	} else {
 		log.Printf("WARNING: LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET is empty — rotate the secret manually in Zitadel Console for client_id=%s", tokenExchangeClientID)

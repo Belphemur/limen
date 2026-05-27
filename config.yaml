@@ -94,6 +94,12 @@ oidc:
     # in the URL. See docs/security.md "Tenant ↔ Zitadel org binding".
     - urn:zitadel:iam:user:resourceowner
   post_logout_redirect_uri: "${LIMEN_OIDC_POST_LOGOUT_REDIRECT_URI:-}"
+  # Credentials for the dedicated confidential OIDC app used for RFC 8693
+  # token exchange (service account impersonation). Both or neither must
+  # be set (AdminService validates this at startup). Provided by the
+  # bootstrap script as LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID/_SECRET.
+  token_exchange_client_id: "${LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_ID:-}"
+  token_exchange_client_secret: "${LIMEN_OIDC_TOKEN_EXCHANGE_CLIENT_SECRET:-}"
 
 # Phase 4 — Zitadel Management API client (used by `limen create-tenant`).
 zitadel:
