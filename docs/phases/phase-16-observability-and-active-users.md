@@ -1,70 +1,67 @@
 ---
 phase: "16"
-title: "Observability, active-user billing & service accounts"
+title: "Observability (metrics, dashboards, Prometheus)"
 status: planned
 progress: 0
-depends_on: ["6", "8", "8b", "9c", "11", "13"]
-updated: "2026-04-05"
+depends_on: ["6", "8", "8b", "9c", "11", "13b"]
+updated: "2026-05-27"
 ---
 
-# Phase 16 — Observability, active-user billing & service accounts
+# Phase 16 — Observability (metrics, dashboards, Prometheus)
 
 **Depends on**: [Phase 6](phase-06-resource-server.md) (tool-call hot path),
 [Phase 8](phase-08-per-tenant-injection.md) +
 [Phase 8b](phase-08b-codemode-async-tool-calls.md) (codemode dispatch),
 [Phase 9c](phase-09c-tenant-admin-spa.md) (tenant admin SPA),
 [Phase 11](phase-11-production-deployment.md) (production wiring),
-[Phase 13](phase-13-billing-stripe.md) (Stripe per-seat billing —
-**this phase changes the seat definition** from "Zitadel grant" to
-"monthly active user"),
-[`docs/audit.md`](../audit.md) (sibling audit pipeline).
+[Phase 13b](phase-13b-billing-metrics-pipeline.md) (billing metrics pipeline —
+shares the `active_user_months` table that Phase 16 reads for dashboard display).
 **Unblocks**: tenant admins see real usage; ops gets Prometheus signals;
-billing only charges for users who actually used the gateway; service
-accounts can exist without inflating the seat count.
+[Phase 17](phase-17-policy-engine.md) can use the event stream for policy decisions.
 
 ## Goal
 
-Three closely-related capabilities served by **one event stream**.
-Splitting them across phases would duplicate the recording pipeline,
-so they ship together.
+Three closely-related capabilities served by **one event stream**, focused
+purely on operational visibility.
 
 1. **Per-user, per-tool observability.** Every `tools/call` (direct or
    from inside codemode) records `success` / `failure` asynchronously,
-   without blocking the dispatch path. Tenant admins see a dashboard
-   with success / failure counts, top tools, top users, latency, and a
-   24 h request-volume sparkline (the mock in the user's brief).
+   without blocking the dispatch path. Events flow through a Valkey
+   Stream → Postgres pipeline, and tenant admins see a dashboard with
+   success / failure counts, top tools, top users, latency, and a
+   24 h request-volume sparkline.
 2. **Prometheus metrics** for SaaS ops — RED metrics (Rate, Errors,
    Duration) per upstream + per dispatch surface, plus
    tenant-aggregated gauges. Cardinality is bounded; we never label by
    `user_id`.
-3. **Active-user billing.** A user becomes a billable seat in a given
-   calendar month iff they made at least one successful (or failed —
-   see "What counts" below) `tools/call` in that month. This replaces
-   the [Phase 13](phase-13-billing-stripe.md) "count Zitadel grants"
-   definition. Service accounts (new entity) are billed under a
-   separate line-item and are **not** grants.
+3. **Admin dashboard SPA** with operational panels backed by Connect-RPC
+   additions to `AdminService`. Active-user counts surface from
+   `active_user_months` (created and written by Phase 13b; Phase 16 is
+   a reader) for the "Active users this month" panel.
+
+Billing is handled by [Phase 13](phase-13-billing-stripe.md) (two-plan model)
+and [Phase 13b](phase-13b-billing-metrics-pipeline.md) (billing metrics pipeline).
+This phase focuses on operational visibility only.
 
 ## Non-goals (v1)
 
-- **Per-tool / per-upstream usage-based pricing.** [Phase 13](phase-13-billing-stripe.md)
-  already calls this out. The event stream is the building block; the
-  Stripe metering wiring is not in this phase.
+- **Per-tool / per-upstream usage-based pricing** — Phase 13 territory.
 - **Time-series retention beyond 90 days** of raw events. Older data
-  rolls up into a monthly aggregate (kept indefinitely for billing
-  audit). Tenant admins see "last 90 days" in the dashboard; longer
-  ranges hit the aggregate.
+  rolls up into a monthly aggregate (kept for dashboard summaries;
+  billing reconciliation is Phase 13c).
 - **A query language for the dashboard.** Fixed panels with filter
   chips. No PromQL-style box in v1.
 - **Tracing.** Spans, OpenTelemetry export, distributed traces — out of
   scope. RED metrics + structured logs cover the v1 needs.
+- **Billing reconciliation** — Phase 13c.
+- **Service accounts** — Phase 9i.
 
 ## Design
 
 ### The event stream
 
-One table, one writer, one consumer per concern. DRY says: do not
-write a `tool_call_metrics` table for the dashboard and a separate
-`active_user_marks` table for billing — they read the same event.
+One table, one writer, one consumer group. The event stream is the
+backbone for all observability queries.
 
 ```sql
 CREATE TABLE tool_call_events (
@@ -72,9 +69,7 @@ CREATE TABLE tool_call_events (
   occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   tenant_id       BIGINT       NOT NULL REFERENCES tenants(id),
-  -- exactly one of user_id / service_account_id is set
-  user_id             BIGINT   REFERENCES users(id),
-  service_account_id  BIGINT   REFERENCES service_accounts(id),
+  user_id         BIGINT       NOT NULL REFERENCES users(id),
 
   upstream_id     BIGINT       NOT NULL REFERENCES upstreams(id),
   tool_name       TEXT         NOT NULL,             -- after normalization (Phase 14 territory)
@@ -86,14 +81,17 @@ CREATE TABLE tool_call_events (
   request_bytes   INTEGER      NOT NULL DEFAULT 0,
   response_bytes  INTEGER      NOT NULL DEFAULT 0,
 
+  billable_active BOOLEAN
+    GENERATED ALWAYS AS (outcome = 'ok' OR error_code = 'tool_error') STORED,
+
   PRIMARY KEY (id, occurred_at)
 ) PARTITION BY RANGE (occurred_at);
 
 -- monthly partitions, retention = 90 d on raw; older partitions detach
--- after their rows have been folded into tool_call_monthly (below).
+-- after their rows have been folded into the 5-minute materialized view.
 
 CREATE INDEX tool_call_events_tenant_time  ON tool_call_events (tenant_id, occurred_at DESC);
-CREATE INDEX tool_call_events_tenant_user  ON tool_call_events (tenant_id, user_id, occurred_at DESC) WHERE user_id IS NOT NULL;
+CREATE INDEX tool_call_events_tenant_user  ON tool_call_events (tenant_id, user_id, occurred_at DESC);
 CREATE INDEX tool_call_events_tenant_upst  ON tool_call_events (tenant_id, upstream_id, occurred_at DESC);
 CREATE INDEX tool_call_events_tenant_tool  ON tool_call_events (tenant_id, tool_name, occurred_at DESC);
 ```
@@ -111,17 +109,25 @@ Why a new table and not `audit_events`:
 - The `payload_*` encryption envelope from audit is not needed —
   there is no script body or upstream payload on a metric row.
 
+The `billable_active` generated column is retained for semantic clarity
+("which rows would count for billing?") but the actual billing
+determination is performed by Phase 13b's pipeline, not this phase.
+
+The `active_user_months` table — referenced by dashboard queries for
+"Active users this month" — is **owned by Phase 13b**. Phase 16 reads
+it; it does not write to it. Phase 13b's billing metrics pipeline is
+the sole writer.
+
 RLS-forced under the standard tenant policy; staff cross-tenant
 `SELECT` honours `limen.staff_mode`
 ([Phase 12](phase-12-staff-backoffice.md)).
 
-### Event transport: Valkey Streams + observer pod
+### Event transport: Valkey Streams + observer binary
 
 The dispatch path **must not** block on metric persistence — and with
 multi-pod gateway deployments ([Phase 11](phase-11-production-deployment.md)),
 per-pod in-memory buffers can't coordinate dedup or back-pressure.
-Solution: gateway pods fire events at a **Valkey Stream**
-([upstream docs](https://valkey.io/topics/streams-intro/)); a dedicated
+Solution: gateway pods fire events at a **Valkey Stream**; a dedicated
 **observer binary** consumes the stream and owns every Postgres write.
 
 ```
@@ -130,21 +136,17 @@ gateway pod (cmd/gateway)         valkey                   limen-observer (cmd/o
 dispatch.Record(ev)               Stream: tool_calls   ◀──XREADGROUP GROUP observer …
   → encode (msgpack)              MAXLEN ~ 1000000          batch 256 / 250ms
   → XADD * tenant_id=… …      ───▶ (~7 d worst-case            ↓
-  → return immediately              retention; <1 min        encrypt-if-needed (no-op for tool calls)
-                                    in steady state)            ↓
-                                                              COPY → tool_call_events
-                                                              upsert active_user_months
-                                                              emit billing.*_became_active rows
-                                                                ↓
-                                                              XACK observer <ids…>
-                                                              XDEL tool_calls <ids…>
+  → return immediately              retention; <1 min        COPY → tool_call_events
+                                     in steady state)            ↓
+                                                               XACK observer <ids…>
+                                                               XDEL tool_calls <ids…>
 ```
 
 Why Streams (not Pub/Sub):
 
 - **Durable**: entries persist until ACK+DEL, so an observer restart
   loses nothing. Pub/Sub drops messages if no subscriber is connected
-  at publish time — unacceptable for billing data.
+  at publish time — unacceptable for observability data.
 - **Consumer groups** (`XREADGROUP GROUP observer worker-N`): the
   observer scales horizontally; each entry is delivered to exactly one
   worker, with a pending-entries list for crash recovery.
@@ -156,6 +158,12 @@ Why Streams (not Pub/Sub):
 - **Replay**: bug in the consumer? Reset the consumer-group cursor and
   reprocess. `XDEL` happens only after a successful Postgres write, so
   in-flight events survive consumer code changes.
+
+**Stream separation.** Phase 13b uses its own streams (`billing:active_users`,
+`billing:sa_connections`) with its own consumer group (`billing_observer`).
+Phase 16 uses the `tool_calls` stream with consumer group `observer`.
+They are separate streams on the same Valkey instance, consumed by the
+same observer binary (multiple consumer goroutines).
 
 #### Retention
 
@@ -255,20 +263,18 @@ the entry-point + image boundary, per
 Responsibilities (everything the gateway used to do on the drain
 goroutine, plus a few things that benefit from being centralized):
 
-1. **`tool_calls` stream consumer.** Joins consumer group `observer`,
-   batches up to 256 events or 250 ms, `COPY`s into
-   `tool_call_events`, upserts `active_user_months` in the same
-   transaction, then `XACK`+`XDEL`.
-2. **`audit` stream consumer.** Same pattern for audit events — see
-   [`docs/audit.md` § Asynchronous transport](../audit.md#asynchronous-transport).
-3. **Materialized-view refresher.** Every 5 min jittered, runs
+1. **`tool_calls` stream consumer (Phase 16).** Joins consumer group
+   `observer`, batches up to 256 events or 250 ms, `COPY`s into
+   `tool_call_events`, then `XACK`+`XDEL`.
+2. **`billing:active_users` stream consumer (Phase 13b).** Consumer
+   group `billing_observer`; upserts `active_user_months`.
+3. **`billing:sa_connections` stream consumer (Phase 13b).** Consumer
+   group `billing_observer`; tracks service-account activity.
+4. **`audit` stream consumer (Phase 12).** Same pattern for audit
+   events — see [`docs/audit.md` § Asynchronous transport](../audit.md#asynchronous-transport).
+5. **Materialized-view refresher.** Every 5 min jittered, runs
    `REFRESH MATERIALIZED VIEW CONCURRENTLY tool_call_5m`. Single-
    leader via a Valkey lease key (`SET observer:mv-lease … NX PX 60000`).
-4. **Billing nudges.** When the active-user upsert creates a new row
-   for the current month, emit a `billing.user_became_active` audit
-   event (which itself goes through the audit stream) and kick the
-   billing reconciler via a Valkey notification — see
-   [§ Active users → billing](#active-users--billing-replaces-phase-13s-seat-counter).
 
 Deployment shape:
 
@@ -295,51 +301,35 @@ not `WithSuperuser`).
 - **Scales independently.** Observer pods are CPU-bound on
   serialization + DB writes, gateway pods are CPU-bound on JS
   evaluation. Different shapes, different node sizes.
-- **Single-writer guarantees.** All writes to `tool_call_events`,
-  `active_user_months`, and `audit_events` go through one binary,
-  one connection pool. Easier to reason about transactions,
-  idempotency, and rate limits.
+- **Single-writer guarantees.** All writes to `tool_call_events` and
+  `audit_events` go through one binary, one connection pool. Easier
+  to reason about transactions, idempotency, and rate limits.
 
 ### What counts
 
-| Outcome class                                                | Recorded?                                          | Counts as "active" for billing?                                        |
-| ------------------------------------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------- |
-| `ok`                                                         | yes                                                | yes                                                                    |
-| `error:tool_error` (upstream returned an error MCP response) | yes                                                | yes — the user did successfully invoke the gateway                     |
-| `error:upstream_unavailable`                                 | yes                                                | no — gateway-side failure, not a usage signal                          |
-| `error:policy_denied`                                        | yes                                                | no — the user was refused; charging them for a denial would be hostile |
-| Validation errors before dispatch (malformed JSON-RPC, etc.) | logged only, **not** recorded as a tool_call_event | no                                                                     |
+Phase 16 records **every** tool call regardless of outcome. The
+determination of what counts as billable activity is managed by
+Phase 13b's billing metrics pipeline, not this phase.
 
-The billing column is encoded as a generated boolean column
-`billable_active BOOLEAN GENERATED ALWAYS AS (outcome = 'ok' OR error_code = 'tool_error') STORED` so the
-active-user query is a simple `SELECT DISTINCT user_id WHERE
-billable_active AND occurred_at >= <month_start>`.
+| Outcome class                                                | Recorded by Phase 16?                                |
+| ------------------------------------------------------------ | ---------------------------------------------------- |
+| `ok`                                                         | yes                                                  |
+| `error:tool_error` (upstream returned an error MCP response) | yes                                                  |
+| `error:upstream_unavailable`                                 | yes                                                  |
+| `error:policy_denied`                                        | yes                                                  |
+| Validation errors before dispatch (malformed JSON-RPC, etc.) | logged only, **not** recorded as a tool_call_event   |
+
+The `billable_active` generated column (`outcome = 'ok' OR error_code = 'tool_error'`)
+provides a semantic hint but Phase 16 does not use it for any billing
+logic — it exists for query convenience and dashboard clarity.
 
 ### Monthly rollup + active-user mark
 
-A new table tracks "who was active in month M" so the billing query
-doesn't have to scan 30 days of raw events.
+The `active_user_months` table is **owned by Phase 13b**. It tracks
+"who was active in month M" so queries don't have to scan raw events.
+Phase 16 reads it for dashboard display ("Active users this month").
 
-```sql
-CREATE TABLE active_user_months (
-  tenant_id       BIGINT NOT NULL REFERENCES tenants(id),
-  month_start     DATE   NOT NULL,                    -- first day of the calendar month UTC
-  user_id         BIGINT REFERENCES users(id),
-  service_account_id BIGINT REFERENCES service_accounts(id),
-  first_seen_at   TIMESTAMPTZ NOT NULL,
-  last_seen_at    TIMESTAMPTZ NOT NULL,
-  call_count      INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (tenant_id, month_start, user_id, service_account_id)
-);
-```
-
-Writer maintains it incrementally: on every batched insert, an upsert
-of `(tenant_id, month_start, subject)` with `call_count = call_count +
-batch_count_for_that_subject` and a `last_seen_at = max(...)`. Cheap;
-runs in the same transaction as the `COPY`.
-
-For aggregated dashboard panels, a second rollup is computed by a
-cron-like background job (every 5 min, jittered):
+Phase 16's own aggregation is the materialized view `tool_call_5m`:
 
 ```sql
 CREATE MATERIALIZED VIEW tool_call_5m AS
@@ -372,16 +362,9 @@ points here). Panels:
 | Error rate                     | `sum(calls) WHERE outcome='error' / sum(calls)` last 24 h                                          |
 | Request-volume sparkline       | `tool_call_5m` bucketed to hours                                                                   |
 | Recent activity feed           | structured-log tail filtered to operational events (no PII)                                        |
-
-New panels not in the mock but trivially backed by the same data:
-
-- **Top users (by call count)** — internal display only, gated on
-  the `policy.privacy_show_per_user` tenant setting (default `on`;
-  EU tenants may want it off).
-- **Top tools** — `tool_call_events` aggregated by `tool_name`.
-- **Active users this month** — count from `active_user_months`
-  rolled up at request time. Surfaced because billing depends on it
-  and the admin needs to know what they will pay for.
+| Top users (by call count)      | `tool_call_events` aggregated by `user_id`, gated on `policy.privacy_show_per_user`                |
+| Top tools                      | `tool_call_events` aggregated by `tool_name`                                                       |
+| Active users this month        | count from `active_user_months` for current calendar month (Phase 13b table, Phase 16 reader)      |
 
 The "Recent MCP Activity" feed is a projection of `audit_events` (not
 `tool_call_events`) filtered to the operational verbs
@@ -428,13 +411,14 @@ adds the metrics themselves.
 
 limen_tool_calls_total{upstream="<public_id>",tool="<name>",surface="mcp_direct|codemode",outcome="ok|error"} counter
 limen_tool_call_duration_ms{upstream,tool,surface} histogram (buckets: 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
-limen_active_users_current_month                                                                gauge   (global)
-limen_active_users_current_month_per_tenant{tenant="<public_id>"}                               gauge   (opt-in via config; off by default)
-limen_observability_event_queue_depth                                                           gauge
-limen_observability_dropped_total                                                               counter
+limen_active_users_current_month                                                          gauge   (global)
+limen_active_users_current_month_per_tenant{tenant="<public_id>"}                         gauge   (opt-in via config; off by default)
+limen_observability_event_queue_depth                                                     gauge
+limen_observability_dropped_total                                                         counter
+limen_observability_stream_evicted_total                                                  counter
 
-limen_upstream_health{upstream}                                                                 gauge   (0|1)
-limen_breaker_state{name}                                                                       gauge   (0=closed,1=half,2=open)  -- from Phase 10 resilience registry
+limen_upstream_health{upstream}                                                           gauge   (0|1)
+limen_breaker_state{name}                                                                 gauge   (0=closed,1=half,2=open)  -- from Phase 10 resilience registry
 ```
 
 `tool` labels are bounded by the upstream's published tool set (we
@@ -448,167 +432,16 @@ tenant count, (2) some operators don't want tenant identifiers in
 their metrics pipeline. The default is off; staff use the dashboard
 RPCs cross-tenantly when they need per-tenant numbers.
 
-### Active users → billing (replaces Phase 13's seat counter)
+### Active users → dashboard display
 
-This phase **supersedes** [Phase 13's](phase-13-billing-stripe.md)
-"count Zitadel grants" rule. The new contract:
+Phase 16 reads `active_user_months` for the "Active users this month"
+panel on the admin dashboard. It does **not** reconcile billing. It
+does **not** push Stripe quantities. It is purely a **reader**.
 
-- `internal/billing/seats.go::Reconcile(tenantID)` now reads
-  `active_user_months` for the current calendar month rather than
-  Zitadel grants. The Zitadel-grant count is still surfaced in the
-  staff backoffice and in the admin SPA as the **provisioned seat
-  count** (how many people _could_ use the gateway) versus the
-  **active seat count** (how many actually did). Both are useful;
-  billing uses the active number.
-- Stripe `quantity` is bumped **only upward** within a billing month —
-  proration on add. We do not downward-prorate inside the month
-  because (a) Stripe handles month-boundary cleanup automatically and
-  (b) it makes the invoice unstable. At month boundary, the first
-  reconcile of the new month resets `quantity` to that month's active
-  count as we see it accumulate.
-- The reconciler is no longer "reactive on RPC + 6 h periodic". It
-  becomes "**1 h periodic** + **on first call from a previously-
-  inactive user this month**". The drain goroutine emits a
-  `billing.user_became_active` audit row + kicks the reconciler when
-  it inserts a new `active_user_months` row for the current month.
-- Free-tier limit (`free_tier.max_seats`) now means **max active
-  users this month**, not max grants. A tenant on free tier with 50
-  Zitadel grants is fine as long as only 2 distinct users actually
-  call tools in any given month.
-- The dashboard surfaces both numbers and a "current month is at X
-  active / Y provisioned" line on the billing page.
-
-`tenant_billing` gains:
-
-```sql
-ALTER TABLE tenant_billing
-  ADD COLUMN active_seat_count INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN seat_high_water_mark_month DATE;          -- the month the current active_seat_count belongs to
-```
-
-The old `seat_count` column is retained for the staff backoffice's
-"provisioned seats" panel (kept in lockstep with Zitadel grants by the
-old reactive hook, now renamed `provisioned_seat_count`). This is a
-breaking rename — change the column and the call sites in one PR
-(see [AGENTS.md engineering posture](../../AGENTS.md#engineering-posture-read-first):
-no compat shims).
-
-### Service accounts
-
-New entity. Fully separate from `users` because:
-
-- Service accounts authenticate to MCP via a **personal access token**
-  (PAT) issued by Limen, not via Zitadel. They never log in to the
-  portal; they don't have a Zitadel subject; they cannot own a tenant.
-- Their billing rule is different (see below).
-- Their policy-engine treatment ([Phase 17](phase-17-policy-engine.md))
-  is identical (taggable, subject to policies) — service accounts are
-  bound by `tag_bindings.subject_kind = 'service_account'` (new enum
-  variant).
-
-```sql
-CREATE TABLE service_accounts (
-  id          BIGSERIAL PRIMARY KEY,
-  public_id   TEXT NOT NULL UNIQUE,              -- svc_<ulid>
-  tenant_id   BIGINT NOT NULL REFERENCES tenants(id),
-  name        TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  enabled     BOOLEAN NOT NULL DEFAULT true,
-  created_by_user_id BIGINT NOT NULL REFERENCES users(id),  -- audit pointer
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at  TIMESTAMPTZ
-);
-CREATE UNIQUE INDEX service_accounts_tenant_name_uq
-  ON service_accounts (tenant_id, name) WHERE deleted_at IS NULL;
-
-CREATE TABLE service_account_tokens (
-  id                  BIGSERIAL PRIMARY KEY,
-  service_account_id  BIGINT NOT NULL REFERENCES service_accounts(id) ON DELETE CASCADE,
-  public_id           TEXT NOT NULL UNIQUE,        -- pat_<ulid> (returned once, the only ID surfaced)
-  token_hash          BYTEA NOT NULL,              -- argon2id of the secret; secret never persisted
-  prefix              TEXT NOT NULL,               -- first 8 chars of secret, shown in UI ("limen_pat_8f3a…")
-  last_used_at        TIMESTAMPTZ,
-  expires_at          TIMESTAMPTZ,                 -- nullable; non-expiring tokens allowed but discouraged in UI
-  revoked_at          TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-Auth path: `Authorization: Bearer limen_pat_<base32-secret>`. The MCP
-RS middleware ([Phase 6](phase-06-resource-server.md)) recognises the
-`limen_pat_` prefix and dispatches to the service-account validator
-instead of the Zitadel JWT path. Validator looks up `prefix`, verifies
-argon2id against `token_hash`, checks `revoked_at` / `expires_at`,
-loads the parent service account, and pins the request context with
-a `service_account_id` instead of a `user_id`. From here the request
-is treated like a regular per-tenant user (policy engine evaluates
-service-account tags, upstream injection respects per-service-account
-links, etc.).
-
-Service accounts have **no Zitadel role** — they cannot be `owner` /
-`admin` / `member`. They are effectively a fourth principal type
-gated entirely by tags + policies. The default tenant `policy_default`
-applies; tenants who flip to default-deny must explicitly allow each
-service account.
-
-#### Service-account billing
-
-[Phase 13](phase-13-billing-stripe.md) is extended:
-
-- A new Stripe price `service_account_price_id` (configured next to
-  `seat_price_id`) bills service accounts.
-- Billing rule: a service account is billable in month M iff it had
-  at least one billable call in M (same definition as users).
-  Counted on the same `active_user_months` table via the
-  `service_account_id` column.
-- The Stripe subscription gains a second line item (one
-  `SubscriptionItem` per price). `Reconcile` updates both quantities
-  in the same `SubscriptionsService.Update` call.
-- Free tier: a new
-  `free_tier.max_service_accounts` knob (default 0 — paid feature).
-
-#### Admin UX
-
-New `/t/<tenant>/portal/admin/service-accounts` page:
-
-- List with `Name | Created by | Last used | Active this month | Status`.
-- Create flow: pick name + optional expiry; on submit the modal
-  reveals the full PAT **exactly once** with a copy button and a
-  prominent "we will not show this again" warning. Standard PAT idiom.
-- Detail: list of tokens (with prefixes, never the full secret),
-  revoke buttons, and the same tag-binding UI used for users
-  ([Phase 17](phase-17-policy-engine.md)).
-- Owner + admin can create / revoke; member cannot see the page.
-
-### Audit
-
-New verbs in [`docs/audit.md`](../audit.md):
-
-- `service_account.created` / `.deleted` / `.enabled` / `.disabled`
-- `service_account.token.issued` / `.revoked`
-- `service_account.used_first_time_this_month`
-- `billing.user_became_active` (one row per (tenant, user, month))
-- `billing.service_account_became_active` (one row per (tenant, svc, month))
-- `billing.active_seat_quantity_updated` (per Stripe push)
-- `observability.metrics_queue_dropped` (emitted in batches when `dropped` ticks up)
-
-The "became active" rows are **once per month** by construction
-(uniqueness on the `active_user_months` insert path), so they are
-self-rate-limited.
-
-### Staff backoffice
-
-`StaffService` ([Phase 12](phase-12-staff-backoffice.md)) gains:
-
-- `GetTenantUsage(tenant_id, range)` — same shape as the admin
-  `GetDashboardSummary` plus `provisioned_seat_count`,
-  `active_seat_count_this_month`, `service_account_active_count`.
-- `ListAllActiveUsers(month)` — cross-tenant active-user roster for
-  finance reconciliation. Staff-mode SELECT.
-- Existing **Tenants** detail card gains a "This month's activity"
-  block: active users / provisioned seats / service-account count /
-  delta-from-last-month sparkline.
+The `active_user_months` table was created by Phase 13b's migration
+and is written by Phase 13b's billing metrics pipeline. Phase 16's
+dashboard RPC `ListActiveUsers` queries this table (joined with
+`users` for display names) and returns counts per tenant.
 
 ### Codemode hook
 
@@ -638,62 +471,62 @@ table only carries the per-tool outcome.
   shed-load behaviour, assert no goroutine leak when the drain is
   stopped.
 - Integration (`postgres:18-alpine`): emit 10 K events for two
-  tenants, assert RLS isolation, assert `active_user_months` rolls up
-  correctly across a month boundary (use `time.Now()` injection).
+  tenants, assert RLS isolation, assert month-boundary queries work
+  across partitions (use `time.Now()` injection).
 - Dashboard RPC: golden-file the response for a deterministic
   fixture set.
-- Billing handoff: reconcile picks up the active number, not the
-  Zitadel grant count; downward changes do not happen mid-month;
-  month-boundary reset works.
-- Service-account PAT: argon2id verification path; revoked tokens
-  rejected; expiry honoured; pre-pat-prefix Bearer tokens still
-  routed to the Zitadel validator (don't break customer logins).
 - Prometheus: scrape the endpoint, assert label-set is bounded
   (no `user_id` label anywhere; no per-tenant labels unless opt-in).
 - Codemode: a script that calls 50 tools produces 50 rows, one per
   call; the dispatching code does not double-record.
+- Cross-phase: dashboard `ListActiveUsers` reads `active_user_months`
+  correctly and returns expected counts (Phase 13b table, Phase 16 reader).
 
 ## Checklist
 
-- [ ] Migration `migrations/postgres/00XX_observability.sql` —
-      `tool_call_events` (partitioned), `active_user_months`,
-      `service_accounts`, `service_account_tokens`, RLS policies,
-      generated `billable_active` column, materialized view.
-- [ ] Migration `migrations/postgres/00XX_billing_active_seats.sql` —
-      `tenant_billing` rename `seat_count → provisioned_seat_count`,
-      add `active_seat_count`, `seat_high_water_mark_month`. Update
-      every call site in one PR (no compat alias).
-- [ ] `internal/observability/recorder.go` — `Recorder`, drain loop,
-      bounded channel, dropped-counter, batched `COPY` per tenant,
-      incremental `active_user_months` upsert.
-- [ ] Dispatch wrapper integration in `internal/mcprs/` (or wherever
-      [Phase 6](phase-06-resource-server.md) lands tool-call dispatch);
-      single recording site covers direct MCP **and** codemode.
-- [ ] Prometheus metrics in `internal/observability/metrics.go`;
-      `/metrics` mount on the admin port already provided by
-      [Phase 11](phase-11-production-deployment.md).
-- [ ] Background materialized-view refresher (every 5 min, jittered);
-      runs in the same binary as the drain.
-- [ ] AdminService dashboard RPCs (`GetDashboardSummary`,
-      `GetRequestVolume`, `ListTopTools`, `ListTopUsers`,
-      `ListActiveUsers`); buf-generated Go + TS.
-- [ ] Service-account RPCs on AdminService:
-      `CreateServiceAccount` / `Delete` / `Enable` / `Disable`,
-      `IssueToken` / `RevokeToken`, `ListServiceAccounts`.
-- [ ] MCP RS middleware: `limen_pat_` prefix dispatch + argon2id
-      verification.
-- [ ] [Phase 17](phase-17-policy-engine.md) integration:
-      `tag_bindings.subject_kind` enum gains `service_account`;
-      evaluator handles the new principal kind transparently.
-- [ ] `internal/billing/seats.go` rewritten against
-      `active_user_months`; reconciler triggers on
-      `user_became_active` audit events.
-- [ ] Tenant admin SPA: dashboard, service-accounts page, billing
-      page update (active vs provisioned counts).
-- [ ] Staff backoffice additions (`GetTenantUsage`,
-      `ListAllActiveUsers`, tenant detail card block).
-- [ ] Audit vocabulary additions to [`docs/audit.md`](../audit.md).
-- [ ] Docs: new `docs/observability.md` (metrics catalogue, dashboard
-      panels, retention) + update [`docs/configuration.md`](../configuration.md)
-      with the new `observability:` block and the renamed billing
-      knobs.
+- [ ] Migration: `tool_call_events` (partitioned), RLS policies,
+      generated `billable_active` column, materialized view `tool_call_5m`
+- [ ] `internal/observability/recorder.go` — Recorder, Valkey Stream XADD,
+      dropped-counter
+- [ ] `cmd/observer/` — tool_calls stream consumer (XREADGROUP → batch COPY → XACK+XDEL),
+      materialized-view refresher
+- [ ] Consumer-group bootstrap: `XGROUP CREATE tool_calls observer $ MKSTREAM`
+- [ ] XAUTOCLAIM for stuck-consumer recovery (60s min-idle)
+- [ ] Dead-letter stream for entries with delivery count ≥ 5
+- [ ] All-in-one fallback: in-process drain goroutine when `valkey.enabled: false`
+- [ ] Dispatch wrapper integration in `internal/mcprs/` — single recording site
+      for direct MCP + codemode
+- [ ] Prometheus metrics in `internal/observability/metrics.go`; `/metrics` mount on admin port
+- [ ] Background materialized-view refresher (every 5 min, jittered, single-leader via Valkey lease)
+- [ ] AdminService dashboard RPCs: `GetDashboardSummary`, `GetRequestVolume`,
+      `ListTopTools`, `ListTopUsers`, `ListActiveUsers`
+- [ ] Tenant admin SPA: dashboard page with all panels
+- [ ] Staff backoffice: `GetTenantUsage` RPC, tenancy detail card with activity block
+- [ ] Audit vocabulary additions (`observability.metrics_queue_dropped`)
+- [ ] Docs: `docs/observability.md` (metrics catalogue, dashboard panels, retention)
+- [ ] Valkey Prometheus metrics exported
+- [ ] `config.yaml` `observability:` section with retention, per-tenant-metrics toggle
+- [ ] `go build ./...`, `go test ./...` pass
+
+## Deliverables
+
+| File | Change |
+|------|--------|
+| `docs/phases/phase-16-observability-and-active-users.md` | This file — rewrite, remove billing + SA |
+| `docs/phases/README.md` | Updated index + depends_on |
+| `internal/observability/` | New package (recorder, metrics, drain) |
+| `cmd/observer/` | New binary (or goroutine in cmd/limen) |
+| `proto/limen/admin/v1/admin.proto` | Add dashboard RPCs |
+| `web/admin/` | Dashboard page SPA |
+| `config.yaml` | New `observability:` section |
+
+## Risks
+
+- **Valkey stream eviction under catastrophic observer outage** — mitigated
+  by MAXLEN cap + Prometheus alert on `limen_observability_stream_evicted_total`.
+- **Materialized view refresh locking** — `CONCURRENTLY` prevents read locks;
+  single-leader lease prevents concurrent refresh contention.
+- **Label cardinality explosion** — bounded by known tool names; no `user_id`
+  labels on any Prometheus metric.
+- **Observer binary scaling** — consumer groups handle horizontal scaling
+  naturally; each worker owns its lease and pending-entry set.
