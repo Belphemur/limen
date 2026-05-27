@@ -27,7 +27,7 @@ Service accounts cannot log in through the browser (no OIDC flow). To let admins
 connections on behalf of a service account, Zitadel supports **Token Exchange** (RFC 8693): the admin
 exchanges their own access token for an ID token scoped to the service account. Zitadel manages the
 token lifetime and adds an `act` claim for the audit trail. Limen stores this ID token in a dedicated
-`limen_portal_impersonate` cookie (same AAD encryption as the portal cookie, different Kind) and the
+`limen_portal_impersonate` cookie (same binary-packed + zstd-compressed + AAD encryption format as the portal cookie, different Kind `"portal.impersonate"`) and the
 session middleware checks it before the regular portal cookie.
 
 ## Sub-phases
