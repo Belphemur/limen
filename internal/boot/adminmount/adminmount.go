@@ -28,6 +28,11 @@ import (
 // see cmd/gateway/import_graph_test.go.
 func NewHandler(rt *boot.Runtime, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory) (string, http.Handler) {
 	tenantSvc := tenant.NewService(rt.Store)
-	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, impersonationResolver, bearerIntercept, members, serviceAccounts, rt.Cfg.Zitadel.Domain, rt.Cfg.Zitadel.ProjectID, rt.Cipher, rt.Cfg.Security.PortalSessionCookieSecure, rt.Logger)
+	svc := admin.NewService(rt.Store, rt.UpstreamService, tenantSvc, resolver, impersonationResolver, bearerIntercept, members, serviceAccounts, rt.Cfg.Zitadel.Domain, rt.Cfg.Zitadel.ProjectID, admin.OIDCCredentials{
+		ClientID:                 rt.Cfg.OIDC.ClientID,
+		ClientSecret:             rt.Cfg.OIDC.ClientSecret,
+		TokenExchangeClientID:     rt.Cfg.OIDC.TokenExchangeClientID,
+		TokenExchangeClientSecret: rt.Cfg.OIDC.TokenExchangeClientSecret,
+	}, rt.Cipher, rt.Cfg.Security.PortalSessionCookieSecure, rt.Logger)
 	return svc.Handler()
 }

@@ -38,6 +38,15 @@ import (
 	"github.com/belphemur/limen/internal/upstream"
 )
 
+// OIDCCredentials holds the OIDC client credentials for the portal (PKCE)
+// and the dedicated token-exchange (BASIC) applications.
+type OIDCCredentials struct {
+	ClientID     string
+	ClientSecret string
+	TokenExchangeClientID     string
+	TokenExchangeClientSecret string
+}
+
 // Service is the AdminServiceHandler implementation.
 type Service struct {
 	store                 *storage.Store
@@ -50,6 +59,7 @@ type Service struct {
 	serviceAccounts       ServiceAccountDirectory
 	zitadelDomain         string
 	zitadelProjectID      string
+	oidc                  OIDCCredentials
 	cipher                *crypto.Cipher
 	secureCookie          bool
 	logger                *zap.Logger
@@ -65,7 +75,7 @@ type Service struct {
 // nil those RPCs return CodeUnimplemented. serviceAccounts is the
 // Zitadel directory pass-through used by the service account RPCs;
 // when nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, impersonationResolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, oidc OIDCCredentials, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -80,6 +90,7 @@ func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *
 		serviceAccounts:       serviceAccounts,
 		zitadelDomain:         zitadelDomain,
 		zitadelProjectID:      zitadelProjectID,
+		oidc:                  oidc,
 		cipher:                cipher,
 		secureCookie:          secureCookie,
 		logger:                logger,

@@ -276,6 +276,13 @@ type OIDCConfig struct {
 	ClientID string `yaml:"client_id"`
 	// ClientSecret is empty for a public PKCE client.
 	ClientSecret string `yaml:"client_secret,omitempty"`
+	// TokenExchangeClientID is the OIDC client ID for the dedicated
+	// confidential token-exchange application (RFC 8693). This is a
+	// separate application from the Portal PKCE client.
+	TokenExchangeClientID string `yaml:"token_exchange_client_id,omitempty"`
+	// TokenExchangeClientSecret is the OIDC client secret for the
+	// dedicated token-exchange application.
+	TokenExchangeClientSecret string `yaml:"token_exchange_client_secret,omitempty"`
 	// RedirectURI is the absolute URL for the root /auth/callback handler,
 	// e.g. https://limen.example.com/auth/callback. Must be a sub-path of
 	// Server.BaseURL.
@@ -800,6 +807,9 @@ func (o OIDCConfig) Validate(baseURL string) error {
 	hasOpenID := slices.Contains(o.Scopes, "openid")
 	if !hasOpenID {
 		return errors.New(`scopes must include "openid"`)
+	}
+	if (o.TokenExchangeClientID == "") != (o.TokenExchangeClientSecret == "") {
+		return fmt.Errorf("token_exchange_client_id and token_exchange_client_secret must both be set or both be empty")
 	}
 	return nil
 }

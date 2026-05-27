@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
+	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
@@ -24,6 +26,12 @@ import (
 	"github.com/belphemur/limen/internal/zitadel"
 	userV2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
+
+var zstdEnc, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedFastest))
+
+func compressZstd(src []byte) ([]byte, error) {
+	return zstdEnc.EncodeAll(src, nil), nil
+}
 
 // ServiceAccountDirectory is the slice of the Zitadel client the admin
 // Service uses to read+write service accounts. Defined here (SOLID/ISP)
@@ -42,9 +50,9 @@ type ServiceAccountDirectory interface {
 func saRoleKeyFromProto(r adminv1.ServiceAccountRole) (string, bool) {
 	switch r {
 	case adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_MEMBER:
-		return roleKeyMember, true
+		return zitadel.RoleKeyMember, true
 	case adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_ADMIN:
-		return roleKeyAdmin, true
+		return zitadel.RoleKeyAdmin, true
 	default:
 		return "", false
 	}
@@ -52,9 +60,9 @@ func saRoleKeyFromProto(r adminv1.ServiceAccountRole) (string, bool) {
 
 func saRoleToProto(roleKey string) adminv1.ServiceAccountRole {
 	switch roleKey {
-	case roleKeyMember:
+	case zitadel.RoleKeyMember:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_MEMBER
-	case roleKeyAdmin:
+	case zitadel.RoleKeyAdmin:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_ADMIN
 	default:
 		return adminv1.ServiceAccountRole_SERVICE_ACCOUNT_ROLE_UNSPECIFIED
@@ -65,11 +73,11 @@ func pickHighestSARole(keys []string) string {
 	best := ""
 	for _, k := range keys {
 		switch k {
-		case roleKeyAdmin:
-			return roleKeyAdmin
-		case roleKeyMember:
-			if best != roleKeyAdmin {
-				best = roleKeyMember
+		case zitadel.RoleKeyAdmin:
+			return zitadel.RoleKeyAdmin
+		case zitadel.RoleKeyMember:
+			if best != zitadel.RoleKeyAdmin {
+				best = zitadel.RoleKeyMember
 			}
 		}
 	}
@@ -319,11 +327,10 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 		}
 	}
 
-	tokenID, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
+	_, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
 	if err != nil {
 		return nil, s.internal("create new PAT", err)
 	}
-	_ = tokenID
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil
 }
@@ -337,6 +344,9 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 	}
 	if s.zitadelDomain == "" {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("admin: zitadel domain not configured"))
+	}
+	if s.oidc.TokenExchangeClientID == "" || s.oidc.TokenExchangeClientSecret == "" {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("admin: token exchange credentials not configured"))
 	}
 
 	publicID := strings.TrimSpace(req.Msg.GetPublicId())
@@ -364,23 +374,28 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
 	}
 
+	// Defense-in-depth: verify the SA belongs to the requesting tenant.
+	// RLS covers this, but an explicit check makes the security boundary visible.
+	if sa.TenantID != t.ID {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("admin: service account not found"))
+	}
+
 	accessToken, ok := session.AccessTokenFromContext(ctx)
 	if !ok || accessToken == "" {
 		return nil, s.internal("no access token", errors.New("admin: access token missing from session"))
 	}
 
-	patID, pat, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, nil)
-	if err != nil {
-		return nil, s.internal("create temporary PAT", err)
-	}
-
+	// Per Zitadel token exchange docs, the SA's Zitadel user ID is accepted
+	// directly with subject_token_type=urn:zitadel:params:oauth:token-type:user_id.
+	// No temporary PAT is needed.
 	exchangeURL := strings.TrimSuffix(s.zitadelDomain, "/") + "/oauth/v2/token"
 	form := url.Values{}
 	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
-	form.Set("subject_token", pat)
-	form.Set("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
+	form.Set("subject_token", sa.ZitadelUserID)
+	form.Set("subject_token_type", "urn:zitadel:params:oauth:token-type:user_id")
 	form.Set("actor_token", accessToken)
 	form.Set("actor_token_type", "urn:ietf:params:oauth:token-type:access_token")
+	form.Set("requested_token_type", "urn:ietf:params:oauth:token-type:jwt")
 	form.Set("scope", "openid profile email offline_access urn:zitadel:iam:org:project:id:"+s.zitadelProjectID+":aud")
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -388,30 +403,37 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, exchangeURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, s.internal("build token exchange request", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpReq.SetBasicAuth(s.oidc.TokenExchangeClientID, s.oidc.TokenExchangeClientSecret)
 
 	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("admin: token exchange unavailable"))
 	}
 	defer httpResp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
 	if err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, s.internal("read token exchange response", err)
 	}
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		s.logger.Warn("token exchange failed",
-			zap.Int("status", httpResp.StatusCode),
-			zap.String("response", string(body)),
-		)
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
+		var errBody struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if jsonErr := json.Unmarshal(body, &errBody); jsonErr == nil {
+			s.logger.Warn("token exchange denied",
+				zap.String("error", errBody.Error),
+				zap.String("error_description", errBody.ErrorDescription),
+			)
+		} else {
+			s.logger.Warn("token exchange failed",
+				zap.Int("status", httpResp.StatusCode),
+			)
+		}
 		switch {
 		case httpResp.StatusCode == 400 || httpResp.StatusCode == 401:
 			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("admin: token exchange denied"))
@@ -429,12 +451,7 @@ func (s *Service) ImpersonateServiceAccount(ctx context.Context, req *connect.Re
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &exchange); err != nil {
-		_ = s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID)
 		return nil, s.internal("parse token exchange response", err)
-	}
-
-	if rmErr := s.serviceAccounts.RemovePersonalAccessToken(ctx, sa.ZitadelUserID, patID); rmErr != nil {
-		s.logger.Warn("impersonate: remove temporary PAT failed", zap.String("zitadel_user_id", sa.ZitadelUserID), zap.Error(rmErr))
 	}
 
 	expiresAt := time.Now().Add(time.Duration(exchange.ExpiresIn) * time.Second)
@@ -487,17 +504,19 @@ func (s *Service) buildImpersonationCookieValue(tenantID, idToken, accessToken, 
 		return "", errors.New("admin: cipher not configured")
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"id_token":      idToken,
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_at":    expiresAt.UTC().Format(time.RFC3339),
+	packed := auth.PackPortalCookie(auth.PortalCookieValue{
+		IDToken:      idToken,
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
+		ExpiresAt:    expiresAt,
 	})
+
+	compressed, err := compressZstd(packed)
 	if err != nil {
-		return "", fmt.Errorf("marshal impersonation payload: %w", err)
+		return "", fmt.Errorf("compress impersonation payload: %w", err)
 	}
 
-	sealed, err := s.cipher.Encrypt(payload, crypto.AAD{TenantID: tenantID, Kind: "portal.impersonate"})
+	sealed, err := s.cipher.Encrypt(compressed, crypto.AAD{TenantID: tenantID, Kind: "portal.impersonate"})
 	if err != nil {
 		return "", fmt.Errorf("encrypt impersonation payload: %w", err)
 	}

@@ -171,7 +171,7 @@ func mountRealSAWithConfig(t *testing.T, roles []string, zitadelDomain, zitadelP
 	fakeSA := newFakeServiceAccountDirectory()
 	t.Cleanup(fakeSA.cleanup)
 
-	svc := NewService(store, nil, nil, resolver, nil, nil, nil, fakeSA, zitadelDomain, zitadelProjectID, cipher, false, zap.NewNop())
+	svc := NewService(store, nil, nil, resolver, nil, nil, nil, fakeSA, zitadelDomain, zitadelProjectID, OIDCCredentials{}, cipher, false, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
