@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, Cog, Code2, ArrowRight, Copy, Share2 } from '@lucide/vue'
+import { Server, Users, KeyRound, Code2, ArrowRight, Copy, Share2 } from '@lucide/vue'
 import { fetchDiscovery, useSessionStore } from '@limen/shared'
 import { tenantPrefix } from '@limen/shared/session'
 import { create } from '@bufbuild/protobuf'
@@ -65,9 +65,7 @@ const steps = computed<Step[]>(() => [
   {
     key: 'connect',
     done: upstreams.value.some(
-      (u) =>
-        u.tools.length > 0 &&
-        (!u.requiresLink || u.linkState === LinkState.CONNECTED),
+      (u) => u.tools.length > 0 && (!u.requiresLink || u.linkState === LinkState.CONNECTED),
     ),
   },
   { key: 'ide', done: settings.value.choseIde },
@@ -120,7 +118,7 @@ async function skipIDEChoice() {
   }
 }
 
-async function openSettings() {
+async function openServiceAccounts() {
   try {
     const resp = await adminClient().updateTenantSettings(
       create(UpdateTenantSettingsRequestSchema, { configuredAtNow: true }),
@@ -129,7 +127,7 @@ async function openSettings() {
   } catch {
     settings.value.configured = true
   }
-  void router.push(ROUTES.settings)
+  void router.push(ROUTES.serviceAccounts)
 }
 </script>
 
@@ -149,7 +147,11 @@ async function openSettings() {
     <SetupProgress v-if="!allDone" :completed="completed" :total="total" />
 
     <!-- Task bento -->
-    <section v-if="!allDone" class="grid gap-gutter md:grid-cols-2 xl:grid-cols-4" aria-label="Setup tasks">
+    <section
+      v-if="!allDone"
+      class="grid gap-gutter md:grid-cols-2 xl:grid-cols-4"
+      aria-label="Setup tasks"
+    >
       <TaskBentoCard
         variant="primary"
         :icon="Server"
@@ -194,14 +196,14 @@ async function openSettings() {
         @activate="openMembers"
       />
       <TaskBentoCard
-        variant="secondary"
-        :icon="Cog"
-        title="Configure Organization"
-        body="Set up your tenant details, limits, and core preferences."
-        cta-label="Review Settings"
+        :variant="'primary'"
+        :icon="KeyRound"
+        :title="'Create Service Account'"
+        :body="'Generate an API token for cloud agents and CLI tools to access your gateway programmatically.'"
+        :cta-label="'Set Up Service Account'"
         :done="isDone('configure')"
         data-step="configure"
-        @activate="openSettings"
+        @activate="openServiceAccounts"
       />
     </section>
 
@@ -214,16 +216,17 @@ async function openSettings() {
       data-testid="dashboard-portal-share"
     >
       <div class="flex items-start gap-3">
-        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <span
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
+        >
           <Share2 :size="18" aria-hidden="true" />
         </span>
         <div class="min-w-0 flex-1 space-y-2">
           <div>
             <h2 class="text-base font-semibold text-on-surface">Share with your team</h2>
             <p class="mt-0.5 text-sm text-on-surface-variant">
-              Send this portal URL to your users. They sign in there to link their
-              personal upstream accounts so the gateway can forward tool calls on
-              their behalf.
+              Send this portal URL to your users. They sign in there to link their personal upstream
+              accounts so the gateway can forward tool calls on their behalf.
             </p>
           </div>
           <div class="flex items-center gap-2">
@@ -233,7 +236,8 @@ async function openSettings() {
               rel="noopener"
               class="flex-1 truncate rounded border border-outline-variant bg-surface-variant px-3 py-2 font-mono text-sm text-primary underline decoration-dotted underline-offset-2 hover:text-primary-container"
               data-testid="dashboard-portal-url"
-            >{{ portalUrl }}</a>
+              >{{ portalUrl }}</a
+            >
             <button
               type="button"
               class="inline-flex items-center gap-1 rounded border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-variant"

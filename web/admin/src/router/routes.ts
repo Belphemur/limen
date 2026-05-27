@@ -1,5 +1,14 @@
 import type { Component } from 'vue'
-import { LayoutDashboard, Brain, Building2, Code2, Server, SlidersHorizontal, Users } from '@lucide/vue'
+import {
+  LayoutDashboard,
+  Brain,
+  Building2,
+  Code2,
+  Server,
+  SlidersHorizontal,
+  Users,
+  KeyRound,
+} from '@lucide/vue'
 
 // Single source of truth for every admin SPA route.
 //
@@ -22,6 +31,7 @@ export const ROUTES = {
   members: '/org/members',
   settings: '/org/settings',
   ideConfiguration: '/org/ide-configuration',
+  serviceAccounts: '/org/service-accounts',
   forbidden: '/forbidden',
   oauthPopupClose: '/oauth-popup-close',
   signup: '/signup',
@@ -92,6 +102,12 @@ export const routeDefs: RouteDef[] = [
     search: { mode: 'hidden' },
   },
   {
+    name: 'service-accounts',
+    path: ROUTES.serviceAccounts,
+    component: () => import('@/pages/ServiceAccounts.vue'),
+    search: { mode: 'filter', placeholder: 'Filter service accounts…' },
+  },
+  {
     name: 'forbidden',
     path: ROUTES.forbidden,
     component: () => import('@/pages/Forbidden.vue'),
@@ -155,6 +171,7 @@ export const navTree: NavNode[] = [
       { kind: 'leaf', label: 'Org Settings', path: ROUTES.settings, icon: SlidersHorizontal },
       { kind: 'leaf', label: 'IDE Configuration', path: ROUTES.ideConfiguration, icon: Code2 },
       { kind: 'leaf', label: 'Users & Roles', path: ROUTES.members, icon: Users },
+      { kind: 'leaf', label: 'Service Accounts', path: ROUTES.serviceAccounts, icon: KeyRound },
     ],
   },
 ]
