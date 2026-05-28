@@ -408,6 +408,12 @@ message ServiceAccount {
   string created_by_id = 5;
   // RFC3339 creation timestamp.
   string created_at = 6;
+  // RFC3339 timestamp of when the current token was last generated or
+  // regenerated. Omitted (empty string) if no token has been generated yet.
+  string token_generated_at = 7;
+  // RFC3339 timestamp of when the token was last used for authentication
+  // via the bearer token interceptor. Omitted (empty string) if never used.
+  string last_used_at = 8;
 }
 
 message CreateServiceAccountRequest {

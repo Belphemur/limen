@@ -70,18 +70,27 @@ func pickHighestSARole(keys []string) string {
 	return best
 }
 
+func formatTimeOpt(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func saModelToProto(sa *storage.ServiceAccount) *adminv1.ServiceAccount {
 	createdById := ""
 	if sa.CreatedBy != nil {
 		createdById = sa.CreatedBy.PublicID
 	}
 	return &adminv1.ServiceAccount{
-		PublicId:    sa.PublicID,
-		Name:        sa.Name,
-		Description: sa.Description,
-		Role:        saRoleToProto(sa.Role),
-		CreatedById: createdById,
-		CreatedAt:   sa.CreatedAt.UTC().Format(time.RFC3339),
+		PublicId:         sa.PublicID,
+		Name:             sa.Name,
+		Description:      sa.Description,
+		Role:             saRoleToProto(sa.Role),
+		CreatedById:      createdById,
+		CreatedAt:        sa.CreatedAt.UTC().Format(time.RFC3339),
+		TokenGeneratedAt: formatTimeOpt(sa.TokenGeneratedAt),
+		LastUsedAt:       formatTimeOpt(sa.LastUsedAt),
 	}
 }
 
@@ -155,13 +164,15 @@ func (s *Service) CreateServiceAccount(ctx context.Context, req *connect.Request
 		return nil, s.internal("find creator user", err)
 	}
 
+	now := time.Now()
 	sa := &storage.ServiceAccount{
-		TenantID:      t.ID,
-		Name:          name,
-		Description:   msg.GetDescription(),
-		ZitadelUserID: zitadelUserID,
-		CreatedByID:   creator.ID,
-		Role:          roleKey,
+		TenantID:         t.ID,
+		Name:             name,
+		Description:      msg.GetDescription(),
+		ZitadelUserID:    zitadelUserID,
+		CreatedByID:      creator.ID,
+		Role:             roleKey,
+		TokenGeneratedAt: &now,
 	}
 	if err := db.Create(sa).Error; err != nil {
 		s.logger.Error("create service account local row failed, rolling back Zitadel", zap.String("zitadel_user_id", zitadelUserID), zap.Error(err))
@@ -321,6 +332,12 @@ func (s *Service) RegenerateServiceAccountToken(ctx context.Context, req *connec
 	_, token, err := s.serviceAccounts.AddPersonalAccessToken(ctx, sa.ZitadelUserID, expiry)
 	if err != nil {
 		return nil, s.internal("create new PAT", err)
+	}
+
+	// Update the token_generated_at timestamp locally.
+	now := time.Now()
+	if err := db.Model(&sa).Update("token_generated_at", now).Error; err != nil {
+		s.logger.Error("regenerate token: update token_generated_at failed", zap.String("zitadel_user_id", sa.ZitadelUserID), zap.Error(err))
 	}
 
 	return connect.NewResponse(&adminv1.RegenerateServiceAccountTokenResponse{Token: token}), nil

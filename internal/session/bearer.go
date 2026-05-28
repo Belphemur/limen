@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -81,6 +82,15 @@ func BearerTokenInterceptor(cfg BearerTokenConfig, store *storage.Store, logger 
 					Roles:     []string{sa.Role},
 					Email:     sa.Name,
 					FirstName: sa.Name,
+				}
+				// Debounce: only write to DB if > 30s since last recorded usage.
+				// The sa variable already has LastUsedAt populated from the SELECT above.
+				now := time.Now()
+				minInterval := 30 * time.Second
+				if sa.LastUsedAt == nil || now.Sub(*sa.LastUsedAt) >= minInterval {
+					if err := db.Model(&sa).Update("last_used_at", now).Error; err != nil {
+						logger.Warn("bearer: update last_used_at failed", zap.Error(err))
+					}
 				}
 				return next(WithUser(ctx, sess), req)
 			}

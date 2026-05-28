@@ -2565,7 +2565,13 @@ type ServiceAccount struct {
 	// Public ID of the user who created this service account.
 	CreatedById string `protobuf:"bytes,5,opt,name=created_by_id,json=createdById,proto3" json:"created_by_id,omitempty"`
 	// RFC3339 creation timestamp.
-	CreatedAt     string `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt string `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// RFC3339 timestamp of when the current token was last generated or
+	// regenerated. Omitted (empty string) if no token has been generated yet.
+	TokenGeneratedAt string `protobuf:"bytes,7,opt,name=token_generated_at,json=tokenGeneratedAt,proto3" json:"token_generated_at,omitempty"`
+	// RFC3339 timestamp of when the token was last used for authentication
+	// via the bearer token interceptor. Omitted (empty string) if never used.
+	LastUsedAt    string `protobuf:"bytes,8,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2638,6 +2644,20 @@ func (x *ServiceAccount) GetCreatedById() string {
 func (x *ServiceAccount) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *ServiceAccount) GetTokenGeneratedAt() string {
+	if x != nil {
+		return x.TokenGeneratedAt
+	}
+	return ""
+}
+
+func (x *ServiceAccount) GetLastUsedAt() string {
+	if x != nil {
+		return x.LastUsedAt
 	}
 	return ""
 }
@@ -3625,7 +3645,7 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x06member\x18\x01 \x01(\v2\x16.limen.admin.v1.MemberR\x06member\".\n" +
 	"\x13RemoveMemberRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x16\n" +
-	"\x14RemoveMemberResponse\"\xde\x01\n" +
+	"\x14RemoveMemberResponse\"\xae\x02\n" +
 	"\x0eServiceAccount\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -3633,7 +3653,10 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x04role\x18\x04 \x01(\x0e2\".limen.admin.v1.ServiceAccountRoleR\x04role\x12\"\n" +
 	"\rcreated_by_id\x18\x05 \x01(\tR\vcreatedById\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\tR\tcreatedAt\"\xac\x01\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12,\n" +
+	"\x12token_generated_at\x18\a \x01(\tR\x10tokenGeneratedAt\x12 \n" +
+	"\flast_used_at\x18\b \x01(\tR\n" +
+	"lastUsedAt\"\xac\x01\n" +
 	"\x1bCreateServiceAccountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x126\n" +

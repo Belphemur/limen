@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/ids"
@@ -13,13 +15,15 @@ import (
 // configure upstream links for service accounts via the admin UI.
 type ServiceAccount struct {
 	Base
-	TenantID      int64  `gorm:"not null;index;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`
-	Name          string `gorm:"type:text;not null"`
-	Description   string `gorm:"type:text"`
-	ZitadelUserID string `gorm:"type:text;not null;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`
-	CreatedByID   int64  `gorm:"not null;index"`
-	CreatedBy     *User  `gorm:"foreignKey:CreatedByID"`
-	Role          string `gorm:"type:text;not null"`
+	TenantID         int64      `gorm:"not null;index;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`
+	Name             string     `gorm:"type:text;not null"`
+	Description      string     `gorm:"type:text"`
+	ZitadelUserID    string     `gorm:"type:text;not null;uniqueIndex:idx_sa_tenant_zitadel,where:deleted_at IS NULL"`
+	CreatedByID      int64      `gorm:"not null;index"`
+	CreatedBy        *User      `gorm:"foreignKey:CreatedByID"`
+	Role             string     `gorm:"type:text;not null"`
+	TokenGeneratedAt *time.Time `gorm:"type:timestamptz"`
+	LastUsedAt       *time.Time `gorm:"type:timestamptz"`
 
 	Tenant *Tenant `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 }
