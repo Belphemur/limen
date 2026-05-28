@@ -39,12 +39,13 @@ const kindAAD = "upstream.oauth.state"
 // is the plain string (S256 will hash it before sending). ReturnTo is the
 // SPA path to land on after FinishLink.
 type Envelope struct {
-	TenantID     int64  `json:"t"`
-	UserID       int64  `json:"u"`
-	UpstreamID   int64  `json:"up"`
-	ReturnTo     string `json:"r"`
-	PKCEVerifier string `json:"pkce"`
-	Nonce        string `json:"n"`
+	TenantID         int64  `json:"t"`
+	UserID           int64  `json:"u"`
+	UpstreamID       int64  `json:"up"`
+	ReturnTo         string `json:"r"`
+	PKCEVerifier     string `json:"pkce"`
+	Nonce            string `json:"n"`
+	ServiceAccountID *int64 `json:"sa,omitempty"`
 }
 
 // Store is the Valkey-backed one-shot OAuth state store.

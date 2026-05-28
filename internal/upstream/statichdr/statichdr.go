@@ -193,33 +193,42 @@ func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkCont
 	if strings.TrimSpace(secret) == "" {
 		return errors.New("statichdr: secret must not be empty")
 	}
-	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+	if lctx.Tenant == nil || (lctx.User == nil && lctx.ServiceAccountID == nil) || lctx.Upstream == nil {
 		return errors.New("statichdr: tenant/user/upstream missing")
 	}
 	tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
-	userStr := fmt.Sprintf("%d", lctx.User.ID)
+	ownerStr := lctx.OwnerIDStr()
 
 	payload, err := json.Marshal(userExtra{Secret: secret})
 	if err != nil {
 		return fmt.Errorf("statichdr: marshal extra: %w", err)
 	}
 	extra := crypto.NewSecret(payload)
-	extra.SetAAD(tenantStr, userStr, kindUserExtra)
+	extra.SetAAD(tenantStr, ownerStr, kindUserExtra)
 
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
 	if err != nil {
 		return fmt.Errorf("statichdr: open session: %w", err)
 	}
 	var existing storage.UpstreamLink
-	if err := tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
-		First(&existing).Error; err != nil {
-		uid := lctx.User.ID
+	var existingErr error
+	if lctx.IsServiceAccount() {
+		existingErr = tx.Where("service_account_id = ? AND upstream_id = ?", *lctx.ServiceAccountID, lctx.Upstream.ID).First(&existing).Error
+	} else {
+		existingErr = tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).First(&existing).Error
+	}
+	if existingErr != nil {
 		newLink := storage.UpstreamLink{
 			TenantID:   lctx.Tenant.ID,
-			UserID:     &uid,
 			UpstreamID: lctx.Upstream.ID,
 			Enabled:    true,
 			ExtraJSON:  extra,
+		}
+		if lctx.IsServiceAccount() {
+			newLink.ServiceAccountID = lctx.ServiceAccountID
+		} else {
+			uid := lctx.User.ID
+			newLink.UserID = &uid
 		}
 		if createErr := tx.Create(&newLink).Error; createErr != nil {
 			_ = commit()
@@ -247,7 +256,7 @@ func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkCont
 // zeroed and the health counters reset so the next request falls back
 // to the shared secret cleanly.
 func (s *Strategy) ClearUserOverride(ctx context.Context, lctx upstream.LinkContext) error {
-	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+	if lctx.Tenant == nil || (lctx.User == nil && lctx.ServiceAccountID == nil) || lctx.Upstream == nil {
 		return errors.New("statichdr: tenant/user/upstream missing")
 	}
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
@@ -263,9 +272,13 @@ func (s *Strategy) ClearUserOverride(ctx context.Context, lctx upstream.LinkCont
 		"last_failure_reason":  "",
 		"auto_disabled_at":     nil,
 	}
-	if err := tx.Model(&storage.UpstreamLink{}).
-		Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
-		Updates(updates).Error; err != nil {
+	query := tx.Model(&storage.UpstreamLink{})
+	if lctx.IsServiceAccount() {
+		query = query.Where("service_account_id = ? AND upstream_id = ?", *lctx.ServiceAccountID, lctx.Upstream.ID)
+	} else {
+		query = query.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID)
+	}
+	if err := query.Updates(updates).Error; err != nil {
 		_ = commit()
 		return fmt.Errorf("statichdr: clear override: %w", err)
 	}
@@ -289,12 +302,12 @@ func (s *Strategy) Headers(ctx context.Context, lctx upstream.LinkContext) (map[
 	}
 	secret := cfg.SharedSecret
 	if cfg.AllowUserOverride && lctx.Link != nil && !lctx.Link.ExtraJSON.IsZero() && !lctx.Link.NeedsRelink {
-		if lctx.Tenant == nil || lctx.User == nil {
-			return nil, errors.New("statichdr: tenant/user missing for override header")
+		if lctx.Tenant == nil {
+			return nil, errors.New("statichdr: tenant missing for override header")
 		}
 		tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
-		userStr := fmt.Sprintf("%d", lctx.User.ID)
-		if err := lctx.Link.ExtraJSON.Decrypt(tenantStr, userStr, kindUserExtra); err != nil {
+		ownerStr := lctx.OwnerIDStr()
+		if err := lctx.Link.ExtraJSON.Decrypt(tenantStr, ownerStr, kindUserExtra); err != nil {
 			return nil, fmt.Errorf("statichdr: decrypt extra: %w", err)
 		}
 		var ux userExtra

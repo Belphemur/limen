@@ -21,7 +21,7 @@ import (
 // StartLink builds the AS authorization URL with PKCE + state and stores
 // the verifier in the oauthstate cache.
 func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (upstream.StartLinkResult, error) {
-	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+	if lctx.Tenant == nil || (lctx.User == nil && lctx.ServiceAccountID == nil) || lctx.Upstream == nil {
 		return upstream.StartLinkResult{}, errors.New("mcpspec: tenant/user/upstream missing")
 	}
 	reg, err := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
@@ -49,6 +49,9 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 		ReturnTo:     lctx.ReturnTo,
 		PKCEVerifier: verifier,
 		Nonce:        nonce,
+	}
+	if lctx.ServiceAccountID != nil {
+		env.ServiceAccountID = lctx.ServiceAccountID
 	}
 	stateVal, err := s.state.Put(ctx, env)
 	if err != nil {
@@ -82,7 +85,7 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 // the resulting UpstreamLink. The captured ReturnTo from StartLink is
 // returned so the callback handler can land the SPA where it started.
 func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, callbackQuery string) (string, error) {
-	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+	if lctx.Tenant == nil || (lctx.User == nil && lctx.ServiceAccountID == nil) || lctx.Upstream == nil {
 		return "", errors.New("mcpspec: tenant/user/upstream missing")
 	}
 	vals, err := url.ParseQuery(callbackQuery)
@@ -143,11 +146,11 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	}
 
 	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
-	userStr := strconv.FormatInt(lctx.User.ID, 10)
+	ownerStr := lctx.OwnerIDStr()
 	at := crypto.NewSecret([]byte(tok.AccessToken))
-	at.SetAAD(tenantStr, userStr, kindAccessToken)
+	at.SetAAD(tenantStr, ownerStr, kindAccessToken)
 	rt := crypto.NewSecret([]byte(tok.RefreshToken))
-	rt.SetAAD(tenantStr, userStr, kindRefreshToken)
+	rt.SetAAD(tenantStr, ownerStr, kindRefreshToken)
 	var exp *time.Time
 	if tok.ExpiresIn > 0 {
 		t := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
@@ -159,13 +162,15 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 		return "", err
 	}
 	var existing storage.UpstreamLink
-	err = tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).
-		First(&existing).Error
-	if err != nil {
-		uid := lctx.User.ID
+	var existingErr error
+	if lctx.IsServiceAccount() {
+		existingErr = tx.Where("service_account_id = ? AND upstream_id = ?", *lctx.ServiceAccountID, lctx.Upstream.ID).First(&existing).Error
+	} else {
+		existingErr = tx.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, lctx.Upstream.ID).First(&existing).Error
+	}
+	if existingErr != nil {
 		newLink := storage.UpstreamLink{
 			TenantID:     lctx.Tenant.ID,
-			UserID:       &uid,
 			UpstreamID:   lctx.Upstream.ID,
 			AccessToken:  at,
 			RefreshToken: rt,
@@ -173,6 +178,12 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 			Scopes:       tok.Scope,
 			ResourceURI:  reg.ResourceURI,
 			Enabled:      true,
+		}
+		if lctx.IsServiceAccount() {
+			newLink.ServiceAccountID = lctx.ServiceAccountID
+		} else {
+			uid := lctx.User.ID
+			newLink.UserID = &uid
 		}
 		if createErr := tx.Create(&newLink).Error; createErr != nil {
 			_ = commit()

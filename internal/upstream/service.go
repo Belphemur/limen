@@ -271,3 +271,178 @@ func (s *Service) loadLink(ctx context.Context, tenantID, userID, upstreamID int
 	}
 	return &link, nil
 }
+
+// loadLinkByOwner loads an UpstreamLink by either UserID or ServiceAccountID,
+// depending on which is non-nil. Returns ErrLinkNotFound when no match exists.
+func (s *Service) loadLinkByOwner(ctx context.Context, tenantID int64, lctx LinkContext, upstreamID int64) (*storage.UpstreamLink, error) {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	var link storage.UpstreamLink
+	query := tx
+	if lctx.IsServiceAccount() {
+		query = query.Where("service_account_id = ? AND upstream_id = ?", *lctx.ServiceAccountID, upstreamID)
+	} else {
+		query = query.Preload("User").Where("user_id = ? AND upstream_id = ?", lctx.User.ID, upstreamID)
+	}
+	if err := query.First(&link).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrLinkNotFound
+		}
+		return nil, fmt.Errorf("upstream: load link: %w", err)
+	}
+	return &link, nil
+}
+
+// DisconnectByOwner soft-deletes the link row for either a user or service
+// account, depending on the LinkContext.
+func (s *Service) DisconnectByOwner(ctx context.Context, tenant *storage.Tenant, lctx LinkContext, upstreamIdentifier string) error {
+	if tenant == nil {
+		return errors.New("upstream: tenant required")
+	}
+	if !lctx.IsServiceAccount() && lctx.User == nil {
+		return errors.New("upstream: user or service account required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return err
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return err
+	}
+	query := tx
+	if lctx.IsServiceAccount() {
+		query = query.Where("service_account_id = ? AND upstream_id = ?", *lctx.ServiceAccountID, up.ID)
+	} else {
+		query = query.Where("user_id = ? AND upstream_id = ?", lctx.User.ID, up.ID)
+	}
+	if err := query.Delete(&storage.UpstreamLink{}).Error; err != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: delete link: %w", err)
+	}
+	return commit()
+}
+
+// StartConnectForServiceAccount resolves the upstream + strategy and returns
+// the OAuth URL for a service account link. The admin user is the initiator
+// (for state AAD); the SA is the link target.
+func (s *Service) StartConnectForServiceAccount(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier, returnTo string) (string, error) {
+	if tenant == nil || adminUser == nil {
+		return "", errors.New("upstream: tenant/user required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return "", err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return "", err
+	}
+	saID := serviceAccountID
+	lctx := LinkContext{
+		Tenant:           tenant,
+		User:             adminUser,
+		ServiceAccountID: &saID,
+		Upstream:         up,
+		ReturnTo:         returnTo,
+	}
+	// Try loading existing SA link
+	link, _ := s.loadLinkByOwner(ctx, tenant.ID, lctx, up.ID)
+	lctx.Link = link
+	if err := strat.Provision(ctx, lctx); err != nil {
+		return "", err
+	}
+	result, err := strat.StartLink(ctx, lctx)
+	if err != nil {
+		return "", err
+	}
+	return result.RedirectURL, nil
+}
+
+// PersistServiceAccountStaticHeaderSecret routes to a static_header strategy's
+// service-account-override secret persistence. Returns ErrUnsupported when the
+// upstream is not `static_header` or when the admin has not enabled override.
+func (s *Service) PersistServiceAccountStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier, secret string) error {
+	if tenant == nil || adminUser == nil {
+		return errors.New("upstream: tenant/user required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+	p, ok := strat.(secretPersister)
+	if !ok {
+		return ErrUnsupported
+	}
+	saID := serviceAccountID
+	lctx := LinkContext{Tenant: tenant, User: adminUser, ServiceAccountID: &saID, Upstream: up}
+	return p.PersistUserSecret(ctx, lctx, secret)
+}
+
+// ClearServiceAccountStaticHeaderOverride drops the service account's override
+// secret on a `static_header` link. Returns ErrUnsupported when the strategy is
+// not `static_header`.
+func (s *Service) ClearServiceAccountStaticHeaderOverride(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier string) error {
+	if tenant == nil || adminUser == nil {
+		return errors.New("upstream: tenant/user required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+	c, ok := strat.(secretClearer)
+	if !ok {
+		return ErrUnsupported
+	}
+	saID := serviceAccountID
+	lctx := LinkContext{Tenant: tenant, User: adminUser, ServiceAccountID: &saID, Upstream: up}
+	return c.ClearUserOverride(ctx, lctx)
+}
+
+// SetSALinkEnabled flips UpstreamLink.Enabled for a service account link.
+// Re-enabling an auto_disabled link ALSO clears the failure counters.
+func (s *Service) SetSALinkEnabled(ctx context.Context, tenant *storage.Tenant, serviceAccountID int64, upstreamIdentifier string, enabled bool) error {
+	if tenant == nil {
+		return errors.New("upstream: tenant required")
+	}
+	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	if err != nil {
+		return err
+	}
+	saID := serviceAccountID
+	lctx := LinkContext{ServiceAccountID: &saID}
+	link, err := s.loadLinkByOwner(ctx, tenant.ID, lctx, up.ID)
+	if err != nil {
+		return err
+	}
+	wasAutoDisabled := link.AutoDisabledAt != nil
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return err
+	}
+	if err := tx.Model(&storage.UpstreamLink{}).Where("id = ?", link.ID).Update("enabled", enabled).Error; err != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: set enabled: %w", err)
+	}
+	if err := commit(); err != nil {
+		return err
+	}
+	if enabled && wasAutoDisabled {
+		if err := RecordSuccess(ctx, s.store, link.ID); err != nil {
+			return fmt.Errorf("upstream: clear auto-disable: %w", err)
+		}
+	}
+	return nil
+}

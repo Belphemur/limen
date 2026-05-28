@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/belphemur/limen/internal/storage"
@@ -74,6 +75,34 @@ type LinkContext struct {
 	// completes. Strategy.FinishLink consumes it; ignored by tenant-mode
 	// strategies.
 	ReturnTo string
+	// ServiceAccountID, when set, targets the link at a service account
+	// rather than the human user in User. The User field is still
+	// populated (admin initiator) for state AAD and audit purposes.
+	ServiceAccountID *int64
+}
+
+// IsServiceAccount reports whether this link context targets a service
+// account rather than a human user.
+func (l LinkContext) IsServiceAccount() bool {
+	return l.ServiceAccountID != nil
+}
+
+// OwnerID returns the int64 PK of the link owner — the service account
+// ID when set, otherwise the user ID. Returns 0 when neither is set
+// (callers guard on this).
+func (l LinkContext) OwnerID() int64 {
+	if l.ServiceAccountID != nil {
+		return *l.ServiceAccountID
+	}
+	if l.User != nil {
+		return l.User.ID
+	}
+	return 0
+}
+
+// OwnerIDStr returns the string form of OwnerID for use in crypto AAD.
+func (l LinkContext) OwnerIDStr() string {
+	return strconv.FormatInt(l.OwnerID(), 10)
 }
 
 // StartLinkResult is what StartLink returns to the caller. RedirectURL is
