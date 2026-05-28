@@ -117,6 +117,18 @@ const (
 	// AdminServiceSetServiceAccountLinkEnabledProcedure is the fully-qualified name of the
 	// AdminService's SetServiceAccountLinkEnabled RPC.
 	AdminServiceSetServiceAccountLinkEnabledProcedure = "/limen.admin.v1.AdminService/SetServiceAccountLinkEnabled"
+	// AdminServiceStartServiceAccountConnectProcedure is the fully-qualified name of the AdminService's
+	// StartServiceAccountConnect RPC.
+	AdminServiceStartServiceAccountConnectProcedure = "/limen.admin.v1.AdminService/StartServiceAccountConnect"
+	// AdminServiceSubmitServiceAccountAPIKeyProcedure is the fully-qualified name of the AdminService's
+	// SubmitServiceAccountAPIKey RPC.
+	AdminServiceSubmitServiceAccountAPIKeyProcedure = "/limen.admin.v1.AdminService/SubmitServiceAccountAPIKey"
+	// AdminServiceClearServiceAccountOverrideProcedure is the fully-qualified name of the
+	// AdminService's ClearServiceAccountOverride RPC.
+	AdminServiceClearServiceAccountOverrideProcedure = "/limen.admin.v1.AdminService/ClearServiceAccountOverride"
+	// AdminServiceDisconnectServiceAccountUpstreamProcedure is the fully-qualified name of the
+	// AdminService's DisconnectServiceAccountUpstream RPC.
+	AdminServiceDisconnectServiceAccountUpstreamProcedure = "/limen.admin.v1.AdminService/DisconnectServiceAccountUpstream"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -162,6 +174,12 @@ type AdminServiceClient interface {
 	// Service account upstream link management. Admin floor.
 	ListServiceAccountUpstreamLinks(context.Context, *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error)
 	SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error)
+	// Service account upstream linking — full lifecycle (OAuth, API key,
+	// disconnect). Admin floor. See docs/phases/phase-09k-sa-upstream-linking.md.
+	StartServiceAccountConnect(context.Context, *connect.Request[adminv1.StartServiceAccountConnectRequest]) (*connect.Response[adminv1.StartServiceAccountConnectResponse], error)
+	SubmitServiceAccountAPIKey(context.Context, *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error)
+	ClearServiceAccountOverride(context.Context, *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error)
+	DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -343,39 +361,67 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("SetServiceAccountLinkEnabled")),
 			connect.WithClientOptions(opts...),
 		),
+		startServiceAccountConnect: connect.NewClient[adminv1.StartServiceAccountConnectRequest, adminv1.StartServiceAccountConnectResponse](
+			httpClient,
+			baseURL+AdminServiceStartServiceAccountConnectProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("StartServiceAccountConnect")),
+			connect.WithClientOptions(opts...),
+		),
+		submitServiceAccountAPIKey: connect.NewClient[adminv1.SubmitServiceAccountAPIKeyRequest, adminv1.SubmitServiceAccountAPIKeyResponse](
+			httpClient,
+			baseURL+AdminServiceSubmitServiceAccountAPIKeyProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("SubmitServiceAccountAPIKey")),
+			connect.WithClientOptions(opts...),
+		),
+		clearServiceAccountOverride: connect.NewClient[adminv1.ClearServiceAccountOverrideRequest, adminv1.ClearServiceAccountOverrideResponse](
+			httpClient,
+			baseURL+AdminServiceClearServiceAccountOverrideProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("ClearServiceAccountOverride")),
+			connect.WithClientOptions(opts...),
+		),
+		disconnectServiceAccountUpstream: connect.NewClient[adminv1.DisconnectServiceAccountUpstreamRequest, adminv1.DisconnectServiceAccountUpstreamResponse](
+			httpClient,
+			baseURL+AdminServiceDisconnectServiceAccountUpstreamProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("DisconnectServiceAccountUpstream")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // adminServiceClient implements AdminServiceClient.
 type adminServiceClient struct {
-	createUpstream                  *connect.Client[adminv1.CreateUpstreamRequest, adminv1.CreateUpstreamResponse]
-	updateUpstream                  *connect.Client[adminv1.UpdateUpstreamRequest, adminv1.UpdateUpstreamResponse]
-	deleteUpstream                  *connect.Client[adminv1.DeleteUpstreamRequest, adminv1.DeleteUpstreamResponse]
-	reindexUpstreamCatalog          *connect.Client[adminv1.ReindexUpstreamCatalogRequest, adminv1.ReindexUpstreamCatalogResponse]
-	previewUpstreamContext          *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
-	getTenantSettings               *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
-	updateTenantSettings            *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
-	listIDEPresets                  *connect.Client[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse]
-	listAllowlistEntries            *connect.Client[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse]
-	addAllowlistEntry               *connect.Client[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse]
-	updateAllowlistEntry            *connect.Client[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse]
-	removeAllowlistEntry            *connect.Client[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse]
-	applyIDEPreset                  *connect.Client[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse]
-	removeIDEPreset                 *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
-	markIDEChoiceSkipped            *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
-	deleteTenant                    *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
-	listMembers                     *connect.Client[adminv1.ListMembersRequest, adminv1.ListMembersResponse]
-	inviteMember                    *connect.Client[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse]
-	updateMemberRole                *connect.Client[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse]
-	removeMember                    *connect.Client[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse]
-	createServiceAccount            *connect.Client[adminv1.CreateServiceAccountRequest, adminv1.CreateServiceAccountResponse]
-	getServiceAccount               *connect.Client[adminv1.GetServiceAccountRequest, adminv1.GetServiceAccountResponse]
-	updateServiceAccount            *connect.Client[adminv1.UpdateServiceAccountRequest, adminv1.UpdateServiceAccountResponse]
-	listServiceAccounts             *connect.Client[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse]
-	deleteServiceAccount            *connect.Client[adminv1.DeleteServiceAccountRequest, adminv1.DeleteServiceAccountResponse]
-	regenerateServiceAccountToken   *connect.Client[adminv1.RegenerateServiceAccountTokenRequest, adminv1.RegenerateServiceAccountTokenResponse]
-	listServiceAccountUpstreamLinks *connect.Client[adminv1.ListServiceAccountUpstreamLinksRequest, adminv1.ListServiceAccountUpstreamLinksResponse]
-	setServiceAccountLinkEnabled    *connect.Client[adminv1.SetServiceAccountLinkEnabledRequest, adminv1.SetServiceAccountLinkEnabledResponse]
+	createUpstream                   *connect.Client[adminv1.CreateUpstreamRequest, adminv1.CreateUpstreamResponse]
+	updateUpstream                   *connect.Client[adminv1.UpdateUpstreamRequest, adminv1.UpdateUpstreamResponse]
+	deleteUpstream                   *connect.Client[adminv1.DeleteUpstreamRequest, adminv1.DeleteUpstreamResponse]
+	reindexUpstreamCatalog           *connect.Client[adminv1.ReindexUpstreamCatalogRequest, adminv1.ReindexUpstreamCatalogResponse]
+	previewUpstreamContext           *connect.Client[adminv1.PreviewUpstreamContextRequest, adminv1.PreviewUpstreamContextResponse]
+	getTenantSettings                *connect.Client[adminv1.GetTenantSettingsRequest, adminv1.GetTenantSettingsResponse]
+	updateTenantSettings             *connect.Client[adminv1.UpdateTenantSettingsRequest, adminv1.UpdateTenantSettingsResponse]
+	listIDEPresets                   *connect.Client[adminv1.ListIDEPresetsRequest, adminv1.ListIDEPresetsResponse]
+	listAllowlistEntries             *connect.Client[adminv1.ListAllowlistEntriesRequest, adminv1.ListAllowlistEntriesResponse]
+	addAllowlistEntry                *connect.Client[adminv1.AddAllowlistEntryRequest, adminv1.AddAllowlistEntryResponse]
+	updateAllowlistEntry             *connect.Client[adminv1.UpdateAllowlistEntryRequest, adminv1.UpdateAllowlistEntryResponse]
+	removeAllowlistEntry             *connect.Client[adminv1.RemoveAllowlistEntryRequest, adminv1.RemoveAllowlistEntryResponse]
+	applyIDEPreset                   *connect.Client[adminv1.ApplyIDEPresetRequest, adminv1.ApplyIDEPresetResponse]
+	removeIDEPreset                  *connect.Client[adminv1.RemoveIDEPresetRequest, adminv1.RemoveIDEPresetResponse]
+	markIDEChoiceSkipped             *connect.Client[adminv1.MarkIDEChoiceSkippedRequest, adminv1.MarkIDEChoiceSkippedResponse]
+	deleteTenant                     *connect.Client[adminv1.DeleteTenantRequest, adminv1.DeleteTenantResponse]
+	listMembers                      *connect.Client[adminv1.ListMembersRequest, adminv1.ListMembersResponse]
+	inviteMember                     *connect.Client[adminv1.InviteMemberRequest, adminv1.InviteMemberResponse]
+	updateMemberRole                 *connect.Client[adminv1.UpdateMemberRoleRequest, adminv1.UpdateMemberRoleResponse]
+	removeMember                     *connect.Client[adminv1.RemoveMemberRequest, adminv1.RemoveMemberResponse]
+	createServiceAccount             *connect.Client[adminv1.CreateServiceAccountRequest, adminv1.CreateServiceAccountResponse]
+	getServiceAccount                *connect.Client[adminv1.GetServiceAccountRequest, adminv1.GetServiceAccountResponse]
+	updateServiceAccount             *connect.Client[adminv1.UpdateServiceAccountRequest, adminv1.UpdateServiceAccountResponse]
+	listServiceAccounts              *connect.Client[adminv1.ListServiceAccountsRequest, adminv1.ListServiceAccountsResponse]
+	deleteServiceAccount             *connect.Client[adminv1.DeleteServiceAccountRequest, adminv1.DeleteServiceAccountResponse]
+	regenerateServiceAccountToken    *connect.Client[adminv1.RegenerateServiceAccountTokenRequest, adminv1.RegenerateServiceAccountTokenResponse]
+	listServiceAccountUpstreamLinks  *connect.Client[adminv1.ListServiceAccountUpstreamLinksRequest, adminv1.ListServiceAccountUpstreamLinksResponse]
+	setServiceAccountLinkEnabled     *connect.Client[adminv1.SetServiceAccountLinkEnabledRequest, adminv1.SetServiceAccountLinkEnabledResponse]
+	startServiceAccountConnect       *connect.Client[adminv1.StartServiceAccountConnectRequest, adminv1.StartServiceAccountConnectResponse]
+	submitServiceAccountAPIKey       *connect.Client[adminv1.SubmitServiceAccountAPIKeyRequest, adminv1.SubmitServiceAccountAPIKeyResponse]
+	clearServiceAccountOverride      *connect.Client[adminv1.ClearServiceAccountOverrideRequest, adminv1.ClearServiceAccountOverrideResponse]
+	disconnectServiceAccountUpstream *connect.Client[adminv1.DisconnectServiceAccountUpstreamRequest, adminv1.DisconnectServiceAccountUpstreamResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -519,6 +565,27 @@ func (c *adminServiceClient) SetServiceAccountLinkEnabled(ctx context.Context, r
 	return c.setServiceAccountLinkEnabled.CallUnary(ctx, req)
 }
 
+// StartServiceAccountConnect calls limen.admin.v1.AdminService.StartServiceAccountConnect.
+func (c *adminServiceClient) StartServiceAccountConnect(ctx context.Context, req *connect.Request[adminv1.StartServiceAccountConnectRequest]) (*connect.Response[adminv1.StartServiceAccountConnectResponse], error) {
+	return c.startServiceAccountConnect.CallUnary(ctx, req)
+}
+
+// SubmitServiceAccountAPIKey calls limen.admin.v1.AdminService.SubmitServiceAccountAPIKey.
+func (c *adminServiceClient) SubmitServiceAccountAPIKey(ctx context.Context, req *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error) {
+	return c.submitServiceAccountAPIKey.CallUnary(ctx, req)
+}
+
+// ClearServiceAccountOverride calls limen.admin.v1.AdminService.ClearServiceAccountOverride.
+func (c *adminServiceClient) ClearServiceAccountOverride(ctx context.Context, req *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error) {
+	return c.clearServiceAccountOverride.CallUnary(ctx, req)
+}
+
+// DisconnectServiceAccountUpstream calls
+// limen.admin.v1.AdminService.DisconnectServiceAccountUpstream.
+func (c *adminServiceClient) DisconnectServiceAccountUpstream(ctx context.Context, req *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error) {
+	return c.disconnectServiceAccountUpstream.CallUnary(ctx, req)
+}
+
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
 type AdminServiceHandler interface {
 	// Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
@@ -562,6 +629,12 @@ type AdminServiceHandler interface {
 	// Service account upstream link management. Admin floor.
 	ListServiceAccountUpstreamLinks(context.Context, *connect.Request[adminv1.ListServiceAccountUpstreamLinksRequest]) (*connect.Response[adminv1.ListServiceAccountUpstreamLinksResponse], error)
 	SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error)
+	// Service account upstream linking — full lifecycle (OAuth, API key,
+	// disconnect). Admin floor. See docs/phases/phase-09k-sa-upstream-linking.md.
+	StartServiceAccountConnect(context.Context, *connect.Request[adminv1.StartServiceAccountConnectRequest]) (*connect.Response[adminv1.StartServiceAccountConnectResponse], error)
+	SubmitServiceAccountAPIKey(context.Context, *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error)
+	ClearServiceAccountOverride(context.Context, *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error)
+	DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -739,6 +812,30 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("SetServiceAccountLinkEnabled")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceStartServiceAccountConnectHandler := connect.NewUnaryHandler(
+		AdminServiceStartServiceAccountConnectProcedure,
+		svc.StartServiceAccountConnect,
+		connect.WithSchema(adminServiceMethods.ByName("StartServiceAccountConnect")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceSubmitServiceAccountAPIKeyHandler := connect.NewUnaryHandler(
+		AdminServiceSubmitServiceAccountAPIKeyProcedure,
+		svc.SubmitServiceAccountAPIKey,
+		connect.WithSchema(adminServiceMethods.ByName("SubmitServiceAccountAPIKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceClearServiceAccountOverrideHandler := connect.NewUnaryHandler(
+		AdminServiceClearServiceAccountOverrideProcedure,
+		svc.ClearServiceAccountOverride,
+		connect.WithSchema(adminServiceMethods.ByName("ClearServiceAccountOverride")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceDisconnectServiceAccountUpstreamHandler := connect.NewUnaryHandler(
+		AdminServiceDisconnectServiceAccountUpstreamProcedure,
+		svc.DisconnectServiceAccountUpstream,
+		connect.WithSchema(adminServiceMethods.ByName("DisconnectServiceAccountUpstream")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceCreateUpstreamProcedure:
@@ -797,6 +894,14 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceListServiceAccountUpstreamLinksHandler.ServeHTTP(w, r)
 		case AdminServiceSetServiceAccountLinkEnabledProcedure:
 			adminServiceSetServiceAccountLinkEnabledHandler.ServeHTTP(w, r)
+		case AdminServiceStartServiceAccountConnectProcedure:
+			adminServiceStartServiceAccountConnectHandler.ServeHTTP(w, r)
+		case AdminServiceSubmitServiceAccountAPIKeyProcedure:
+			adminServiceSubmitServiceAccountAPIKeyHandler.ServeHTTP(w, r)
+		case AdminServiceClearServiceAccountOverrideProcedure:
+			adminServiceClearServiceAccountOverrideHandler.ServeHTTP(w, r)
+		case AdminServiceDisconnectServiceAccountUpstreamProcedure:
+			adminServiceDisconnectServiceAccountUpstreamHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -916,4 +1021,20 @@ func (UnimplementedAdminServiceHandler) ListServiceAccountUpstreamLinks(context.
 
 func (UnimplementedAdminServiceHandler) SetServiceAccountLinkEnabled(context.Context, *connect.Request[adminv1.SetServiceAccountLinkEnabledRequest]) (*connect.Response[adminv1.SetServiceAccountLinkEnabledResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.SetServiceAccountLinkEnabled is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) StartServiceAccountConnect(context.Context, *connect.Request[adminv1.StartServiceAccountConnectRequest]) (*connect.Response[adminv1.StartServiceAccountConnectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.StartServiceAccountConnect is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) SubmitServiceAccountAPIKey(context.Context, *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.SubmitServiceAccountAPIKey is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) ClearServiceAccountOverride(context.Context, *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.ClearServiceAccountOverride is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.DisconnectServiceAccountUpstream is not implemented"))
 }

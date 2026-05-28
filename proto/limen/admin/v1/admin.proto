@@ -62,6 +62,13 @@ service AdminService {
   rpc ListServiceAccountUpstreamLinks(ListServiceAccountUpstreamLinksRequest) returns (ListServiceAccountUpstreamLinksResponse);
   rpc SetServiceAccountLinkEnabled(SetServiceAccountLinkEnabledRequest) returns (SetServiceAccountLinkEnabledResponse);
 
+  // Service account upstream linking — full lifecycle (OAuth, API key,
+  // disconnect). Admin floor. See docs/phases/phase-09k-sa-upstream-linking.md.
+  rpc StartServiceAccountConnect(StartServiceAccountConnectRequest) returns (StartServiceAccountConnectResponse);
+  rpc SubmitServiceAccountAPIKey(SubmitServiceAccountAPIKeyRequest) returns (SubmitServiceAccountAPIKeyResponse);
+  rpc ClearServiceAccountOverride(ClearServiceAccountOverrideRequest) returns (ClearServiceAccountOverrideResponse);
+  rpc DisconnectServiceAccountUpstream(DisconnectServiceAccountUpstreamRequest) returns (DisconnectServiceAccountUpstreamResponse);
+
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -492,4 +499,35 @@ message SetServiceAccountLinkEnabledRequest {
 }
 message SetServiceAccountLinkEnabledResponse {}
 
+// ---- Service account upstream linking (Phase 9k) ---------------------
+
+message StartServiceAccountConnectRequest {
+  string service_account_public_id = 1;
+  string upstream_identifier = 2;
+  // SPA path to return to after OAuth callback.
+  string return_to = 3;
+}
+message StartServiceAccountConnectResponse {
+  // Absolute URL the SPA redirects to (OAuth authorize endpoint).
+  string redirect_url = 1;
+}
+
+message SubmitServiceAccountAPIKeyRequest {
+  string service_account_public_id = 1;
+  string upstream_identifier = 2;
+  string api_key = 3;
+}
+message SubmitServiceAccountAPIKeyResponse {}
+
+message ClearServiceAccountOverrideRequest {
+  string service_account_public_id = 1;
+  string upstream_identifier = 2;
+}
+message ClearServiceAccountOverrideResponse {}
+
+message DisconnectServiceAccountUpstreamRequest {
+  string service_account_public_id = 1;
+  string upstream_identifier = 2;
+}
+message DisconnectServiceAccountUpstreamResponse {}
 
