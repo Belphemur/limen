@@ -6,11 +6,16 @@ import { adminClient } from '@/transport/adminClient'
 import {
   CreateServiceAccountRequestSchema,
   ListServiceAccountsRequestSchema,
+  DeleteServiceAccountRequestSchema,
+  RegenerateServiceAccountTokenRequestSchema,
   ServiceAccountRole,
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
 import { ROUTES } from '@/router/routes'
-import { KeyRound, Plus, Copy, X, Loader2 } from '@lucide/vue'
+import { KeyRound, Plus, Copy, X, Loader2, RefreshCw, Trash2 } from '@lucide/vue'
+import { ConfirmDeleteModal } from '@limen/shared'
+import { ConfirmActionModal } from '@limen/shared'
+import { formatDate, roleLabel, roleClass } from '@/lib/sa'
 
 const serviceAccounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
@@ -31,34 +36,16 @@ const createForm = ref({
 const copied = ref(false)
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// Delete state
+const showDeleteModal = ref(false)
+const deleteTarget = ref<ServiceAccount | null>(null)
+const deleteBusy = ref(false)
 
-function roleLabel(role: ServiceAccountRole): string {
-  switch (role) {
-    case ServiceAccountRole.ADMIN:
-      return 'Admin'
-    case ServiceAccountRole.MEMBER:
-      return 'Member'
-    default:
-      return 'Unknown'
-  }
-}
-
-function roleClass(role: ServiceAccountRole): string {
-  switch (role) {
-    case ServiceAccountRole.ADMIN:
-      return 'bg-primary/15 text-primary'
-    case ServiceAccountRole.MEMBER:
-      return 'bg-surface-variant text-on-surface-variant'
-    default:
-      return 'bg-surface-variant text-on-surface-variant'
-  }
-}
+// Regenerate state
+const showRegenModal = ref(false)
+const showRegenTokenModal = ref(false)
+const regenTarget = ref<{ publicId: string; name: string } | null>(null)
+const regenBusy = ref<Record<string, boolean>>({})
 
 onMounted(async () => {
   try {
@@ -135,6 +122,73 @@ async function copyToken() {
   }
 }
 
+// --- Delete ---
+function requestDelete(sa: ServiceAccount) {
+  deleteTarget.value = sa
+  showDeleteModal.value = true
+}
+
+async function confirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
+  deleteBusy.value = true
+  error.value = ''
+  try {
+    await adminClient().deleteServiceAccount(
+      create(DeleteServiceAccountRequestSchema, { publicId: target.publicId }),
+    )
+    serviceAccounts.value = serviceAccounts.value.filter((s) => s.publicId !== target.publicId)
+    showDeleteModal.value = false
+    deleteTarget.value = null
+  } catch (e) {
+    error.value = e instanceof ConnectError ? e.message : String(e)
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
+function cancelDelete() {
+  showDeleteModal.value = false
+  deleteTarget.value = null
+}
+
+// --- Regenerate ---
+function requestRegenerate(sa: ServiceAccount) {
+  regenTarget.value = { publicId: sa.publicId, name: sa.name }
+  showRegenModal.value = true
+}
+
+async function confirmRegenerate() {
+  const target = regenTarget.value
+  if (!target) return
+  regenBusy.value = { ...regenBusy.value, [target.publicId]: true }
+  mutationError.value = null
+  try {
+    const resp = await adminClient().regenerateServiceAccountToken(
+      create(RegenerateServiceAccountTokenRequestSchema, {
+        publicId: target.publicId,
+        expiryDays: 365,
+      }),
+    )
+    newToken.value = resp.token
+    showRegenModal.value = false
+    showRegenTokenModal.value = true
+  } catch (e) {
+    mutationError.value = e instanceof ConnectError ? e.message : String(e)
+  } finally {
+    regenBusy.value = { ...regenBusy.value, [target.publicId]: false }
+  }
+}
+
+function cancelRegenerate() {
+  showRegenModal.value = false
+  regenTarget.value = null
+}
+
+function closeRegenTokenModal() {
+  showRegenTokenModal.value = false
+  newToken.value = ''
+}
 </script>
 
 <template>
@@ -145,7 +199,8 @@ async function copyToken() {
           Service Accounts
         </h1>
         <p class="mt-2 max-w-2xl text-sm text-on-surface-variant">
-          Machine identities for AI agents and automation. Create a service account and use its API token for programmatic access.
+          Machine identities for AI agents and automation. Create a service account and use its API
+          token for programmatic access.
         </p>
       </div>
       <button
@@ -184,8 +239,8 @@ async function copyToken() {
             >2</span
           >
           <span
-            ><strong class="text-on-surface">Use the token</strong> — your AI agent or CLI tool can now
-            authenticate with
+            ><strong class="text-on-surface">Use the token</strong> — your AI agent or CLI tool can
+            now authenticate with
             <code class="rounded bg-surface-variant px-1 py-0.5 font-mono text-xs"
               >Authorization: Bearer &lt;token&gt;</code
             >
@@ -240,6 +295,8 @@ async function copyToken() {
             <th class="px-4 py-3">Name</th>
             <th class="px-4 py-3">Description</th>
             <th class="px-4 py-3">Role</th>
+            <th class="px-4 py-3">Generated</th>
+            <th class="px-4 py-3">Last Used</th>
             <th class="px-4 py-3">Created</th>
             <th class="px-4 py-3 text-right">Actions</th>
           </tr>
@@ -282,17 +339,39 @@ async function copyToken() {
               </span>
             </td>
             <td class="px-4 py-3 text-on-surface-variant">
+              {{ sa.tokenGeneratedAt ? formatDate(sa.tokenGeneratedAt) : '—' }}
+            </td>
+            <td class="px-4 py-3 text-on-surface-variant">
+              {{ sa.lastUsedAt ? formatDate(sa.lastUsedAt) : '—' }}
+            </td>
+            <td class="px-4 py-3 text-on-surface-variant">
               {{ formatDate(sa.createdAt) }}
             </td>
             <td class="px-4 py-3">
-              <div class="flex justify-end gap-1">
-                <router-link
-                  :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}`"
-                  class="rounded p-1.5 text-sm font-medium text-primary hover:bg-primary/10"
-                  :data-testid="`sa-manage-${sa.publicId}`"
+              <div class="flex justify-end gap-0.5">
+                <button
+                  type="button"
+                  class="rounded p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                  title="Regenerate token"
+                  :disabled="regenBusy[sa.publicId]"
+                  :data-testid="`sa-regen-${sa.publicId}`"
+                  @click="requestRegenerate(sa)"
                 >
-                  Manage
-                </router-link>
+                  <RefreshCw
+                    :size="16"
+                    :class="regenBusy[sa.publicId] ? 'animate-spin' : ''"
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  class="rounded p-1.5 text-on-surface-variant transition-colors hover:bg-error-container hover:text-error disabled:opacity-40"
+                  title="Delete"
+                  :data-testid="`sa-delete-${sa.publicId}`"
+                  @click="requestDelete(sa)"
+                >
+                  <Trash2 :size="16" aria-hidden="true" />
+                </button>
               </div>
             </td>
           </tr>
@@ -470,6 +549,82 @@ async function copyToken() {
       </div>
     </Teleport>
 
+    <!-- Regenerate token modal -->
+    <Teleport to="body">
+      <div
+        v-if="showRegenTokenModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        @click.self="closeRegenTokenModal"
+      >
+        <div
+          class="w-full max-w-lg rounded-lg bg-surface p-5 shadow-xl"
+          role="dialog"
+          aria-modal="true"
+          data-testid="sa-regen-modal"
+        >
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-display text-lg font-semibold text-on-surface">Token Regenerated</h2>
+            <button
+              type="button"
+              class="rounded p-1 text-on-surface-variant hover:bg-surface-variant"
+              @click="closeRegenTokenModal"
+            >
+              <X class="size-4" />
+            </button>
+          </div>
+          <div class="space-y-4">
+            <div
+              class="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+            >
+              Copy this token now. It won't be shown again. The old token for
+              <strong>{{ regenTarget?.name ?? '' }}</strong> has been revoked.
+            </div>
+            <div class="rounded border border-outline-variant bg-surface-variant p-3">
+              <code class="block break-all font-mono text-sm text-on-surface">{{ newToken }}</code>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-md border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-variant"
+                data-testid="sa-regen-copy"
+                @click="copyToken"
+              >
+                <Copy class="size-4" />
+                {{ copied ? 'Copied!' : 'Copy' }}
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90"
+                data-testid="sa-regen-done"
+                @click="closeRegenTokenModal"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
+    <ConfirmActionModal
+      :open="showRegenModal"
+      title="Regenerate Token"
+      :message="`This will revoke the existing token for ${regenTarget?.name ?? 'this service account'}. ${regenTarget?.name ?? 'It'} will stop working immediately.`"
+      primary-label="Regenerate"
+      :busy="regenBusy[regenTarget?.publicId ?? '']"
+      @confirm="confirmRegenerate"
+      @cancel="cancelRegenerate"
+    />
+
+    <ConfirmDeleteModal
+      :open="showDeleteModal"
+      title="Delete Service Account"
+      :message="`This will permanently delete &quot;${deleteTarget?.name ?? ''}&quot; and revoke its API token. This cannot be undone.`"
+      :confirm-token="deleteTarget?.publicId ?? ''"
+      confirm-label="Delete service account"
+      :busy="deleteBusy"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+    />
   </div>
 </template>

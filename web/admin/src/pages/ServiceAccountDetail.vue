@@ -2,8 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { create } from '@bufbuild/protobuf'
-import { ArrowLeft, RefreshCw, Save, Trash2, Copy, X } from '@lucide/vue'
-import { adminClient } from '@/transport/adminClient'
+import { ArrowLeft, RefreshCw, Save, Trash2, Copy, X, Loader2, Filter, Server } from '@lucide/vue'
+import { ConfirmDeleteModal } from '@limen/shared'
+import { ConfirmActionModal } from '@limen/shared'
+import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   GetServiceAccountRequestSchema,
   UpdateServiceAccountRequestSchema,
@@ -11,12 +13,12 @@ import {
   SetServiceAccountLinkEnabledRequestSchema,
   DeleteServiceAccountRequestSchema,
   RegenerateServiceAccountTokenRequestSchema,
-  ServiceAccountRole,
   type ServiceAccount,
   type ServiceAccountUpstreamLink,
 } from '@/gen/limen/admin/v1/admin_pb'
-import { ConfirmDeleteModal } from '@limen/shared'
+import { type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
+import { formatDate, roleLabel, roleClass } from '@/lib/sa'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,42 +36,47 @@ const links = ref<ServiceAccountUpstreamLink[]>([])
 const linksLoading = ref(false)
 const linksError = ref<string | null>(null)
 
+const allUpstreams = ref<UpstreamSummary[]>([])
+const upstreamsLoading = ref(false)
+const upstreamsError = ref<string | null>(null)
+const filter = ref('')
+
+const showRegenModal = ref(false)
 const showRegenerateModal = ref(false)
 const showDeleteModal = ref(false)
+const regenTarget = ref<{ publicId: string; name: string } | null>(null)
+const regenBusy = ref(false)
 const newToken = ref('')
 const deleteBusy = ref(false)
 
 const copied = ref(false)
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 
-function roleLabel(role: ServiceAccountRole): string {
-  switch (role) {
-    case ServiceAccountRole.ADMIN:
-      return 'Admin'
-    case ServiceAccountRole.MEMBER:
-      return 'Member'
-    default:
-      return 'Unknown'
+// Map from upstream publicId to link for quick lookup
+const linkMap = computed<Map<string, ServiceAccountUpstreamLink>>(() => {
+  const m = new Map<string, ServiceAccountUpstreamLink>()
+  for (const link of links.value) {
+    m.set(link.upstreamPublicId, link)
   }
-}
+  return m
+})
 
-function roleClass(role: ServiceAccountRole): string {
-  switch (role) {
-    case ServiceAccountRole.ADMIN:
-      return 'bg-primary/15 text-primary'
-    case ServiceAccountRole.MEMBER:
-      return 'bg-surface-variant text-on-surface-variant'
-    default:
-      return 'bg-surface-variant text-on-surface-variant'
-  }
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// Filtered and enriched upstream list
+const portalUpstreams = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  return allUpstreams.value
+    .filter((u) => {
+      if (!q) return true
+      return (
+        (u.displayName || u.identifier).toLowerCase().includes(q) ||
+        u.mcpUrl.toLowerCase().includes(q)
+      )
+    })
+    .map((u) => ({
+      upstream: u,
+      link: linkMap.value.get(u.publicId) ?? null,
+    }))
+})
 
 async function refresh() {
   loading.value = true
@@ -90,6 +97,19 @@ async function refresh() {
   }
 }
 
+async function loadUpstreams() {
+  upstreamsLoading.value = true
+  upstreamsError.value = null
+  try {
+    const resp = await portalClient().listUpstreams({})
+    allUpstreams.value = resp.upstreams
+  } catch (err) {
+    upstreamsError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    upstreamsLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await refresh()
   linksLoading.value = true
@@ -106,6 +126,7 @@ onMounted(async () => {
   } finally {
     linksLoading.value = false
   }
+  await loadUpstreams()
 })
 
 const canSave = computed(
@@ -124,7 +145,8 @@ async function saveDetails() {
       create(UpdateServiceAccountRequestSchema, {
         publicId: publicId.value,
         name: editName.value !== sa.value.name ? editName.value : undefined,
-        description: editDescription.value !== sa.value.description ? editDescription.value : undefined,
+        description:
+          editDescription.value !== sa.value.description ? editDescription.value : undefined,
       }),
     )
     sa.value = resp.serviceAccount ?? sa.value
@@ -135,21 +157,37 @@ async function saveDetails() {
   }
 }
 
-async function regenerateToken() {
+function regenerateToken() {
   if (!sa.value) return
+  regenTarget.value = { publicId: sa.value.publicId, name: sa.value.name }
+  showRegenModal.value = true
+}
+
+async function confirmRegenerate() {
+  const target = regenTarget.value
+  if (!target || !sa.value) return
+  regenBusy.value = true
   error.value = null
   try {
     const resp = await adminClient().regenerateServiceAccountToken(
       create(RegenerateServiceAccountTokenRequestSchema, {
-        publicId: publicId.value,
+        publicId: target.publicId,
         expiryDays: 365,
       }),
     )
     newToken.value = resp.token
+    showRegenModal.value = false
     showRegenerateModal.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    regenBusy.value = false
   }
+}
+
+function cancelRegenerate() {
+  showRegenModal.value = false
+  regenTarget.value = null
 }
 
 async function deleteSA() {
@@ -209,6 +247,51 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
     linksLoading.value = false
   }
 }
+
+// Favicon helper (same as McpServers.vue)
+function faviconUrl(mcpUrl: string): string | null {
+  try {
+    const host = new URL(mcpUrl).hostname
+    if (!host) return null
+    const parts = host.split('.').filter(Boolean)
+    const root = parts.length >= 2 ? parts.slice(-2).join('.') : host
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(root)}&sz=64`
+  } catch {
+    return null
+  }
+}
+
+function onFaviconError(ev: Event) {
+  ;(ev.target as HTMLImageElement).style.display = 'none'
+}
+
+interface StatusPill {
+  label: string
+  dotClass: string
+  pillClass: string
+}
+
+function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
+  if (!link) {
+    return {
+      label: 'Not linked',
+      dotClass: 'bg-on-surface-variant',
+      pillClass: 'bg-surface-container-high text-on-surface-variant',
+    }
+  }
+  if (link.enabled) {
+    return {
+      label: 'Enabled',
+      dotClass: 'bg-success',
+      pillClass: 'bg-success/10 text-success',
+    }
+  }
+  return {
+    label: 'Disabled',
+    dotClass: 'bg-error',
+    pillClass: 'bg-error-container text-error',
+  }
+}
 </script>
 
 <template>
@@ -265,6 +348,18 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
             <dt class="text-on-surface-variant">Created By</dt>
             <dd class="font-mono text-on-surface">{{ sa.createdById || '—' }}</dd>
           </div>
+          <div>
+            <dt class="text-on-surface-variant">Token Generated</dt>
+            <dd class="text-on-surface">
+              {{ sa.tokenGeneratedAt ? formatDate(sa.tokenGeneratedAt) : 'Not yet generated' }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-on-surface-variant">Last Used</dt>
+            <dd class="text-on-surface">
+              {{ sa.lastUsedAt ? formatDate(sa.lastUsedAt) : 'Never used' }}
+            </dd>
+          </div>
           <div class="md:col-span-2">
             <dt class="text-on-surface-variant">Description</dt>
             <dd class="text-on-surface">{{ sa.description || '—' }}</dd>
@@ -305,56 +400,153 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
         </button>
       </section>
 
-      <!-- Upstream Links section -->
+      <!-- MCP Portal section -->
       <section class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4">
-        <h2 class="font-display text-lg font-semibold text-on-surface">Upstream Links</h2>
-        <div v-if="linksLoading" class="text-sm text-on-surface-variant">Loading links…</div>
-        <div v-else-if="linksError" class="text-sm text-error">{{ linksError }}</div>
-        <template v-else>
-          <div v-if="links.length === 0" class="text-sm text-on-surface-variant">
-            No upstream links configured for this service account.
-          </div>
-          <ul v-else class="divide-y divide-border-subtle">
-            <li
-              v-for="link in links"
-              :key="String(link.upstreamPublicId)"
-              class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div class="space-y-1">
-                <div class="font-medium text-on-surface">{{ link.upstreamName }}</div>
-                <div class="font-mono text-xs text-on-surface-variant">{{ link.upstreamUrl }}</div>
-                <div class="flex items-center gap-2 text-xs">
-                  <span
-                    class="inline-flex rounded-full px-2 py-0.5 font-medium"
-                    :class="
-                      link.enabled
-                        ? 'bg-success/15 text-success'
-                        : 'bg-surface-variant text-on-surface-variant'
-                    "
-                  >
-                    {{ link.enabled ? 'Enabled' : 'Disabled' }}
-                  </span>
-                  <span class="text-on-surface-variant">Connected {{ link.connectedAt }}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low"
-                @click="toggleLink(link)"
-              >
-                {{ link.enabled ? 'Disable' : 'Enable' }}
-              </button>
-            </li>
-          </ul>
-        </template>
-      </section>
-
-      <!-- DCR Clients section (placeholder) -->
-      <section class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4">
-        <h2 class="font-display text-lg font-semibold text-on-surface">DCR Clients</h2>
+        <h2 class="font-display text-lg font-semibold text-on-surface">MCP Portal</h2>
         <p class="text-sm text-on-surface-variant">
-          No DCR clients registered. DCR client management will be available in a future update.
+          Manage which MCP upstreams this service account can access. Linked upstreams can be
+          individually enabled or disabled.
         </p>
+
+        <!-- Loading states -->
+        <div
+          v-if="linksLoading || upstreamsLoading"
+          class="flex items-center gap-2 text-sm text-on-surface-variant"
+        >
+          <Loader2 class="size-4 animate-spin" />
+          Loading upstreams…
+        </div>
+        <div v-else-if="linksError || upstreamsError" class="text-sm text-error">
+          {{ linksError || upstreamsError }}
+        </div>
+
+        <template v-else>
+          <!-- Empty state -->
+          <div
+            v-if="allUpstreams.length === 0"
+            class="py-8 text-center text-sm text-on-surface-variant"
+          >
+            <div
+              class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/15"
+            >
+              <Server class="size-6 text-primary" />
+            </div>
+            <p class="mt-3 font-medium text-on-surface">No MCP upstreams configured</p>
+            <p class="mt-1">
+              Add upstreams from the
+              <router-link :to="ROUTES.mcpServers" class="text-primary hover:underline">
+                MCP Servers
+              </router-link>
+              page first.
+            </p>
+          </div>
+
+          <!-- Upstream table -->
+          <div v-else class="overflow-hidden rounded-lg border border-border-subtle">
+            <!-- Filter toolbar -->
+            <div
+              class="flex items-center gap-3 border-b border-border-subtle bg-surface/50 px-4 py-3"
+            >
+              <div class="relative w-full sm:w-64">
+                <Filter
+                  :size="16"
+                  aria-hidden="true"
+                  class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
+                />
+                <input
+                  v-model="filter"
+                  type="text"
+                  placeholder="Filter upstreams…"
+                  class="w-full rounded-md border border-outline-variant bg-surface py-1.5 pl-9 pr-3 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
+                />
+              </div>
+              <span class="text-xs text-on-surface-variant">
+                {{ portalUpstreams.length }} of {{ allUpstreams.length }}
+              </span>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-surface-container text-xs uppercase text-on-surface-variant">
+                  <tr>
+                    <th class="px-4 py-3">Upstream</th>
+                    <th class="px-4 py-3">Strategy</th>
+                    <th class="px-4 py-3">Link Status</th>
+                    <th class="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border-subtle">
+                  <tr
+                    v-for="item in portalUpstreams"
+                    :key="item.upstream.publicId"
+                    class="transition-colors hover:bg-surface-container-low"
+                  >
+                    <!-- Upstream -->
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <div
+                          class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded bg-surface-container-high text-primary"
+                        >
+                          <img
+                            v-if="faviconUrl(item.upstream.mcpUrl)"
+                            :src="faviconUrl(item.upstream.mcpUrl)!"
+                            alt=""
+                            class="h-5 w-5 object-contain"
+                            loading="lazy"
+                            referrerpolicy="no-referrer"
+                            @error="onFaviconError"
+                          />
+                          <Server v-else :size="16" aria-hidden="true" />
+                        </div>
+                        <div class="min-w-0">
+                          <div class="truncate font-medium text-on-surface">
+                            {{ item.upstream.displayName || item.upstream.identifier }}
+                          </div>
+                          <div class="truncate font-mono text-xs text-on-surface-variant">
+                            {{ item.upstream.identifier }}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <!-- Strategy -->
+                    <td class="px-4 py-3">
+                      <span class="text-on-surface-variant">{{ item.upstream.strategyType }}</span>
+                      <span v-if="item.upstream.strategySubMode" class="text-on-surface-variant">
+                        · {{ item.upstream.strategySubMode }}
+                      </span>
+                    </td>
+                    <!-- Link Status -->
+                    <td class="px-4 py-3">
+                      <span
+                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+                        :class="linkStatusPill(item.link).pillClass"
+                      >
+                        <span
+                          class="h-1.5 w-1.5 rounded-full"
+                          :class="linkStatusPill(item.link).dotClass"
+                        />
+                        {{ linkStatusPill(item.link).label }}
+                      </span>
+                    </td>
+                    <!-- Action -->
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        v-if="item.link"
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm font-medium text-on-surface hover:bg-surface-container-low"
+                        @click="toggleLink(item.link)"
+                      >
+                        {{ item.link.enabled ? 'Disable' : 'Enable' }}
+                      </button>
+                      <span v-else class="text-xs text-on-surface-variant">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
       </section>
 
       <!-- Danger zone -->
@@ -392,7 +584,11 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
         @click.self="closeRegenerateModal"
       >
-        <div class="w-full max-w-lg rounded-lg bg-surface p-5 shadow-xl" role="dialog" aria-modal="true">
+        <div
+          class="w-full max-w-lg rounded-lg bg-surface p-5 shadow-xl"
+          role="dialog"
+          aria-modal="true"
+        >
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-display text-lg font-semibold text-on-surface">Token Regenerated</h2>
             <button
@@ -446,6 +642,16 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
         </div>
       </div>
     </Teleport>
+
+    <ConfirmActionModal
+      :open="showRegenModal"
+      title="Regenerate Token"
+      :message="`This will revoke the existing token for ${regenTarget?.name ?? 'this service account'}. ${regenTarget?.name ?? 'It'} will stop working immediately.`"
+      primary-label="Regenerate"
+      :busy="regenBusy"
+      @confirm="confirmRegenerate"
+      @cancel="cancelRegenerate"
+    />
 
     <!-- Delete confirmation -->
     <ConfirmDeleteModal
