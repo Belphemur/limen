@@ -42,6 +42,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9h  | [Self-serve signup (Portal-side)](phase-09h-signup.md)                                                        | 5, 9a, 9b, 9c           | ☐            |
 | 9i  | [Service accounts & API tokens](phase-09i-service-accounts.md)                                                | 5, 9c, 9d               | ☐            |
 | 9j  | [Impersonation UX & cookie fix](phase-09j-impersonation-ux.md)                                                 | 9i, 9d, 9b, 4           | ☐            |
+| 9k  | [Service account upstream linking](phase-09k-sa-upstream-linking.md)                       | 9i, 7, 9c               | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | 🔶 (60%)     |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
@@ -52,7 +53,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
 | 18  | [Social signup (GitHub / Google / Microsoft / Apple)](phase-18-social-signup.md)                              | 5, 9h                   | ☐ (deferred)  |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9j (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9k (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
@@ -268,6 +269,21 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Banner wired into `App.vue` above RouterView when impersonating
 - [ ] `endImpersonation()` added to session client — calls `ExitImpersonation` → redirects to /admin/
 - [ ] Integration test: impersonation creates v2 cookie → GetSession returns impersonation info → exit clears cookie → redirect to admin
+
+### Phase 9k — Service Account Upstream Linking
+
+- [ ] `ServiceAccountID *int64` + `OwnerID()`, `OwnerIDStr()`, `IsServiceAccount()` helpers on `LinkContext`
+- [ ] `ServiceAccountID *int64` on `oauthstate.Envelope`; SA-aware `StartLink`/`FinishLink` branching
+- [ ] Token AAD (`mcpspec`) and secret AAD (`statichdr`) use `OwnerIDStr()`
+- [ ] SA-aware `loadLinkByOwner`, `Disconnect`, `SetLinkEnabled` in upstream service
+- [ ] 4 admin proto RPCs: `StartServiceAccountConnect`, `SubmitServiceAccountAPIKey`, `ClearServiceAccountOverride`, `DisconnectServiceAccountUpstream`
+- [ ] 4 admin RPC handlers in `service_account_links.go`
+- [ ] `owner` role entries for new RPCs
+- [ ] SA detail page per-row action buttons (Connect, API Key, Rotate, Disconnect, Enable/Disable)
+- [ ] `ApiKeyModal.vue` component for static_header key entry
+- [ ] OAuth popup wiring in SA detail page
+- [ ] Link count column on SA list page
+- [ ] `docs/future-works/impersonation.md` future-works document
 
 ### Phase 10 — Wiring, verification, hardening
 
