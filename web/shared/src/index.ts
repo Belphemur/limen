@@ -1,5 +1,6 @@
 export * from "./session/index.ts";
 export { default as BaseModal } from "./components/BaseModal.vue";
+export { default as ConfirmActionModal } from "./components/ConfirmActionModal.vue";
 export { default as ConfirmDeleteModal } from "./components/ConfirmDeleteModal.vue";
 export { default as ContextJsonEditor } from "./components/ContextJsonEditor.vue";
 export { default as ErrorModal } from "./components/ErrorModal.vue";
