@@ -93,6 +93,25 @@ Production deployments use the split binaries (`cmd/gateway`, `cmd/portal`,
 `cmd/staff`) with `cmd/limenctl migrate` as a one-shot init container. See
 [docs/phases/phase-09a-binary-split.md](docs/phases/phase-09a-binary-split.md).
 
+## Database Migrations
+
+Limen uses two complementary migration mechanisms:
+
+- **GORM AutoMigrate** handles DDL column changes on registered models. Adding a
+  field to a Go model struct (e.g. `TokenGeneratedAt`, `LastUsedAt`) and appending
+  the model to `AllModels()` is sufficient — AutoMigrate creates new tables and
+  columns on the next `limenctl migrate` run. No manual SQL migration is needed
+  for simple column additions.
+- **Goose SQL migrations** (`internal/storage/migrations/postgres/*.sql`) handle
+  structural database concerns that GORM cannot: RLS policies, triggers, partial
+  indexes, CHECK constraints, and data backfills. See
+  [internal/storage/AGENTS.md](internal/storage/AGENTS.md) and
+  [MIGRATIONS.md](internal/storage/MIGRATIONS.md) for details.
+
+Run migrations via `limenctl migrate` — this is a one-shot init step, **not** part
+of server startup. The server checks the schema version on boot and refuses to
+start if the database is un-migrated.
+
 ## Build & Test Commands
 
 ```bash
