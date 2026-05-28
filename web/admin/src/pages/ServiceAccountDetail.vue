@@ -11,6 +11,7 @@ import {
   faviconUrl,
   onFaviconError,
   useUpstreamActions,
+  LinkState,
 } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -72,6 +73,28 @@ const linkMap = computed<Map<string, ServiceAccountUpstreamLink>>(() => {
   return m
 })
 
+/**
+ * Build a synthetic UpstreamSummaryLike that reflects the SA's link state
+ * instead of the admin user's link state from the portal response.
+ */
+function saUpstreamSummary(upstream: UpstreamSummary, link: ServiceAccountUpstreamLink | null) {
+  const linkState = link
+    ? link.enabled
+      ? LinkState.CONNECTED
+      : LinkState.DISABLED
+    : LinkState.NONE
+  // Heuristic: SA has an override key if it has a link for an override upstream
+  const hasUserOverride =
+    !!link && upstream.strategyType === 'static_header' && upstream.strategySubMode === 'override'
+  return {
+    requiresLink: upstream.requiresLink,
+    strategyType: upstream.strategyType,
+    strategySubMode: upstream.strategySubMode,
+    linkState,
+    hasUserOverride,
+  }
+}
+
 // Shared composable for upstream link actions (OAuth, API key, toggle, disconnect)
 const {
   isBusy,
@@ -132,6 +155,7 @@ const {
     },
   },
   oauthMode: 'popup',
+  confirmDestructive: true,
   onRefresh: refreshLinks,
   onError: (msg) => {
     linksError.value = msg
@@ -156,11 +180,15 @@ const portalUpstreams = computed(() => {
 })
 
 const enrichedUpstreams = computed(() =>
-  portalUpstreams.value.map((item) => ({
-    ...item,
-    actions: upstreamCTAs(item.upstream),
-    favicon: faviconUrl(item.upstream.mcpUrl),
-  })),
+  portalUpstreams.value.map((item) => {
+    const summary = saUpstreamSummary(item.upstream, item.link)
+    return {
+      ...item,
+      summary,
+      actions: upstreamCTAs(summary),
+      favicon: faviconUrl(item.upstream.mcpUrl),
+    }
+  }),
 )
 
 async function refresh() {
@@ -336,25 +364,38 @@ interface StatusPill {
   pillClass: string
 }
 
-function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
-  if (!link) {
-    return {
-      label: 'Not linked',
-      dotClass: 'bg-on-surface-variant',
-      pillClass: 'bg-surface-container-high text-on-surface-variant',
-    }
-  }
-  if (link.enabled) {
-    return {
-      label: 'Enabled',
-      dotClass: 'bg-success',
-      pillClass: 'bg-success/10 text-success',
-    }
-  }
-  return {
-    label: 'Disabled',
-    dotClass: 'bg-error',
-    pillClass: 'bg-error-container text-error',
+function linkStatePill(linkState: number): StatusPill {
+  switch (linkState) {
+    case LinkState.CONNECTED:
+      return {
+        label: 'Connected',
+        dotClass: 'bg-success',
+        pillClass: 'bg-success/10 text-success',
+      }
+    case LinkState.DISABLED:
+      return {
+        label: 'Disabled',
+        dotClass: 'bg-error',
+        pillClass: 'bg-error-container text-error',
+      }
+    case LinkState.AUTO_DISABLED:
+      return {
+        label: 'Auto-disabled',
+        dotClass: 'bg-warning',
+        pillClass: 'bg-warning/10 text-warning',
+      }
+    case LinkState.NEEDS_RELINK:
+      return {
+        label: 'Needs relink',
+        dotClass: 'bg-warning',
+        pillClass: 'bg-warning/10 text-warning',
+      }
+    default:
+      return {
+        label: 'Not linked',
+        dotClass: 'bg-on-surface-variant',
+        pillClass: 'bg-surface-container-high text-on-surface-variant',
+      }
   }
 }
 </script>
@@ -588,13 +629,13 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
                     <td class="px-4 py-3">
                       <span
                         class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-                        :class="linkStatusPill(item.link).pillClass"
+                        :class="linkStatePill(item.summary.linkState).pillClass"
                       >
                         <span
                           class="h-1.5 w-1.5 rounded-full"
-                          :class="linkStatusPill(item.link).dotClass"
+                          :class="linkStatePill(item.summary.linkState).dotClass"
                         />
-                        {{ linkStatusPill(item.link).label }}
+                        {{ linkStatePill(item.summary.linkState).label }}
                       </span>
                     </td>
                     <!-- Action -->
@@ -625,8 +666,9 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
                         <span
                           v-if="item.actions.length === 0"
                           class="text-xs text-on-surface-variant"
-                          >—</span
                         >
+                          {{ item.upstream.strategyType === 'none' ? 'Available to all' : '—' }}
+                        </span>
                       </div>
                     </td>
                   </tr>
