@@ -42,7 +42,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9h  | [Self-serve signup (Portal-side)](phase-09h-signup.md)                                                        | 5, 9a, 9b, 9c           | ☐            |
 | 9i  | [Service accounts & API tokens](phase-09i-service-accounts.md)                                                | 5, 9c, 9d               | ☐            |
 | 9j  | [Impersonation UX & cookie fix](phase-09j-impersonation-ux.md)                                                 | 9i, 9d, 9b, 4           | ☐            |
-| 9k  | [Service account upstream linking](phase-09k-sa-upstream-linking.md)                       | 9i, 7, 9c               | ☐            |
+| 9k  | [Service account upstream linking](phase-09k-sa-upstream-linking.md)                       | 9i, 7, 9c               | 🔶 (85%)     |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | 🔶 (60%)     |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |

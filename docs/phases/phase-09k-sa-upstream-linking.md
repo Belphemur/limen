@@ -1,8 +1,8 @@
 ---
 phase: "9k"
 title: "Service Account Upstream Linking"
-status: planned
-progress: 0
+status: in_progress
+progress: 85
 depends_on: ["9i", "7", "9c"]
 updated: "2026-05-27"
 ---
@@ -210,22 +210,22 @@ The SA list page gains a "Links" column showing "X of Y" linked upstreams.
 
 ### 9k-a: Backend — SA-aware linking + admin RPCs
 
-- [ ] Add `ServiceAccountID *int64` to `upstream.LinkContext` + helpers `OwnerID()`, `OwnerIDStr()`, `IsServiceAccount()` → `internal/upstream/strategy.go`
-- [ ] Add `ServiceAccountID *int64` to `oauthstate.Envelope` → `internal/upstream/oauthstate/oauthstate.go`; populate in `StartLink`; branch in `FinishLink` for link FK
-- [ ] Update token AAD in `mcpspec/link.go` to use `lctx.OwnerIDStr()`; update secret AAD in `statichdr/statichdr.go`; update link queries to use `service_account_id` when `lctx.IsServiceAccount()`
-- [ ] Update existing-link check in `mcpspec/link.go:162` to query by `service_account_id` when applicable
-- [ ] Add SA-aware `loadLinkByOwner` to `internal/upstream/service.go`; update `Disconnect` and `SetLinkEnabled` for SA branching
-- [ ] Define 4 proto messages + RPCs in `proto/limen/admin/v1/admin.proto`; run `buf generate`
-- [ ] Implement 4 admin RPC handlers in `internal/admin/service_account_links.go`
-- [ ] Add `owner` role entries for 4 new RPCs in `internal/admin/roles.go`
+- [x] Add `ServiceAccountID *int64` to `upstream.LinkContext` + helpers `OwnerID()`, `OwnerIDStr()`, `IsServiceAccount()` → `internal/upstream/strategy.go`
+- [x] Add `ServiceAccountID *int64` to `oauthstate.Envelope` → `internal/upstream/oauthstate/oauthstate.go`; populate in `StartLink`; branch in `FinishLink` for link FK
+- [x] Update token AAD in `mcpspec/link.go` to use `lctx.OwnerIDStr()`; update secret AAD in `statichdr/statichdr.go`; update link queries to use `service_account_id` when `lctx.IsServiceAccount()`
+- [x] Update existing-link check in `mcpspec/link.go:162` to query by `service_account_id` when applicable
+- [x] Add SA-aware `loadLinkByOwner` to `internal/upstream/service.go`; update `Disconnect` and `SetLinkEnabled` for SA branching
+- [x] Define 4 proto messages + RPCs in `proto/limen/admin/v1/admin.proto`; run `buf generate`
+- [x] Implement 4 admin RPC handlers in `internal/admin/service_account_links.go`
+- [x] Add `owner` role entries for 4 new RPCs in `internal/admin/roles.go`
 
 ### 9k-b: Frontend — Admin SPA SA linking UI
 
-- [ ] Replace enable/disable-only toggle in SA detail MCP Portal table with per-row action buttons (Connect, Enter API Key, Rotate Key, Use Shared Key, Disconnect, Enable/Disable) → `web/admin/src/pages/ServiceAccountDetail.vue`
-- [ ] Create `ApiKeyModal.vue` component (admin design tokens) for entering/rotating static_header keys → `web/admin/src/components/ApiKeyModal.vue`
-- [ ] Wire OAuth popup: reuse `openOAuthPopup` from `@limen/shared`; on popup close, refresh SA link state
-- [ ] Add busy state and error display per action button using `mutationError`/`busyMap` pattern
-- [ ] Add link count column to `ServiceAccounts.vue` table ("X of Y linked")
+- [x] Replace enable/disable-only toggle in SA detail MCP Portal table with per-row action buttons (Connect, Enter API Key, Rotate Key, Use Shared Key, Disconnect, Enable/Disable) → `web/admin/src/pages/ServiceAccountDetail.vue`
+- [x] Create `ApiKeyModal.vue` component (admin design tokens) for entering/rotating static_header keys → `web/admin/src/components/ApiKeyModal.vue`
+- [x] Wire OAuth popup: reuse `openOAuthPopup` from `@limen/shared`; on popup close, refresh SA link state
+- [x] Add busy state and error display per action button using `mutationError`/`busyMap` pattern
+- [x] Add link count column to `ServiceAccounts.vue` table ("X of Y linked")
 
 ### 9k-c: Documentation
 
