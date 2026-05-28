@@ -1,10 +1,47 @@
-import { LinkState, type UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
+// Shared CTA (Call-To-Action) decision logic for MCP upstream
+// management. Both the Admin and Portal SPAs use these helpers to
+// determine which action buttons to show for each upstream row.
+//
+// LinkState numeric values mirror the protobuf enum in
+// proto/limen/portal/v1/portal.proto so this module has zero proto
+// dependencies.
+//
+//   LINK_STATE_UNSPECIFIED = 0
+//   LINK_STATE_NONE        = 1
+//   LINK_STATE_CONNECTED   = 2
+//   LINK_STATE_DISABLED    = 3
+//   LINK_STATE_AUTO_DISABLED = 4
+//   LINK_STATE_NEEDS_RELINK  = 5
 
-// CTAKind enumerates the actions the Upstreams page can offer per
-// row.
+/** Numeric LinkState constants matching protobuf enum limen.portal.v1.LinkState. */
+export const LinkState = {
+  UNSPECIFIED: 0,
+  NONE: 1,
+  CONNECTED: 2,
+  DISABLED: 3,
+  AUTO_DISABLED: 4,
+  NEEDS_RELINK: 5,
+} as const
+
+export type LinkStateValue = (typeof LinkState)[keyof typeof LinkState]
+
+/**
+ * Minimal shape of the upstream metadata consumed by CTA logic.
+ * Satisfied structurally by the protobuf-generated `UpstreamSummary`
+ * from either the portal or admin SPA.
+ */
+export interface UpstreamSummaryLike {
+  requiresLink: boolean
+  strategyType: string
+  strategySubMode: string
+  linkState: LinkStateValue
+  hasUserOverride: boolean
+}
+
+// CTAKind enumerates the actions the Upstreams page can offer per row.
 //   connect / submitKey / rotateKey: start or rotate per-user creds
 //   clearOverride: revert a user's static_header override back to
-//     the shared fallback (Phase 9g)
+//     the shared fallback
 //   enable / disable: flip the link's enabled flag
 //   disconnect: drop the user's link row entirely
 export type CTAKind =
@@ -49,7 +86,7 @@ const STATIC_HEADER = 'static_header'
 //   mcp_spec        -          -          DISABLED       [Enable, Disconnect]
 //   mcp_spec        -          -          AUTO_DISABLED  [Re-enable, Disconnect]
 //   mcp_spec        -          -          NEEDS_RELINK   [Reconnect, Disconnect]
-export function upstreamCTAs(up: UpstreamSummary): CTA[] {
+export function upstreamCTAs(up: UpstreamSummaryLike): CTA[] {
   if (!up.requiresLink) return []
   if (up.strategyType === STATIC_HEADER) {
     return up.strategySubMode === 'override'
@@ -59,7 +96,7 @@ export function upstreamCTAs(up: UpstreamSummary): CTA[] {
   return defaultCTAs(up.linkState)
 }
 
-function staticHeaderSharedCTAs(state: LinkState): CTA[] {
+function staticHeaderSharedCTAs(state: LinkStateValue): CTA[] {
   switch (state) {
     case LinkState.NONE:
       return [disable]
@@ -78,7 +115,7 @@ function staticHeaderSharedCTAs(state: LinkState): CTA[] {
   }
 }
 
-function staticHeaderOverrideCTAs(up: UpstreamSummary): CTA[] {
+function staticHeaderOverrideCTAs(up: UpstreamSummaryLike): CTA[] {
   if (!up.hasUserOverride) {
     switch (up.linkState) {
       case LinkState.NONE:
@@ -107,7 +144,7 @@ function staticHeaderOverrideCTAs(up: UpstreamSummary): CTA[] {
   }
 }
 
-function defaultCTAs(state: LinkState): CTA[] {
+function defaultCTAs(state: LinkStateValue): CTA[] {
   switch (state) {
     case LinkState.NONE:
       return [connect]
@@ -139,9 +176,8 @@ const reEnable: CTA = { kind: 'enable', label: 'Re-enable', variant: 'primary' }
 const disable: CTA = { kind: 'disable', label: 'Disable', variant: 'secondary' }
 const disconnect: CTA = { kind: 'disconnect', label: 'Disconnect', variant: 'danger' }
 
-// linkStateLabel maps the enum to a short, human-friendly badge
-// string. Kept here so the UI never inlines magic enum-int strings.
-export function linkStateLabel(state: LinkState): string {
+// linkStateLabel maps the state to a short, human-friendly badge string.
+export function linkStateLabel(state: LinkStateValue): string {
   switch (state) {
     case LinkState.NONE:
       return 'not connected'
@@ -158,8 +194,12 @@ export function linkStateLabel(state: LinkState): string {
   }
 }
 
-// linkStateTone returns a tailwind class fragment for the badge.
-export function linkStateTone(state: LinkState): string {
+/**
+ * Returns Tailwind utility classes for link state badge styling.
+ * NOTE: These classes use the portal SPA's color palette (emerald/amber/slate).
+ * The admin SPA uses its own `linkStatusPill()` with MD3 tokens instead.
+ */
+export function linkStateTone(state: LinkStateValue): string {
   switch (state) {
     case LinkState.CONNECTED:
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'

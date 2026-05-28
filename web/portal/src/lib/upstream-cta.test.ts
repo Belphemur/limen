@@ -5,7 +5,7 @@ import {
   UpstreamSummarySchema,
   type UpstreamSummary,
 } from '@gen/limen/portal/v1/portal_pb.js'
-import { upstreamCTAs } from './upstream-cta'
+import { upstreamCTAs } from '@limen/shared'
 
 function summary(overrides: MessageInitShape<typeof UpstreamSummarySchema>): UpstreamSummary {
   return create(UpstreamSummarySchema, {

@@ -3,8 +3,8 @@ import { onMounted, ref } from 'vue'
 import type { UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
 import { useUpstreamsStore } from '@/stores/upstreams'
 import UpstreamCard from '@/components/UpstreamCard.vue'
-import ApiKeyModal from '@/components/ApiKeyModal.vue'
-import type { CTAKind } from '@/lib/upstream-cta'
+import { ApiKeyModal } from '@limen/shared'
+import type { CTAKind } from '@limen/shared'
 
 const upstreams = useUpstreamsStore()
 

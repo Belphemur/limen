@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { BaseModal } from '@limen/shared'
+import { Loader2 } from '@lucide/vue'
+import BaseModal from './BaseModal.vue'
 
 const props = defineProps<{
   open: boolean

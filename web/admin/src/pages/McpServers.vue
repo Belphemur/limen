@@ -13,7 +13,7 @@ import {
   Server,
   Trash2,
 } from '@lucide/vue'
-import { ConfirmDeleteModal } from '@limen/shared'
+import { ConfirmDeleteModal, faviconUrl, onFaviconError } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
@@ -47,26 +47,6 @@ onMounted(refresh)
 
 function detailPath(id: string): string {
   return ROUTES.mcpServerDetail.replace(':id', id)
-}
-
-// Per-row icon: ask Google's s2 favicon service for the root domain behind
-// mcpUrl (e.g. api.github.com -> github.com) so vendor icons resolve even
-// when the MCP endpoint lives on a subdomain. Failing URL parse returns
-// null and the row falls back to a generic Server glyph.
-function faviconUrl(mcpUrl: string): string | null {
-  try {
-    const host = new URL(mcpUrl).hostname
-    if (!host) return null
-    const parts = host.split('.').filter(Boolean)
-    const root = parts.length >= 2 ? parts.slice(-2).join('.') : host
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(root)}&sz=64`
-  } catch {
-    return null
-  }
-}
-
-function onFaviconError(ev: Event) {
-  ;(ev.target as HTMLImageElement).style.display = 'none'
 }
 
 interface StatusPill {
@@ -172,13 +152,18 @@ async function connect(u: UpstreamSummary) {
 
 const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  if (!q) return upstreams.value
-  return upstreams.value.filter(
-    (u) =>
-      u.identifier.toLowerCase().includes(q) ||
-      u.displayName.toLowerCase().includes(q) ||
-      u.mcpUrl.toLowerCase().includes(q),
-  )
+  const rows = !q
+    ? upstreams.value
+    : upstreams.value.filter(
+        (u) =>
+          u.identifier.toLowerCase().includes(q) ||
+          u.displayName.toLowerCase().includes(q) ||
+          u.mcpUrl.toLowerCase().includes(q),
+      )
+  return rows.map((u) => ({
+    ...u,
+    favicon: faviconUrl(u.mcpUrl),
+  }))
 })
 
 const empty = computed(() => !loading.value && upstreams.value.length === 0)
@@ -282,7 +267,7 @@ const noMatches = computed(
                 <RouterLink :to="detailPath(u.publicId)" class="flex items-center gap-3 group/link">
                   <div
                     class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded bg-surface-container-high text-primary">
-                    <img v-if="faviconUrl(u.mcpUrl)" :src="faviconUrl(u.mcpUrl)!" alt="" class="h-5 w-5 object-contain"
+                    <img v-if="u.favicon" :src="u.favicon" alt="" class="h-5 w-5 object-contain"
                       loading="lazy" referrerpolicy="no-referrer" @error="onFaviconError" />
                     <Server v-else :size="18" aria-hidden="true" />
                   </div>

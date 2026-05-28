@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
-import { upstreamCTAs, linkStateLabel, linkStateTone, type CTAKind } from '@/lib/upstream-cta'
+import { upstreamCTAs, linkStateLabel, linkStateTone, type CTAKind } from '@limen/shared'
 import UpstreamCatalog from '@/components/UpstreamCatalog.vue'
 
 const props = defineProps<{
