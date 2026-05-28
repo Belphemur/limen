@@ -16,4 +16,6 @@ const (
 	PrefixAllowlistEntry         Prefix = "ral"
 	PrefixPendingSignup          Prefix = "snp"
 	PrefixServiceAccount         Prefix = "sa"
+	PrefixActiveUserMonth        Prefix = "aum"
+	PrefixSAConnectionSnapshot   Prefix = "ascs"
 )

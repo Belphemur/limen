@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/metrics"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/gateway"
 	"github.com/belphemur/limen/internal/gateway/codemode"
@@ -20,6 +21,10 @@ import (
 // Build returns the assembled gateway Manager + MCP transport.
 // Requires boot.NeedStore + NeedUpstream in the profile.
 func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
+	var billingRecorder *metrics.BillingRecorder
+	if rt.Valkey != nil {
+		billingRecorder = metrics.NewBillingRecorder(rt.Valkey)
+	}
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
 		Store:    rt.Store,
 		Service:  rt.UpstreamService,
@@ -33,6 +38,7 @@ func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 		Logger:           rt.Logger,
 		ResiliencePolicy: rt.Cfg.Resilience.Resolve("upstream.tool_calls"),
 		ValkeyClient:     rt.Valkey,
+		BillingRecorder:  billingRecorder,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)

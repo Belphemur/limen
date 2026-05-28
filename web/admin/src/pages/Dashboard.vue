@@ -13,6 +13,8 @@ import SetupProgress from '@/components/SetupProgress.vue'
 import TaskBentoCard from '@/components/TaskBentoCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
+import ActiveUserChart from '@/components/ActiveUserChart.vue'
+import SAConnectionChart from '@/components/SAConnectionChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -29,6 +31,8 @@ const upstreams = ref<UpstreamSummary[]>([])
 const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
 const zitadelOrgId = ref('')
 const issuer = ref('')
+const hasActiveUserData = ref(false)
+const hasSAConnectionData = ref(false)
 
 onMounted(async () => {
   await Promise.all([
@@ -49,6 +53,20 @@ onMounted(async () => {
       .then((d) => (issuer.value = d.zitadelIssuer))
       .catch(() => (issuer.value = '')),
   ])
+
+  // Check billing chart data availability (non-blocking, fire-and-forget)
+  adminClient()
+    .getActiveUserChart({})
+    .then((r) => {
+      hasActiveUserData.value = r.hasData
+    })
+    .catch(() => {})
+  adminClient()
+    .getSAConnectionChart({})
+    .then((r) => {
+      hasSAConnectionData.value = r.hasData
+    })
+    .catch(() => {})
 })
 
 interface Step {
@@ -214,8 +232,13 @@ async function openServiceAccounts() {
       </div>
     </section>
 
-    <!-- Bottom row -->
-    <section class="grid gap-gutter md:grid-cols-2">
+    <!-- Usage charts: visible when billing data exists for this tenant -->
+    <section v-if="hasActiveUserData || hasSAConnectionData" class="grid gap-gutter md:grid-cols-2">
+      <ActiveUserChart v-if="hasActiveUserData" />
+      <SAConnectionChart v-if="hasSAConnectionData" />
+    </section>
+    <!-- Fallback: original bottom row when no usage data yet -->
+    <section v-else class="grid gap-gutter md:grid-cols-2">
       <SystemHealthEmpty />
       <QuickResources />
     </section>

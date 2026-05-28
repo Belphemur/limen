@@ -48,5 +48,7 @@ func AllModels() []any {
 		&PendingSignup{},
 		&ServiceAccount{},
 		&UpstreamTenantLink{},
+		&ActiveUserMonth{},
+		&SAConnectionSnapshot{},
 	}
 }
