@@ -190,7 +190,6 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
           if (options.oauthMode === 'popup') {
             const result = await openOAuthPopup({ url })
             if (!result.ok) {
-              if (result.error === 'cancelled') return
               emitError(result.errorDescription || result.error || 'OAuth failed')
               return
             }

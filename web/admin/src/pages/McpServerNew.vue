@@ -296,15 +296,16 @@ async function runOAuthPopup(upstreamIdentifier: string, publicId: string) {
     throw new Error('Backend did not return an authorize URL')
   }
   const result = await openOAuthPopup({ url: sc.redirectUrl })
+  console.log('[McpServerNew] openOAuthPopup result:', result)
   if (!result.ok) {
+    console.log(`[McpServerNew] OAuth failed branch: error=${result.error}, calling rollbackUpstream for publicId=${publicId}`)
     await rollbackUpstream(publicId)
     const message =
-      result.error === 'cancelled'
-        ? 'You closed the authorization window before completing the flow. The server has not been saved.'
-        : result.error === 'popup_blocked'
-          ? (result.errorDescription ?? 'Popups are blocked.')
-          : (result.errorDescription ??
+      result.error === 'popup_blocked'
+        ? (result.errorDescription ?? 'Popups are blocked.')
+        : (result.errorDescription ??
             `The upstream OAuth flow failed (${result.error ?? 'unknown error'}). The server has not been saved.`)
+    console.log('[McpServerNew] Setting error state message:', message)
     errorState.value = {
       title: 'Authorization failed',
       message,

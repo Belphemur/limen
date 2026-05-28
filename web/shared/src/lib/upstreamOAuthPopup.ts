@@ -5,13 +5,18 @@
 // reads the result from its own URL params and posts a message back
 // to the opener (see `openOAuthPopup` consumer + `OAuthPopupClose.vue`).
 //
+// Browser cross-origin restrictions prevent reliably detecting when a
+// user manually closes the popup, so the only resolution mechanisms
+// are the message from the callback page or the 10-minute timeout.
+//
 // Outcomes:
-//   - { ok: true }                       — the link was persisted.
-//   - { ok: false, error: 'cancelled' }  — the user closed the popup
-//                                           before completing the flow.
-//   - { ok: false, error: '<code>' }     — the backend / AS returned
-//                                           an error; `errorDescription`
-//                                           may carry a human message.
+//   - { ok: true }                          — the link was persisted.
+//   - { ok: false, error: 'popup_blocked' } — popup was blocked.
+//   - { ok: false, error: 'timeout' }       — flow timed out after
+//                                              10 minutes.
+//   - { ok: false, error: '<code>' }        — backend / AS returned an
+//                                              error; `errorDescription`
+//                                              may carry a human message.
 
 export const OAUTH_POPUP_MESSAGE_TYPE = "limen-upstream-oauth-result" as const;
 export const OAUTH_POPUP_BROADCAST_CHANNEL = "limen-upstream-oauth" as const;
@@ -69,6 +74,7 @@ export function openOAuthPopup(
     features,
   );
   if (!popup) {
+    console.log("[OAuthPopup] window.open returned null (popup blocked)");
     return Promise.resolve({
       ok: false,
       error: "popup_blocked",
@@ -96,35 +102,30 @@ export function openOAuthPopup(
     };
 
     const onMessage = (ev: MessageEvent) => {
+      const data = ev.data as Partial<OAuthPopupResultMessage> | undefined;
+      console.log(`[OAuthPopup] onMessage: origin=${ev.origin}, expected=${origin}, data.type=${data?.type}, data.ok=${data?.ok}`);
       if (ev.origin !== origin) return;
-      handle(ev.data as Partial<OAuthPopupResultMessage> | undefined);
+      handle(data);
     };
     const onChannel = (ev: MessageEvent) => {
-      handle(ev.data as Partial<OAuthPopupResultMessage> | undefined);
+      const data = ev.data as Partial<OAuthPopupResultMessage> | undefined;
+      console.log(`[OAuthPopup] onChannel: data.type=${data?.type}, data.ok=${data?.ok}`);
+      handle(data);
     };
 
-    let closedCount = 0;
-    const requiredClosedChecks = 3; // 1.5 seconds of consecutive "closed" reports
-    const poll = window.setInterval(() => {
-      if (opened.closed) {
-        closedCount++;
-        if (closedCount >= requiredClosedChecks) {
-          finish({
-            ok: false,
-            error: "cancelled",
-            errorDescription:
-              "OAuth window was closed before the flow completed.",
-          });
-        }
-      } else {
-        closedCount = 0; // Reset if popup is reported open again
-      }
-    }, 500);
+    const timeout = window.setTimeout(() => {
+      finish({
+        ok: false,
+        error: "timeout",
+        errorDescription: "The OAuth flow timed out. Please try again.",
+      });
+    }, 10 * 60 * 1000); // 10 minutes
 
     function finish(result: OAuthPopupResult) {
+      console.log("[OAuthPopup] finish called with result:", result);
       if (settled) return;
       settled = true;
-      window.clearInterval(poll);
+      window.clearTimeout(timeout);
       window.removeEventListener("message", onMessage);
       if (channel) {
         channel.removeEventListener("message", onChannel);
@@ -153,8 +154,10 @@ export function openOAuthPopup(
 // the message to the opener, then close the popup window. Returns the
 // parsed result so the popup page can also render a static fallback.
 export function postOAuthPopupResultAndClose(): OAuthPopupResult {
+  console.log("[OAuthPopup] postOAuthPopupResultAndClose called");
   const params = new URLSearchParams(window.location.search);
   const errorCode = params.get("upstream_oauth_error");
+  console.log(`[OAuthPopup] errorCode from URL: ${errorCode}`);
   const result: OAuthPopupResult = errorCode
     ? {
         ok: false,
