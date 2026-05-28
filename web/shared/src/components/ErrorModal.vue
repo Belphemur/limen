@@ -33,7 +33,7 @@ const emit = defineEmits<{
         </p>
         <div class="mt-4 flex w-full flex-col gap-3">
           <button v-if="primaryLabel" type="button"
-            class="w-full rounded-lg bg-primary-container px-4 py-2 font-label-md text-label-md text-on-primary shadow-sm transition-colors hover:bg-primary"
+            class="w-full rounded-lg bg-primary px-4 py-2 font-label-md text-label-md text-on-primary shadow-sm transition-colors hover:bg-primary/90"
             data-testid="error-modal-primary" @click="emit('primary')">
             {{ primaryLabel }}
           </button>

@@ -103,14 +103,21 @@ export function openOAuthPopup(
       handle(ev.data as Partial<OAuthPopupResultMessage> | undefined);
     };
 
+    let closedCount = 0;
+    const requiredClosedChecks = 3; // 1.5 seconds of consecutive "closed" reports
     const poll = window.setInterval(() => {
       if (opened.closed) {
-        finish({
-          ok: false,
-          error: "cancelled",
-          errorDescription:
-            "OAuth window was closed before the flow completed.",
-        });
+        closedCount++;
+        if (closedCount >= requiredClosedChecks) {
+          finish({
+            ok: false,
+            error: "cancelled",
+            errorDescription:
+              "OAuth window was closed before the flow completed.",
+          });
+        }
+      } else {
+        closedCount = 0; // Reset if popup is reported open again
       }
     }, 500);
 
