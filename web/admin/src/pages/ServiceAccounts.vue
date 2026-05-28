@@ -12,7 +12,7 @@ import {
   type ServiceAccount,
 } from '@/gen/limen/admin/v1/admin_pb'
 import { ROUTES } from '@/router/routes'
-import { KeyRound, Plus, Copy, X, Loader2, RefreshCw, Trash2 } from '@lucide/vue'
+import { KeyRound, Plus, Copy, X, Loader2, RefreshCw, Trash2, Settings } from '@lucide/vue'
 import { ConfirmDeleteModal } from '@limen/shared'
 import { ConfirmActionModal } from '@limen/shared'
 import { formatDate, roleLabel, roleClass } from '@/lib/sa'
@@ -298,6 +298,7 @@ function closeRegenTokenModal() {
             <th class="px-4 py-3">Generated</th>
             <th class="px-4 py-3">Last Used</th>
             <th class="px-4 py-3">Created</th>
+            <th class="px-4 py-3">Links</th>
             <th class="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
@@ -346,6 +347,16 @@ function closeRegenTokenModal() {
             </td>
             <td class="px-4 py-3 text-on-surface-variant">
               {{ formatDate(sa.createdAt) }}
+            </td>
+            <td class="px-4 py-3">
+              <router-link
+                :to="`${ROUTES.serviceAccountDetail.replace(':id', sa.publicId)}#mcp-portal`"
+                class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                title="Configure MCP connections"
+              >
+                <Settings :size="14" />
+                Configure
+              </router-link>
             </td>
             <td class="px-4 py-3">
               <div class="flex justify-end gap-0.5">

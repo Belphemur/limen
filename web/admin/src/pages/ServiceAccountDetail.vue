@@ -3,8 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { create } from '@bufbuild/protobuf'
 import { ArrowLeft, RefreshCw, Save, Trash2, Copy, X, Loader2, Filter, Server } from '@lucide/vue'
-import { ConfirmDeleteModal } from '@limen/shared'
-import { ConfirmActionModal } from '@limen/shared'
+import { ConfirmDeleteModal, ConfirmActionModal, openOAuthPopup } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   GetServiceAccountRequestSchema,
@@ -13,10 +12,15 @@ import {
   SetServiceAccountLinkEnabledRequestSchema,
   DeleteServiceAccountRequestSchema,
   RegenerateServiceAccountTokenRequestSchema,
+  StartServiceAccountConnectRequestSchema,
+  SubmitServiceAccountAPIKeyRequestSchema,
+  ClearServiceAccountOverrideRequestSchema,
+  DisconnectServiceAccountUpstreamRequestSchema,
   type ServiceAccount,
   type ServiceAccountUpstreamLink,
 } from '@/gen/limen/admin/v1/admin_pb'
 import { type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
+import ApiKeyModal from '@/components/ApiKeyModal.vue'
 import { ROUTES } from '@/router/routes'
 import { formatDate, roleLabel, roleClass } from '@/lib/sa'
 
@@ -52,6 +56,14 @@ const deleteBusy = ref(false)
 const copied = ref(false)
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 
+// Per-row busy state for link actions
+const linkBusy = ref<Record<string, string>>({}) // key: upstreamPublicId, value: action name
+
+// API key modal state
+const apiKeyModalOpen = ref(false)
+const apiKeyTarget = ref<{ identifier: string; label: string; title?: string } | null>(null)
+const apiKeyBusy = ref(false)
+
 // Map from upstream publicId to link for quick lookup
 const linkMap = computed<Map<string, ServiceAccountUpstreamLink>>(() => {
   const m = new Map<string, ServiceAccountUpstreamLink>()
@@ -77,6 +89,13 @@ const portalUpstreams = computed(() => {
       link: linkMap.value.get(u.publicId) ?? null,
     }))
 })
+
+const enrichedUpstreams = computed(() =>
+  portalUpstreams.value.map((item) => ({
+    ...item,
+    actions: linkActions(item.upstream, item.link),
+  })),
+)
 
 async function refresh() {
   loading.value = true
@@ -114,19 +133,23 @@ onMounted(async () => {
   await refresh()
   linksLoading.value = true
   linksError.value = null
-  try {
-    const resp = await adminClient().listServiceAccountUpstreamLinks(
+  const linksPromise = adminClient()
+    .listServiceAccountUpstreamLinks(
       create(ListServiceAccountUpstreamLinksRequestSchema, {
         serviceAccountPublicId: publicId.value,
       }),
     )
-    links.value = resp.links
-  } catch (err) {
-    linksError.value = err instanceof Error ? err.message : String(err)
-  } finally {
-    linksLoading.value = false
-  }
-  await loadUpstreams()
+    .then((resp) => {
+      links.value = resp.links
+    })
+    .catch((err) => {
+      linksError.value = err instanceof Error ? err.message : String(err)
+    })
+    .finally(() => {
+      linksLoading.value = false
+    })
+
+  await Promise.all([linksPromise, loadUpstreams()])
 })
 
 const canSave = computed(
@@ -223,21 +246,14 @@ async function copyToken() {
   }
 }
 
-async function toggleLink(link: ServiceAccountUpstreamLink) {
+async function refreshLinks() {
+  if (!sa.value) return
+  linksLoading.value = true
+  linksError.value = null
   try {
-    await adminClient().setServiceAccountLinkEnabled(
-      create(SetServiceAccountLinkEnabledRequestSchema, {
-        serviceAccountPublicId: publicId.value,
-        upstreamPublicId: link.upstreamPublicId,
-        enabled: !link.enabled,
-      }),
-    )
-    // Refresh links to reflect the toggled state
-    linksLoading.value = true
-    linksError.value = null
     const resp = await adminClient().listServiceAccountUpstreamLinks(
       create(ListServiceAccountUpstreamLinksRequestSchema, {
-        serviceAccountPublicId: publicId.value,
+        serviceAccountPublicId: sa.value.publicId,
       }),
     )
     links.value = resp.links
@@ -245,6 +261,189 @@ async function toggleLink(link: ServiceAccountUpstreamLink) {
     linksError.value = err instanceof Error ? err.message : String(err)
   } finally {
     linksLoading.value = false
+  }
+}
+
+async function toggleLink(link: ServiceAccountUpstreamLink) {
+  if (!sa.value) return
+  try {
+    await adminClient().setServiceAccountLinkEnabled(
+      create(SetServiceAccountLinkEnabledRequestSchema, {
+        serviceAccountPublicId: sa.value.publicId,
+        upstreamPublicId: link.upstreamPublicId,
+        enabled: !link.enabled,
+      }),
+    )
+    await refreshLinks()
+  } catch (err) {
+    linksError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+interface LinkAction {
+  label: string
+  variant: 'primary' | 'secondary' | 'danger'
+  action: string // 'connect' | 'submitKey' | 'rotateKey' | 'clearOverride' | 'enable' | 'disable' | 'disconnect'
+}
+
+function linkActions(
+  upstream: UpstreamSummary,
+  link: ServiceAccountUpstreamLink | null,
+): LinkAction[] {
+  if (!upstream.requiresLink) return []
+
+  const isLinked = link !== null
+  const isEnabled = link?.enabled ?? false
+  const strategy = upstream.strategyType
+  const subMode = upstream.strategySubMode
+
+  if (strategy === 'static_header') {
+    if (subMode === 'shared') {
+      if (!isLinked) {
+        return [{ label: 'Disable', variant: 'secondary', action: 'disable' }]
+      }
+      if (isEnabled) {
+        return [
+          { label: 'Disable', variant: 'secondary', action: 'disable' },
+          { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+        ]
+      }
+      return [
+        { label: 'Enable', variant: 'primary', action: 'enable' },
+        { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+      ]
+    }
+    if (subMode === 'override') {
+      if (!isLinked) {
+        return [{ label: 'Enter API Key', variant: 'primary', action: 'submitKey' }]
+      }
+      if (isEnabled) {
+        return [
+          { label: 'Rotate Key', variant: 'primary', action: 'rotateKey' },
+          { label: 'Use Shared Key', variant: 'secondary', action: 'clearOverride' },
+          { label: 'Disable', variant: 'secondary', action: 'disable' },
+          { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+        ]
+      }
+      return [
+        { label: 'Enable', variant: 'primary', action: 'enable' },
+        { label: 'Use Shared Key', variant: 'secondary', action: 'clearOverride' },
+        { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+      ]
+    }
+    return []
+  }
+
+  if (strategy === 'mcp_spec') {
+    if (!isLinked) {
+      return [{ label: 'Connect', variant: 'primary', action: 'connect' }]
+    }
+    if (isEnabled) {
+      return [
+        { label: 'Disable', variant: 'secondary', action: 'disable' },
+        { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+      ]
+    }
+    return [
+      { label: 'Enable', variant: 'primary', action: 'enable' },
+      { label: 'Disconnect', variant: 'danger', action: 'disconnect' },
+    ]
+  }
+
+  return []
+}
+
+async function handleLinkAction(upstream: UpstreamSummary, action: string) {
+  if (!sa.value) return
+  const saId = sa.value.publicId
+  const upId = upstream.identifier
+
+  // Guard: prevent double-clicks
+  if (linkBusy.value[upstream.publicId]) return
+
+  // Modal-opening actions don't need linkBusy — the modal has its own busy state
+  if (action === 'submitKey' || action === 'rotateKey') {
+    apiKeyTarget.value = {
+      identifier: upId,
+      label: upstream.displayName || upstream.identifier,
+      title:
+        action === 'rotateKey'
+          ? `Rotate API key for ${upstream.displayName || upstream.identifier}`
+          : undefined,
+    }
+    apiKeyModalOpen.value = true
+    return
+  }
+
+  linkBusy.value = { ...linkBusy.value, [upstream.publicId]: action }
+  linksError.value = null
+
+  try {
+    switch (action) {
+      case 'connect': {
+        const resp = await adminClient().startServiceAccountConnect(
+          create(StartServiceAccountConnectRequestSchema, {
+            serviceAccountPublicId: saId,
+            upstreamIdentifier: upId,
+            returnTo: window.location.pathname,
+          }),
+        )
+        const result = await openOAuthPopup({ url: resp.redirectUrl })
+        if (!result.ok && result.error !== 'cancelled') {
+          linksError.value = result.errorDescription || result.error || 'OAuth failed'
+        }
+        break
+      }
+      case 'clearOverride': {
+        await adminClient().clearServiceAccountOverride(
+          create(ClearServiceAccountOverrideRequestSchema, {
+            serviceAccountPublicId: saId,
+            upstreamIdentifier: upId,
+          }),
+        )
+        break
+      }
+      case 'enable':
+      case 'disable': {
+        const existingLink = linkMap.value.get(upstream.publicId)
+        if (existingLink) await toggleLink(existingLink)
+        break
+      }
+      case 'disconnect': {
+        await adminClient().disconnectServiceAccountUpstream(
+          create(DisconnectServiceAccountUpstreamRequestSchema, {
+            serviceAccountPublicId: saId,
+            upstreamIdentifier: upId,
+          }),
+        )
+        break
+      }
+    }
+    await refreshLinks()
+  } catch (err) {
+    linksError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    linkBusy.value = { ...linkBusy.value, [upstream.publicId]: '' }
+  }
+}
+
+async function submitApiKey(apiKey: string) {
+  if (!sa.value || !apiKeyTarget.value) return
+  apiKeyBusy.value = true
+  try {
+    await adminClient().submitServiceAccountAPIKey(
+      create(SubmitServiceAccountAPIKeyRequestSchema, {
+        serviceAccountPublicId: sa.value.publicId,
+        upstreamIdentifier: apiKeyTarget.value.identifier,
+        apiKey,
+      }),
+    )
+    apiKeyModalOpen.value = false
+    await refreshLinks()
+  } catch (err) {
+    linksError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    apiKeyBusy.value = false
   }
 }
 
@@ -401,7 +600,10 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
       </section>
 
       <!-- MCP Portal section -->
-      <section class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4">
+      <section
+        id="mcp-portal"
+        class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4"
+      >
         <h2 class="font-display text-lg font-semibold text-on-surface">MCP Portal</h2>
         <p class="text-sm text-on-surface-variant">
           Manage which MCP upstreams this service account can access. Linked upstreams can be
@@ -461,7 +663,7 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
                 />
               </div>
               <span class="text-xs text-on-surface-variant">
-                {{ portalUpstreams.length }} of {{ allUpstreams.length }}
+                {{ enrichedUpstreams.length }} of {{ allUpstreams.length }}
               </span>
             </div>
 
@@ -478,7 +680,7 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
                 </thead>
                 <tbody class="divide-y divide-border-subtle">
                   <tr
-                    v-for="item in portalUpstreams"
+                    v-for="item in enrichedUpstreams"
                     :key="item.upstream.publicId"
                     class="transition-colors hover:bg-surface-container-low"
                   >
@@ -531,15 +733,35 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
                     </td>
                     <!-- Action -->
                     <td class="px-4 py-3 text-right">
-                      <button
-                        v-if="item.link"
-                        type="button"
-                        class="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm font-medium text-on-surface hover:bg-surface-container-low"
-                        @click="toggleLink(item.link)"
-                      >
-                        {{ item.link.enabled ? 'Disable' : 'Enable' }}
-                      </button>
-                      <span v-else class="text-xs text-on-surface-variant">—</span>
+                      <div class="flex flex-wrap justify-end gap-1">
+                        <template v-for="act in item.actions" :key="act.action">
+                          <button
+                            type="button"
+                            :disabled="!!linkBusy[item.upstream.publicId]"
+                            :class="[
+                              'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50',
+                              act.variant === 'primary'
+                                ? 'bg-primary text-on-primary hover:bg-primary/90'
+                                : act.variant === 'danger'
+                                  ? 'border border-error/40 text-error hover:bg-error/10'
+                                  : 'border border-border-subtle text-on-surface hover:bg-surface-container-low',
+                            ]"
+                            @click="handleLinkAction(item.upstream, act.action)"
+                          >
+                            <Loader2
+                              v-if="linkBusy[item.upstream.publicId] === act.action"
+                              :size="12"
+                              class="animate-spin"
+                            />
+                            {{ act.label }}
+                          </button>
+                        </template>
+                        <span
+                          v-if="item.actions.length === 0"
+                          class="text-xs text-on-surface-variant"
+                          >—</span
+                        >
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -663,6 +885,15 @@ function linkStatusPill(link: ServiceAccountUpstreamLink | null): StatusPill {
       :busy="deleteBusy"
       @confirm="deleteSA"
       @cancel="showDeleteModal = false"
+    />
+
+    <ApiKeyModal
+      :open="apiKeyModalOpen"
+      :upstream-label="apiKeyTarget?.label ?? ''"
+      :title="apiKeyTarget?.title"
+      :busy="apiKeyBusy"
+      @submit="submitApiKey"
+      @cancel="apiKeyModalOpen = false"
     />
   </div>
 </template>
