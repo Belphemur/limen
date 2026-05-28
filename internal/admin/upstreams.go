@@ -74,6 +74,10 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	// not complete (discovery, DCR, missing static client, …) so we
 	// roll back the row.
 	if provErr := s.upstream.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
+		s.logger.Warn("admin: CreateUpstream rolling back due to ProvisionTenantMode failure",
+			zap.String("upstream", up.Identifier),
+			zap.String("strategy", string(in.StrategyType)),
+			zap.Error(provErr))
 		if delErr := s.upstream.DeleteUpstream(ctx, tenant, up.PublicID); delErr != nil {
 			s.logger.Error("admin: rollback after failed provision",
 				zap.String("upstream", up.Identifier),

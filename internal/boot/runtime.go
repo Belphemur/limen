@@ -235,7 +235,7 @@ func bootUpstream(rt *Runtime) error {
 	}
 	registry.Register(mcpStrat)
 
-	rt.UpstreamService = upstream.NewService(rt.Store, registry)
+	rt.UpstreamService = upstream.NewService(rt.Store, registry, rt.Logger)
 	rt.UpstreamRegistry = registry
 
 	refresher := upstream.NewRefresher(rt.Store, registry, upstream.RefresherOptions{

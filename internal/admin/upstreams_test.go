@@ -85,7 +85,7 @@ func mountReal(t *testing.T, roles []string) (adminv1connect.AdminServiceClient,
 	registry := upstream.NewRegistry()
 	registry.Register(none.New(nil))
 	registry.Register(statichdr.New(store, cipher, nil))
-	upstreamSvc := upstream.NewService(store, registry)
+	upstreamSvc := upstream.NewService(store, registry, zap.NewNop())
 	tenantSvc := tenantsvc.NewService(store)
 
 	resolver := func(_ context.Context, _ http.Header, _ string) (*session.UserSession, *http.Cookie, error) {

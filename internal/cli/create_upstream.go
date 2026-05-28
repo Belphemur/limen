@@ -107,7 +107,7 @@ is usable end-to-end as soon as the command exits.`,
 			if f.strategy == string(upstream.StrategyNone) {
 				registry := upstream.NewRegistry()
 				registry.Register(none.New(nil))
-				svc := upstream.NewService(store, registry)
+				svc := upstream.NewService(store, registry, logger)
 				if provErr := svc.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
 					logger.Warn("sync provision/index failed; refresher will retry",
 						zap.String("upstream", up.Identifier),
@@ -195,7 +195,7 @@ func createUpstreamViaService(ctx context.Context, store *storage.Store, tenant 
 	}
 	registry := upstream.NewRegistry()
 	registry.Register(none.New(nil))
-	svc := upstream.NewService(store, registry)
+	svc := upstream.NewService(store, registry, zap.NewNop())
 	up, err := svc.CreateUpstream(ctx, tenant, in)
 	if err != nil {
 		return nil, fmt.Errorf("create upstream: %w", err)

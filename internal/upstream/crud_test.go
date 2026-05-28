@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/storage/storagetest"
@@ -47,7 +49,7 @@ func newCRUDService(t *testing.T, store *storage.Store) *upstream.Service {
 	registry := upstream.NewRegistry()
 	registry.Register(none.New(nil))
 	registry.Register(statichdr.New(store, newTestCipher(t), nil))
-	return upstream.NewService(store, registry)
+	return upstream.NewService(store, registry, zap.NewNop())
 }
 
 func TestCreateUpstream_NoneStrategy_Succeeds(t *testing.T) {

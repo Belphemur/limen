@@ -48,7 +48,7 @@ func TestManager_ToolsForUser_MultiTenantIsolation(t *testing.T) {
 	registry.Register(none.New(nil))
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
 		Store:    store,
-		Service:  upstream.NewService(store, registry),
+		Service:  upstream.NewService(store, registry, logger),
 		Registry: registry,
 		Logger:   logger,
 	})

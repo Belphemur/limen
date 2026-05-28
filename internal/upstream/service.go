@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/storage"
@@ -34,11 +35,15 @@ var ErrConfigNotFound = errors.New("upstream: strategy config not found")
 type Service struct {
 	store    *storage.Store
 	registry *Registry
+	logger   *zap.Logger
 }
 
 // NewService builds the service.
-func NewService(store *storage.Store, registry *Registry) *Service {
-	return &Service{store: store, registry: registry}
+func NewService(store *storage.Store, registry *Registry, logger *zap.Logger) *Service {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return &Service{store: store, registry: registry, logger: logger}
 }
 
 // StartConnect resolves the upstream + strategy for (tenant, user) and
@@ -47,6 +52,10 @@ func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user
 	if tenant == nil || user == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
+	s.logger.Debug("StartConnect",
+		zap.Int64("tenant_id", tenant.ID),
+		zap.String("identifier", upstreamIdentifier),
+		zap.String("user_subject", user.ZitadelSubject))
 	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
 	if err != nil {
 		return "", err
@@ -237,8 +246,13 @@ func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenan
 }
 
 func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
+	s.logger.Debug("loadUpstream: starting query",
+		zap.Int64("tenant_id", tenantID),
+		zap.String("identifier", identifier))
+
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
+		s.logger.Debug("loadUpstream: session failed", zap.Error(err))
 		return nil, err
 	}
 	defer func() { _ = commit() }()
@@ -246,10 +260,19 @@ func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier s
 	var up storage.Upstream
 	if err := tx.Where("identifier = ?", identifier).First(&up).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.logger.Debug("loadUpstream: not found",
+				zap.Int64("tenant_id", tenantID),
+				zap.String("identifier", identifier))
 			return nil, ErrUpstreamNotFound
 		}
+		s.logger.Debug("loadUpstream: query error", zap.Error(err))
 		return nil, fmt.Errorf("upstream: load: %w", err)
 	}
+	s.logger.Debug("loadUpstream: found",
+		zap.Int64("tenant_id", tenantID),
+		zap.String("identifier", identifier),
+		zap.Int64("upstream_id", up.ID),
+		zap.Int64("upstream_tenant_id", up.TenantID))
 	return &up, nil
 }
 

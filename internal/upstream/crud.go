@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/contextblob"
@@ -165,6 +166,10 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 		_ = commit()
 		return nil, fmt.Errorf("upstream: create row: %w", err)
 	}
+	s.logger.Debug("CreateUpstream: row created",
+		zap.Int64("tenant_id", tenant.ID),
+		zap.String("identifier", identifier),
+		zap.Int64("upstream_id", up.ID))
 	if !in.EncodedStrategyConfig.IsZero() {
 		row := &storage.UpstreamStrategyConfig{
 			TenantID:   tenant.ID,
@@ -244,6 +249,10 @@ func (s *Service) DeleteUpstream(ctx context.Context, tenant *storage.Tenant, pu
 	if err != nil {
 		return err
 	}
+	s.logger.Warn("DeleteUpstream executing",
+		zap.Int64("upstream_id", up.ID),
+		zap.String("identifier", up.Identifier),
+		zap.Int64("tenant_id", tenant.ID))
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
 	if err != nil {
 		return err
@@ -308,6 +317,9 @@ func (s *Service) PreviewContext(ctx context.Context, tenant *storage.Tenant, up
 }
 
 func (s *Service) loadUpstreamByPublicID(ctx context.Context, tenantID int64, publicID string) (*storage.Upstream, error) {
+	s.logger.Debug("loadUpstreamByPublicID",
+		zap.Int64("tenant_id", tenantID),
+		zap.String("public_id", publicID))
 	publicID = strings.TrimSpace(publicID)
 	if publicID == "" {
 		return nil, errors.New("upstream: public_id required")

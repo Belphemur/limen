@@ -69,7 +69,7 @@ func newMCPRSHarness(t *testing.T) *mcprsHarness {
 	registry := upstream.NewRegistry()
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
 		Store:    store,
-		Service:  upstream.NewService(store, registry),
+		Service:  upstream.NewService(store, registry, logger),
 		Registry: registry,
 		Logger:   logger,
 	})

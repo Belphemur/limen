@@ -85,6 +85,12 @@ func upstreamCallbackHandler(deps UpstreamDeps, logger *zap.Logger) http.Handler
 			return
 		}
 
+		logger.Debug("upstream callback: calling FinishCallback",
+			zap.String("tenant", tenant.PublicID),
+			zap.Int64("tenant_id", tenant.ID),
+			zap.String("upstream", upstreamIdentifier),
+			zap.String("user_subject", claims.GetSubject()))
+
 		returnTo, err := deps.Service.FinishCallback(ctx, tenant, user, upstreamIdentifier, r.URL.RawQuery)
 		if err != nil {
 			logger.Warn("upstream callback: finish failed",

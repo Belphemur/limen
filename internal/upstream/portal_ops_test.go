@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/storage/storagetest"
@@ -38,7 +40,7 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 
 	registry := upstream.NewRegistry()
 	registry.Register(statichdr.New(store, cipher, nil))
-	svc := upstream.NewService(store, registry)
+	svc := upstream.NewService(store, registry, zap.NewNop())
 
 	tenant := &storage.Tenant{Name: "acme", ZitadelOrgID: "z-org-portal"}
 	adminTx, commit, err := store.Session(storage.WithSuperuser(ctx))
@@ -168,7 +170,7 @@ func TestService_LoadUserBySubject_NotFound(t *testing.T) {
 	}
 	store := storagetest.OpenMigrated(t)
 	registry := upstream.NewRegistry()
-	svc := upstream.NewService(store, registry)
+	svc := upstream.NewService(store, registry, zap.NewNop())
 
 	tenant := &storage.Tenant{Name: "acme", ZitadelOrgID: "z-org-nf"}
 	tx, commit, err := store.Session(storage.WithSuperuser(context.Background()))
