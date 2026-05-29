@@ -4,13 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { ConnectError, Code } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
 import { ArrowLeft, RefreshCw, Trash2, Save, ChevronDown } from '@lucide/vue'
-import { ContextJsonEditor, hintsFor } from '@limen/shared'
+import { ContextJsonEditor, ConfirmActionModal, hintsFor } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
   ReindexUpstreamCatalogRequestSchema,
   UpdateUpstreamRequestSchema,
+  StaticHeaderMode,
 } from '@/gen/limen/admin/v1/admin_pb.ts'
+import { SubmitUpstreamAPIKeyRequestSchema } from '@/gen/limen/portal/v1/portal_pb.ts'
 import type { UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
 
@@ -27,6 +29,12 @@ const defaultsJson = ref('')
 const defaultsValid = ref(true)
 const saving = ref(false)
 
+// Static header editing state
+const secretValue = ref('')
+const newMode = ref<StaticHeaderMode>(StaticHeaderMode.UNSPECIFIED)
+const modeWarningOpen = ref(false)
+const savingSecret = ref(false)
+
 function onDefaultsValid(v: boolean) {
   defaultsValid.value = v
 }
@@ -37,6 +45,21 @@ const toolsOpen = ref(false)
 
 const defaultsHint = computed(() => (summary.value ? hintsFor(summary.value.mcpUrl) : null))
 
+// Static header derived state
+const isStaticHeader = computed(() => summary.value?.strategyType === 'static_header')
+const currentMode = computed(() => summary.value?.staticHeaderMode ?? StaticHeaderMode.UNSPECIFIED)
+const effectiveMode = computed(() =>
+  newMode.value !== StaticHeaderMode.UNSPECIFIED ? newMode.value : currentMode.value,
+)
+const isSharedMode = computed(() => effectiveMode.value === StaticHeaderMode.SHARED)
+const isOverrideMode = computed(() => effectiveMode.value === StaticHeaderMode.OVERRIDE)
+const hasModeChange = computed(
+  () =>
+    isStaticHeader.value &&
+    newMode.value !== StaticHeaderMode.UNSPECIFIED &&
+    newMode.value !== currentMode.value,
+)
+
 async function refresh() {
   loading.value = true
   error.value = null
@@ -46,6 +69,7 @@ async function refresh() {
     summary.value = found
     if (found) {
       displayName.value = found.displayName
+      newMode.value = found.staticHeaderMode ?? StaticHeaderMode.UNSPECIFIED
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -56,12 +80,17 @@ async function refresh() {
 
 onMounted(refresh)
 
+const hasSecretChange = computed(() => isStaticHeader.value && secretValue.value.trim() !== '')
 const canSave = computed(
   () =>
     !saving.value &&
+    !savingSecret.value &&
     defaultsValid.value &&
     summary.value !== null &&
-    (displayName.value !== summary.value.displayName || defaultsJson.value.trim() !== ''),
+    (displayName.value !== summary.value.displayName ||
+      defaultsJson.value.trim() !== '' ||
+      hasSecretChange.value ||
+      hasModeChange.value),
 )
 
 async function save() {
@@ -128,14 +157,97 @@ async function remove() {
     deleting.value = false
   }
 }
+
+// Save/rotate the shared secret (shared mode).
+async function saveSecret() {
+  if (!summary.value) return
+  if (currentMode.value !== StaticHeaderMode.SHARED && newMode.value !== StaticHeaderMode.SHARED) return
+  savingSecret.value = true
+  error.value = null
+  try {
+    const config: Record<string, string> = {}
+    if (secretValue.value.trim()) config.value = secretValue.value.trim()
+
+    await adminClient().updateUpstream(
+      create(UpdateUpstreamRequestSchema, {
+        publicId: publicId.value,
+        strategyConfig: Object.keys(config).length > 0 ? config : undefined,
+        staticHeaderMode: hasModeChange.value ? newMode.value : StaticHeaderMode.UNSPECIFIED,
+      }),
+    )
+    secretValue.value = ''
+    await refresh()
+    newMode.value = StaticHeaderMode.UNSPECIFIED
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    savingSecret.value = false
+  }
+}
+
+// Submit/rotate admin's own API key (override mode).
+async function saveAdminKey() {
+  if (!summary.value) return
+  if (currentMode.value !== StaticHeaderMode.OVERRIDE && newMode.value !== StaticHeaderMode.OVERRIDE) return
+  if (!secretValue.value.trim()) {
+    error.value = 'API key is required.'
+    return
+  }
+  savingSecret.value = true
+  error.value = null
+  try {
+    // Apply mode change first if requested.
+    if (hasModeChange.value) {
+      await adminClient().updateUpstream(
+        create(UpdateUpstreamRequestSchema, {
+          publicId: publicId.value,
+          staticHeaderMode: newMode.value,
+        }),
+      )
+    }
+
+    // Submit admin's own API key via portal RPC.
+    await portalClient().submitUpstreamAPIKey(
+      create(SubmitUpstreamAPIKeyRequestSchema, {
+        upstreamIdentifier: summary.value.identifier,
+        apiKey: secretValue.value.trim(),
+      }),
+    )
+    secretValue.value = ''
+    await refresh()
+    newMode.value = StaticHeaderMode.UNSPECIFIED
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    savingSecret.value = false
+  }
+}
+
+// Request a mode change; show warning when switching shared → override.
+function requestModeChange(newVal: StaticHeaderMode) {
+  if (currentMode.value === StaticHeaderMode.SHARED && newVal === StaticHeaderMode.OVERRIDE) {
+    modeWarningOpen.value = true
+    return
+  }
+  newMode.value = newVal
+}
+
+function confirmModeChange() {
+  modeWarningOpen.value = false
+  newMode.value = StaticHeaderMode.OVERRIDE
+  // Auto-save the mode change immediately
+  saveSecret()
+}
 </script>
 
 <template>
   <div class="space-y-stack-lg">
     <header class="flex items-center gap-3">
-      <button type="button"
+      <button
+        type="button"
         class="inline-flex items-center gap-1 rounded px-2 py-1 text-sm text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
-        @click="router.push(ROUTES.mcpServers)">
+        @click="router.push(ROUTES.mcpServers)"
+      >
         <ArrowLeft :size="16" aria-hidden="true" />
         Back
       </button>
@@ -144,8 +256,12 @@ async function remove() {
       </h1>
     </header>
 
-    <div v-if="error" role="alert" class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
-      data-testid="upstream-detail-error">
+    <div
+      v-if="error"
+      role="alert"
+      class="rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
+      data-testid="upstream-detail-error"
+    >
       {{ error }}
     </div>
 
@@ -165,8 +281,8 @@ async function remove() {
           <div>
             <dt class="text-on-surface-variant">Strategy</dt>
             <dd class="text-on-surface">
-              {{ summary.strategyType }}<span v-if="summary.strategySubMode">
-                · {{ summary.strategySubMode }}</span>
+              {{ summary.strategyType
+              }}<span v-if="summary.strategySubMode"> · {{ summary.strategySubMode }}</span>
             </dd>
           </div>
           <div>
@@ -176,8 +292,11 @@ async function remove() {
           <div class="md:col-span-2">
             <dt class="text-on-surface-variant">Aliases</dt>
             <dd class="mt-1 flex flex-wrap gap-1" data-testid="upstream-aliases">
-              <span v-for="alias in summary.aliases" :key="alias"
-                class="inline-flex items-center rounded-full border border-surface-dim bg-surface-container-low px-2 py-0.5 font-mono text-xs text-primary">
+              <span
+                v-for="alias in summary.aliases"
+                :key="alias"
+                class="inline-flex items-center rounded-full border border-surface-dim bg-surface-container-low px-2 py-0.5 font-mono text-xs text-primary"
+              >
                 {{ alias }}
               </span>
               <span v-if="summary.aliases.length === 0" class="text-on-surface-variant">
@@ -189,16 +308,25 @@ async function remove() {
       </section>
 
       <section class="rounded-lg border border-border-subtle bg-surface">
-        <button type="button" class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-          :aria-expanded="toolsOpen" data-testid="tools-disclosure" @click="toolsOpen = !toolsOpen">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+          :aria-expanded="toolsOpen"
+          data-testid="tools-disclosure"
+          @click="toolsOpen = !toolsOpen"
+        >
           <span class="font-display text-lg font-semibold text-on-surface">
             Tools
             <span class="ml-1 text-sm font-normal text-on-surface-variant">
               ({{ summary.tools.length }})
             </span>
           </span>
-          <ChevronDown :size="18" class="text-on-surface-variant transition-transform"
-            :class="toolsOpen ? 'rotate-180' : ''" aria-hidden="true" />
+          <ChevronDown
+            :size="18"
+            class="text-on-surface-variant transition-transform"
+            :class="toolsOpen ? 'rotate-180' : ''"
+            aria-hidden="true"
+          />
         </button>
         <div v-if="toolsOpen" class="border-t border-border-subtle px-4 py-3">
           <p v-if="summary.tools.length === 0" class="text-sm text-on-surface-variant">
@@ -219,9 +347,12 @@ async function remove() {
         <h2 class="font-display text-lg font-semibold text-on-surface">Edit</h2>
         <label class="block">
           <span class="text-sm font-medium text-on-surface">Display name</span>
-          <input v-model="displayName" type="text"
+          <input
+            v-model="displayName"
+            type="text"
             class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            data-testid="field-display-name" />
+            data-testid="field-display-name"
+          />
         </label>
         <div>
           <label class="mb-1 block text-sm font-medium text-on-surface">
@@ -229,19 +360,104 @@ async function remove() {
           </label>
           <p class="mb-2 text-xs text-on-surface-variant">
             Pre-filled values the LLM can use without asking the user — Atlassian
-            <code class="font-mono">cloudId</code>, Sentry <code class="font-mono">organization_slug</code>,
-            Cloudflare <code class="font-mono">account_id</code>, default project keys, region names,
-            and other stable identifiers this MCP server expects on most tool calls. Provide a JSON
-            object whose keys are merged into every tool call's arguments as defaults; tool calls
-            may still override any field. Leave blank to keep the current value.
+            <code class="font-mono">cloudId</code>, Sentry
+            <code class="font-mono">organization_slug</code>, Cloudflare
+            <code class="font-mono">account_id</code>, default project keys, region names, and other
+            stable identifiers this MCP server expects on most tool calls. Provide a JSON object
+            whose keys are merged into every tool call's arguments as defaults; tool calls may still
+            override any field. Leave blank to keep the current value.
           </p>
-          <ContextJsonEditor v-model="defaultsJson" :caption="defaultsHint?.caption" @update:valid="onDefaultsValid" />
+          <ContextJsonEditor
+            v-model="defaultsJson"
+            :caption="defaultsHint?.caption"
+            @update:valid="onDefaultsValid"
+          />
         </div>
-        <button type="button" :disabled="!canSave"
+        <button
+          type="button"
+          :disabled="!canSave"
           class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
-          data-testid="save-upstream" @click="save">
+          data-testid="save-upstream"
+          @click="save"
+        >
           <Save :size="16" aria-hidden="true" />
           {{ saving ? 'Saving…' : 'Save changes' }}
+        </button>
+      </section>
+
+      <!-- Static Header Secret & Mode (only for static_header upstreams) -->
+      <section
+        v-if="isStaticHeader"
+        class="space-y-stack-md rounded-lg border border-border-subtle bg-surface p-4"
+      >
+        <h2 class="font-display text-lg font-semibold text-on-surface">Static Header Config</h2>
+
+        <!-- Mode selector -->
+        <div>
+          <label class="mb-1 block text-sm font-medium text-on-surface">Mode</label>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                isSharedMode
+                  ? 'bg-primary text-on-primary'
+                  : 'border border-outline-variant text-on-surface hover:bg-surface-container-low',
+              ]"
+              @click="requestModeChange(StaticHeaderMode.SHARED)"
+            >
+              Shared secret
+            </button>
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                isOverrideMode
+                  ? 'bg-primary text-on-primary'
+                  : 'border border-outline-variant text-on-surface hover:bg-surface-container-low',
+              ]"
+              @click="requestModeChange(StaticHeaderMode.OVERRIDE)"
+            >
+              User override
+            </button>
+          </div>
+          <p v-if="isSharedMode" class="mt-1 text-xs text-on-surface-variant">
+            One secret for all tenant members. Changing it rotates the key immediately.
+          </p>
+          <p v-else-if="isOverrideMode" class="mt-1 text-xs text-on-surface-variant">
+            Users may submit their own API keys. The secret below is YOUR personal key only.
+          </p>
+        </div>
+
+        <!-- Secret input -->
+        <div>
+          <label class="mb-1 block text-sm font-medium text-on-surface">
+            {{ isSharedMode ? 'Shared secret' : 'Your API key' }}
+          </label>
+          <input
+            v-model="secretValue"
+            type="password"
+            autocomplete="off"
+            class="block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            :placeholder="isSharedMode ? 'Enter new shared secret…' : 'Enter your API key…'"
+          />
+          <p class="mt-1 text-xs text-on-surface-variant">
+            {{
+              isSharedMode
+                ? 'Leave blank to keep the current shared secret.'
+                : 'This only updates YOUR personal API key. Other users must submit their own.'
+            }}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          :disabled="(!secretValue.trim() && !hasModeChange) || savingSecret"
+          class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
+          @click="isSharedMode ? saveSecret() : saveAdminKey()"
+        >
+          <Save :size="16" aria-hidden="true" />
+          {{ savingSecret ? 'Saving…' : isSharedMode ? 'Update secret' : 'Save API key' }}
         </button>
       </section>
 
@@ -250,9 +466,13 @@ async function remove() {
         <p class="text-sm text-on-surface-variant">
           Re-fetch the tool list from the upstream. Required after upstream-side changes.
         </p>
-        <button type="button" :disabled="reindexing"
+        <button
+          type="button"
+          :disabled="reindexing"
           class="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low disabled:opacity-50"
-          data-testid="reindex-upstream" @click="reindex">
+          data-testid="reindex-upstream"
+          @click="reindex"
+        >
           <RefreshCw :size="16" aria-hidden="true" />
           {{ reindexing ? 'Reindexing…' : 'Reindex catalog' }}
         </button>
@@ -260,8 +480,11 @@ async function remove() {
           <h3 class="text-sm font-medium text-on-surface-variant">
             Preview merged context (coming soon)
           </h3>
-          <button type="button" disabled
-            class="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface-variant opacity-50">
+          <button
+            type="button"
+            disabled
+            class="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-medium text-on-surface-variant opacity-50"
+          >
             Preview
           </button>
         </div>
@@ -270,15 +493,23 @@ async function remove() {
       <section class="space-y-stack-md rounded-lg border border-error/40 bg-error/5 p-4">
         <h2 class="font-display text-lg font-semibold text-error">Danger zone</h2>
         <p class="text-sm text-on-surface-variant">
-          Type the upstream identifier <code class="font-mono text-on-surface">{{ summary.identifier }}</code> to enable
+          Type the upstream identifier
+          <code class="font-mono text-on-surface">{{ summary.identifier }}</code> to enable
           deletion.
         </p>
-        <input v-model="confirmText" type="text"
+        <input
+          v-model="confirmText"
+          type="text"
           class="block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          data-testid="delete-confirm" />
-        <button type="button" :disabled="deleting || confirmText !== summary.identifier"
+          data-testid="delete-confirm"
+        />
+        <button
+          type="button"
+          :disabled="deleting || confirmText !== summary.identifier"
           class="inline-flex items-center gap-1.5 rounded-md bg-error px-3 py-2 text-sm font-medium text-on-error shadow-sm hover:bg-error/90 disabled:opacity-50"
-          data-testid="delete-upstream" @click="remove">
+          data-testid="delete-upstream"
+          @click="remove"
+        >
           <Trash2 :size="16" aria-hidden="true" />
           {{ deleting ? 'Deleting…' : 'Delete upstream' }}
         </button>
@@ -286,5 +517,15 @@ async function remove() {
     </template>
 
     <section v-else class="text-sm text-on-surface-variant">Upstream not found.</section>
+
+    <!-- Mode change warning modal -->
+    <ConfirmActionModal
+      :open="modeWarningOpen"
+      title="Switch to user override mode?"
+      message="Switching from shared to override means the tenant-wide secret will no longer be used. Every team member will need to submit their own API key before they can use this upstream. Are you sure?"
+      primary-label="Switch to override"
+      @confirm="confirmModeChange"
+      @cancel="modeWarningOpen = false"
+    />
   </div>
 </template>
