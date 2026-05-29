@@ -30,8 +30,7 @@ func TestConfig_Validate(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"shared only", Config{HeaderName: "Authorization", HeaderTemplate: "Bearer {value}", SharedSecret: "s"}, false},
-		{"override allowed", Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", SharedSecret: "fallback", AllowUserOverride: true}, false},
+		{"valid config", Config{HeaderName: "Authorization", HeaderTemplate: "Bearer {value}", SharedSecret: "s"}, false},
 		{"no header name", Config{HeaderTemplate: "{value}", SharedSecret: "s"}, true},
 		{"bad header name", Config{HeaderName: "Bad Name", HeaderTemplate: "{value}", SharedSecret: "s"}, true},
 		{"no placeholder", Config{HeaderName: "X", HeaderTemplate: "no-placeholder", SharedSecret: "s"}, true},
@@ -49,22 +48,22 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestParseConfig(t *testing.T) {
+	// Mode is now a separate parameter — the map no longer carries it.
 	cfg, err := ParseConfig(map[string]string{
-		"header_name":         "Authorization",
-		"header_template":     "Bearer {value}",
-		"value":               "shared-1",
-		"allow_user_override": "true",
-	})
+		"header_name":     "Authorization",
+		"header_template": "Bearer {value}",
+		"value":           "shared-1",
+	}, "override")
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if cfg.SharedSecret != "shared-1" || !cfg.AllowUserOverride {
+	if cfg.SharedSecret != "shared-1" {
 		t.Fatalf("ParseConfig got %+v", cfg)
 	}
 	if _, err := ParseConfig(map[string]string{
 		"header_name":     "X",
 		"header_template": "{value}",
-	}); err == nil {
+	}, "shared"); err == nil {
 		t.Fatalf("ParseConfig: want error on missing value")
 	}
 }
@@ -92,7 +91,9 @@ type seedFixture struct {
 	up     *storage.Upstream
 }
 
-func seed(t *testing.T, store *storage.Store, cfg Config) seedFixture {
+// seed creates test data. cfg is the encrypted config payload; mode is
+// the Mode column value ("shared" or "override").
+func seed(t *testing.T, store *storage.Store, cfg Config, mode string) seedFixture {
 	t.Helper()
 	ctx := context.Background()
 	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
@@ -115,7 +116,10 @@ func seed(t *testing.T, store *storage.Store, cfg Config) seedFixture {
 	if err != nil {
 		t.Fatalf("EncodeConfig: %v", err)
 	}
-	if err := tx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: sf}).Error; err != nil {
+	if mode == "" {
+		mode = "shared"
+	}
+	if err := tx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: sf, Mode: mode}).Error; err != nil {
 		t.Fatalf("create strategy config: %v", err)
 	}
 	if err := commit(); err != nil {
@@ -155,7 +159,7 @@ func TestStrategy_Headers_SharedOnly(t *testing.T) {
 		HeaderName:     "Authorization",
 		HeaderTemplate: "Bearer {value}",
 		SharedSecret:   "org-token",
-	})
+	}, "shared")
 	s := New(store, cipher, nil)
 
 	// PersistUserSecret must reject when override is disabled.
@@ -183,11 +187,10 @@ func TestStrategy_Headers_OverrideWinsThenFallsBack(t *testing.T) {
 	t.Cleanup(func() { crypto.SetCipher(nil) })
 
 	f := seed(t, store, Config{
-		HeaderName:        "X-Api-Key",
-		HeaderTemplate:    "{value}",
-		SharedSecret:      "fallback",
-		AllowUserOverride: true,
-	})
+		HeaderName:     "X-Api-Key",
+		HeaderTemplate: "{value}",
+		SharedSecret:   "fallback",
+	}, "override")
 	s := New(store, cipher, nil)
 	ctx := context.Background()
 	lctx := upstream.LinkContext{Tenant: f.tenant, User: f.user, Upstream: f.up}
@@ -237,11 +240,10 @@ func TestStrategy_ClearUserOverride_FallsBackToShared(t *testing.T) {
 	t.Cleanup(func() { crypto.SetCipher(nil) })
 
 	f := seed(t, store, Config{
-		HeaderName:        "X-Api-Key",
-		HeaderTemplate:    "{value}",
-		SharedSecret:      "fallback",
-		AllowUserOverride: true,
-	})
+		HeaderName:     "X-Api-Key",
+		HeaderTemplate: "{value}",
+		SharedSecret:   "fallback",
+	}, "override")
 	s := New(store, cipher, nil)
 	ctx := context.Background()
 	lctx := upstream.LinkContext{Tenant: f.tenant, User: f.user, Upstream: f.up}

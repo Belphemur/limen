@@ -18,7 +18,6 @@
 //     adapter: {
 //       startConnect: (up, ret) => rpc(...),
 //       submitKey: (up, key) => rpc(...),
-//       clearOverride: (up) => rpc(...),
 //       setEnabled: (up, en) => rpc(...),
 //       disconnect: (up) => rpc(...),
 //     },
@@ -48,7 +47,6 @@ export interface UpstreamLike {
 export interface UpstreamActionsAdapter {
   startConnect: (upstream: UpstreamLike, returnTo: string) => Promise<string>
   submitKey: (upstream: UpstreamLike, apiKey: string) => Promise<void>
-  clearOverride: (upstream: UpstreamLike) => Promise<void>
   setEnabled: (upstream: UpstreamLike, enabled: boolean) => Promise<void>
   disconnect: (upstream: UpstreamLike) => Promise<void>
 }
@@ -64,8 +62,8 @@ export interface UpstreamActionsOptions {
   oauthMode: 'popup' | 'redirect'
   /** Optional callback fired when any action produces an error. */
   onError?: (message: string) => void
-  /** When true, `disconnect` and `clearOverride` show a native confirm
-   *  dialog before executing. Default false. */
+  /** When true, `disconnect` shows a native confirm dialog before executing.
+   *  Default false. */
   confirmDestructive?: boolean
 }
 
@@ -171,15 +169,6 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
           return
         }
       }
-      if (action === 'clearOverride') {
-        if (
-          !window.confirm(
-            `Stop using the personal key for ${upstream.displayName || upstream.identifier}? The shared key configured by the tenant admin will be used instead.`,
-          )
-        ) {
-          return
-        }
-      }
     }
 
     setBusy(upstream.publicId, action)
@@ -199,9 +188,6 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
           }
           break
         }
-        case 'clearOverride':
-          await options.adapter.clearOverride(upstream)
-          break
         case 'enable':
           await options.adapter.setEnabled(upstream, true)
           break

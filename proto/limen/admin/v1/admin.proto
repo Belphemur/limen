@@ -73,6 +73,14 @@ service AdminService {
 
 // ---- CreateUpstream -------------------------------------------------
 
+// StaticHeaderMode controls whether per-user API key overrides are
+// allowed for the static_header strategy.
+enum StaticHeaderMode {
+  STATIC_HEADER_MODE_UNSPECIFIED = 0;
+  STATIC_HEADER_MODE_SHARED = 1;
+  STATIC_HEADER_MODE_OVERRIDE = 2;
+}
+
 // OAuthClientOverride lets the admin pin a pre-registered upstream
 // OAuth client (for mcp_spec ASes without DCR). Both fields are
 // required when this message is present.
@@ -86,16 +94,15 @@ message CreateUpstreamRequest {
   string display_name = 2;
   string mcp_url = 3;
   string strategy_type = 4;
-  // Unused for `static_header` (override policy travels inside
-  // `strategy_config["allow_user_override"]`). Reserved for strategies
-  // that grow real sub-modes later (e.g. mcp_spec DCR vs static client).
+  // For `static_header`: derived from `static_header_mode` below.
+  // Reserved for strategies that grow real sub-modes later
+  // (e.g. mcp_spec DCR vs static client).
   string strategy_sub_mode = 5;
   // Strategy-specific config map. For `static_header`:
   //   header_name          required, HTTP header field name
   //   header_template      required, must contain "{value}"
   //   value                required, shared secret substituted by default
-  //   allow_user_override  "true" or "false"; when true users may submit
-  //                        their own override key in the portal
+  // (The mode is set via static_header_mode, not the config map.)
   // The whole map is encrypted into UpstreamStrategyConfig.config_json
   // at rest (AES-SIV with AAD bound to tenant).
   map<string, string> strategy_config = 6;
@@ -104,6 +111,10 @@ message CreateUpstreamRequest {
   // JSON object serialised as a string; validated server-side via
   // gateway.validateContextBlob.
   string defaults_json = 8;
+  // Controls per-user API key overrides for static_header strategy.
+  // SHARED (default): shared secret only, no user overrides.
+  // OVERRIDE: users may submit their own API keys.
+  StaticHeaderMode static_header_mode = 9;
 }
 
 message CreateUpstreamResponse {
@@ -111,7 +122,7 @@ message CreateUpstreamResponse {
   // True when the strategy requires an owner/admin link before the
   // tool catalog can be populated (mcp_spec). `static_header` always
   // has a working shared secret, so this is false even when
-  // allow_user_override is true.
+  // static_header_mode is OVERRIDE.
   bool requires_admin_link = 2;
   // Absolute or SPA-relative URL the SPA should open to start the
   // admin-link flow. Empty when requires_admin_link is false.
@@ -134,10 +145,14 @@ message UpdateUpstreamRequest {
   // Recognised keys for static_header:
   //   value                rotate the shared secret. Empty/absent = keep
   //                        existing.
-  //   allow_user_override  "true" or "false". Absent = keep existing.
   // header_name / header_template are intentionally immutable post-
   // creation (changing them constitutes a different upstream).
   map<string, string> strategy_config = 4;
+  // Optional. For static_header: change the sub-mode. Absent = keep existing.
+  // Switching from SHARED to OVERRIDE disables the tenant-wide secret
+  // in favour of per-user keys — users must submit their own API keys after
+  // the switch.
+  StaticHeaderMode static_header_mode = 5;
 }
 
 message UpdateUpstreamResponse {

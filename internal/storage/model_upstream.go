@@ -50,6 +50,11 @@ type UpstreamStrategyConfig struct {
 	UpstreamID int64              `gorm:"not null;uniqueIndex,where:deleted_at IS NULL"`
 	Type       string             `gorm:"type:text;not null"`
 	ConfigJSON crypto.SecretField `gorm:"type:bytea"`
+	// Mode stores the static_header sub-mode. For static_header:
+	// "shared" → shared secret only, no user overrides
+	// "override" → users may submit their own API keys
+	// Empty/other for non-static_header strategies.
+	Mode string `gorm:"type:text;not null;default:'shared'"`
 
 	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`

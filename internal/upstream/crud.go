@@ -46,6 +46,7 @@ type CreateUpstreamInput struct {
 	StrategyConfig        map[string]string
 	EncodedStrategyConfig crypto.SecretField // optional; zero-value = skip
 	DefaultsJSON          []byte             // validated by contextblob.ValidateContextBlob
+	HeaderMode            string             // "shared" or "override" for static_header; empty otherwise
 }
 
 // UpdateUpstreamPatch carries the optional mutations CreateUpstream
@@ -104,6 +105,34 @@ func (s *Service) ReplaceStrategyConfig(ctx context.Context, tenant *storage.Ten
 	if res.Error != nil {
 		_ = commit()
 		return fmt.Errorf("upstream: update strategy config: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		_ = commit()
+		return ErrConfigNotFound
+	}
+	return commit()
+}
+
+// ReplaceStrategyMode updates the Mode column on the upstream's existing
+// UpstreamStrategyConfig row. The mode is stored separately from the
+// encrypted config so SubMode lookups don't require decryption.
+func (s *Service) ReplaceStrategyMode(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, mode string) error {
+	if tenant == nil || up == nil {
+		return errors.New("upstream: tenant/upstream required")
+	}
+	if mode == "" {
+		mode = "shared"
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
+	if err != nil {
+		return err
+	}
+	res := tx.Model(&storage.UpstreamStrategyConfig{}).
+		Where("upstream_id = ?", up.ID).
+		Update("mode", mode)
+	if res.Error != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: update strategy mode: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
 		_ = commit()
@@ -171,11 +200,16 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 		zap.String("identifier", identifier),
 		zap.Int64("upstream_id", up.ID))
 	if !in.EncodedStrategyConfig.IsZero() {
+		mode := in.HeaderMode
+		if mode == "" {
+			mode = "shared"
+		}
 		row := &storage.UpstreamStrategyConfig{
 			TenantID:   tenant.ID,
 			UpstreamID: up.ID,
 			Type:       string(in.StrategyType),
 			ConfigJSON: in.EncodedStrategyConfig,
+			Mode:       mode,
 		}
 		if err := tx.Create(row).Error; err != nil {
 			_ = commit()

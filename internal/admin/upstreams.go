@@ -50,7 +50,18 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	}
 
 	if in.StrategyType == upstream.StrategyStaticHeader {
-		cfg, parseErr := statichdr.ParseConfig(msg.GetStrategyConfig())
+		// Convert proto enum to mode string.
+		modeStr := "shared"
+		switch msg.GetStaticHeaderMode() {
+		case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE:
+			modeStr = "override"
+		case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED,
+			adminv1.StaticHeaderMode_STATIC_HEADER_MODE_SHARED:
+			// fall through to default "shared"
+		}
+		in.HeaderMode = modeStr
+
+		cfg, parseErr := statichdr.ParseConfig(msg.GetStrategyConfig(), modeStr)
 		if parseErr != nil {
 			return nil, s.invalidArg("strategy_config", parseErr.Error())
 		}
@@ -129,6 +140,14 @@ func (s *Service) UpdateUpstream(ctx context.Context, req *connect.Request[admin
 		}
 	}
 
+	// Handle mode change if explicitly provided.
+	if msg.GetStaticHeaderMode() != adminv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED {
+		modeStr := statichdr.HeaderModeFromProto(msg.GetStaticHeaderMode())
+		if err := s.upstream.ReplaceStrategyMode(ctx, tenant, up, modeStr); err != nil {
+			return nil, s.mapMutationError(err)
+		}
+	}
+
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
 	return connect.NewResponse(&adminv1.UpdateUpstreamResponse{
 		Upstream: protoview.ToSummaryProto(summary),
@@ -139,6 +158,9 @@ func (s *Service) UpdateUpstream(ctx context.Context, req *connect.Request[admin
 // existing UpstreamStrategyConfig row. Only `static_header` carries
 // a config row in v1; other strategies reject the patch with
 // InvalidArgument to surface a programming mistake.
+//
+// Mode changes are NOT handled here — they arrive via the explicit
+// static_header_mode field on UpdateUpstreamRequest.
 func (s *Service) applyStrategyConfigPatch(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, patch map[string]string) error {
 	if upstream.StrategyType(up.StrategyType) != upstream.StrategyStaticHeader {
 		return s.invalidArg("strategy_config", "only static_header upstreams accept a strategy_config patch")

@@ -8,8 +8,8 @@
 // secret with their own value (e.g. their personal API key); in that
 // mode each user's override lives on UpstreamLink.ExtraJSON (encrypted
 // with AAD tenant|user|"upstream.extra") and shadows the shared
-// secret. With AllowUserOverride=false no override is ever consulted
-// and the per-user UpstreamLink row exists only as an opt-out marker
+// secret. With mode=shared no override is ever consulted and the
+// per-user UpstreamLink row exists only as an opt-out marker
 // (Enabled=false).
 //
 // HeaderTemplate is a literal HTTP header value with "{value}"
@@ -25,9 +25,11 @@ import (
 	"fmt"
 	"strings"
 
+	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/upstream"
+	"gorm.io/gorm"
 )
 
 // kindStrategyConfig is the SecretField AAD kind for UpstreamStrategyConfig.
@@ -42,9 +44,27 @@ const kindUserExtra = "upstream.extra"
 // templating vulnerability.
 const placeholder = "{value}"
 
+// HeaderMode mirrors the proto StaticHeaderMode enum as Go constants.
+type HeaderMode string
+
+const (
+	ModeShared   HeaderMode = "shared"
+	ModeOverride HeaderMode = "override"
+)
+
+// HeaderModeFromProto maps the proto StaticHeaderMode enum to a mode string.
+func HeaderModeFromProto(m adminv1.StaticHeaderMode) string {
+	switch m {
+	case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE:
+		return string(ModeOverride)
+	default:
+		return string(ModeShared)
+	}
+}
+
 // SubMode values surfaced via the optional subModeProvider hook on the
 // upstream package. The portal SPA renders different CTAs based on
-// this string; never persisted, derived from Config at read time.
+// this string; sourced from the DB column, not from encrypted config.
 const (
 	SubModeShared   = "shared"
 	SubModeOverride = "override"
@@ -53,13 +73,14 @@ const (
 // Config is the JSON payload encrypted into
 // UpstreamStrategyConfig.ConfigJSON. SharedSecret is mandatory in all
 // cases — it powers Test Connection at provision time, the catalog
-// indexer, and serves as the working default for every user when
-// AllowUserOverride is false or the user hasn't submitted an override.
+// indexer, and serves as the working default for every user when mode
+// is "shared" or the user hasn't submitted an override.
+// NOTE: mode is stored separately in the Mode column of
+// UpstreamStrategyConfig, NOT in this struct.
 type Config struct {
-	HeaderName        string `json:"header_name"`
-	HeaderTemplate    string `json:"header_template"`
-	SharedSecret      string `json:"shared_secret"`
-	AllowUserOverride bool   `json:"allow_user_override,omitempty"`
+	HeaderName     string `json:"header_name"`
+	HeaderTemplate string `json:"header_template"`
+	SharedSecret   string `json:"shared_secret"`
 }
 
 // userExtra is the JSON shape of UpstreamLink.ExtraJSON when a user
@@ -128,24 +149,18 @@ func defaultPortalPath(tenantPublic, upstreamPublic string) string {
 // Type implements upstream.Strategy.
 func (s *Strategy) Type() upstream.StrategyType { return upstream.StrategyStaticHeader }
 
-// SubMode reports "shared" or "override" by reading the strategy
-// config. Implements upstream's optional subModeProvider so the portal
-// renders the right CTA without re-loading the config itself.
+// SubMode reports "shared" or "override" by reading the Mode column
+// from the UpstreamStrategyConfig DB row. Implements upstream's
+// optional subModeProvider so the portal renders the right CTA
+// without decrypting the config payload.
 func (s *Strategy) SubMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
-	cfg, err := s.loadConfig(ctx, lctx)
-	if err != nil {
-		return "", err
-	}
-	if cfg.AllowUserOverride {
-		return SubModeOverride, nil
-	}
-	return SubModeShared, nil
+	return s.loadMode(ctx, lctx)
 }
 
 // RequiresLink reports true so the upstream package creates per-user
 // UpstreamLink rows on demand. The link doubles as an opt-out marker
-// (Enabled=false) and, when AllowUserOverride is true, the carrier for
-// the user's override secret. Headers() always succeeds even with no
+// (Enabled=false) and, when mode is "override", the carrier for the
+// user's override secret. Headers() always succeeds even with no
 // link — falls back to the shared secret.
 func (s *Strategy) RequiresLink() bool { return true }
 
@@ -158,13 +173,13 @@ func (s *Strategy) Provision(_ context.Context, lctx upstream.LinkContext) error
 
 // StartLink returns the SPA path where the user pastes their override
 // API key. Returns ErrUnsupported when the admin has not enabled user
-// override.
+// override (mode != "override").
 func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (upstream.StartLinkResult, error) {
-	cfg, err := s.loadConfig(ctx, lctx)
+	mode, err := s.loadMode(ctx, lctx)
 	if err != nil {
 		return upstream.StartLinkResult{}, err
 	}
-	if !cfg.AllowUserOverride {
+	if mode != string(ModeOverride) {
 		return upstream.StartLinkResult{}, upstream.ErrUnsupported
 	}
 	if lctx.Tenant == nil || lctx.Upstream == nil {
@@ -181,13 +196,13 @@ func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ strin
 
 // PersistUserSecret writes the user's override API key into
 // UpstreamLink.ExtraJSON. Idempotent: re-running rotates the secret.
-// Returns ErrUnsupported when override is disabled.
+// Returns ErrUnsupported when override is disabled (mode != "override").
 func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkContext, secret string) error {
-	cfg, err := s.loadConfig(ctx, lctx)
+	mode, err := s.loadMode(ctx, lctx)
 	if err != nil {
 		return err
 	}
-	if !cfg.AllowUserOverride {
+	if mode != string(ModeOverride) {
 		return upstream.ErrUnsupported
 	}
 	if strings.TrimSpace(secret) == "" {
@@ -288,8 +303,8 @@ func (s *Strategy) ClearUserOverride(ctx context.Context, lctx upstream.LinkCont
 // Headers returns the configured header with a secret substituted in.
 // Resolution order:
 //
-//  1. If AllowUserOverride is true AND the user has an override secret
-//     AND the link is not in NeedsRelink, use the user's secret.
+//  1. If mode is "override" AND the user has an override secret AND
+//     the link is not in NeedsRelink, use the user's secret.
 //  2. Otherwise fall back to cfg.SharedSecret.
 //
 // Tools keep working when a user's override key starts failing — the
@@ -301,7 +316,11 @@ func (s *Strategy) Headers(ctx context.Context, lctx upstream.LinkContext) (map[
 		return nil, err
 	}
 	secret := cfg.SharedSecret
-	if cfg.AllowUserOverride && lctx.Link != nil && !lctx.Link.ExtraJSON.IsZero() && !lctx.Link.NeedsRelink {
+	mode, err := s.loadMode(ctx, lctx)
+	if err != nil {
+		return nil, err
+	}
+	if mode == string(ModeOverride) && lctx.Link != nil && !lctx.Link.ExtraJSON.IsZero() && !lctx.Link.NeedsRelink {
 		if lctx.Tenant == nil {
 			return nil, errors.New("statichdr: tenant missing for override header")
 		}
@@ -328,6 +347,35 @@ func (s *Strategy) HeadersForceRefresh(ctx context.Context, lctx upstream.LinkCo
 }
 
 func (s *Strategy) Maintain(_ context.Context, _ upstream.LinkContext) error { return nil }
+
+// loadMode reads the Mode column from the UpstreamStrategyConfig DB
+// row. Returns "shared" as the safe default when the mode is empty.
+// The mode is stored separately from the encrypted ConfigJSON so
+// SubMode (and any mode check) does not require decryption.
+func (s *Strategy) loadMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
+	if lctx.Tenant == nil || lctx.Upstream == nil {
+		return string(ModeShared), nil // safe default
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
+	if err != nil {
+		return string(ModeShared), nil // safe default on session error
+	}
+	var row storage.UpstreamStrategyConfig
+	if err := tx.Where("upstream_id = ?", lctx.Upstream.ID).First(&row).Error; err != nil {
+		_ = commit()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return string(ModeShared), nil
+		}
+		return string(ModeShared), nil // safe default on lookup error
+	}
+	if commitErr := commit(); commitErr != nil {
+		return string(ModeShared), nil
+	}
+	if row.Mode == "" {
+		return string(ModeShared), nil
+	}
+	return row.Mode, nil
+}
 
 func (s *Strategy) loadConfig(ctx context.Context, lctx upstream.LinkContext) (Config, error) {
 	var zero Config
@@ -365,7 +413,8 @@ func (s *Strategy) loadConfig(ctx context.Context, lctx upstream.LinkContext) (C
 }
 
 // EncodeConfig encrypts and returns a SecretField suitable for storing
-// in UpstreamStrategyConfig.ConfigJSON.
+// in UpstreamStrategyConfig.ConfigJSON. NOTE: mode is stored separately
+// in the Mode column, not in this encrypted payload.
 func EncodeConfig(tenantID int64, cfg Config) (crypto.SecretField, error) {
 	if err := cfg.validate(); err != nil {
 		return crypto.SecretField{}, err
@@ -379,21 +428,20 @@ func EncodeConfig(tenantID int64, cfg Config) (crypto.SecretField, error) {
 	return sf, nil
 }
 
-// ParseConfig builds a Config from the flat string map carried by
-// AdminService.CreateUpstreamRequest.strategy_config. Centralises the
-// wire-key vocabulary so callers don't reach into the map directly.
+// ParseConfig parses the admin-supplied strategy_config map for static_header.
+// Accepted keys: header_name, header_template, value.
+// The mode parameter ("shared" / "override") is passed separately and
+// stored in the Mode DB column, not in the encrypted config.
 //
-// Recognised keys: "header_name", "header_template", "value" (shared
-// secret), "allow_user_override" ("true"/"false"). Unknown keys are
-// ignored — the field set is locked here, not at the proto level.
-// The returned Config is validated; an error means the caller should
-// surface it as InvalidArgument with the relevant field path.
-func ParseConfig(m map[string]string) (Config, error) {
+// Unknown keys are ignored — the field set is locked here, not at the
+// proto level. The returned Config is validated; an error means the
+// caller should surface it as InvalidArgument with the relevant field
+// path.
+func ParseConfig(m map[string]string, mode string) (Config, error) {
 	cfg := Config{
-		HeaderName:        strings.TrimSpace(m["header_name"]),
-		HeaderTemplate:    m["header_template"],
-		SharedSecret:      m["value"],
-		AllowUserOverride: strings.EqualFold(strings.TrimSpace(m["allow_user_override"]), "true"),
+		HeaderName:     strings.TrimSpace(m["header_name"]),
+		HeaderTemplate: m["header_template"],
+		SharedSecret:   m["value"],
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -426,21 +474,17 @@ func DecodeConfig(tenantID int64, sf crypto.SecretField) (Config, error) {
 // ApplyConfigPatch overlays the wire patch onto an existing Config.
 // Recognised patch keys:
 //
-//	value                empty/absent = keep existing shared secret;
-//	                     non-empty = rotate.
-//	allow_user_override  absent = keep existing; "true"/"false" =
-//	                     replace.
+//	value  empty/absent = keep existing shared secret;
+//	       non-empty = rotate.
 //
-// header_name and header_template are intentionally NOT patchable
-// post-creation: changing them constitutes a different upstream and
-// belongs in delete-and-recreate.
+// Mode is NOT handled here — it is managed separately via the Mode DB
+// column. header_name and header_template are intentionally NOT
+// patchable post-creation: changing them constitutes a different
+// upstream and belongs in delete-and-recreate.
 func ApplyConfigPatch(cur Config, patch map[string]string) (Config, error) {
 	out := cur
 	if v, ok := patch["value"]; ok && strings.TrimSpace(v) != "" {
 		out.SharedSecret = v
-	}
-	if v, ok := patch["allow_user_override"]; ok {
-		out.AllowUserOverride = strings.EqualFold(strings.TrimSpace(v), "true")
 	}
 	if err := out.validate(); err != nil {
 		return Config{}, err

@@ -42,15 +42,23 @@ enum LinkState {
   LINK_STATE_NEEDS_RELINK = 5;
 }
 
+// StaticHeaderMode controls whether per-user API key overrides are
+// allowed for the static_header strategy.
+enum StaticHeaderMode {
+  STATIC_HEADER_MODE_UNSPECIFIED = 0;
+  STATIC_HEADER_MODE_SHARED = 1;
+  STATIC_HEADER_MODE_OVERRIDE = 2;
+}
+
 message UpstreamSummary {
   string public_id = 1;
   string identifier = 2;
   string display_name = 3;
   string mcp_url = 4;
   string strategy_type = 5;
-  // For `static_header`: "shared" when the admin disallows per-user
-  // override keys, "override" when users may submit their own. Empty
-  // for strategies without a sub-mode.
+  // String representation of static_header_mode for backward
+  // compatibility: "shared" / "override". Empty for strategies
+  // without a sub-mode.
   string strategy_sub_mode = 6;
   bool requires_link = 7;
 
@@ -72,6 +80,10 @@ message UpstreamSummary {
   // on the link). Drives the portal CTA between Submit and Rotate/Clear.
   // Always false for shared sub-mode and for other strategies.
   bool has_user_override = 13;
+
+  // Typed enum mirroring strategy_sub_mode. SHARED / OVERRIDE for
+  // static_header; UNSPECIFIED for other strategies.
+  StaticHeaderMode static_header_mode = 14;
 }
 
 message UpstreamTool {

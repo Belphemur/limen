@@ -58,11 +58,11 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	if err := adminTx.Create(up).Error; err != nil {
 		t.Fatalf("create upstream: %v", err)
 	}
-	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", SharedSecret: "shared", AllowUserOverride: true})
+	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", SharedSecret: "shared"})
 	if err != nil {
 		t.Fatalf("encode config: %v", err)
 	}
-	if err := adminTx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: cfg}).Error; err != nil {
+	if err := adminTx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: cfg, Mode: "override"}).Error; err != nil {
 		t.Fatalf("create cfg: %v", err)
 	}
 	if err := commit(); err != nil {

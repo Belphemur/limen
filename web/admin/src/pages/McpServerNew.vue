@@ -17,6 +17,7 @@ import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   CreateUpstreamRequestSchema,
   DeleteUpstreamRequestSchema,
+  StaticHeaderMode,
 } from '@/gen/limen/admin/v1/admin_pb.ts'
 import { ROUTES } from '@/router/routes'
 
@@ -196,7 +197,6 @@ function buildStrategyConfig(): Record<string, string> {
     const cfg: Record<string, string> = {
       header_name: form.headerName,
       header_template: form.headerTemplate,
-      allow_user_override: form.strategySubMode === 'user' ? 'true' : 'false',
     }
     if (form.apiKey) cfg.value = form.apiKey
     return cfg
@@ -335,6 +335,12 @@ async function submit() {
         strategyType: form.strategyType,
         strategySubMode: form.strategySubMode,
         strategyConfig: buildStrategyConfig(),
+        staticHeaderMode:
+          form.strategyType === 'static_header'
+            ? form.strategySubMode === 'user'
+              ? StaticHeaderMode.OVERRIDE
+              : StaticHeaderMode.SHARED
+            : StaticHeaderMode.UNSPECIFIED,
         defaultsJson: form.defaultsJson.trim(),
         oauthClientOverride:
           form.strategyType === 'mcp_spec' && form.oauthClientId.trim() !== ''
@@ -540,7 +546,7 @@ function goToDetail() {
                 "
                 @click="form.strategySubMode = 'tenant'"
               >
-                Tenant (shared)
+                Tenant provided
               </button>
               <button
                 type="button"
@@ -552,14 +558,15 @@ function goToDetail() {
                 "
                 @click="form.strategySubMode = 'user'"
               >
-                User (individual)
+                BYOK
               </button>
             </div>
             <p class="text-xs text-on-surface-variant">
-              <strong>Tenant (shared):</strong> One global secret for all members.
-              <strong>User (individual):</strong> Each member provides their own key — but
-              <em>you</em> must enter yours now to test the connection and establish the first link.
-              Your team can override it later with their own keys.
+              <strong>Tenant provided</strong> — One global secret for all members. Users cannot
+              override.<br />
+              <strong>BYOK</strong> — Each member must supply their own API key. The key you enter
+              below is your personal key to test the connection. Your team must enter their own keys
+              from the portal.
             </p>
           </fieldset>
           <div class="grid gap-stack-md md:grid-cols-2">

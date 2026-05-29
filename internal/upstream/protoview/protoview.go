@@ -34,18 +34,19 @@ func ToSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSummary {
 		displayName = up.Identifier
 	}
 	out := &portalv1.UpstreamSummary{
-		PublicId:        up.PublicID,
-		Identifier:      up.Identifier,
-		DisplayName:     displayName,
-		McpUrl:          up.McpServerURL,
-		StrategyType:    up.StrategyType,
-		StrategySubMode: r.StrategySubMode,
-		RequiresLink:    r.RequiresLink,
-		LinkState:       linkStateProto(r.LinkState),
-		LastErrorReason: r.LastErrorReason,
-		Aliases:         r.Aliases,
-		Tools:           toToolProtos(r.Tools),
-		HasUserOverride: r.HasUserOverride,
+		PublicId:         up.PublicID,
+		Identifier:       up.Identifier,
+		DisplayName:      displayName,
+		McpUrl:           up.McpServerURL,
+		StrategyType:     up.StrategyType,
+		StrategySubMode:  r.StrategySubMode,
+		RequiresLink:     r.RequiresLink,
+		LinkState:        linkStateProto(r.LinkState),
+		LastErrorReason:  r.LastErrorReason,
+		Aliases:          r.Aliases,
+		Tools:            toToolProtos(r.Tools),
+		HasUserOverride:  r.HasUserOverride,
+		StaticHeaderMode: staticHeaderModeProto(r.StrategySubMode),
 	}
 	if r.Link != nil && r.Link.LastFailureAt != nil {
 		out.LastErrorAt = r.Link.LastFailureAt.UTC().Format(time.RFC3339)
@@ -65,6 +66,17 @@ func toToolProtos(rows []storage.UpstreamTool) []*portalv1.UpstreamTool {
 		})
 	}
 	return out
+}
+
+func staticHeaderModeProto(s string) portalv1.StaticHeaderMode {
+	switch s {
+	case "override":
+		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE
+	case "shared":
+		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_SHARED
+	default:
+		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED
+	}
 }
 
 func linkStateProto(s upstream.LinkState) portalv1.LinkState {

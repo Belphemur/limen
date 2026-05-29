@@ -40,15 +40,12 @@ export interface UpstreamSummaryLike {
 
 // CTAKind enumerates the actions the Upstreams page can offer per row.
 //   connect / submitKey / rotateKey: start or rotate per-user creds
-//   clearOverride: revert a user's static_header override back to
-//     the shared fallback
 //   enable / disable: flip the link's enabled flag
 //   disconnect: drop the user's link row entirely
 export type CTAKind =
   | 'connect'
   | 'submitKey'
   | 'rotateKey'
-  | 'clearOverride'
   | 'enable'
   | 'disable'
   | 'disconnect'
@@ -77,10 +74,10 @@ const STATIC_HEADER = 'static_header'
 //   static_header   override   no         CONNECTED      [Submit key, Disable, Disconnect]
 //   static_header   override   no         DISABLED       [Enable, Submit key]
 //   static_header   override   no         AUTO_DISABLED  [Re-enable, Submit key]
-//   static_header   override   yes        CONNECTED      [Rotate key, Clear override, Disable, Disconnect]
-//   static_header   override   yes        NEEDS_RELINK   [Re-enter key, Clear override, Disable, Disconnect]
-//   static_header   override   yes        DISABLED       [Enable, Clear override, Disconnect]
-//   static_header   override   yes        AUTO_DISABLED  [Re-enable, Clear override, Disconnect]
+//   static_header   override   yes        CONNECTED      [Rotate key, Disable, Disconnect]
+//   static_header   override   yes        NEEDS_RELINK   [Re-enter key, Disable, Disconnect]
+//   static_header   override   yes        DISABLED       [Enable, Disconnect]
+//   static_header   override   yes        AUTO_DISABLED  [Re-enable, Disconnect]
 //   mcp_spec        -          -          NONE           [Connect]
 //   mcp_spec        -          -          CONNECTED      [Disable, Disconnect]
 //   mcp_spec        -          -          DISABLED       [Enable, Disconnect]
@@ -132,15 +129,15 @@ function staticHeaderOverrideCTAs(up: UpstreamSummaryLike): CTA[] {
   }
   switch (up.linkState) {
     case LinkState.CONNECTED:
-      return [rotateKey, clearOverride, disable, disconnect]
+      return [rotateKey, disable, disconnect]
     case LinkState.NEEDS_RELINK:
-      return [reSubmitKey, clearOverride, disable, disconnect]
+      return [reSubmitKey, disable, disconnect]
     case LinkState.DISABLED:
-      return [enable, clearOverride, disconnect]
+      return [enable, disconnect]
     case LinkState.AUTO_DISABLED:
-      return [reEnable, clearOverride, disconnect]
+      return [reEnable, disconnect]
     default:
-      return [rotateKey, clearOverride, disconnect]
+      return [rotateKey, disconnect]
   }
 }
 
@@ -166,11 +163,6 @@ const reconnect: CTA = { kind: 'connect', label: 'Reconnect', variant: 'primary'
 const submitKey: CTA = { kind: 'submitKey', label: 'Enter API key', variant: 'primary' }
 const reSubmitKey: CTA = { kind: 'submitKey', label: 'Re-enter API key', variant: 'primary' }
 const rotateKey: CTA = { kind: 'rotateKey', label: 'Rotate key', variant: 'secondary' }
-const clearOverride: CTA = {
-  kind: 'clearOverride',
-  label: 'Use shared key',
-  variant: 'secondary',
-}
 const enable: CTA = { kind: 'enable', label: 'Enable', variant: 'primary' }
 const reEnable: CTA = { kind: 'enable', label: 'Re-enable', variant: 'primary' }
 const disable: CTA = { kind: 'disable', label: 'Disable', variant: 'secondary' }
@@ -211,5 +203,17 @@ export function linkStateTone(state: LinkStateValue): string {
     case LinkState.NONE:
     default:
       return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+  }
+}
+
+/** Map internal static_header sub-mode strings to human-readable labels. */
+export function staticHeaderModeLabel(subMode: string): string {
+  switch (subMode) {
+    case 'override':
+      return 'BYOK'
+    case 'shared':
+      return 'Tenant provided'
+    default:
+      return subMode
   }
 }

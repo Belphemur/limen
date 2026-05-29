@@ -12,6 +12,7 @@ import {
   onFaviconError,
   useUpstreamActions,
   LinkState,
+  staticHeaderModeLabel,
 } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -23,7 +24,6 @@ import {
   RegenerateServiceAccountTokenRequestSchema,
   StartServiceAccountConnectRequestSchema,
   SubmitServiceAccountAPIKeyRequestSchema,
-  ClearServiceAccountOverrideRequestSchema,
   DisconnectServiceAccountUpstreamRequestSchema,
   type ServiceAccount,
   type ServiceAccountUpstreamLink,
@@ -83,7 +83,7 @@ function saUpstreamSummary(upstream: UpstreamSummary, link: ServiceAccountUpstre
       ? LinkState.CONNECTED
       : LinkState.DISABLED
     : LinkState.NONE
-  // Heuristic: SA has an override key if it has a link for an override upstream
+  // Heuristic: SA has a BYOK key if it has a link for a BYOK upstream
   const hasUserOverride =
     !!link && upstream.strategyType === 'static_header' && upstream.strategySubMode === 'override'
   return {
@@ -123,14 +123,6 @@ const {
           serviceAccountPublicId: sa.value!.publicId,
           upstreamIdentifier: upstream.identifier,
           apiKey,
-        }),
-      )
-    },
-    clearOverride: async (upstream) => {
-      await adminClient().clearServiceAccountOverride(
-        create(ClearServiceAccountOverrideRequestSchema, {
-          serviceAccountPublicId: sa.value!.publicId,
-          upstreamIdentifier: upstream.identifier,
         }),
       )
     },
@@ -622,7 +614,7 @@ function linkStatePill(linkState: number): StatusPill {
                     <td class="px-4 py-3">
                       <span class="text-on-surface-variant">{{ item.upstream.strategyType }}</span>
                       <span v-if="item.upstream.strategySubMode" class="text-on-surface-variant">
-                        · {{ item.upstream.strategySubMode }}
+                        · {{ staticHeaderModeLabel(item.upstream.strategySubMode) }}
                       </span>
                     </td>
                     <!-- Link Status -->

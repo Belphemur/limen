@@ -56,14 +56,14 @@ type subModeProvider interface {
 
 // secretPersister is the optional capability for strategies that
 // accept a user-submitted secret out-of-band (currently only
-// static_header with AllowUserOverride=true).
+// static_header with mode=override).
 type secretPersister interface {
 	PersistUserSecret(ctx context.Context, lctx LinkContext, secret string) error
 }
 
 // secretClearer is the optional capability for strategies that
 // expose a server-side "clear user override" operation (currently
-// only static_header with AllowUserOverride=true).
+// only static_header with mode=override).
 type secretClearer interface {
 	ClearUserOverride(ctx context.Context, lctx LinkContext) error
 }

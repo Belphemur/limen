@@ -406,7 +406,7 @@ function confirmModeChange() {
               ]"
               @click="requestModeChange(StaticHeaderMode.SHARED)"
             >
-              Shared secret
+              Tenant provided
             </button>
             <button
               type="button"
@@ -418,33 +418,34 @@ function confirmModeChange() {
               ]"
               @click="requestModeChange(StaticHeaderMode.OVERRIDE)"
             >
-              User override
+              BYOK
             </button>
           </div>
           <p v-if="isSharedMode" class="mt-1 text-xs text-on-surface-variant">
-            One secret for all tenant members. Changing it rotates the key immediately.
+            A single key configured by the admin that all users share. Users cannot override or
+            change it.
           </p>
           <p v-else-if="isOverrideMode" class="mt-1 text-xs text-on-surface-variant">
-            Users may submit their own API keys. The secret below is YOUR personal key only.
+            Each user must provide their own API key. The admin's key is their personal key only.
           </p>
         </div>
 
         <!-- Secret input -->
         <div>
           <label class="mb-1 block text-sm font-medium text-on-surface">
-            {{ isSharedMode ? 'Shared secret' : 'Your API key' }}
+            {{ isSharedMode ? 'Tenant secret' : 'Your BYOK key' }}
           </label>
           <input
             v-model="secretValue"
             type="password"
             autocomplete="off"
             class="block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            :placeholder="isSharedMode ? 'Enter new shared secret…' : 'Enter your API key…'"
+            :placeholder="isSharedMode ? 'Enter new tenant secret…' : 'Enter your BYOK key…'"
           />
           <p class="mt-1 text-xs text-on-surface-variant">
             {{
               isSharedMode
-                ? 'Leave blank to keep the current shared secret.'
+                ? 'Leave blank to keep the current tenant secret.'
                 : 'This only updates YOUR personal API key. Other users must submit their own.'
             }}
           </p>
@@ -521,9 +522,9 @@ function confirmModeChange() {
     <!-- Mode change warning modal -->
     <ConfirmActionModal
       :open="modeWarningOpen"
-      title="Switch to user override mode?"
-      message="Switching from shared to override means the tenant-wide secret will no longer be used. Every team member will need to submit their own API key before they can use this upstream. Are you sure?"
-      primary-label="Switch to override"
+      title="Switch to BYOK mode?"
+      message="Once switched to BYOK, all existing users will need to enter their own API key. The current tenant secret will be removed. Continue?"
+      primary-label="Switch to BYOK"
       @confirm="confirmModeChange"
       @cancel="modeWarningOpen = false"
     />

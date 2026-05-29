@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { UpstreamSummary } from '@gen/limen/portal/v1/portal_pb.js'
-import { upstreamCTAs, linkStateLabel, linkStateTone, type CTAKind } from '@limen/shared'
+import {
+  upstreamCTAs,
+  linkStateLabel,
+  linkStateTone,
+  staticHeaderModeLabel,
+  type CTAKind,
+} from '@limen/shared'
 import UpstreamCatalog from '@/components/UpstreamCatalog.vue'
 
 const props = defineProps<{
@@ -17,9 +23,10 @@ const ctas = computed(() => upstreamCTAs(props.upstream))
 const stateLabel = computed(() => linkStateLabel(props.upstream.linkState))
 const stateTone = computed(() => linkStateTone(props.upstream.linkState))
 
-const subModeSuffix = computed(() =>
-  props.upstream.strategySubMode ? `.${props.upstream.strategySubMode}` : '',
-)
+const subModeSuffix = computed(() => {
+  if (!props.upstream.strategySubMode) return ''
+  return ` · ${staticHeaderModeLabel(props.upstream.strategySubMode)}`
+})
 
 function variantClass(variant: 'primary' | 'secondary' | 'danger'): string {
   switch (variant) {
