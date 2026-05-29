@@ -198,7 +198,7 @@ function buildStrategyConfig(): Record<string, string> {
       header_template: form.headerTemplate,
       mode: form.strategySubMode || 'tenant',
     }
-    if (form.strategySubMode === 'tenant' && form.apiKey) cfg.value = form.apiKey
+    if (form.apiKey) cfg.value = form.apiKey
     return cfg
   }
   return {}
@@ -298,13 +298,15 @@ async function runOAuthPopup(upstreamIdentifier: string, publicId: string) {
   const result = await openOAuthPopup({ url: sc.redirectUrl })
   console.log('[McpServerNew] openOAuthPopup result:', result)
   if (!result.ok) {
-    console.log(`[McpServerNew] OAuth failed branch: error=${result.error}, calling rollbackUpstream for publicId=${publicId}`)
+    console.log(
+      `[McpServerNew] OAuth failed branch: error=${result.error}, calling rollbackUpstream for publicId=${publicId}`,
+    )
     await rollbackUpstream(publicId)
     const message =
       result.error === 'popup_blocked'
         ? (result.errorDescription ?? 'Popups are blocked.')
         : (result.errorDescription ??
-            `The upstream OAuth flow failed (${result.error ?? 'unknown error'}). The server has not been saved.`)
+          `The upstream OAuth flow failed (${result.error ?? 'unknown error'}). The server has not been saved.`)
     console.log('[McpServerNew] Setting error state message:', message)
     errorState.value = {
       title: 'Authorization failed',
@@ -337,10 +339,10 @@ async function submit() {
         oauthClientOverride:
           form.strategyType === 'mcp_spec' && form.oauthClientId.trim() !== ''
             ? {
-              $typeName: 'limen.admin.v1.OAuthClientOverride',
-              clientId: form.oauthClientId.trim(),
-              clientSecret: form.oauthClientSecret,
-            }
+                $typeName: 'limen.admin.v1.OAuthClientOverride',
+                clientId: form.oauthClientId.trim(),
+                clientSecret: form.oauthClientSecret,
+              }
             : undefined,
       }),
     )
@@ -381,10 +383,16 @@ function goToDetail() {
 <template>
   <div class="space-y-stack-lg">
     <div>
-      <button type="button"
+      <button
+        type="button"
         class="group inline-flex items-center gap-1 rounded px-1 py-1 text-sm text-on-surface-variant hover:text-primary"
-        @click="router.push(ROUTES.mcpServers)">
-        <ArrowLeft :size="16" aria-hidden="true" class="transition-transform group-hover:-translate-x-0.5" />
+        @click="router.push(ROUTES.mcpServers)"
+      >
+        <ArrowLeft
+          :size="16"
+          aria-hidden="true"
+          class="transition-transform group-hover:-translate-x-0.5"
+        />
         Back to servers
       </button>
       <h1 class="mt-stack-sm font-display text-2xl font-bold tracking-tight text-on-surface">
@@ -404,9 +412,14 @@ function goToDetail() {
         <div class="grid gap-stack-md p-4 md:grid-cols-2">
           <label class="block md:col-span-2">
             <span class="text-sm font-medium text-on-surface">Display name</span>
-            <input v-model="form.displayName" type="text" required placeholder="e.g. Internal Data Vectorizer"
+            <input
+              v-model="form.displayName"
+              type="text"
+              required
+              placeholder="e.g. Internal Data Vectorizer"
               class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              data-testid="field-display-name" />
+              data-testid="field-display-name"
+            />
             <span class="mt-1 block text-xs text-on-surface-variant">
               Shown in the catalog and to end users.
             </span>
@@ -415,19 +428,35 @@ function goToDetail() {
           <label class="block md:col-span-2">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
               Identifier
-              <button v-if="!form.identifierAutoDerived" type="button"
-                class="text-xs font-normal text-primary hover:underline" @click="resetNameDerivation">
+              <button
+                v-if="!form.identifierAutoDerived"
+                type="button"
+                class="text-xs font-normal text-primary hover:underline"
+                @click="resetNameDerivation"
+              >
                 Re-derive from display name
               </button>
             </span>
-            <input :value="form.identifier" type="text" required pattern="[a-z0-9_]+" placeholder="auto"
+            <input
+              :value="form.identifier"
+              type="text"
+              required
+              pattern="[a-z0-9_]+"
+              placeholder="auto"
               class="mt-1 block w-full rounded-md border bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-1"
-              :class="nameError && form.identifier !== ''
-                ? 'border-error focus:border-error focus:ring-error'
-                : 'border-outline-variant focus:border-primary focus:ring-primary'
-                " data-testid="field-name" @input="onNameInput" />
-            <span v-if="nameError && form.identifier !== ''" class="mt-1 block text-xs text-error"
-              data-testid="field-name-error">
+              :class="
+                nameError && form.identifier !== ''
+                  ? 'border-error focus:border-error focus:ring-error'
+                  : 'border-outline-variant focus:border-primary focus:ring-primary'
+              "
+              data-testid="field-name"
+              @input="onNameInput"
+            />
+            <span
+              v-if="nameError && form.identifier !== ''"
+              class="mt-1 block text-xs text-error"
+              data-testid="field-name-error"
+            >
               {{ nameError }}
             </span>
             <span v-else class="mt-1 block text-xs text-on-surface-variant">
@@ -438,9 +467,14 @@ function goToDetail() {
 
           <label class="block md:col-span-2">
             <span class="text-sm font-medium text-on-surface">MCP server URL</span>
-            <input v-model="form.mcpUrl" type="url" required placeholder="https://api.internal.corp/mcp/v1"
+            <input
+              v-model="form.mcpUrl"
+              type="url"
+              required
+              placeholder="https://api.internal.corp/mcp/v1"
               class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              data-testid="field-mcp-url" />
+              data-testid="field-mcp-url"
+            />
           </label>
         </div>
       </section>
@@ -448,18 +482,31 @@ function goToDetail() {
       <section class="space-y-stack-sm">
         <h2 class="text-base font-semibold text-on-surface">Authentication strategy</h2>
         <div class="grid gap-stack-md md:grid-cols-3" role="radiogroup">
-          <label v-for="opt in strategies" :key="opt.value"
+          <label
+            v-for="opt in strategies"
+            :key="opt.value"
             class="relative flex h-full cursor-pointer flex-col gap-stack-sm rounded-xl border bg-surface-container-lowest p-4 transition-colors"
-            :class="form.strategyType === opt.value
-              ? 'border-primary ring-1 ring-primary'
-              : 'border-outline-variant hover:border-outline'
-              ">
-            <input v-model="form.strategyType" type="radio" :value="opt.value" class="sr-only"
-              :data-testid="opt.testid" />
-            <span class="flex h-9 w-9 items-center justify-center rounded-full" :class="form.strategyType === opt.value
-              ? 'bg-primary-container text-on-primary-container'
-              : 'bg-surface-container text-on-surface-variant'
-              ">
+            :class="
+              form.strategyType === opt.value
+                ? 'border-primary ring-1 ring-primary'
+                : 'border-outline-variant hover:border-outline'
+            "
+          >
+            <input
+              v-model="form.strategyType"
+              type="radio"
+              :value="opt.value"
+              class="sr-only"
+              :data-testid="opt.testid"
+            />
+            <span
+              class="flex h-9 w-9 items-center justify-center rounded-full"
+              :class="
+                form.strategyType === opt.value
+                  ? 'bg-primary-container text-on-primary-container'
+                  : 'bg-surface-container text-on-surface-variant'
+              "
+            >
               <component :is="strategyIconComponent(opt.value)" :size="18" aria-hidden="true" />
             </span>
             <div>
@@ -470,78 +517,130 @@ function goToDetail() {
         </div>
       </section>
 
-      <section v-if="form.strategyType === 'static_header'"
-        class="space-y-stack-md rounded-xl border border-primary/30 bg-surface-container-lowest ring-1 ring-primary/10">
+      <section
+        v-if="form.strategyType === 'static_header'"
+        class="space-y-stack-md rounded-xl border border-primary/30 bg-surface-container-lowest ring-1 ring-primary/10"
+      >
         <header class="rounded-t-xl border-b border-outline-variant bg-surface-container px-4 py-3">
           <h2 class="text-base font-semibold text-on-surface">Header configuration</h2>
         </header>
         <div class="space-y-stack-md p-4">
           <fieldset class="space-y-2">
             <legend class="text-sm font-medium text-on-surface">Secret resolution mode</legend>
-            <div class="inline-flex rounded-md border border-outline-variant bg-surface-container p-1">
-              <button type="button" class="rounded px-3 py-1 text-xs font-medium transition-colors" :class="form.strategySubMode !== 'user'
-                ? 'bg-surface-container-lowest text-primary shadow-sm'
-                : 'text-on-surface-variant'
-                " @click="form.strategySubMode = 'tenant'">
+            <div
+              class="inline-flex rounded-md border border-outline-variant bg-surface-container p-1"
+            >
+              <button
+                type="button"
+                class="rounded px-3 py-1 text-xs font-medium transition-colors"
+                :class="
+                  form.strategySubMode !== 'user'
+                    ? 'bg-surface-container-lowest text-primary shadow-sm'
+                    : 'text-on-surface-variant'
+                "
+                @click="form.strategySubMode = 'tenant'"
+              >
                 Tenant (shared)
               </button>
-              <button type="button" class="rounded px-3 py-1 text-xs font-medium transition-colors" :class="form.strategySubMode === 'user'
-                ? 'bg-surface-container-lowest text-primary shadow-sm'
-                : 'text-on-surface-variant'
-                " @click="form.strategySubMode = 'user'">
+              <button
+                type="button"
+                class="rounded px-3 py-1 text-xs font-medium transition-colors"
+                :class="
+                  form.strategySubMode === 'user'
+                    ? 'bg-surface-container-lowest text-primary shadow-sm'
+                    : 'text-on-surface-variant'
+                "
+                @click="form.strategySubMode = 'user'"
+              >
                 User (individual)
               </button>
             </div>
             <p class="text-xs text-on-surface-variant">
-              Tenant mode uses one global secret. User mode lets each member supply their own.
+              <strong>Tenant (shared):</strong> One global secret for all members.
+              <strong>User (individual):</strong> Each member provides their own key — but
+              <em>you</em> must enter yours now to test the connection and establish the first link.
+              Your team can override it later with their own keys.
             </p>
           </fieldset>
           <div class="grid gap-stack-md md:grid-cols-2">
             <label class="block">
               <span class="text-sm font-medium text-on-surface">Header name</span>
-              <input v-model="form.headerName" type="text"
-                class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+              <input
+                v-model="form.headerName"
+                type="text"
+                class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
             </label>
             <label class="block">
               <span class="text-sm font-medium text-on-surface">Header value template</span>
-              <input v-model="form.headerTemplate" type="text"
-                class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+              <input
+                v-model="form.headerTemplate"
+                type="text"
+                class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
               <span class="mt-1 block text-xs text-on-surface-variant">
                 Use <code class="font-mono">{value}</code> as the substitution token.
               </span>
             </label>
           </div>
-          <label v-if="form.strategySubMode === 'tenant'"
-            class="block border-t border-dashed border-outline-variant pt-stack-md">
+          <label class="block border-t border-dashed border-outline-variant pt-stack-md">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
-              Shared tenant secret
+              <template v-if="form.strategySubMode === 'tenant'"> Shared tenant secret </template>
+              <template v-else> Your API key </template>
               <span class="text-xs font-normal text-on-surface-variant">Required</span>
             </span>
-            <input v-model="form.apiKey" type="password" placeholder="Enter secure token or API key"
+            <input
+              v-model="form.apiKey"
+              type="password"
+              placeholder="Enter secure token or API key"
               class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              data-testid="field-api-key" />
+              data-testid="field-api-key"
+            />
+            <span class="mt-1 block text-xs text-on-surface-variant">
+              <template v-if="form.strategySubMode === 'tenant'">
+                Used to authenticate all requests from Limen to this MCP server.
+              </template>
+              <template v-else>
+                Used to test the connection and set up your first link. Individual users can replace
+                this with their own API key after the server is added.
+              </template>
+            </span>
           </label>
         </div>
       </section>
 
-      <section v-if="form.strategyType === 'mcp_spec'"
-        class="rounded-xl border border-outline-variant bg-surface-container-lowest">
-        <button type="button"
+      <section
+        v-if="form.strategyType === 'mcp_spec'"
+        class="rounded-xl border border-outline-variant bg-surface-container-lowest"
+      >
+        <button
+          type="button"
           class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-          :aria-expanded="staticClientOpen" data-testid="static-client-toggle"
-          @click="staticClientOpen = !staticClientOpen">
+          :aria-expanded="staticClientOpen"
+          data-testid="static-client-toggle"
+          @click="staticClientOpen = !staticClientOpen"
+        >
           <span>
-            <span class="block text-base font-semibold text-on-surface">Static OAuth client (optional)</span>
+            <span class="block text-base font-semibold text-on-surface"
+              >Static OAuth client (optional)</span
+            >
             <span class="mt-0.5 block text-xs text-on-surface-variant">
-              Only needed when the authorization server does not support Dynamic Client Registration.
+              Only needed when the authorization server does not support Dynamic Client
+              Registration.
             </span>
           </span>
-          <ChevronDown :size="20" aria-hidden="true"
+          <ChevronDown
+            :size="20"
+            aria-hidden="true"
             class="shrink-0 text-on-surface-variant transition-transform"
-            :class="staticClientOpen ? 'rotate-180' : ''" />
+            :class="staticClientOpen ? 'rotate-180' : ''"
+          />
         </button>
-        <div v-if="staticClientOpen" class="space-y-stack-md border-t border-outline-variant p-4"
-          data-testid="static-client-panel">
+        <div
+          v-if="staticClientOpen"
+          class="space-y-stack-md border-t border-outline-variant p-4"
+          data-testid="static-client-panel"
+        >
           <p class="text-xs text-on-surface-variant">
             Provide a pre-registered OAuth client to use instead of DCR. Leave blank to let Limen
             register itself dynamically.
@@ -549,71 +648,112 @@ function goToDetail() {
           <div class="grid gap-stack-md md:grid-cols-2">
             <label class="block">
               <span class="text-sm font-medium text-on-surface">Client ID</span>
-              <input v-model="form.oauthClientId" type="text"
+              <input
+                v-model="form.oauthClientId"
+                type="text"
                 class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                data-testid="field-oauth-client-id" />
+                data-testid="field-oauth-client-id"
+              />
             </label>
             <label class="block">
               <span class="text-sm font-medium text-on-surface">Client secret</span>
-              <input v-model="form.oauthClientSecret" type="password"
+              <input
+                v-model="form.oauthClientSecret"
+                type="password"
                 class="mt-1 block w-full rounded-md border border-outline-variant bg-surface px-3 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                data-testid="field-oauth-client-secret" />
+                data-testid="field-oauth-client-secret"
+              />
             </label>
           </div>
         </div>
       </section>
 
       <section class="rounded-xl border border-outline-variant bg-surface-container-lowest">
-        <button type="button"
+        <button
+          type="button"
           class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-          :aria-expanded="defaultsOpen" data-testid="defaults-toggle"
-          @click="defaultsOpen = !defaultsOpen">
+          :aria-expanded="defaultsOpen"
+          data-testid="defaults-toggle"
+          @click="defaultsOpen = !defaultsOpen"
+        >
           <span>
-            <span class="block text-base font-semibold text-on-surface">Ambient context (optional)</span>
+            <span class="block text-base font-semibold text-on-surface"
+              >Ambient context (optional)</span
+            >
             <span class="mt-0.5 block text-xs text-on-surface-variant">
               Pre-filled values the LLM can use without asking the user — Atlassian
-              <code class="font-mono">cloudId</code>, Sentry <code class="font-mono">organization_slug</code>,
-              Cloudflare <code class="font-mono">account_id</code>, default project keys, region names,
-              and other stable identifiers this MCP server expects on most tool calls.
+              <code class="font-mono">cloudId</code>, Sentry
+              <code class="font-mono">organization_slug</code>, Cloudflare
+              <code class="font-mono">account_id</code>, default project keys, region names, and
+              other stable identifiers this MCP server expects on most tool calls.
             </span>
           </span>
-          <ChevronDown :size="20" aria-hidden="true"
+          <ChevronDown
+            :size="20"
+            aria-hidden="true"
             class="shrink-0 text-on-surface-variant transition-transform"
-            :class="defaultsOpen ? 'rotate-180' : ''" />
+            :class="defaultsOpen ? 'rotate-180' : ''"
+          />
         </button>
-        <div v-if="defaultsOpen" class="space-y-stack-md border-t border-outline-variant p-4"
-          data-testid="defaults-panel">
+        <div
+          v-if="defaultsOpen"
+          class="space-y-stack-md border-t border-outline-variant p-4"
+          data-testid="defaults-panel"
+        >
           <p class="text-xs text-on-surface-variant">
-            Provide a JSON object whose keys are merged into every tool call's arguments as defaults.
-            Tool calls may still override any field. Leave empty if the server needs no ambient context.
+            Provide a JSON object whose keys are merged into every tool call's arguments as
+            defaults. Tool calls may still override any field. Leave empty if the server needs no
+            ambient context.
           </p>
-          <ContextJsonEditor v-model="form.defaultsJson" :caption="hint?.caption"
-            @update:valid="onDefaultsValid" />
+          <ContextJsonEditor
+            v-model="form.defaultsJson"
+            :caption="hint?.caption"
+            @update:valid="onDefaultsValid"
+          />
         </div>
       </section>
 
       <div class="flex items-center justify-end gap-3">
-        <button type="button"
+        <button
+          type="button"
           class="rounded-md border border-outline-variant px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low"
-          @click="router.push(ROUTES.mcpServers)">
+          @click="router.push(ROUTES.mcpServers)"
+        >
           Cancel
         </button>
-        <button type="submit" :disabled="!canSubmit"
+        <button
+          type="submit"
+          :disabled="!canSubmit"
           class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
-          data-testid="submit-upstream">
+          data-testid="submit-upstream"
+        >
           <Save :size="16" aria-hidden="true" />
           {{ submitting ? 'Testing & saving…' : 'Test & save server' }}
         </button>
       </div>
     </form>
 
-    <ErrorModal :open="errorState !== null" :title="errorState?.title ?? ''" :message="errorState?.message ?? ''"
-      :primary-label="errorState?.retry ? 'Try again' : undefined" secondary-label="Close"
-      @primary="errorState?.retry?.()" @secondary="errorState = null" @close="errorState = null" />
+    <ErrorModal
+      :open="errorState !== null"
+      :title="errorState?.title ?? ''"
+      :message="errorState?.message ?? ''"
+      :primary-label="errorState?.retry ? 'Try again' : undefined"
+      secondary-label="Close"
+      @primary="errorState?.retry?.()"
+      @secondary="errorState = null"
+      @close="errorState = null"
+    />
 
-    <SuccessModal :open="successOpen" title="Connection Successful" :chip="successUpstream?.name"
+    <SuccessModal
+      :open="successOpen"
+      title="Connection Successful"
+      :chip="successUpstream?.name"
       message="The MCP server has been authenticated and registered. Its tool catalog will be indexed in the background."
-      primary-label="Go to MCP Management" secondary-label="View Server Details" @primary="goToList"
-      @secondary="goToDetail" @close="goToList" />
+      primary-label="Go to MCP Management"
+      secondary-label="View Server Details"
+      @primary="goToList"
+      @secondary="goToDetail"
+      @close="goToList"
+    />
   </div>
 </template>
