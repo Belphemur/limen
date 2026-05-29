@@ -43,6 +43,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 9i  | [Service accounts & API tokens](phase-09i-service-accounts.md)                                                | 5, 9c, 9d               | ☐            |
 | 9j  | [Impersonation UX & cookie fix](phase-09j-impersonation-ux.md)                                                 | 9i, 9d, 9b, 4           | ☐            |
 | 9k  | [Service account upstream linking](phase-09k-sa-upstream-linking.md)                       | 9i, 7, 9c               | 🔶 (85%)     |
+| 9l  | [Tenant-level MCP credentials (upstream_tenant_links + mcp_spec rework)](phase-09l-tenant-level-credentials.md) | 7, 8, 9b, 9c, 9g        | ☐            |
 | 10  | [Wiring, verification, hardening](phase-10-wiring-hardening.md)                                                | 0–9c                    | 🔶 (60%)     |
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
@@ -53,7 +54,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
 | 18  | [Social signup (GitHub / Google / Microsoft / Apple)](phase-18-social-signup.md)                              | 5, 9h                   | ☐ (deferred)  |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9k (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking). Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
 
 ## Global checklist
 
@@ -284,6 +285,24 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] OAuth popup wiring in SA detail page
 - [ ] Link count column on SA list page
 - [ ] `docs/future-works/impersonation.md` future-works document
+
+### Phase 9l — Tenant-level MCP credentials (upstream_tenant_links + mcp_spec rework)
+
+- [ ] `UpstreamTenantLink` model + prefix `ulnk_tnl` + `AllModels` registration
+- [ ] Migration `00015_tenant_links.sql`: create table, partial unique, health columns; `Down` no-op
+- [ ] `LinkContext.TenantLink`, `tenantLinkClearer` interface, `ErrNoTenantLink` sentinel
+- [ ] `mcpspec` rewritten: `RequiresLink → false`, tenant-link start/finish, tenant-scoped AAD
+- [ ] `DBAuthProvider`: tenant-link resolution path for `mcp_spec`, `loadTenantLink` method
+- [ ] Refresher: tenant-link sweep + `MaybeAutoDisableForRelink` + catalog index with tenant tokens
+- [ ] `upstream.Service`: tenant-level Connect/Disconnect/Relink methods
+- [ ] `UserUpstreamSummary`: `HasTenantLink`, `TenantLinkState`; `summariseUpstream` populates for `mcp_spec`
+- [ ] `protoview`: propagate `HasTenantLink` + `TenantLinkState`
+- [ ] Proto: `has_tenant_link` + `tenant_link_state` on `UpstreamSummary`; `buf generate`
+- [ ] `authtransport.go`: handle `ErrNoTenantLink`; `LinkID` covers tenant links
+- [ ] `admin/upstreams.go`: reindex uses tenant-link tokens for `mcp_spec`
+- [ ] Admin `McpServers.vue`: Connect/Relink/Enable (mcp_spec), Rotate Key (shared), Rotate Setup Key (BYOK)
+- [ ] Portal `upstream-cta.ts`: `mcp_spec` = no CTA (admin-managed); BYOK unchanged
+- [ ] `go test -race ./...`, `pnpm test && pnpm build` (both SPAs) all green
 
 ### Phase 10 — Wiring, verification, hardening
 
