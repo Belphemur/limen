@@ -29,6 +29,7 @@
 import { ref, computed, type Ref } from 'vue'
 import { openOAuthPopup } from './upstreamOAuthPopup'
 import { type CTAKind } from './upstream-cta'
+import { tenantPrefix } from '../session/tenantUrls'
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -175,7 +176,19 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
     try {
       switch (action) {
         case 'connect': {
-          const url = await options.adapter.startConnect(upstream, window.location.pathname)
+          // In popup mode, redirect the popup to the popup-close page so the
+          // handshake message gets posted back to the opener.
+          const returnTo = options.oauthMode === 'popup'
+            ? (() => {
+                const prefix = tenantPrefix() ?? ''
+                const base = window.location.pathname.startsWith(`${prefix}/admin/`)
+                  ? `${prefix}/admin`
+                  : prefix
+                return `${base}/oauth-popup-close`
+              })()
+            : window.location.pathname
+
+          const url = await options.adapter.startConnect(upstream, returnTo)
           if (options.oauthMode === 'popup') {
             const result = await openOAuthPopup({ url })
             if (!result.ok) {
