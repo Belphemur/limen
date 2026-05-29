@@ -196,7 +196,7 @@ function buildStrategyConfig(): Record<string, string> {
     const cfg: Record<string, string> = {
       header_name: form.headerName,
       header_template: form.headerTemplate,
-      mode: form.strategySubMode || 'tenant',
+      allow_user_override: form.strategySubMode === 'user' ? 'true' : 'false',
     }
     if (form.apiKey) cfg.value = form.apiKey
     return cfg
