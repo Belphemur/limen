@@ -122,6 +122,11 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	if env.UpstreamID != lctx.Upstream.ID {
 		return "", errors.New("mcpspec: state upstream mismatch")
 	}
+	// Propagate service account ID from the envelope into the link context
+	// so that existing-link checks and creation use the correct FK.
+	if env.ServiceAccountID != nil {
+		lctx.ServiceAccountID = env.ServiceAccountID
+	}
 
 	reg, err := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
 	if err != nil {
