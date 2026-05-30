@@ -7,7 +7,7 @@
 
 import type { Component } from 'vue'
 import { ExternalLink } from '@lucide/vue'
-import { zitadelConsoleUrl, type ZitadelView } from '../lib/zitadelConsole'
+import { zitadelConsoleUrl, type ZitadelView } from '@/lib/zitadelConsole'
 
 export interface ZitadelDirectoryCard {
   view: ZitadelView

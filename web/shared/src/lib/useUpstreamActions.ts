@@ -29,7 +29,7 @@
 import { ref, computed, type Ref } from 'vue'
 import { openOAuthPopup } from './upstreamOAuthPopup'
 import { type CTAKind } from './upstream-cta'
-import { tenantPrefix } from '../session/tenantUrls'
+import { tenantPrefix } from '@/session/tenantUrls'
 
 // ── Types ─────────────────────────────────────────────────────────────
 
