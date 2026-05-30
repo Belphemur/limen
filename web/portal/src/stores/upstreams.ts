@@ -25,23 +25,23 @@ export const useUpstreamsStore = defineStore('upstreams', () => {
     }
   }
 
-  async function startConnect(upstreamIdentifier: string, returnTo: string): Promise<string> {
-    const resp = await portalClient().startConnect({ upstreamIdentifier, returnTo })
+  async function startConnect(upstreamPublicId: string, returnTo: string): Promise<string> {
+    const resp = await portalClient().startConnect({ upstreamPublicId, returnTo })
     return resp.redirectUrl
   }
 
-  async function submitApiKey(upstreamIdentifier: string, apiKey: string): Promise<void> {
-    await portalClient().submitUpstreamAPIKey({ upstreamIdentifier, apiKey })
+  async function submitApiKey(upstreamPublicId: string, apiKey: string): Promise<void> {
+    await portalClient().submitUpstreamAPIKey({ upstreamPublicId, apiKey })
     await refresh()
   }
 
-  async function setEnabled(upstreamIdentifier: string, enabled: boolean): Promise<void> {
-    await portalClient().setUpstreamLinkEnabled({ upstreamIdentifier, enabled })
+  async function setEnabled(upstreamPublicId: string, enabled: boolean): Promise<void> {
+    await portalClient().setUpstreamLinkEnabled({ upstreamPublicId, enabled })
     await refresh()
   }
 
-  async function disconnect(upstreamIdentifier: string): Promise<void> {
-    await portalClient().disconnect({ upstreamIdentifier })
+  async function disconnect(upstreamPublicId: string): Promise<void> {
+    await portalClient().disconnect({ upstreamPublicId })
     await refresh()
   }
 

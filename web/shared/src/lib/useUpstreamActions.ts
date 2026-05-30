@@ -69,6 +69,7 @@ export interface UpstreamActionsOptions {
 }
 
 export interface ApiKeyTarget {
+  publicId: string
   identifier: string
   label: string
   title?: string
@@ -148,6 +149,7 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
     // Modal-opening actions don't set busy — the modal has its own busy state
     if (action === 'submitKey' || action === 'rotateKey') {
       apiKeyTarget.value = {
+        publicId: upstream.publicId,
         identifier: upstream.identifier,
         label: upstream.displayName || upstream.identifier,
         title:
@@ -227,7 +229,7 @@ export function useUpstreamActions(options: UpstreamActionsOptions): UseUpstream
     apiKeyBusy.value = true
     try {
       await options.adapter.submitKey(
-        { publicId: '', identifier: target.identifier, displayName: target.label },
+        { publicId: target.publicId, identifier: target.identifier, displayName: target.label },
         apiKey,
       )
       apiKeyModalOpen.value = false

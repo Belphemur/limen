@@ -5,19 +5,21 @@ import { ConnectError, Code } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
 import {
   Filter,
-  Link as LinkIcon,
+  KeyRound,
   Link2Off,
   Pencil,
   Plus,
   RefreshCw,
   Server,
+  Settings,
   Trash2,
 } from '@lucide/vue'
-import { ConfirmDeleteModal, faviconUrl, onFaviconError } from '@limen/shared'
+import { ConfirmDeleteModal, faviconUrl, onFaviconError, Tooltip, SecretInputModal } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
   ReindexUpstreamCatalogRequestSchema,
+  UpdateUpstreamRequestSchema,
 } from '@/gen/limen/admin/v1/admin_pb.ts'
 import { LinkState, type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
@@ -26,9 +28,11 @@ const router = useRouter()
 const upstreams = ref<UpstreamSummary[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
-const busy = ref<Record<string, 'reindex' | 'delete' | undefined>>({})
+const busy = ref<Record<string, 'reindex' | 'delete' | 'connect-admin' | 'rotate-key' | undefined>>({})
 const filter = ref('')
 const pendingDelete = ref<UpstreamSummary | null>(null)
+const rotateTarget = ref<UpstreamSummary | null>(null)
+const rotateBusy = ref(false)
 
 async function refresh() {
   loading.value = true
@@ -43,7 +47,28 @@ async function refresh() {
   }
 }
 
-onMounted(refresh)
+onMounted(async () => {
+  await refresh()
+
+  // Detect OAuth callback from admin upstream connect flow.
+  const url = new URL(window.location.href)
+  const code = url.searchParams.get('code')
+  const state = url.searchParams.get('state')
+  if (code && state) {
+    const upstreamPublicId = url.searchParams.get('upstream_public_id') || ''
+    try {
+      const resp = await adminClient().finishAdminCallback({
+        upstreamPublicId,
+        callbackQuery: url.search.slice(1),
+      })
+      // Strip query params and redirect to the captured return_to.
+      url.search = ''
+      window.location.href = resp.returnTo || url.pathname
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err)
+    }
+  }
+})
 
 function detailPath(id: string): string {
   return ROUTES.mcpServerDetail.replace(':id', id)
@@ -63,6 +88,71 @@ function statusPill(u: UpstreamSummary): StatusPill {
       pillClass: 'bg-surface-container-high text-on-surface-variant',
     }
   }
+  // mcp_spec upstreams use tenant-level OAuth — show tenant link state.
+  if (u.strategyType === 'mcp_spec') {
+    switch (u.tenantLinkState) {
+      case LinkState.CONNECTED:
+        return {
+          label: 'Connected',
+          dotClass: 'bg-success',
+          pillClass: 'bg-success/10 text-success',
+        }
+      case LinkState.NEEDS_RELINK:
+        return {
+          label: 'Needs relink',
+          dotClass: 'bg-warning',
+          pillClass: 'bg-warning/10 text-warning',
+        }
+      case LinkState.DISABLED:
+      case LinkState.AUTO_DISABLED:
+        return {
+          label: 'Disabled',
+          dotClass: 'bg-error',
+          pillClass: 'bg-error-container text-error',
+        }
+      default:
+        return {
+          label: 'Not configured',
+          dotClass: 'bg-secondary',
+          pillClass: 'bg-surface-container-high text-on-surface-variant',
+        }
+    }
+  }
+  // static_header — admin view checks tenant link state.
+  if (u.strategyType === 'static_header') {
+    if (u.hasTenantLink) {
+      switch (u.tenantLinkState) {
+        case LinkState.CONNECTED:
+          return {
+            label: 'Configured',
+            dotClass: 'bg-success',
+            pillClass: 'bg-success/10 text-success',
+          }
+        case LinkState.NEEDS_RELINK:
+          return {
+            label: 'Needs relink',
+            dotClass: 'bg-warning',
+            pillClass: 'bg-warning/10 text-warning',
+          }
+        case LinkState.DISABLED:
+        case LinkState.AUTO_DISABLED:
+          return {
+            label: 'Disabled',
+            dotClass: 'bg-error',
+            pillClass: 'bg-error-container text-error',
+          }
+        default:
+          break
+      }
+    }
+    // Tenant secret not yet configured.
+    return {
+      label: 'Not configured',
+      dotClass: 'bg-secondary',
+      pillClass: 'bg-surface-container-high text-on-surface-variant',
+    }
+  }
+  // Fallback for other user-link strategies.
   switch (u.linkState) {
     case LinkState.CONNECTED:
       return {
@@ -136,10 +226,11 @@ async function confirmDelete() {
   }
 }
 
-async function connect(u: UpstreamSummary) {
+async function connectAdmin(u: UpstreamSummary) {
+  busy.value = { ...busy.value, [u.publicId]: 'connect-admin' }
   try {
-    const resp = await portalClient().startConnect({
-      upstreamIdentifier: u.identifier,
+    const resp = await adminClient().startAdminConnect({
+      upstreamPublicId: u.publicId,
       returnTo: window.location.pathname,
     })
     if (resp.redirectUrl) {
@@ -147,7 +238,35 @@ async function connect(u: UpstreamSummary) {
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    busy.value = { ...busy.value, [u.publicId]: undefined }
   }
+}
+
+function openRotateModal(u: UpstreamSummary) {
+  rotateTarget.value = u
+}
+
+async function confirmRotate(secret: string) {
+  const u = rotateTarget.value
+  if (!u) return
+  rotateBusy.value = true
+  try {
+    await adminClient().updateUpstream(create(UpdateUpstreamRequestSchema, {
+      publicId: u.publicId,
+      strategyConfig: { value: secret },
+    }))
+    rotateTarget.value = null
+    await refresh()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    rotateBusy.value = false
+  }
+}
+
+function cancelRotate() {
+  rotateTarget.value = null
 }
 
 const filtered = computed(() => {
@@ -183,12 +302,14 @@ const noMatches = computed(
           Manage and monitor connected Model Context Protocol servers.
         </p>
       </div>
-      <button type="button"
-        class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary/90 active:scale-95"
-        data-testid="add-upstream" @click="router.push(ROUTES.mcpServerNew)">
-        <Plus :size="20" aria-hidden="true" />
-        Add New Server
-      </button>
+      <Tooltip text="Register a new MCP upstream server">
+        <button type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm transition-all hover:bg-primary/90 active:scale-95"
+          data-testid="add-upstream" @click="router.push(ROUTES.mcpServerNew)">
+          <Plus :size="20" aria-hidden="true" />
+          Add New Server
+        </button>
+      </Tooltip>
     </header>
 
     <div v-if="error" role="alert"
@@ -242,6 +363,9 @@ const noMatches = computed(
                 Endpoint URL
               </th>
               <th class="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                Type
+              </th>
+              <th class="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
                 Status
               </th>
               <th class="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
@@ -255,7 +379,7 @@ const noMatches = computed(
           </thead>
           <tbody class="divide-y divide-border-subtle text-sm">
             <tr v-if="noMatches">
-              <td colspan="5" class="px-6 py-8 text-center text-sm text-on-surface-variant"
+              <td colspan="6" class="px-6 py-8 text-center text-sm text-on-surface-variant"
                 data-testid="upstreams-no-matches">
                 No servers match "{{ filter }}".
               </td>
@@ -285,6 +409,22 @@ const noMatches = computed(
               <td class="px-6 py-4 font-mono text-xs text-on-surface-variant">
                 <span class="block max-w-md truncate">{{ u.mcpUrl }}</span>
               </td>
+              <!-- Type -->
+              <td class="px-6 py-4">
+                <span v-if="u.strategyType === 'mcp_spec'"
+                  class="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                  OAuth2
+                </span>
+                <span v-else-if="u.strategyType === 'static_header' && u.strategySubMode === 'tenant_owner'"
+                  class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                  Static (Shared)
+                </span>
+                <span v-else-if="u.strategyType === 'static_header' && u.strategySubMode === 'byok'"
+                  class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                  Static (BYOK)
+                </span>
+                <span v-else class="text-xs text-on-surface-variant">{{ u.strategyType }}</span>
+              </td>
               <!-- Status -->
               <td class="px-6 py-4">
                 <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
@@ -300,33 +440,72 @@ const noMatches = computed(
               <!-- Actions -->
               <td class="px-6 py-4">
                 <div class="flex items-center justify-end gap-1">
-                  <button v-if="u.requiresLink && u.linkState !== LinkState.CONNECTED" type="button"
-                    class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
-                    :data-testid="`upstream-connect-${u.identifier}`" title="Connect" @click="connect(u)">
-                    <LinkIcon :size="18" aria-hidden="true" />
-                  </button>
-                  <button v-else-if="u.linkState === LinkState.CONNECTED" type="button" disabled
-                    class="rounded-md p-1.5 text-on-surface-variant opacity-40" title="Connected">
-                    <Link2Off :size="18" aria-hidden="true" />
-                  </button>
-                  <button type="button"
-                    class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
-                    title="Edit" @click="router.push(detailPath(u.publicId))">
-                    <Pencil :size="18" aria-hidden="true" />
-                  </button>
-                  <button type="button"
-                    class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface disabled:opacity-40"
-                    :disabled="busy[u.publicId] === 'reindex'" :data-testid="`upstream-reindex-${u.identifier}`"
-                    title="Reindex catalog" @click="reindex(u)">
-                    <RefreshCw :size="18" aria-hidden="true"
-                      :class="busy[u.publicId] === 'reindex' ? 'animate-spin' : ''" />
-                  </button>
-                  <button type="button"
-                    class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container hover:text-error disabled:opacity-40"
-                    :disabled="busy[u.publicId] === 'delete'" :data-testid="`upstream-delete-${u.identifier}`"
-                    title="Delete" @click="requestDelete(u)">
-                    <Trash2 :size="18" aria-hidden="true" />
-                  </button>
+                  <!-- Admin / tenant-level actions -->
+                  <Tooltip v-if="u.strategyType === 'mcp_spec' && (u.tenantLinkState === LinkState.NEEDS_RELINK || !u.hasTenantLink)" :text="!u.hasTenantLink ? 'Configure OAuth' : 'Reconfigure OAuth'">
+                    <button
+                      type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                      :disabled="busy[u.publicId] === 'connect-admin'"
+                      :data-testid="`upstream-configure-${u.identifier}`"
+                      @click="connectAdmin(u)">
+                      <Settings :size="18" aria-hidden="true"
+                        :class="busy[u.publicId] === 'connect-admin' ? 'animate-spin' : ''" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip v-else-if="u.strategyType === 'static_header' && u.strategySubMode === 'tenant_owner'" text="Rotate shared secret">
+                    <button
+                      type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                      :disabled="busy[u.publicId] === 'rotate-key'"
+                      :data-testid="`upstream-rotate-key-${u.identifier}`"
+                      @click="openRotateModal(u)">
+                      <KeyRound :size="18" aria-hidden="true"
+                        :class="busy[u.publicId] === 'rotate-key' ? 'animate-spin' : ''" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip v-else-if="u.strategyType === 'static_header' && u.strategySubMode === 'byok'" text="Rotate setup key">
+                    <button
+                      type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                      :disabled="busy[u.publicId] === 'rotate-key'"
+                      :data-testid="`upstream-rotate-setup-key-${u.identifier}`"
+                      @click="openRotateModal(u)">
+                      <KeyRound :size="18" aria-hidden="true"
+                        :class="busy[u.publicId] === 'rotate-key' ? 'animate-spin' : ''" />
+                    </button>
+                  </Tooltip>
+
+                  <!-- Per-user link actions -->
+                  <Tooltip text="Connected">
+                    <button v-if="u.linkState === LinkState.CONNECTED" type="button" disabled
+                      class="rounded-md p-1.5 text-on-surface-variant opacity-40">
+                      <Link2Off :size="18" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Edit">
+                    <button type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
+                      @click="router.push(detailPath(u.publicId))">
+                      <Pencil :size="18" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Reindex catalog">
+                    <button type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface disabled:opacity-40"
+                      :disabled="busy[u.publicId] === 'reindex'" :data-testid="`upstream-reindex-${u.identifier}`"
+                      @click="reindex(u)">
+                      <RefreshCw :size="18" aria-hidden="true"
+                        :class="busy[u.publicId] === 'reindex' ? 'animate-spin' : ''" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Delete">
+                    <button type="button"
+                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container hover:text-error disabled:opacity-40"
+                      :disabled="busy[u.publicId] === 'delete'" :data-testid="`upstream-delete-${u.identifier}`"
+                      @click="requestDelete(u)">
+                      <Trash2 :size="18" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
                 </div>
               </td>
             </tr>
@@ -346,5 +525,15 @@ const noMatches = computed(
       :confirm-token="pendingDelete?.identifier ?? ''" confirm-label="Delete upstream"
       :busy="pendingDelete ? busy[pendingDelete.publicId] === 'delete' : false" @confirm="confirmDelete"
       @cancel="pendingDelete = null" />
+
+    <SecretInputModal
+      title="Rotate Shared Secret"
+      :description="`Enter a new secret for '${rotateTarget?.displayName || rotateTarget?.identifier || ''}'`"
+      label="New secret"
+      :open="rotateTarget !== null"
+      :busy="rotateBusy"
+      @confirm="confirmRotate"
+      @cancel="cancelRotate"
+    />
   </div>
 </template>

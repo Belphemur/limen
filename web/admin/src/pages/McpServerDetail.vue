@@ -209,7 +209,7 @@ async function saveAdminKey() {
     // Submit admin's own API key via portal RPC.
     await portalClient().submitUpstreamAPIKey(
       create(SubmitUpstreamAPIKeyRequestSchema, {
-        upstreamIdentifier: summary.value.identifier,
+        upstreamPublicId: summary.value.publicId,
         apiKey: secretValue.value.trim(),
       }),
     )

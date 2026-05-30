@@ -39,14 +39,13 @@ The new model replaces the binary `tenant` / `user` toggle with two clear, indep
 
 ```go
 type Config struct {
-    HeaderName        string // e.g. "Authorization"
-    HeaderTemplate    string // contains "{value}", e.g. "Bearer {value}"
-    SharedSecret      string // mandatory
-    AllowUserOverride bool   // opt-in
+    HeaderName     string // e.g. "Authorization"
+    HeaderTemplate string // contains "{value}", e.g. "Bearer {value}"
+    SharedSecret   string // mandatory (setup key for catalog indexing; also user key in TenantOwner mode)
 }
 ```
 
-`Mode`, `ModeTenant`, `ModeUser`, `TenantSecret` are **deleted**. No alias, no shim. Validation requires non-empty `SharedSecret` regardless of `AllowUserOverride`.
+`Mode`, `ModeTenant`, `ModeUser`, `TenantSecret`, `AllowUserOverride` are **deleted**. No alias, no shim. Validation requires non-empty `SharedSecret`.
 
 ### Encryption at rest
 
@@ -59,7 +58,7 @@ No field on `Config` or `userExtra` is loggable in plaintext; the `String()` / `
 
 ### SubMode vocabulary
 
-`(Strategy).SubMode` now returns `"shared"` (Tenant provided mode) or `"override"` (BYOK mode). The proto field `UpstreamSummary.strategy_sub_mode` keeps its name; its value set changes from `{"tenant","user"}` → `{"shared","override"}`. The UI-facing labels come from the `staticHeaderModeLabel()` helper (see [Deliverable note](#helper-staticheadermodelabel) below).
+`(Strategy).SubMode` now reads the `Mode` column of `UpstreamStrategyConfig` and returns `"tenant_owner"` or `"byok"`. The proto field `UpstreamSummary.strategy_sub_mode` keeps its name; its value set changes from `{"tenant","user"}` → `{"tenant_owner","byok"}`. The UI-facing labels come from the `staticHeaderModeLabel()` helper (see [Deliverable note](#helper-staticheadermodelabel) below).
 
 This is a hard cutover — the portal SPA's decision table reads the new values directly. No backfill.
 
@@ -69,40 +68,43 @@ A new frontend helper maps internal `strategy_sub_mode` strings to user-facing l
 
 | Internal value | User-facing label |
 | --- | --- |
-| `"shared"`    | `Tenant provided` |
-| `"override"`  | `BYOK`            |
+| `"tenant_owner"`    | `Tenant provided` |
+| `"byok"`  | `BYOK`            |
 
 Consumed by:
 - `UpstreamCard.vue` subtitle rendering
 - `upstream-cta.ts` decision table comments
 - Any SPA page that displays the active mode to users
 
-This helper centralises the mapping so the internal vocabulary (`"shared"` / `"override"`) never leaks to the UI.
+This helper centralises the mapping so the internal vocabulary (`"tenant_owner"` / `"byok"`) never leaks to the UI.
 
 ### Headers resolution order
 
-`(Strategy).Headers(ctx, lctx)` always returns a populated header map:
+`(Strategy).Headers(ctx, lctx)` resolves based on mode:
 
-1. If `AllowUserOverride && lctx.Link != nil && !lctx.Link.ExtraJSON.IsZero() && !lctx.Link.NeedsRelink` → decrypt `ExtraJSON` with AAD `tenant|user|"upstream.extra"`, substitute the user's secret.
-2. Otherwise → substitute `cfg.SharedSecret`.
+1. **TenantOwner mode**: Always use `cfg.SharedSecret` — no per-user override path.
+2. **BYOK mode**:
+   - No user context (catalog/indexer) → use `SharedSecret` (setup key).
+   - User with valid BYOK key in `Link.ExtraJSON` and `!Link.NeedsRelink` → decrypt and use user's key.
+   - User with `Link.NeedsRelink` → return `ErrNeedsRelink`.
+   - User without a key → return `ErrNoCredentials`.
 
-Critical property: **`Headers` never returns `ErrNeedsRelink`**. A user whose BYOK key starts failing has their `Link.NeedsRelink` flipped by the Phase 8 reactive-401 path, which short-circuits step 1 and falls back to step 2. Their tools keep working on the tenant-provided key while the portal nudges them to fix their BYOK key.
+Key property: **In TenantOwner mode, `Headers` never returns `ErrNeedsRelink`.** In BYOK mode, `ErrNeedsRelink` signals that the user's key must be rotated.
 
 ### `RequiresLink`
 
-Stays `true`. The link row carries two pieces of state:
+Stays `true` (for opt-out flag carrier in both modes). The link row carries:
+- `Enabled` — per-user opt-out, available in both modes.
+- `ExtraJSON` — per-user BYOK secret (only consulted in BYOK mode).
 
-- `Enabled` — per-user opt-out, available in both Tenant provided and BYOK modes ("hide GitHub's tools from my session").
-- `ExtraJSON` — per-user BYOK secret (only consulted when `AllowUserOverride`).
-
-A missing link is fine; `Headers` falls back to the tenant-provided key cleanly.
+In TenantOwner mode, a missing link is fine — `Headers` always uses `SharedSecret`. In BYOK mode, a missing link (or missing key) returns `ErrNoCredentials`.
 
 ### New / changed RPCs
 
-- `PortalService.SubmitUpstreamAPIKey` — unchanged shape; now rejects with `FailedPrecondition` when `AllowUserOverride=false` (i.e., Tenant provided mode). The SPA hides the button in that case but server-side rejection is mandatory.
-- `PortalService.ClearUpstreamOverride` — **new** RPC. Clears `ExtraJSON` and resets the link's health counters so the next request falls back to the tenant-provided key. Replaces the implicit "rotate by submitting empty" path. **Note:** the `clearOverride` CTA was later removed from the portal UI entirely, because neither Tenant provided mode nor BYOK mode supports "reverting to a tenant key" — in BYOK mode there is no tenant key to fall back to, and in Tenant provided mode there is no per-user override to clear. The RPC itself remains in the proto for potential future use.
-- `AdminService.CreateUpstream` — unchanged proto shape. The `strategy_config` map now carries `{header_name, header_template, value, allow_user_override}` instead of `{header_name, header_template, mode, value}`. The handler picks the static_header encoding branch (see [Bug fix](#bug-fix-static_header-config-was-being-dropped) below).
-- `AdminService.CreateUpstream`'s `strategy_sub_mode` field becomes **unused for `static_header`** — the BYOK flag (`allow_user_override`) travels inside `strategy_config`. Comment is updated; the field stays on the message because `mcp_spec` may grow sub-modes later (DCR vs static client).
+- `PortalService.SubmitUpstreamAPIKey` — unchanged shape; now rejects with `FailedPrecondition` when mode is not BYOK (i.e., TenantOwner mode). The SPA hides the button in that case but server-side rejection is mandatory.
+- `PortalService.ClearUpstreamOverride` — **new** RPC. Clears `ExtraJSON` and resets the link's health counters. **Note:** in BYOK mode there is no tenant key to fall back to, so clearing the override makes the upstream permanently unavailable for that user until they submit a new key. The RPC remains in the proto for potential future use.
+- `AdminService.CreateUpstream` — unchanged proto shape. The `strategy_config` map now carries `{header_name, header_template, value}` (no `mode` or `allow_user_override`). The handler picks the static_header encoding branch (see [Bug fix](#bug-fix-static_header-config-was-being-dropped) below).
+- `AdminService.CreateUpstream`'s `strategy_sub_mode` field becomes **used for `static_header`** — it carries `"tenant_owner"` or `"byok"`. This is the canonical store of mode for `static_header`, replacing the old config-internal bool.
 - `UpstreamSummary` gets a new field: `bool has_user_override = 13;`. Set true when `link != nil && !link.ExtraJSON.IsZero()`. The SPA uses this to decide between "Rotate" and "Submit" CTAs.
 
 ### Bug fix: `static_header` config was being dropped
@@ -116,11 +118,12 @@ case upstream.StrategyMCPSpec:
     // existing OAuthClientOverride path
 case upstream.StrategyStaticHeader:
     cfg := statichdr.Config{
-        HeaderName:        msg.GetStrategyConfig()["header_name"],
-        HeaderTemplate:    msg.GetStrategyConfig()["header_template"],
-        SharedSecret:      msg.GetStrategyConfig()["value"],
-        AllowUserOverride: msg.GetStrategyConfig()["allow_user_override"] == "true",
+        HeaderName:     msg.GetStrategyConfig()["header_name"],
+        HeaderTemplate: msg.GetStrategyConfig()["header_template"],
+        SharedSecret:   msg.GetStrategyConfig()["value"],
     }
+    in.HeaderMode = msg.GetStrategySubMode()
+    if in.HeaderMode == "" { in.HeaderMode = "tenant_owner" }
     sf, err := statichdr.EncodeConfig(tenant.ID, cfg)
     // ... → in.EncodedStrategyConfig = sf
 }
@@ -130,20 +133,21 @@ case upstream.StrategyStaticHeader:
 
 ### Admin SPA (`web/admin/src/pages/McpServerNew.vue`)
 
-Replace the segmented "Tenant secret / User-supplied" control with:
+Replace the segmented "Tenant secret / User-supplied" control with a mode selector:
 
 - A **required** "Header value (secret)" input (always visible).
-- A checkbox: **"Allow users to bring their own key (BYOK)"**.
+- A **mode radio/select**: **TenantOwner** (one key for all users) or **BYOK** (each user brings own key).
 
-`buildStrategyConfig()` now emits:
+`buildStrategyConfig()` emits the mode via `strategy_sub_mode` field instead of an internal bool:
 
 ```ts
+// strategy_config map (no mode or allow_user_override):
 {
   header_name: form.headerName,
   header_template: form.headerTemplate,
-  value: form.apiKey, // shared secret, always required
-  allow_user_override: form.allowUserOverride ? 'true' : 'false',
+  value: form.apiKey, // SharedSecret, always required
 }
+// strategy_sub_mode: form.mode === 'byok' ? 'byok' : 'tenant_owner'
 ```
 
 ### Portal SPA — CTA decision table
@@ -152,15 +156,15 @@ Replace the segmented "Tenant secret / User-supplied" control with:
 
 | `strategy_sub_mode` | `link_state`   | `has_user_override` | Primary CTA      | Secondary  |
 | ------------------- | -------------- | ------------------- | ---------------- | ---------- |
-| `shared` (Tenant provided) | any            | n/a                 | Disable / Enable | —          |
-| `override` (BYOK)     | `none`         | false               | Submit API key   | Skip       |
-| `override` (BYOK)     | `connected`    | true                | Rotate           | —          |
-| `override` (BYOK)     | `needs_relink` | true                | Rotate           | —          |
-| `override` (BYOK)     | `disabled`     | any                 | Enable           | —          |
+| `tenant_owner` (Tenant provided) | any            | n/a                 | Disable / Enable | —          |
+| `byok` (BYOK)     | `none`         | false               | Submit API key   | Skip       |
+| `byok` (BYOK)     | `connected`    | true                | Rotate           | —          |
+| `byok` (BYOK)     | `needs_relink` | true                | Rotate           | —          |
+| `byok` (BYOK)     | `disabled`     | any                 | Enable           | —          |
 
 In Tenant provided mode, tools always work via the admin's shared key. In BYOK mode, tools become available once the user submits their own key.
 
-`UpstreamCard.vue`'s subtitle (`strategyType.subMode`) uses `staticHeaderModeLabel()` to map the internal `"shared"` / `"override"` values to user-facing labels `"Tenant provided"` / `"BYOK"`. The rendering logic itself is unchanged.
+`UpstreamCard.vue`'s subtitle (`strategyType.subMode`) uses `staticHeaderModeLabel()` to map the internal `"tenant_owner"` / `"byok"` values to user-facing labels `"Tenant provided"` / `"BYOK"`. The rendering logic itself is unchanged.
 
 ### Database migration — `00012_statichdr_rework.sql`
 
@@ -179,7 +183,7 @@ DELETE FROM upstreams                 WHERE strategy_type = 'static_header';
 
 ### Backend (Go)
 
-- `internal/upstream/statichdr/statichdr.go` — rewritten. New `Config` shape, new `SubMode` strings, new `Headers` resolution order, new `ClearUserOverride` method, `Mode`/`ModeTenant`/`ModeUser` deleted.
+- `internal/upstream/statichdr/statichdr.go` — rewritten. Mode stored as separate `UpstreamStrategyConfig.Mode` column (`"tenant_owner"` / `"byok"`); `Config` struct has no `AllowUserOverride`. New `SubMode` strings, new `Headers` resolution order, new `ClearUserOverride` method, `Mode`/`ModeTenant`/`ModeUser` deleted.
 - `internal/upstream/statichdr/statichdr_test.go` — rewritten. Cases: Tenant-provided-only, BYOK-no-user, BYOK-with-secret (user wins), BYOK-with-NeedsRelink (tenant-provided wins), `PersistUserSecret` round-trip, `ClearUserOverride` round-trip, `EncodeConfig` validation.
 - `internal/upstream/portal_ops.go` — `UserUpstreamSummary` gains `HasUserOverride bool`; `summariseUpstream` populates it; new `ClearUserStaticHeaderOverride(ctx, tenant, user, identifier) error` wrapper that resolves the strategy and calls `ClearUserOverride`. New `secretClearer` interface mirrors `secretPersister`.
 - `internal/upstream/protoview/protoview.go` — `ToSummaryProto` propagates `HasUserOverride → out.HasUserOverride`.
@@ -193,13 +197,13 @@ DELETE FROM upstreams                 WHERE strategy_type = 'static_header';
   - `UpstreamSummary`: add `bool has_user_override = 13;`. Update `strategy_sub_mode` comment to document the new value set.
   - Add `rpc ClearUpstreamOverride(ClearUpstreamOverrideRequest) returns (ClearUpstreamOverrideResponse);` to `PortalService`.
   - Add `ClearUpstreamOverrideRequest{ string upstream_identifier = 1; }` and empty `ClearUpstreamOverrideResponse{}`.
-- `proto/limen/admin/v1/admin.proto`: `CreateUpstreamRequest.strategy_sub_mode` comment updated — "unused for `static_header` (encoded inside `strategy_config['allow_user_override']`)". Field number unchanged.
+- `proto/limen/admin/v1/admin.proto`: `CreateUpstreamRequest.strategy_sub_mode` comment updated — "used for `static_header` (values `"tenant_owner"` / `"byok"`)"; field number unchanged.
 
 ### Frontend
 
-- `web/admin/src/pages/McpServerNew.vue` — segmented sub-mode control → checkbox; secret field always visible & required; `buildStrategyConfig` emits the new keys.
+- `web/admin/src/pages/McpServerNew.vue` — segmented sub-mode control → mode selector (radio/select: TenantOwner ↔ BYOK); secret field always visible & required; `buildStrategyConfig` emits config-only map with mode via `strategy_sub_mode`.
 - `web/admin/src/pages/McpServerNew.test.ts` (if present) — assertions updated.
-- `web/portal/src/lib/static-header-mode-label.ts` — **new**. `staticHeaderModeLabel(mode: string)` helper mapping internal values (`"shared"`, `"override"`) to user-facing labels (`Tenant provided`, `BYOK`).
+- `web/portal/src/lib/static-header-mode-label.ts` — **new**. `staticHeaderModeLabel(mode: string)` helper mapping internal values (`"tenant_owner"`, `"byok"`) to user-facing labels (`Tenant provided`, `BYOK`).
 - `web/portal/src/lib/upstream-cta.ts` — rewritten decision table.
 - `web/portal/src/lib/upstream-cta.spec.ts` — coverage for the new table rows.
 - `web/portal/src/components/UpstreamCard.vue` — uses `staticHeaderModeLabel()` for subtitle rendering; verify labels display as `Tenant provided` / `BYOK`.
@@ -211,30 +215,32 @@ DELETE FROM upstreams                 WHERE strategy_type = 'static_header';
 - `buf generate` — the only generated diff is the new `has_user_override` field, the renamed `strategy_sub_mode` doc comment, and the new `ClearUpstreamOverride` RPC.
 - Integration test in `statichdr_test.go` exercises a real Postgres testcontainer through both Tenant provided and BYOK modes.
 - `cd web/portal && pnpm test && pnpm build`; `cd web/admin && pnpm test && pnpm build`.
-- Manual smoke (dev compose): create a `static_header` upstream in Tenant provided mode → catalog populates immediately, no portal CTA. Switch to BYOK mode → portal shows "Submit API key" CTA, tools unavailable until user submits their key.
+- Manual smoke (dev compose): create a `static_header` upstream in TenantOwner mode → catalog populates immediately, no portal CTA. Switch to BYOK mode → portal shows "Submit API key" CTA, tools unavailable until user submits their key.
 
 ## Out of scope
 
-- An admin "Edit Upstream" SPA action for `static_header` (rotating the shared secret or flipping `AllowUserOverride` in place). v1 still recreates the upstream — the proto already has `AdminService.UpdateUpstream` but it currently only patches `display_name` / `mcp_url`. Lifting that into a strategy-config patch is a Phase 10 hardening task.
+- An admin "Edit Upstream" SPA action for `static_header` (rotating the shared secret or changing the mode in place). v1 still recreates the upstream — the proto already has `AdminService.UpdateUpstream` but it currently only patches `display_name` / `mcp_url`. Lifting that into a strategy-config patch is a Phase 10 hardening task.
 - `static_header` row preservation on the existing dev DBs. We wipe and recreate; that's the whole point of `00012`.
 
 ## Per-phase checklist
 
-- [ ] `statichdr.Config` rewritten; `Mode`/`ModeTenant`/`ModeUser`/`TenantSecret` deleted, no shim
-- [ ] `SubMode` returns `"shared"` (Tenant provided) / `"override"` (BYOK)
-- [ ] `Headers` falls back to `SharedSecret` when BYOK override absent / link `NeedsRelink`
-- [ ] `Headers` never returns `ErrNeedsRelink`
-- [ ] `PersistUserSecret` rejects when `AllowUserOverride=false` (returns `ErrUnsupported`)
-- [ ] `ClearUserOverride` zeroes `ExtraJSON` and resets health counters (RPC exists; Clear CTA removed from UI since neither mode supports reverting to a tenant key)
+- [ ] `statichdr.Config` rewritten; `AllowUserOverride` removed; `Mode`/`ModeTenant`/`ModeUser`/`TenantSecret` deleted, no shim
+- [ ] `Mode` stored as separate `UpstreamStrategyConfig.Mode` column (`"tenant_owner"` / `"byok"`), not in encrypted Config
+- [ ] `SubMode` returns `"tenant_owner"` (Tenant provided) / `"byok"` (BYOK)
+- [ ] `Headers` in TenantOwner mode always uses `SharedSecret`; no per-user override path
+- [ ] `Headers` in BYOK mode: user BYOK key → `ErrNeedsRelink` → `ErrNoCredentials`; no `SharedSecret` fallback for users
+- [ ] `Headers` never returns `ErrNeedsRelink` in TenantOwner mode
+- [ ] `PersistUserSecret` rejects when mode is not BYOK (returns `ErrUnsupported`)
+- [ ] `ClearUserOverride` zeroes `ExtraJSON` and resets health counters (RPC exists; in BYOK mode no tenant fallback)
 - [ ] `upstream.Service` wraps `ClearUserStaticHeaderOverride`; `secretClearer` interface added
 - [ ] `UserUpstreamSummary.HasUserOverride` surfaced through `protoview`
-- [ ] `internal/admin/upstreams.go.CreateUpstream` encodes `static_header` config from the form map (fixes the latent dropped-config bug)
+- [ ] `internal/admin/upstreams.go.CreateUpstream` reads `strategy_sub_mode` for mode, encodes `static_header` config from the form map (fixes the latent dropped-config bug)
 - [ ] `internal/portal/upstreams.go` exposes `ClearUpstreamOverride` RPC
 - [ ] `00012_statichdr_rework.sql` deletes existing `static_header` rows; `Down` is a no-op
 - [ ] `portal.proto`: `has_user_override` field added; `ClearUpstreamOverride` RPC added; codegen regenerated
-- [ ] `admin.proto`: `strategy_sub_mode` comment updated; codegen regenerated
-- [ ] `web/admin McpServerNew.vue` uses checkbox + always-visible secret field; emits new map keys
+- [ ] `admin.proto`: `strategy_sub_mode` comment updated (now USED for static_header); codegen regenerated
+- [ ] `web/admin McpServerNew.vue` uses mode selector (radio/select) + always-visible secret field; emits mode via `strategy_sub_mode`
 - [ ] `web/portal upstream-cta.ts` decision table rewritten; covered by tests
 - [ ] `web/portal Upstreams.vue` wires Submit/Rotate/Enable/Disable CTAs (Clear CTA removed — see note above)
 - [ ] `go test -race ./...` green; `pnpm test && pnpm build` green for both SPAs
-- [ ] Manual smoke (Tenant provided + BYOK + BYOK-with-bad-key fallback) on dev compose
+- [ ] Manual smoke (TenantOwner + BYOK) on dev compose

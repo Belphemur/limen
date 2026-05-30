@@ -12,7 +12,6 @@ import {
   onFaviconError,
   useUpstreamActions,
   LinkState,
-  staticHeaderModeLabel,
 } from '@limen/shared'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
@@ -92,6 +91,8 @@ function saUpstreamSummary(upstream: UpstreamSummary, link: ServiceAccountUpstre
     strategySubMode: upstream.strategySubMode,
     linkState,
     hasUserOverride,
+    hasTenantLink: upstream.hasTenantLink,
+    tenantLinkState: upstream.tenantLinkState,
   }
 }
 
@@ -111,7 +112,7 @@ const {
       const resp = await adminClient().startServiceAccountConnect(
         create(StartServiceAccountConnectRequestSchema, {
           serviceAccountPublicId: sa.value!.publicId,
-          upstreamIdentifier: upstream.identifier,
+          upstreamPublicId: upstream.publicId,
           returnTo,
         }),
       )
@@ -121,7 +122,7 @@ const {
       await adminClient().submitServiceAccountAPIKey(
         create(SubmitServiceAccountAPIKeyRequestSchema, {
           serviceAccountPublicId: sa.value!.publicId,
-          upstreamIdentifier: upstream.identifier,
+          upstreamPublicId: upstream.publicId,
           apiKey,
         }),
       )
@@ -141,7 +142,7 @@ const {
       await adminClient().disconnectServiceAccountUpstream(
         create(DisconnectServiceAccountUpstreamRequestSchema, {
           serviceAccountPublicId: sa.value!.publicId,
-          upstreamIdentifier: upstream.identifier,
+          upstreamPublicId: upstream.publicId,
         }),
       )
     },
@@ -571,9 +572,11 @@ function linkStatePill(linkState: number): StatusPill {
               <table class="w-full text-left text-sm">
                 <thead class="bg-surface-container text-xs uppercase text-on-surface-variant">
                   <tr>
-                    <th class="px-4 py-3">Upstream</th>
-                    <th class="px-4 py-3">Strategy</th>
+                    <th class="px-4 py-3">Server</th>
+                    <th class="px-4 py-3">Endpoint URL</th>
+                    <th class="px-4 py-3">Type</th>
                     <th class="px-4 py-3">Link Status</th>
+                    <th class="px-4 py-3">Tools</th>
                     <th class="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -607,16 +610,29 @@ function linkStatePill(linkState: number): StatusPill {
                           <div class="truncate font-mono text-xs text-on-surface-variant">
                             {{ item.upstream.identifier }}
                           </div>
-                        </div>
                       </div>
-                    </td>
-                    <!-- Strategy -->
-                    <td class="px-4 py-3">
-                      <span class="text-on-surface-variant">{{ item.upstream.strategyType }}</span>
-                      <span v-if="item.upstream.strategySubMode" class="text-on-surface-variant">
-                        · {{ staticHeaderModeLabel(item.upstream.strategySubMode) }}
-                      </span>
-                    </td>
+                    </div>
+                  </td>
+                  <!-- URL -->
+                  <td class="px-4 py-3 font-mono text-xs text-on-surface-variant">
+                    <span class="block max-w-xs truncate">{{ item.upstream.mcpUrl }}</span>
+                  </td>
+                  <!-- Type -->
+                  <td class="px-4 py-3">
+                    <span v-if="item.upstream.strategyType === 'mcp_spec'"
+                      class="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                      OAuth2
+                    </span>
+                    <span v-else-if="item.upstream.strategyType === 'static_header' && item.upstream.strategySubMode === 'tenant_owner'"
+                      class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                      Static (Shared)
+                    </span>
+                    <span v-else-if="item.upstream.strategyType === 'static_header' && item.upstream.strategySubMode === 'byok'"
+                      class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                      Static (BYOK)
+                    </span>
+                    <span v-else class="text-xs text-on-surface-variant">{{ item.upstream.strategyType }}</span>
+                  </td>
                     <!-- Link Status -->
                     <td class="px-4 py-3">
                       <span
@@ -629,6 +645,10 @@ function linkStatePill(linkState: number): StatusPill {
                         />
                         {{ linkStatePill(item.summary.linkState).label }}
                       </span>
+                    </td>
+                    <!-- Tools -->
+                    <td class="px-4 py-3 tabular-nums text-on-surface-variant">
+                      {{ item.upstream.tools.length }}
                     </td>
                     <!-- Action -->
                     <td class="px-4 py-3 text-right">

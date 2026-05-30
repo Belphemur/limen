@@ -36,6 +36,10 @@ export interface UpstreamSummaryLike {
   strategySubMode: string
   linkState: LinkStateValue
   hasUserOverride: boolean
+  /** True when the admin has configured tenant-level credentials for this upstream. */
+  hasTenantLink: boolean
+  /** Health state of tenant-level credentials (reuses LinkState enum). */
+  tenantLinkState: LinkStateValue
 }
 
 // CTAKind enumerates the actions the Upstreams page can offer per row.
@@ -64,20 +68,20 @@ const STATIC_HEADER = 'static_header'
 //
 // Decision table (Phase 9g, see docs/phases/phase-09g-static-header-rework.md):
 //
-//   strategy       sub_mode   override?  link_state      CTAs
-//   none            -          -          -              []
-//   static_header   shared     -          NONE           [Disable]
-//   static_header   shared     -          CONNECTED      [Disable, Disconnect]
-//   static_header   shared     -          DISABLED       [Enable, Disconnect]
-//   static_header   shared     -          AUTO_DISABLED  [Re-enable, Disconnect]
-//   static_header   override   no         NONE           [Submit key]
-//   static_header   override   no         CONNECTED      [Submit key, Disable, Disconnect]
-//   static_header   override   no         DISABLED       [Enable, Submit key]
-//   static_header   override   no         AUTO_DISABLED  [Re-enable, Submit key]
-//   static_header   override   yes        CONNECTED      [Rotate key, Disable, Disconnect]
-//   static_header   override   yes        NEEDS_RELINK   [Re-enter key, Disable, Disconnect]
-//   static_header   override   yes        DISABLED       [Enable, Disconnect]
-//   static_header   override   yes        AUTO_DISABLED  [Re-enable, Disconnect]
+//   strategy       sub_mode       byok?  link_state      CTAs
+//   none            -              -      -              []
+//   static_header   tenant_owner   -      NONE           [Disable]
+//   static_header   tenant_owner   -      CONNECTED      [Disable, Disconnect]
+//   static_header   tenant_owner   -      DISABLED       [Enable, Disconnect]
+//   static_header   tenant_owner   -      AUTO_DISABLED  [Re-enable, Disconnect]
+//   static_header   byok           no     NONE           [Submit key]
+//   static_header   byok           no     CONNECTED      [Submit key, Disable, Disconnect]
+//   static_header   byok           no     DISABLED       [Enable, Submit key]
+//   static_header   byok           no     AUTO_DISABLED  [Re-enable, Submit key]
+//   static_header   byok           yes    CONNECTED      [Rotate key, Disable, Disconnect]
+//   static_header   byok           yes    NEEDS_RELINK   [Re-enter key, Disable, Disconnect]
+//   static_header   byok           yes    DISABLED       [Enable, Disconnect]
+//   static_header   byok           yes    AUTO_DISABLED  [Re-enable, Disconnect]
 //   mcp_spec        -          -          NONE           [Connect]
 //   mcp_spec        -          -          CONNECTED      [Disable, Disconnect]
 //   mcp_spec        -          -          DISABLED       [Enable, Disconnect]
@@ -86,14 +90,14 @@ const STATIC_HEADER = 'static_header'
 export function upstreamCTAs(up: UpstreamSummaryLike): CTA[] {
   if (!up.requiresLink) return []
   if (up.strategyType === STATIC_HEADER) {
-    return up.strategySubMode === 'override'
-      ? staticHeaderOverrideCTAs(up)
-      : staticHeaderSharedCTAs(up.linkState)
+    return up.strategySubMode === 'byok'
+      ? staticHeaderBYOKCTAs(up)
+      : staticHeaderTenantOwnerCTAs(up.linkState)
   }
   return defaultCTAs(up.linkState)
 }
 
-function staticHeaderSharedCTAs(state: LinkStateValue): CTA[] {
+function staticHeaderTenantOwnerCTAs(state: LinkStateValue): CTA[] {
   switch (state) {
     case LinkState.NONE:
       return [disable]
@@ -104,7 +108,7 @@ function staticHeaderSharedCTAs(state: LinkStateValue): CTA[] {
     case LinkState.AUTO_DISABLED:
       return [reEnable, disconnect]
     case LinkState.NEEDS_RELINK:
-      // Shouldn't happen for shared-only (Headers never reports relink),
+      // Shouldn't happen for tenant-owner (Headers never reports relink),
       // but if it leaked through let the user clear the row.
       return [disconnect]
     default:
@@ -112,7 +116,7 @@ function staticHeaderSharedCTAs(state: LinkStateValue): CTA[] {
   }
 }
 
-function staticHeaderOverrideCTAs(up: UpstreamSummaryLike): CTA[] {
+function staticHeaderBYOKCTAs(up: UpstreamSummaryLike): CTA[] {
   if (!up.hasUserOverride) {
     switch (up.linkState) {
       case LinkState.NONE:
@@ -209,9 +213,9 @@ export function linkStateTone(state: LinkStateValue): string {
 /** Map internal static_header sub-mode strings to human-readable labels. */
 export function staticHeaderModeLabel(subMode: string): string {
   switch (subMode) {
-    case 'override':
+    case 'byok':
       return 'BYOK'
-    case 'shared':
+    case 'tenant_owner':
       return 'Tenant provided'
     default:
       return subMode

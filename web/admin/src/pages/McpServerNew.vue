@@ -31,7 +31,7 @@ interface Form {
   identifierAutoDerived: boolean
   mcpUrl: string
   strategyType: StrategyType
-  strategySubMode: 'tenant' | 'user' | ''
+  strategySubMode: 'tenant_owner' | 'byok' | ''
   apiKey: string
   headerName: string
   headerTemplate: string
@@ -120,7 +120,7 @@ watch(
   () => form.strategyType,
   (s) => {
     if (s === 'static_header') {
-      if (!form.strategySubMode) form.strategySubMode = 'tenant'
+      if (!form.strategySubMode) form.strategySubMode = 'tenant_owner'
     } else {
       form.strategySubMode = ''
     }
@@ -278,7 +278,7 @@ async function rollbackUpstream(publicId: string) {
   }
 }
 
-async function runOAuthPopup(upstreamIdentifier: string, publicId: string) {
+async function runOAuthPopup(publicId: string) {
   // Anchor returnTo on the SPA's own origin so the upstream callback
   // (which may live on a different host if base_url is misconfigured
   // or sits behind a separate reverse-proxy) bounces the popup back
@@ -289,7 +289,7 @@ async function runOAuthPopup(upstreamIdentifier: string, publicId: string) {
     ? `${prefix}/admin`
     : prefix
   const sc = await portalClient().startConnect({
-    upstreamIdentifier,
+    upstreamPublicId: publicId,
     returnTo: `${window.location.origin}${adminBase}${ROUTES.oauthPopupClose}`,
   })
   if (!sc.redirectUrl) {
@@ -337,7 +337,7 @@ async function submit() {
         strategyConfig: buildStrategyConfig(),
         staticHeaderMode:
           form.strategyType === 'static_header'
-            ? form.strategySubMode === 'user'
+            ? form.strategySubMode === 'byok'
               ? StaticHeaderMode.OVERRIDE
               : StaticHeaderMode.SHARED
             : StaticHeaderMode.UNSPECIFIED,
@@ -355,7 +355,7 @@ async function submit() {
     createdPublicId = resp.upstream?.publicId ?? ''
 
     if (resp.requiresAdminLink) {
-      const ok = await runOAuthPopup(form.identifier.trim(), createdPublicId)
+      const ok = await runOAuthPopup(createdPublicId)
       if (!ok) return
     }
     successUpstream.value = {
@@ -540,11 +540,11 @@ function goToDetail() {
                 type="button"
                 class="rounded px-3 py-1 text-xs font-medium transition-colors"
                 :class="
-                  form.strategySubMode !== 'user'
+                  form.strategySubMode !== 'byok'
                     ? 'bg-surface-container-lowest text-primary shadow-sm'
                     : 'text-on-surface-variant'
                 "
-                @click="form.strategySubMode = 'tenant'"
+                @click="form.strategySubMode = 'tenant_owner'"
               >
                 Tenant provided
               </button>
@@ -552,11 +552,11 @@ function goToDetail() {
                 type="button"
                 class="rounded px-3 py-1 text-xs font-medium transition-colors"
                 :class="
-                  form.strategySubMode === 'user'
+                  form.strategySubMode === 'byok'
                     ? 'bg-surface-container-lowest text-primary shadow-sm'
                     : 'text-on-surface-variant'
                 "
-                @click="form.strategySubMode = 'user'"
+                @click="form.strategySubMode = 'byok'"
               >
                 BYOK
               </button>
@@ -592,7 +592,7 @@ function goToDetail() {
           </div>
           <label class="block border-t border-dashed border-outline-variant pt-stack-md">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
-              <template v-if="form.strategySubMode === 'tenant'"> Shared tenant secret </template>
+              <template v-if="form.strategySubMode === 'tenant_owner'"> Shared tenant secret </template>
               <template v-else> Your API key </template>
               <span class="text-xs font-normal text-on-surface-variant">Required</span>
             </span>
@@ -604,7 +604,7 @@ function goToDetail() {
               data-testid="field-api-key"
             />
             <span class="mt-1 block text-xs text-on-surface-variant">
-              <template v-if="form.strategySubMode === 'tenant'">
+              <template v-if="form.strategySubMode === 'tenant_owner'">
                 Used to authenticate all requests from Limen to this MCP server.
               </template>
               <template v-else>

@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, KeyRound, Code2, ArrowRight, Copy, Share2 } from '@lucide/vue'
+import { Server, Users, KeyRound, ArrowRight, Copy, Share2 } from '@lucide/vue'
 import { fetchDiscovery, useSessionStore } from '@limen/shared'
 import { tenantPrefix } from '@limen/shared/session'
 import { create } from '@bufbuild/protobuf'
 import { adminClient, portalClient } from '@/transport/adminClient'
-import {
-  MarkIDEChoiceSkippedRequestSchema,
-  UpdateTenantSettingsRequestSchema,
-} from '@/gen/limen/admin/v1/admin_pb.ts'
-import { LinkState, type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
+import { UpdateTenantSettingsRequestSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
+import { type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
 import SetupProgress from '@/components/SetupProgress.vue'
 import TaskBentoCard from '@/components/TaskBentoCard.vue'
@@ -26,11 +23,10 @@ const session = useSessionStore()
 interface DashboardSettings {
   invitedTeam: boolean
   configured: boolean
-  choseIde: boolean
 }
 
 const upstreams = ref<UpstreamSummary[]>([])
-const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false, choseIde: false })
+const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
 const zitadelOrgId = ref('')
 const issuer = ref('')
 
@@ -46,7 +42,6 @@ onMounted(async () => {
         settings.value = {
           invitedTeam: (r.settings?.invitedTeamAt ?? '') !== '',
           configured: (r.settings?.configuredAt ?? '') !== '',
-          choseIde: (r.settings?.choseIdeAt ?? '') !== '',
         }
         zitadelOrgId.value = r.zitadelOrgId
       }),
@@ -57,7 +52,7 @@ onMounted(async () => {
 })
 
 interface Step {
-  key: 'connect' | 'invite' | 'configure' | 'ide'
+  key: 'connect' | 'invite' | 'configure'
   done: boolean
 }
 
@@ -65,10 +60,9 @@ const steps = computed<Step[]>(() => [
   {
     key: 'connect',
     done: upstreams.value.some(
-      (u) => u.tools.length > 0 && (!u.requiresLink || u.linkState === LinkState.CONNECTED),
+      (u) => u.tools.length > 0 && u.hasTenantLink,
     ),
   },
-  { key: 'ide', done: settings.value.choseIde },
   { key: 'invite', done: settings.value.invitedTeam },
   { key: 'configure', done: settings.value.configured },
 ])
@@ -107,17 +101,6 @@ async function openMembers() {
   void router.push(ROUTES.members)
 }
 
-async function skipIDEChoice() {
-  try {
-    const resp = await adminClient().markIDEChoiceSkipped(
-      create(MarkIDEChoiceSkippedRequestSchema, {}),
-    )
-    settings.value.choseIde = (resp.settings?.choseIdeAt ?? '') !== ''
-  } catch {
-    settings.value.choseIde = true
-  }
-}
-
 async function openServiceAccounts() {
   try {
     const resp = await adminClient().updateTenantSettings(
@@ -149,7 +132,7 @@ async function openServiceAccounts() {
     <!-- Task bento -->
     <section
       v-if="!allDone"
-      class="grid gap-gutter md:grid-cols-2 xl:grid-cols-4"
+      class="grid gap-gutter md:grid-cols-2 xl:grid-cols-3"
       aria-label="Setup tasks"
     >
       <TaskBentoCard
@@ -163,27 +146,6 @@ async function openServiceAccounts() {
         data-step="connect"
         @activate="router.push(ROUTES.mcpServerNew)"
       />
-      <div class="flex flex-col gap-2">
-        <TaskBentoCard
-          variant="secondary"
-          :icon="Code2"
-          title="Choose Your IDE"
-          body="Pre-load the official redirect URIs for the AI IDE your users will connect from."
-          cta-label="Pick IDEs"
-          :done="isDone('ide')"
-          data-step="ide"
-          @activate="router.push(ROUTES.ideConfiguration)"
-        />
-        <button
-          v-if="!isDone('ide')"
-          type="button"
-          class="self-start text-xs text-on-surface-variant underline hover:text-on-surface"
-          data-testid="ide-skip"
-          @click="skipIDEChoice"
-        >
-          Skip for now
-        </button>
-      </div>
       <TaskBentoCard
         variant="secondary"
         :icon="Users"

@@ -7,8 +7,6 @@
  * the tenant-admin SPA.
  */
 
-@import 'tailwindcss';
-
 /* Tailwind v4 auto-content-scanning is rooted at the project base and does not
  * follow pnpm workspace symlinks into sibling packages. The shared component
  * library lives in web/shared and ships utility-class-bearing .vue files that
@@ -16,6 +14,8 @@
  * this, classes like z-50/inset-0 used only by shared components never appear
  * in the generated stylesheet. */
 @source "../../../shared/src/**/*.{vue,ts}";
+
+@import 'tailwindcss';
 
 /* Tailwind v4 dark variant — class-based, not media-based. The `.dark` class
  * is toggled on <html> by ./stores/theme.ts (or the no-flash boot script in

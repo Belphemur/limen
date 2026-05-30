@@ -45,7 +45,7 @@ function onBackdrop(ev: MouseEvent) {
             enter-to-class="opacity-100" leave-active-class="transition-opacity duration-100"
             leave-from-class="opacity-100" leave-to-class="opacity-0">
             <div v-if="open"
-                class="fixed inset-0 z-50 flex items-center justify-center bg-on-background/40 p-4 backdrop-blur-sm"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
                 role="dialog" aria-modal="true" :data-testid="testid" @click="onBackdrop">
                 <slot />
             </div>

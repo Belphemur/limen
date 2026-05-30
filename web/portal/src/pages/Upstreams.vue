@@ -24,7 +24,7 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
   try {
     switch (kind) {
       case 'connect': {
-        const url = await upstreams.startConnect(up.identifier, window.location.pathname)
+        const url = await upstreams.startConnect(up.publicId, window.location.pathname)
         window.location.assign(url)
         return
       }
@@ -33,10 +33,10 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
         modal.value = { open: true, upstream: up }
         return
       case 'enable':
-        await upstreams.setEnabled(up.identifier, true)
+        await upstreams.setEnabled(up.publicId, true)
         return
       case 'disable':
-        await upstreams.setEnabled(up.identifier, false)
+        await upstreams.setEnabled(up.publicId, false)
         return
       case 'disconnect':
         if (
@@ -46,7 +46,7 @@ async function handleAction(up: UpstreamSummary, kind: CTAKind) {
         ) {
           return
         }
-        await upstreams.disconnect(up.identifier)
+        await upstreams.disconnect(up.publicId)
         return
     }
   } finally {
@@ -59,7 +59,7 @@ async function submitApiKey(apiKey: string) {
   if (!up) return
   busyRow.value = up.publicId
   try {
-    await upstreams.submitApiKey(up.identifier, apiKey)
+    await upstreams.submitApiKey(up.publicId, apiKey)
     modal.value = { open: false, upstream: null }
   } finally {
     busyRow.value = null
