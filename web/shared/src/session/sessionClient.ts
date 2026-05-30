@@ -1,5 +1,5 @@
 import { createClient, type Client, type Transport } from '@connectrpc/connect'
-import { SessionService } from '@gen/limen/session/v1/session_pb.ts'
+import { SessionService } from '@shared-gen/limen/session/v1/session_pb.ts'
 
 // SessionClient is just the Connect-generated client typed against the
 // shared service. Each SPA hands in its own Transport (cookie-bearing

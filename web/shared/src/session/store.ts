@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { Code, ConnectError } from '@connectrpc/connect'
 
-import { Role } from '@gen/limen/session/v1/session_pb.ts'
+import { Role } from '@shared-gen/limen/session/v1/session_pb.ts'
 import { createSessionClient } from './sessionClient.ts'
 import {
   SessionAuthError,

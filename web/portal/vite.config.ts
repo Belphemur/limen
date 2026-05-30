@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -18,14 +17,9 @@ import tailwindcss from '@tailwindcss/vite'
 //     deploy/caddy/Caddyfile.dev.
 
 export default defineConfig(({ command }) => ({
+  resolve: { tsconfigPaths: true },
   base: command === 'build' ? './' : '/__vite/portal/',
   plugins: [vue(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@gen': fileURLToPath(new URL('./src/gen', import.meta.url)),
-    },
-  },
   server: {
     port: 5173,
     strictPort: true,

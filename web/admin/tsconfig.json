@@ -23,7 +23,9 @@
     "types": ["vite/client", "node", "vitest/globals"],
     "paths": {
       "@/*": ["./src/*"],
-      "@gen/*": ["./src/gen/*"]
+      "@gen/*": ["./src/gen/*"],
+      "@shared/*": ["../shared/src/*"],
+      "@shared-gen/*": ["../shared/src/gen/*"]
     }
   },
   "include": [
