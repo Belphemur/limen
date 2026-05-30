@@ -592,7 +592,9 @@ function goToDetail() {
           </div>
           <label class="block border-t border-dashed border-outline-variant pt-stack-md">
             <span class="flex items-center justify-between text-sm font-medium text-on-surface">
-              <template v-if="form.strategySubMode === 'tenant_owner'"> Shared tenant secret </template>
+              <template v-if="form.strategySubMode === 'tenant_owner'">
+                Shared tenant secret
+              </template>
               <template v-else> Your API key </template>
               <span class="text-xs font-normal text-on-surface-variant">Required</span>
             </span>

@@ -26,16 +26,18 @@ import Dashboard from '@/pages/Dashboard.vue'
 import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
 
 function stubDiscovery() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (url.includes('/auth/discovery')) {
-      return new Response(JSON.stringify({ zitadelIssuer: 'https://idp.example' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      return Promise.resolve(
+        new Response(JSON.stringify({ zitadelIssuer: 'https://idp.example' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     }
-    throw new Error(`unexpected fetch in test: ${url}`)
+    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
   })
 }
 

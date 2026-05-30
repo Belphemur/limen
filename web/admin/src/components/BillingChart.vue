@@ -13,13 +13,28 @@ import {
   type ChartData,
   type ChartOptions,
 } from 'chart.js'
-import { adminClient } from '@/transport/adminClient'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Filler)
 
+export interface ChartDayRecord {
+  date: string
+  activeUserCount?: number
+  peakConnections?: number
+}
+
 const props = defineProps<{
+  title: string
+  description: string
+  datasetLabel: string
+  lineColor: string
+  fillColor: string
   from?: Date
   to?: Date
+  fetchDataFn: (params: {
+    from?: Date
+    to?: Date
+  }) => Promise<{ hasData: boolean; days: ChartDayRecord[] }>
+  mapDataFn: (day: ChartDayRecord) => number
 }>()
 
 const loading = ref(true)
@@ -63,11 +78,9 @@ async function fetchData() {
   loading.value = true
   error.value = null
   try {
-    const resp = await adminClient().getActiveUserChart({
-      fromDate: props.from
-        ? { seconds: BigInt(Math.floor(props.from.getTime() / 1000)) }
-        : undefined,
-      toDate: props.to ? { seconds: BigInt(Math.floor(props.to.getTime() / 1000)) } : undefined,
+    const resp = await props.fetchDataFn({
+      from: props.from,
+      to: props.to,
     })
     hasData.value = resp.hasData
     if (resp.hasData && resp.days.length > 0) {
@@ -75,11 +88,10 @@ async function fetchData() {
         labels: resp.days.map((d) => d.date),
         datasets: [
           {
-            label: 'Active Users',
-            data: resp.days.map((d) => d.activeUserCount),
-            borderColor: 'var(--color-primary)',
-            // Canvas fill uses hard-coded rgba because CSS variables cannot carry alpha in Chart.js.
-            backgroundColor: 'rgba(38, 66, 230, 0.1)',
+            label: props.datasetLabel,
+            data: resp.days.map((d) => props.mapDataFn(d)),
+            borderColor: props.lineColor,
+            backgroundColor: props.fillColor,
             fill: true,
             tension: 0.3,
             pointRadius: 2,
@@ -104,9 +116,9 @@ watch(() => [props.from, props.to], fetchData)
 
 <template>
   <div class="rounded-xl border border-outline-variant bg-surface-container-lowest p-5">
-    <h3 class="text-sm font-semibold text-on-surface">Active Users</h3>
+    <h3 class="text-sm font-semibold text-on-surface">{{ title }}</h3>
     <p class="mt-0.5 text-xs text-on-surface-variant">
-      Distinct users who made tool calls each day
+      {{ description }}
     </p>
 
     <!-- Loading skeleton -->

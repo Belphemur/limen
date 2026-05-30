@@ -10,9 +10,7 @@ import type { PasswordComplexityRules } from '@/gen/limen/signup/v1/signup_pb'
 
 const route = useRoute()
 const router = useRouter()
-const status = ref<'verifying' | 'password' | 'completing' | 'redirecting' | 'error'>(
-  'verifying',
-)
+const status = ref<'verifying' | 'password' | 'completing' | 'redirecting' | 'error'>('verifying')
 const errorMsg = ref('')
 const completionToken = ref('')
 const password = ref('')
@@ -87,7 +85,7 @@ function explain(e: unknown, fallback: string): string {
 onMounted(verify)
 
 function backToStart(): void {
-  router.push('/signup')
+  void router.push('/signup')
 }
 </script>
 
@@ -128,9 +126,7 @@ function backToStart(): void {
 
       <template v-else-if="status === 'redirecting'">
         <h1 class="text-display-2 font-display text-text text-center">Almost there</h1>
-        <p class="mt-3 text-body-md text-text-muted text-center">
-          Signing you in…
-        </p>
+        <p class="mt-3 text-body-md text-text-muted text-center">Signing you in…</p>
       </template>
 
       <template v-else>

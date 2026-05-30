@@ -27,8 +27,10 @@
   /* ───── Type families ─────
    * Admin uses Outfit exclusively (see docs/admin-design.md §Typography). */
   --font-sans: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-display:
+    'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* ───── Spacing aliases ───── */
   --spacing-sidebar-width: 280px;

@@ -13,15 +13,22 @@ import (
 
 // GetActiveUserChart returns daily distinct active user counts for the chart.
 func (s *Service) GetActiveUserChart(ctx context.Context, req *connect.Request[adminv1.GetActiveUserChartRequest]) (*connect.Response[adminv1.GetActiveUserChartResponse], error) {
-	t := tenancy.MustTenant(ctx)
+	// Ensure tenant is present in context; RLS will enforce isolation.
+	_ = tenancy.MustTenant(ctx)
 
 	from := defaultFromDate(req.Msg.FromDate)
 	to := defaultToDate(req.Msg.ToDate)
 
-	// Fast existence check
+	db, commit, err := s.store.Session(ctx)
+	if err != nil {
+		return nil, s.internal("GetActiveUserChart session", err)
+	}
+	defer func() { _ = commit() }()
+
+	// Fast existence check — RLS filters to the current tenant automatically.
 	var hasData bool
-	if err := s.store.RawDB().Raw(
-		"SELECT EXISTS(SELECT 1 FROM active_user_months WHERE tenant_id = ? AND deleted_at IS NULL)", t.ID,
+	if err := db.Raw(
+		"SELECT EXISTS(SELECT 1 FROM active_user_months WHERE deleted_at IS NULL)",
 	).Scan(&hasData).Error; err != nil {
 		return nil, s.internal("GetActiveUserChart EXISTS", err)
 	}
@@ -29,23 +36,24 @@ func (s *Service) GetActiveUserChart(ctx context.Context, req *connect.Request[a
 		return connect.NewResponse(&adminv1.GetActiveUserChartResponse{HasData: false}), nil
 	}
 
-	// Query daily distinct counts with zero-fill via generate_series
+	// Query daily distinct counts with zero-fill via generate_series.
+	// tenant_id filter is omitted — RLS handles tenant isolation.
 	type row struct {
 		Date  string
 		Count int32
 	}
 	var rows []row
-	if err := s.store.RawDB().Raw(`
+	if err := db.Raw(`
 		SELECT d::date::text AS date, COALESCE(SUM(cnt), 0)::int AS count
 		FROM generate_series(?::date, ?::date - 1, '1 day'::interval) d
 		LEFT JOIN (
 			SELECT month_start::date AS date, COUNT(DISTINCT COALESCE(user_id, service_account_id)) AS cnt
 			FROM active_user_months
-			WHERE tenant_id = ? AND month_start >= ? AND month_start < ? AND deleted_at IS NULL
+			WHERE month_start >= ? AND month_start < ? AND deleted_at IS NULL
 			GROUP BY month_start::date
 		) t ON d::date = t.date
 		GROUP BY d::date ORDER BY d::date
-	`, from, to, t.ID, from, to).Scan(&rows).Error; err != nil {
+	`, from, to, from, to).Scan(&rows).Error; err != nil {
 		return nil, s.internal("GetActiveUserChart query", err)
 	}
 
@@ -61,14 +69,22 @@ func (s *Service) GetActiveUserChart(ctx context.Context, req *connect.Request[a
 
 // GetSAConnectionChart returns daily peak concurrent SA connections for the chart.
 func (s *Service) GetSAConnectionChart(ctx context.Context, req *connect.Request[adminv1.GetSAConnectionChartRequest]) (*connect.Response[adminv1.GetSAConnectionChartResponse], error) {
-	t := tenancy.MustTenant(ctx)
+	// Ensure tenant is present in context; RLS will enforce isolation.
+	_ = tenancy.MustTenant(ctx)
 
 	from := defaultFromDate(req.Msg.FromDate)
 	to := defaultToDate(req.Msg.ToDate)
 
+	db, commit, err := s.store.Session(ctx)
+	if err != nil {
+		return nil, s.internal("GetSAConnectionChart session", err)
+	}
+	defer func() { _ = commit() }()
+
+	// Fast existence check — RLS filters to the current tenant automatically.
 	var hasData bool
-	if err := s.store.RawDB().Raw(
-		"SELECT EXISTS(SELECT 1 FROM sa_connection_snapshots WHERE tenant_id = ? AND deleted_at IS NULL)", t.ID,
+	if err := db.Raw(
+		"SELECT EXISTS(SELECT 1 FROM sa_connection_snapshots WHERE deleted_at IS NULL)",
 	).Scan(&hasData).Error; err != nil {
 		return nil, s.internal("GetSAConnectionChart EXISTS", err)
 	}
@@ -76,22 +92,24 @@ func (s *Service) GetSAConnectionChart(ctx context.Context, req *connect.Request
 		return connect.NewResponse(&adminv1.GetSAConnectionChartResponse{HasData: false}), nil
 	}
 
+	// Query daily peak concurrent connections with zero-fill via generate_series.
+	// tenant_id filter is omitted — RLS handles tenant isolation.
 	type row struct {
 		Date string
 		Peak int32
 	}
 	var rows []row
-	if err := s.store.RawDB().Raw(`
+	if err := db.Raw(`
 		SELECT d::date::text AS date, COALESCE(MAX(peak), 0)::int AS peak
 		FROM generate_series(?::date, ?::date - 1, '1 day'::interval) d
 		LEFT JOIN (
 			SELECT connected_at::date AS date, MAX(concurrent_count) AS peak
 			FROM sa_connection_snapshots
-			WHERE tenant_id = ? AND connected_at >= ? AND connected_at < ? AND deleted_at IS NULL
+			WHERE connected_at >= ? AND connected_at < ? AND deleted_at IS NULL
 			GROUP BY connected_at::date
 		) t ON d::date = t.date
 		GROUP BY d::date ORDER BY d::date
-	`, from, to, t.ID, from, to).Scan(&rows).Error; err != nil {
+	`, from, to, from, to).Scan(&rows).Error; err != nil {
 		return nil, s.internal("GetSAConnectionChart query", err)
 	}
 

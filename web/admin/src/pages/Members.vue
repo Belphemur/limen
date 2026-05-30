@@ -70,9 +70,7 @@ const removingConfirm = ref<Member | null>(null)
 // Last-owner guard: the org must always have ≥1 owner. Backend enforces
 // the invariant; surfacing it client-side keeps the UI honest before
 // the round-trip.
-const ownerCount = computed(
-  () => members.value.filter((m) => m.role === MemberRole.OWNER).length,
-)
+const ownerCount = computed(() => members.value.filter((m) => m.role === MemberRole.OWNER).length)
 function isLastOwner(m: Member): boolean {
   return m.role === MemberRole.OWNER && ownerCount.value <= 1
 }
@@ -144,7 +142,7 @@ const directoryCards = computed<ZitadelDirectoryCard[]>(() => [
     view: 'idp',
     icon: KeyRound,
     title: 'Identity providers',
-    body: "Federate this organization to an external OIDC, SAML, or social IdP. Limen drives the OIDC flow; Zitadel renders the SSO buttons.",
+    body: 'Federate this organization to an external OIDC, SAML, or social IdP. Limen drives the OIDC flow; Zitadel renders the SSO buttons.',
   },
   {
     view: 'branding',
@@ -301,9 +299,7 @@ async function confirmRemove() {
   mutationError.value = null
   const target = removingConfirm.value
   try {
-    await adminClient().removeMember(
-      create(RemoveMemberRequestSchema, { userId: target.userId }),
-    )
+    await adminClient().removeMember(create(RemoveMemberRequestSchema, { userId: target.userId }))
     members.value = members.value.filter((m) => m.userId !== target.userId)
     removingConfirm.value = null
   } catch (e) {
@@ -326,9 +322,12 @@ async function confirmRemove() {
           organization's Zitadel directory — nothing is stored on Limen.
         </p>
       </div>
-      <button type="button"
+      <button
+        type="button"
         class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90"
-        data-testid="members-invite-button" @click="openInvite">
+        data-testid="members-invite-button"
+        @click="openInvite"
+      >
         <UserPlus class="size-4" />
         Invite User
       </button>
@@ -337,13 +336,23 @@ async function confirmRemove() {
     <!-- Filters -->
     <div class="flex flex-wrap items-center gap-3">
       <label class="relative min-w-[16rem] flex-1">
-        <Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-on-surface-variant" />
-        <input v-model="searchQuery" type="search" placeholder="Search by name or email…" data-testid="members-search"
+        <Search
+          class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-on-surface-variant"
+        />
+        <input
+          v-model="searchQuery"
+          type="search"
+          placeholder="Search by name or email…"
+          data-testid="members-search"
           class="w-full rounded-md border border-outline bg-surface py-2 pl-9 pr-3 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
-          @input="onSearchInput" />
+          @input="onSearchInput"
+        />
       </label>
-      <select v-model="roleFilter" data-testid="members-role-filter"
-        class="rounded-md border border-outline bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none">
+      <select
+        v-model="roleFilter"
+        data-testid="members-role-filter"
+        class="rounded-md border border-outline bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
+      >
         <option :value="MemberRole.UNSPECIFIED">All roles</option>
         <option :value="MemberRole.MEMBER">Member</option>
         <option :value="MemberRole.ADMIN">Admin</option>
@@ -352,15 +361,21 @@ async function confirmRemove() {
     </div>
 
     <!-- Table -->
-    <section class="overflow-hidden rounded-lg border border-outline-variant bg-surface" data-testid="members-table">
+    <section
+      class="overflow-hidden rounded-lg border border-outline-variant bg-surface"
+      data-testid="members-table"
+    >
       <div v-if="loading" class="flex items-center gap-2 p-6 text-sm text-on-surface-variant">
         <Loader2 class="size-4 animate-spin" /> Loading members…
       </div>
       <div v-else-if="error" class="p-4 text-sm text-error" data-testid="members-error">
         Failed to load members: {{ error }}
       </div>
-      <div v-else-if="members.length === 0" class="p-6 text-center text-sm text-on-surface-variant"
-        data-testid="members-empty">
+      <div
+        v-else-if="members.length === 0"
+        class="p-6 text-center text-sm text-on-surface-variant"
+        data-testid="members-empty"
+      >
         No members match your filters.
       </div>
       <table v-else class="w-full text-left text-sm">
@@ -374,13 +389,18 @@ async function confirmRemove() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="m in members" :key="m.userId" class="border-t border-outline-variant"
-            :data-testid="`members-row-${m.userId}`">
+          <tr
+            v-for="m in members"
+            :key="m.userId"
+            class="border-t border-outline-variant"
+            :data-testid="`members-row-${m.userId}`"
+          >
             <td class="px-4 py-3">
               <div class="flex items-center gap-3">
                 <div
                   class="flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
-                  aria-hidden="true">
+                  aria-hidden="true"
+                >
                   {{ initials(m) }}
                 </div>
                 <div class="min-w-0">
@@ -398,22 +418,37 @@ async function confirmRemove() {
               </span>
             </td>
             <td class="px-4 py-3">
-              <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium" :class="STATE_CLASS[m.state]">
+              <span
+                class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                :class="STATE_CLASS[m.state]"
+              >
                 {{ STATE_LABELS[m.state] }}
               </span>
             </td>
             <td class="px-4 py-3 text-on-surface-variant">{{ formatRelative(m.lastLogin) }}</td>
             <td class="px-4 py-3">
               <div class="flex justify-end gap-1">
-                <button type="button"
+                <button
+                  type="button"
                   class="rounded p-1.5 text-on-surface-variant hover:bg-surface-variant hover:text-on-surface"
-                  :title="`Change role for ${m.email}`" :data-testid="`members-edit-${m.userId}`" @click="openEdit(m)">
+                  :title="`Change role for ${m.email}`"
+                  :data-testid="`members-edit-${m.userId}`"
+                  @click="openEdit(m)"
+                >
                   <Pencil class="size-4" />
                 </button>
-                <button type="button"
+                <button
+                  type="button"
                   class="rounded p-1.5 text-on-surface-variant hover:bg-error/10 hover:text-error disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-                  :title="isLastOwner(m) ? 'Cannot remove the last owner. Promote another member to owner first.' : `Remove ${m.email}`"
-                  :disabled="isLastOwner(m)" :data-testid="`members-remove-${m.userId}`" @click="askRemove(m)">
+                  :title="
+                    isLastOwner(m)
+                      ? 'Cannot remove the last owner. Promote another member to owner first.'
+                      : `Remove ${m.email}`
+                  "
+                  :disabled="isLastOwner(m)"
+                  :data-testid="`members-remove-${m.userId}`"
+                  @click="askRemove(m)"
+                >
                   <Trash2 class="size-4" />
                 </button>
               </div>
@@ -426,7 +461,8 @@ async function confirmRemove() {
     <!-- Identity & policies disclosure -->
     <details class="rounded-lg border border-outline-variant bg-surface">
       <summary
-        class="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-on-surface">
+        class="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-on-surface"
+      >
         <span>Identity &amp; policies</span>
         <ChevronDown class="size-4" />
       </summary>
@@ -440,14 +476,24 @@ async function confirmRemove() {
 
     <!-- Invite modal -->
     <Teleport to="body">
-      <div v-if="inviteOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        @click.self="closeInvite">
-        <div class="w-full max-w-md rounded-lg bg-surface p-5 shadow-xl" role="dialog" aria-modal="true"
-          data-testid="members-invite-modal">
+      <div
+        v-if="inviteOpen"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        @click.self="closeInvite"
+      >
+        <div
+          class="w-full max-w-md rounded-lg bg-surface p-5 shadow-xl"
+          role="dialog"
+          aria-modal="true"
+          data-testid="members-invite-modal"
+        >
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-display text-lg font-semibold text-on-surface">Invite a user</h2>
-            <button type="button" class="rounded p-1 text-on-surface-variant hover:bg-surface-variant"
-              @click="closeInvite">
+            <button
+              type="button"
+              class="rounded p-1 text-on-surface-variant hover:bg-surface-variant"
+              @click="closeInvite"
+            >
               <X class="size-4" />
             </button>
           </div>
@@ -456,45 +502,71 @@ async function confirmRemove() {
               <span class="mb-1 block font-medium text-on-surface">Email</span>
               <div class="relative">
                 <Mail
-                  class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-on-surface-variant" />
-                <input v-model="inviteForm.email" type="email" required data-testid="members-invite-email"
+                  class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-on-surface-variant"
+                />
+                <input
+                  v-model="inviteForm.email"
+                  type="email"
+                  required
+                  data-testid="members-invite-email"
                   class="w-full rounded-md border border-outline bg-surface py-2 pl-9 pr-3 text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
-                  placeholder="alice@example.com" />
+                  placeholder="alice@example.com"
+                />
               </div>
             </label>
             <div class="grid grid-cols-2 gap-3">
               <label class="block text-sm">
                 <span class="mb-1 block font-medium text-on-surface">First name</span>
-                <input v-model="inviteForm.givenName" type="text" data-testid="members-invite-given-name"
-                  class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none" />
+                <input
+                  v-model="inviteForm.givenName"
+                  type="text"
+                  data-testid="members-invite-given-name"
+                  class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none"
+                />
               </label>
               <label class="block text-sm">
                 <span class="mb-1 block font-medium text-on-surface">Last name</span>
-                <input v-model="inviteForm.familyName" type="text" data-testid="members-invite-family-name"
-                  class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none" />
+                <input
+                  v-model="inviteForm.familyName"
+                  type="text"
+                  data-testid="members-invite-family-name"
+                  class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none"
+                />
               </label>
             </div>
             <label class="block text-sm">
               <span class="mb-1 block font-medium text-on-surface">Role</span>
-              <select v-model="inviteForm.role" data-testid="members-invite-role"
-                class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none">
+              <select
+                v-model="inviteForm.role"
+                data-testid="members-invite-role"
+                class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-on-surface focus:border-primary focus:outline-none"
+              >
                 <option :value="MemberRole.MEMBER">Member</option>
                 <option :value="MemberRole.ADMIN">Admin</option>
                 <option :value="MemberRole.OWNER">Owner</option>
               </select>
             </label>
-            <p v-if="inviteError" class="rounded border border-error/40 bg-error/10 p-2 text-xs text-error"
-              data-testid="members-invite-error">
+            <p
+              v-if="inviteError"
+              class="rounded border border-error/40 bg-error/10 p-2 text-xs text-error"
+              data-testid="members-invite-error"
+            >
               {{ inviteError }}
             </p>
             <div class="mt-4 flex justify-end gap-2">
-              <button type="button"
+              <button
+                type="button"
                 class="rounded-md px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-variant"
-                @click="closeInvite">
+                @click="closeInvite"
+              >
                 Cancel
               </button>
-              <button type="submit" :disabled="mutating" data-testid="members-invite-submit"
-                class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90 disabled:opacity-50">
+              <button
+                type="submit"
+                :disabled="mutating"
+                data-testid="members-invite-submit"
+                class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90 disabled:opacity-50"
+              >
                 <Loader2 v-if="mutating" class="size-4 animate-spin" />
                 Send invite
               </button>
@@ -506,37 +578,59 @@ async function confirmRemove() {
 
     <!-- Edit role modal -->
     <Teleport to="body">
-      <div v-if="editing" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        @click.self="closeEdit">
-        <div class="w-full max-w-sm rounded-lg bg-surface p-5 shadow-xl" role="dialog" aria-modal="true"
-          data-testid="members-edit-modal">
+      <div
+        v-if="editing"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        @click.self="closeEdit"
+      >
+        <div
+          class="w-full max-w-sm rounded-lg bg-surface p-5 shadow-xl"
+          role="dialog"
+          aria-modal="true"
+          data-testid="members-edit-modal"
+        >
           <h2 class="mb-3 font-display text-lg font-semibold text-on-surface">Change role</h2>
           <p class="mb-3 text-sm text-on-surface-variant">
             {{ editing.displayName || editing.email }}
           </p>
-          <select v-model="editingRole" data-testid="members-edit-role"
-            class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none">
+          <select
+            v-model="editingRole"
+            data-testid="members-edit-role"
+            class="w-full rounded-md border border-outline bg-surface px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
+          >
             <option :value="MemberRole.MEMBER">Member</option>
             <option :value="MemberRole.ADMIN">Admin</option>
             <option :value="MemberRole.OWNER">Owner</option>
           </select>
-          <p v-if="editingDemotesLastOwner"
+          <p
+            v-if="editingDemotesLastOwner"
             class="mt-3 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300"
-            data-testid="members-edit-last-owner-warning">
-            This is the last owner of the organization. Promote another member to owner before changing this user's
-            role.
+            data-testid="members-edit-last-owner-warning"
+          >
+            This is the last owner of the organization. Promote another member to owner before
+            changing this user's role.
           </p>
-          <p v-if="mutationError" class="mt-3 rounded border border-error/40 bg-error/10 p-2 text-xs text-error">
+          <p
+            v-if="mutationError"
+            class="mt-3 rounded border border-error/40 bg-error/10 p-2 text-xs text-error"
+          >
             {{ mutationError }}
           </p>
           <div class="mt-4 flex justify-end gap-2">
-            <button type="button" class="rounded-md px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-variant"
-              @click="closeEdit">
+            <button
+              type="button"
+              class="rounded-md px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-variant"
+              @click="closeEdit"
+            >
               Cancel
             </button>
-            <button type="button" :disabled="mutating || editingDemotesLastOwner" data-testid="members-edit-submit"
+            <button
+              type="button"
+              :disabled="mutating || editingDemotesLastOwner"
+              data-testid="members-edit-submit"
               class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-on-primary shadow hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              @click="submitEdit">
+              @click="submitEdit"
+            >
               <Loader2 v-if="mutating" class="size-4 animate-spin" />
               Save
             </button>
@@ -546,10 +640,19 @@ async function confirmRemove() {
     </Teleport>
 
     <!-- Remove confirm modal -->
-    <ErrorModal :open="!!removingConfirm" title="Remove member" :message="removingConfirm
-      ? `Remove ${removingConfirm.displayName || removingConfirm.email} from this organization? This deletes the user in Zitadel and cannot be undone.`
-      : ''
-      " primary-label="Remove" secondary-label="Cancel" @primary="confirmRemove" @secondary="closeRemove"
-      @close="closeRemove" />
+    <ErrorModal
+      :open="!!removingConfirm"
+      title="Remove member"
+      :message="
+        removingConfirm
+          ? `Remove ${removingConfirm.displayName || removingConfirm.email} from this organization? This deletes the user in Zitadel and cannot be undone.`
+          : ''
+      "
+      primary-label="Remove"
+      secondary-label="Cancel"
+      @primary="confirmRemove"
+      @secondary="closeRemove"
+      @close="closeRemove"
+    />
   </div>
 </template>

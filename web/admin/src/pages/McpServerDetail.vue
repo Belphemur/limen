@@ -161,7 +161,8 @@ async function remove() {
 // Save/rotate the shared secret (shared mode).
 async function saveSecret() {
   if (!summary.value) return
-  if (currentMode.value !== StaticHeaderMode.SHARED && newMode.value !== StaticHeaderMode.SHARED) return
+  if (currentMode.value !== StaticHeaderMode.SHARED && newMode.value !== StaticHeaderMode.SHARED)
+    return
   savingSecret.value = true
   error.value = null
   try {
@@ -188,7 +189,11 @@ async function saveSecret() {
 // Submit/rotate admin's own API key (override mode).
 async function saveAdminKey() {
   if (!summary.value) return
-  if (currentMode.value !== StaticHeaderMode.OVERRIDE && newMode.value !== StaticHeaderMode.OVERRIDE) return
+  if (
+    currentMode.value !== StaticHeaderMode.OVERRIDE &&
+    newMode.value !== StaticHeaderMode.OVERRIDE
+  )
+    return
   if (!secretValue.value.trim()) {
     error.value = 'API key is required.'
     return
@@ -236,7 +241,7 @@ function confirmModeChange() {
   modeWarningOpen.value = false
   newMode.value = StaticHeaderMode.OVERRIDE
   // Auto-save the mode change immediately
-  saveSecret()
+  void saveSecret()
 }
 </script>
 

@@ -10,15 +10,9 @@ import {
   LinkState,
   UpstreamSummarySchema,
 } from '@/gen/limen/portal/v1/portal_pb.ts'
-import {
-  AdminService,
-  DeleteUpstreamResponseSchema,
-} from '@/gen/limen/admin/v1/admin_pb.ts'
+import { AdminService, DeleteUpstreamResponseSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
 import McpServers from '@/pages/McpServers.vue'
-import {
-  setAdminTransport,
-  resetAdminTransport,
-} from '@/transport/adminClient'
+import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
 
 function buildRouter(): Router {
   return createRouter({
@@ -92,7 +86,12 @@ describe('McpServers', () => {
   it('renders one row per upstream', async () => {
     const { wrapper } = await mountPage(
       withUpstreams([
-        { publicId: 'up_a', identifier: 'github', displayName: 'GitHub', mcpUrl: 'https://github.com/mcp' },
+        {
+          publicId: 'up_a',
+          identifier: 'github',
+          displayName: 'GitHub',
+          mcpUrl: 'https://github.com/mcp',
+        },
         { publicId: 'up_b', identifier: 'jira', mcpUrl: 'https://acme.atlassian.com/mcp' },
       ]),
     )
@@ -104,16 +103,13 @@ describe('McpServers', () => {
   it('calls deleteUpstream after confirmation and drops the row', async () => {
     let called = false
     const { wrapper } = await mountPage(
-      withUpstreams(
-        [{ publicId: 'up_a', identifier: 'github', displayName: 'GitHub' }],
-        { onDelete: () => (called = true) },
-      ),
+      withUpstreams([{ publicId: 'up_a', identifier: 'github', displayName: 'GitHub' }], {
+        onDelete: () => (called = true),
+      }),
     )
     await wrapper.get('[data-testid="upstream-delete-github"]').trigger('click')
     await flushPromises()
-    const input = document.querySelector(
-      '[data-testid="confirm-delete-input"]',
-    ) as HTMLInputElement
+    const input = document.querySelector('[data-testid="confirm-delete-input"]') as HTMLInputElement
     input.value = 'github'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await flushPromises()

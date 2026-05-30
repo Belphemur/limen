@@ -241,11 +241,11 @@ describe('Members', () => {
     await w.find('[data-testid="members-remove-u-2"]').trigger('click')
     await flushPromises()
 
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
+    const dialog = document.querySelector('[role="dialog"]')
     expect(dialog).not.toBeNull()
     const primary = dialog!.querySelector('button') as HTMLButtonElement
     // ErrorModal renders primary button first; click it.
-    const buttons = Array.from(dialog!.querySelectorAll('button')) as HTMLButtonElement[]
+    const buttons = Array.from(dialog!.querySelectorAll('button'))
     const removeBtn = buttons.find((b) => b.textContent?.includes('Remove'))!
     removeBtn.click()
     await flushPromises()

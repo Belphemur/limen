@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ConnectError, Code } from '@connectrpc/connect'
-import { UserPlus, ShieldCheck, Network, Code as CodeIcon, MailCheck, Lock, KeyRound, Server } from '@lucide/vue'
+import {
+  UserPlus,
+  ShieldCheck,
+  Network,
+  Code as CodeIcon,
+  MailCheck,
+  Lock,
+  KeyRound,
+  Server,
+} from '@lucide/vue'
 
 import logoUrl from '@/assets/limen-logo.svg'
 import { signupClient } from '@/transport/adminClient'
@@ -48,8 +57,7 @@ async function onSubmit(): Promise<void> {
     errorMsg.value = 'Please fill in every field.'
     return
   }
-  const token =
-    captchaProvider.value === 'none' ? 'dev-captcha-bypass' : captchaToken.value.trim()
+  const token = captchaProvider.value === 'none' ? 'dev-captcha-bypass' : captchaToken.value.trim()
   if (!token) {
     errorMsg.value = 'Please complete the captcha challenge.'
     return
@@ -184,8 +192,7 @@ async function onSubmit(): Promise<void> {
               <h2 class="text-display-2 font-display text-text">Create your tenant</h2>
             </div>
             <p class="mb-6 text-body-sm text-text-muted">
-              You'll be the owner. We'll email a verification link to finish — takes about a
-              minute.
+              You'll be the owner. We'll email a verification link to finish — takes about a minute.
             </p>
             <form class="space-y-4" @submit.prevent="onSubmit">
               <div>

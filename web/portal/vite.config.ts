@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
+import tsconfigPaths from 'vite-tsconfig-paths'
 
 // Vite config for the Limen portal SPA.
 //
@@ -17,9 +18,8 @@ import tailwindcss from '@tailwindcss/vite'
 //     deploy/caddy/Caddyfile.dev.
 
 export default defineConfig(({ command }) => ({
-  resolve: { tsconfigPaths: true },
   base: command === 'build' ? './' : '/__vite/portal/',
-  plugins: [vue(), tailwindcss()],
+  plugins: [tsconfigPaths(), vue(), tailwindcss()],
   server: {
     port: 5173,
     strictPort: true,

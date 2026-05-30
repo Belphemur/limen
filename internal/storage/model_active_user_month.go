@@ -1,6 +1,11 @@
 package storage
 
-import "time"
+import (
+	"time"
+
+	"github.com/belphemur/limen/internal/ids"
+	"gorm.io/gorm"
+)
 
 // ActiveUserMonth tracks per-tenant, per-month active users for billing.
 type ActiveUserMonth struct {
@@ -13,4 +18,11 @@ type ActiveUserMonth struct {
 	LastSeenAt       time.Time `gorm:"type:timestamptz;not null"`
 	CallCount        int32     `gorm:"not null;default:0"`
 	Tenant           *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
+}
+
+func (m *ActiveUserMonth) BeforeCreate(_ *gorm.DB) error {
+	if m.PublicID == "" {
+		m.PublicID = ids.New(ids.PrefixActiveUserMonth)
+	}
+	return nil
 }

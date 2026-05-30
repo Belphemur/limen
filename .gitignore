@@ -1,5 +1,12 @@
 # Binary
+/gateway
 /limen
+/limenctl
+/limen-gateway
+/limen-portal
+/limen-staff
+/portal
+/staff
 
 # IDE
 .idea/

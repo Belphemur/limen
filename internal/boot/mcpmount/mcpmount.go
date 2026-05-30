@@ -21,9 +21,10 @@ import (
 // Build returns the assembled gateway Manager + MCP transport.
 // Requires boot.NeedStore + NeedUpstream in the profile.
 func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
-	var billingRecorder *metrics.BillingRecorder
-	if rt.Valkey != nil {
-		billingRecorder = metrics.NewBillingRecorder(rt.Valkey)
+	billingRecorder := metrics.NewBillingRecorder(rt.Valkey, rt.Store, rt.Logger.Named("billing-recorder"))
+	if !billingRecorder.Enabled() {
+		billingRecorder.StartFallbackDrain(rt.Ctx)
+		rt.AddCleanup(billingRecorder.Close)
 	}
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
 		Store:    rt.Store,

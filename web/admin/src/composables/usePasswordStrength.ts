@@ -62,14 +62,12 @@ export function usePasswordStrength(
   watch([password, userInputs], recompute, { immediate: true })
 
   return {
-    score: computed(() => (result.value?.score ?? 0) as 0 | 1 | 2 | 3 | 4),
+    score: computed(() => result.value?.score ?? 0),
     warning: computed(() => result.value?.feedback.warning ?? ''),
     suggestions: computed(() => result.value?.feedback.suggestions ?? []),
     crackTime: computed(
       () => (result.value?.crackTimesDisplay.onlineThrottling100PerHour as string) ?? '',
     ),
-    acceptable: computed(
-      () => result.value !== null && result.value.score >= PASSWORD_MIN_SCORE,
-    ),
+    acceptable: computed(() => result.value !== null && result.value.score >= PASSWORD_MIN_SCORE),
   }
 }

@@ -4,14 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createRouterTransport, type Transport } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import {
-  AdminService,
-  CreateUpstreamResponseSchema,
-} from '@/gen/limen/admin/v1/admin_pb.ts'
-import {
-  PortalService,
-  UpstreamSummarySchema,
-} from '@/gen/limen/portal/v1/portal_pb.ts'
+import { AdminService, CreateUpstreamResponseSchema } from '@/gen/limen/admin/v1/admin_pb.ts'
+import { PortalService, UpstreamSummarySchema } from '@/gen/limen/portal/v1/portal_pb.ts'
 import McpServerNew from '@/pages/McpServerNew.vue'
 import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
 
@@ -66,7 +60,7 @@ describe('McpServerNew', () => {
 
   it('submits a none-strategy upstream and navigates back to the list', async () => {
     const captured: { req?: { identifier: string; strategyType: string; mcpUrl: string } } = {}
-    const { wrapper, router } = await mountPage(transport(captured as { req?: unknown }))
+    const { wrapper, router } = await mountPage(transport(captured))
 
     await wrapper.get('[data-testid="field-display-name"]').setValue('Demo')
     await wrapper.get('[data-testid="field-mcp-url"]').setValue('https://example.com/mcp')

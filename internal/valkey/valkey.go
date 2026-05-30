@@ -34,6 +34,14 @@ type StreamMessage struct {
 	Fields map[string]string
 }
 
+// PendingMessage represents a single pending entry returned by XPending.
+type PendingMessage struct {
+	ID            string
+	Consumer      string
+	IdleTimeMs    int64
+	DeliveryCount int64
+}
+
 // Client is the narrow surface Limen consumes.
 type Client interface {
 	// SetEX writes value with a hard server-side TTL. Overwrites are
@@ -74,6 +82,12 @@ type Client interface {
 	// XAutoClaim transfers pending entries from another consumer to this consumer.
 	// Returns claimed message IDs.
 	XAutoClaim(ctx context.Context, stream, group, consumer string, minIdleMs int64, count int64) ([]string, error)
+
+	// XPending returns pending messages in a consumer group within a range.
+	XPending(ctx context.Context, stream, group string, start, end string, count int64) ([]PendingMessage, error)
+
+	// XRange returns stream entries within an ID range.
+	XRange(ctx context.Context, stream, start, end string) ([]StreamMessage, error)
 
 	// XGroupCreate creates a consumer group. $ means start from now (only new messages).
 	XGroupCreate(ctx context.Context, stream, group, start string) error
@@ -337,6 +351,84 @@ func (r *realClient) XGroupCreate(ctx context.Context, stream, group, start stri
 	return nil
 }
 
+func (r *realClient) XPending(ctx context.Context, stream, group string, start, end string, count int64) ([]PendingMessage, error) {
+	if stream == "" || group == "" {
+		return nil, errors.New("valkey: stream and group must not be empty")
+	}
+	cmd := r.c.B().Xpending().Key(stream).Group(group).Start(start).End(end).Count(count).Build()
+	resp := r.c.Do(ctx, cmd)
+	arr, err := resp.ToArray()
+	if err != nil {
+		if vk.IsValkeyNil(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+	}
+
+	msgs := make([]PendingMessage, 0, len(arr))
+	for _, entry := range arr {
+		parts, err := entry.ToArray()
+		if err != nil {
+			return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+		}
+		if len(parts) < 4 {
+			return nil, fmt.Errorf("valkey: XPENDING %s: unexpected entry length %d", stream, len(parts))
+		}
+		id, err := parts[0].ToString()
+		if err != nil {
+			return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+		}
+		consumer, err := parts[1].ToString()
+		if err != nil {
+			return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+		}
+		idleMs, err := parts[2].AsInt64()
+		if err != nil {
+			return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+		}
+		deliveryCount, err := parts[3].AsInt64()
+		if err != nil {
+			return nil, fmt.Errorf("valkey: XPENDING %s: %w", stream, err)
+		}
+		msgs = append(msgs, PendingMessage{
+			ID:            id,
+			Consumer:      consumer,
+			IdleTimeMs:    idleMs,
+			DeliveryCount: deliveryCount,
+		})
+	}
+	return msgs, nil
+}
+
+func (r *realClient) XRange(ctx context.Context, stream, start, end string) ([]StreamMessage, error) {
+	if stream == "" {
+		return nil, errors.New("valkey: stream name is empty")
+	}
+	cmd := r.c.B().Xrange().Key(stream).Start(start).End(end).Build()
+	resp := r.c.Do(ctx, cmd)
+	slices, err := resp.AsXRangeSlices()
+	if err != nil {
+		if vk.IsValkeyNil(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("valkey: XRANGE %s: %w", stream, err)
+	}
+
+	msgs := make([]StreamMessage, 0, len(slices))
+	for _, slice := range slices {
+		fields := make(map[string]string, len(slice.FieldValues))
+		for _, fv := range slice.FieldValues {
+			fields[fv.Field] = fv.Value
+		}
+		msgs = append(msgs, StreamMessage{
+			ID:     slice.ID,
+			Stream: stream,
+			Fields: fields,
+		})
+	}
+	return msgs, nil
+}
+
 // InMemory is a test fake honoring TTLs via wall-clock comparisons. Safe
 // for concurrent use. Do not use in production.
 type InMemory struct {
@@ -362,6 +454,8 @@ type inMemoryStreamEntry struct {
 type consumerGroupState struct {
 	lastDeliveredID string
 	consumers       map[string][]string // consumer name -> pending message IDs
+	deliveryCounts  map[string]int64    // message ID -> delivery count
+	deliveryTimes   map[string]time.Time // message ID -> last delivery time
 }
 
 // NewInMemory returns an empty in-memory client.
@@ -519,6 +613,8 @@ func (m *InMemory) XReadGroup(_ context.Context, group, consumer string, blockMs
 
 			state.lastDeliveredID = entry.ID
 			state.consumers[consumer] = append(state.consumers[consumer], entry.ID)
+			state.deliveryCounts[entry.ID] = state.deliveryCounts[entry.ID] + 1
+			state.deliveryTimes[entry.ID] = m.now()
 			delivered++
 		}
 
@@ -626,9 +722,93 @@ func (m *InMemory) XAutoClaim(_ context.Context, stream, group, consumer string,
 
 	if len(claimed) > 0 {
 		state.consumers[consumer] = append(state.consumers[consumer], claimed...)
+		for _, id := range claimed {
+			state.deliveryCounts[id] = state.deliveryCounts[id] + 1
+			state.deliveryTimes[id] = m.now()
+		}
 	}
 	groups[group] = state
 	return claimed, nil
+}
+
+func (m *InMemory) XPending(_ context.Context, stream, group string, start, end string, count int64) ([]PendingMessage, error) {
+	if stream == "" || group == "" {
+		return nil, errors.New("valkey: stream and group must not be empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	groups, ok := m.consumerGroups[stream]
+	if !ok {
+		return nil, nil
+	}
+	state, ok := groups[group]
+	if !ok {
+		return nil, nil
+	}
+
+	var msgs []PendingMessage
+	for consumerName, pending := range state.consumers {
+		for _, id := range pending {
+			if !streamIDInRange(id, start, end) {
+				continue
+			}
+			if count > 0 && int64(len(msgs)) >= count {
+				break
+			}
+			idleMs := int64(0)
+			if t, ok := state.deliveryTimes[id]; ok {
+				idleMs = m.now().Sub(t).Milliseconds()
+			}
+			msgs = append(msgs, PendingMessage{
+				ID:            id,
+				Consumer:      consumerName,
+				IdleTimeMs:    idleMs,
+				DeliveryCount: state.deliveryCounts[id],
+			})
+		}
+	}
+	return msgs, nil
+}
+
+func (m *InMemory) XRange(_ context.Context, stream, start, end string) ([]StreamMessage, error) {
+	if stream == "" {
+		return nil, errors.New("valkey: stream name is empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entries, ok := m.streams[stream]
+	if !ok {
+		return nil, nil
+	}
+
+	var msgs []StreamMessage
+	for _, entry := range entries {
+		if !streamIDInRange(entry.ID, start, end) {
+			continue
+		}
+		fields := make(map[string]string, len(entry.Fields))
+		maps.Copy(fields, entry.Fields)
+		msgs = append(msgs, StreamMessage{
+			ID:     entry.ID,
+			Stream: stream,
+			Fields: fields,
+		})
+	}
+	return msgs, nil
+}
+
+// streamIDInRange reports whether id is within [start, end] inclusive.
+// Supports Redis special range values "-" (smallest) and "+" (largest).
+func streamIDInRange(id, start, end string) bool {
+	if start != "-" && compareStreamID(id, start) < 0 {
+		return false
+	}
+	if end != "+" && compareStreamID(id, end) > 0 {
+		return false
+	}
+	return true
 }
 
 func (m *InMemory) XGroupCreate(_ context.Context, stream, group, start string) error {
@@ -661,6 +841,8 @@ func (m *InMemory) XGroupCreate(_ context.Context, stream, group, start string) 
 	m.consumerGroups[stream][group] = consumerGroupState{
 		lastDeliveredID: lastDeliveredID,
 		consumers:       make(map[string][]string),
+		deliveryCounts:  make(map[string]int64),
+		deliveryTimes:   make(map[string]time.Time),
 	}
 	return nil
 }
@@ -668,6 +850,12 @@ func (m *InMemory) XGroupCreate(_ context.Context, stream, group, start string) 
 func compareStreamID(a, b string) int {
 	aParts := strings.Split(a, "-")
 	bParts := strings.Split(b, "-")
+
+	// Guard against malformed IDs: fallback to simple string comparison
+	// when either ID doesn't have the expected "timestamp-sequence" shape.
+	if len(aParts) < 2 || len(bParts) < 2 {
+		return strings.Compare(a, b)
+	}
 
 	aMs, _ := strconv.ParseInt(aParts[0], 10, 64)
 	bMs, _ := strconv.ParseInt(bParts[0], 10, 64)
