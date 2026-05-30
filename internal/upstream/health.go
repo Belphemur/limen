@@ -85,6 +85,89 @@ func RecordFailure(ctx context.Context, store *storage.Store, linkID int64, reas
 	return commit()
 }
 
+// RecordTenantFailure bumps the streak counter on an upstream_tenant_links
+// row with the same logic as RecordFailure.
+func RecordTenantFailure(ctx context.Context, store *storage.Store, linkID int64, reason FailureReason, needsRelink bool, thresholds HealthThresholds) error {
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return fmt.Errorf("upstream: health: open session: %w", err)
+	}
+	res := tx.Exec(`UPDATE upstream_tenant_links
+		SET consecutive_failures = consecutive_failures + 1,
+		    first_failure_at     = COALESCE(first_failure_at, now()),
+		    last_failure_at      = now(),
+		    last_failure_reason  = ?,
+		    needs_relink         = needs_relink OR ?,
+		    auto_disabled_at     = CASE
+		      WHEN auto_disabled_at IS NOT NULL THEN auto_disabled_at
+		      WHEN (consecutive_failures + 1) >= ?
+		           AND now() - COALESCE(first_failure_at, now()) >= make_interval(secs => ?)
+		        THEN now()
+		      WHEN ? = true THEN auto_disabled_at
+		      ELSE auto_disabled_at
+		    END
+		WHERE id = ?`,
+		string(reason),
+		needsRelink,
+		thresholds.FailThreshold,
+		thresholds.FailWindow.Seconds(),
+		needsRelink,
+		linkID,
+	)
+	if res.Error != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: health: record tenant failure: %w", res.Error)
+	}
+	return commit()
+}
+
+// RecordTenantSuccess clears every failure column on a tenant link in a
+// single UPDATE. Idempotent: a healthy link is a no-op write.
+func RecordTenantSuccess(ctx context.Context, store *storage.Store, linkID int64) error {
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return fmt.Errorf("upstream: health: open session: %w", err)
+	}
+	res := tx.Exec(`UPDATE upstream_tenant_links
+		SET consecutive_failures = 0,
+		    first_failure_at = NULL,
+		    last_failure_at = NULL,
+		    last_failure_reason = '',
+		    auto_disabled_at = NULL,
+		    needs_relink = false
+		WHERE id = ?`, linkID)
+	if res.Error != nil {
+		_ = commit()
+		return fmt.Errorf("upstream: health: clear tenant failures: %w", res.Error)
+	}
+	return commit()
+}
+
+// MaybeAutoDisableTenantForRelink trips auto-disable on an
+// upstream_tenant_links row whose NeedsRelink has been true for at least
+// thresholds.NeedsRelinkWindow.
+func MaybeAutoDisableTenantForRelink(ctx context.Context, store *storage.Store, thresholds HealthThresholds) (int64, error) {
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return 0, fmt.Errorf("upstream: health: open session: %w", err)
+	}
+	res := tx.Exec(`UPDATE upstream_tenant_links
+		SET auto_disabled_at = now()
+		WHERE deleted_at IS NULL
+		  AND needs_relink = true
+		  AND auto_disabled_at IS NULL
+		  AND last_failure_at IS NOT NULL
+		  AND now() - last_failure_at >= make_interval(secs => ?)`,
+		thresholds.NeedsRelinkWindow.Seconds(),
+	)
+	if res.Error != nil {
+		_ = commit()
+		return 0, fmt.Errorf("upstream: health: trip tenant relink auto-disable: %w", res.Error)
+	}
+	n := res.RowsAffected
+	return n, commit()
+}
+
 // MaybeAutoDisableForRelink trips auto-disable on a link whose NeedsRelink
 // has been true for at least thresholds.NeedsRelinkWindow. Called from the
 // background refresher's sweep — the per-request path doesn't run this

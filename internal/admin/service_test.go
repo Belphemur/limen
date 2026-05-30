@@ -106,6 +106,14 @@ func callers() map[string]func(context.Context, adminv1connect.AdminServiceClien
 			_, err := c.SetServiceAccountLinkEnabled(ctx, connect.NewRequest(&adminv1.SetServiceAccountLinkEnabledRequest{}))
 			return err
 		},
+		"StartAdminConnect": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.StartAdminConnect(ctx, connect.NewRequest(&adminv1.StartAdminConnectRequest{}))
+			return err
+		},
+		"FinishAdminCallback": func(ctx context.Context, c adminv1connect.AdminServiceClient) error {
+			_, err := c.FinishAdminCallback(ctx, connect.NewRequest(&adminv1.FinishAdminCallbackRequest{}))
+			return err
+		},
 	}
 }
 
@@ -150,6 +158,8 @@ var implementedRPCs = map[string]bool{
 	"RegenerateServiceAccountToken":   true,
 	"ListServiceAccountUpstreamLinks": true,
 	"SetServiceAccountLinkEnabled":    true,
+	"StartAdminConnect":               true,
+	"FinishAdminCallback":             true,
 }
 
 // TestMember_DeniedOnEveryRPC: a member session never satisfies

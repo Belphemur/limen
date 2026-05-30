@@ -46,7 +46,9 @@ enum LinkState {
 // allowed for the static_header strategy.
 enum StaticHeaderMode {
   STATIC_HEADER_MODE_UNSPECIFIED = 0;
+  // tenant_owner — the admin secret is shared by every caller.
   STATIC_HEADER_MODE_SHARED = 1;
+  // byok — each user submits their own API key.
   STATIC_HEADER_MODE_OVERRIDE = 2;
 }
 
@@ -57,7 +59,7 @@ message UpstreamSummary {
   string mcp_url = 4;
   string strategy_type = 5;
   // String representation of static_header_mode for backward
-  // compatibility: "shared" / "override". Empty for strategies
+  // compatibility: "tenant_owner" / "byok". Empty for strategies
   // without a sub-mode.
   string strategy_sub_mode = 6;
   bool requires_link = 7;
@@ -81,6 +83,16 @@ message UpstreamSummary {
   // Always false for shared sub-mode and for other strategies.
   bool has_user_override = 13;
 
+  // True when the upstream has an active UpstreamTenantLink row
+  // (admin has configured credentials). Used by both the admin SPA
+  // (health monitoring) and portal SPA ("upstream not configured yet" banner).
+  bool has_tenant_link = 15;
+
+  // Health state of the tenant-level credentials. UNSPECIFIED when
+  // has_tenant_link is false. Reuses LinkState since the state
+  // machine is identical (connected, needs_relink, auto_disabled).
+  LinkState tenant_link_state = 16;
+
   // Typed enum mirroring strategy_sub_mode. SHARED / OVERRIDE for
   // static_header; UNSPECIFIED for other strategies.
   StaticHeaderMode static_header_mode = 14;
@@ -94,7 +106,7 @@ message UpstreamTool {
 // ---- StartConnect ---------------------------------------------------
 
 message StartConnectRequest {
-  string upstream_identifier = 1;
+  string upstream_public_id = 1;
   // Path the SPA wants the browser to return to after the dance.
   string return_to = 2;
 }
@@ -109,7 +121,7 @@ message StartConnectResponse {
 // ---- SubmitUpstreamAPIKey ------------------------------------------
 
 message SubmitUpstreamAPIKeyRequest {
-  string upstream_identifier = 1;
+  string upstream_public_id = 1;
   string api_key = 2;
 }
 
@@ -124,7 +136,7 @@ message SubmitUpstreamAPIKeyResponse {}
 // when the upstream's strategy_sub_mode is not "override".
 
 message ClearUpstreamOverrideRequest {
-  string upstream_identifier = 1;
+  string upstream_public_id = 1;
 }
 
 message ClearUpstreamOverrideResponse {}
@@ -132,7 +144,7 @@ message ClearUpstreamOverrideResponse {}
 // ---- SetUpstreamLinkEnabled ----------------------------------------
 
 message SetUpstreamLinkEnabledRequest {
-  string upstream_identifier = 1;
+  string upstream_public_id = 1;
   bool enabled = 2;
 }
 
@@ -141,7 +153,7 @@ message SetUpstreamLinkEnabledResponse {}
 // ---- Disconnect -----------------------------------------------------
 
 message DisconnectRequest {
-  string upstream_identifier = 1;
+  string upstream_public_id = 1;
 }
 
 message DisconnectResponse {}

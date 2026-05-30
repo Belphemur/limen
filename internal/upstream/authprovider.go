@@ -34,8 +34,9 @@ import (
 // strategies (which have no link and therefore no per-link health
 // bookkeeping).
 type AuthResult struct {
-	Headers map[string]string
-	LinkID  int64
+	Headers   map[string]string
+	LinkID    int64
+	LinkTable string // "upstream_links" or "upstream_tenant_links"
 }
 
 // AuthProvider supplies HTTP headers for outgoing calls to a single
@@ -59,6 +60,10 @@ type UserResolver func(ctx context.Context) (*storage.User, bool)
 // ErrNoUser is returned when the strategy needs a link and the request
 // ctx has no authenticated user.
 var ErrNoUser = errors.New("upstream: no authenticated user on ctx")
+
+const kindTenantAccessToken = "upstream.tenant.access_token"
+const kindTenantRefreshToken = "upstream.tenant.refresh_token"
+const kindTenantExtraJSON = "upstream.tenant.extra"
 
 // DBAuthProvider is the production AuthProvider. Pinned to a single
 // (tenant, upstream) pair so the gateway can keep one per Bundle.
@@ -111,7 +116,7 @@ func (p *DBAuthProvider) Headers(ctx context.Context) (AuthResult, error) {
 	if err != nil {
 		return AuthResult{}, err
 	}
-	return AuthResult{Headers: hdrs, LinkID: linkIDOf(lctx.Link)}, nil
+	return AuthResult{Headers: hdrs, LinkID: resolveLinkID(lctx), LinkTable: linkTableOf(lctx)}, nil
 }
 
 // HeadersForceRefresh is the same path as Headers but with the
@@ -125,21 +130,43 @@ func (p *DBAuthProvider) HeadersForceRefresh(ctx context.Context) (AuthResult, e
 	if err != nil {
 		return AuthResult{}, err
 	}
-	return AuthResult{Headers: hdrs, LinkID: linkIDOf(lctx.Link)}, nil
+	return AuthResult{Headers: hdrs, LinkID: resolveLinkID(lctx), LinkTable: linkTableOf(lctx)}, nil
 }
 
-func linkIDOf(link *storage.UpstreamLink) int64 {
-	if link == nil {
-		return 0
+func linkTableOf(lctx LinkContext) string {
+	if lctx.Link != nil {
+		return "upstream_links"
 	}
-	return link.ID
+	if lctx.TenantLink != nil {
+		return "upstream_tenant_links"
+	}
+	return ""
+}
+
+func resolveLinkID(lctx LinkContext) int64 {
+	if lctx.Link != nil {
+		return lctx.Link.ID
+	}
+	if lctx.TenantLink != nil {
+		return lctx.TenantLink.ID
+	}
+	return 0
 }
 
 // linkContext resolves the active user (when the strategy requires one),
-// loads the link, decrypts the encrypted columns under the right AAD, and
-// returns a LinkContext ready for the strategy.
+// loads the link (or tenant link when the strategy uses tenant credentials),
+// decrypts the encrypted columns under the right AAD, and returns a
+// LinkContext ready for the strategy.
 func (p *DBAuthProvider) linkContext(ctx context.Context) (LinkContext, error) {
 	lctx := LinkContext{Tenant: p.tenant, Upstream: p.upstream}
+
+	// Best-effort: populate tenant link when available. ErrLinkNotFound is
+	// expected (no admin credentials configured); genuine DB errors are
+	// swallowed so they don't block the request — the strategy will attempt
+	// its own load as fallback.
+	tl, _ := p.loadTenantLink(ctx)
+	lctx.TenantLink = tl
+
 	if !p.strategy.RequiresLink() {
 		return lctx, nil
 	}
@@ -152,7 +179,14 @@ func (p *DBAuthProvider) linkContext(ctx context.Context) (LinkContext, error) {
 
 	link, err := p.loadLink(ctx, user.ID)
 	if err != nil {
-		return lctx, err
+		if !errors.Is(err, ErrLinkNotFound) {
+			return lctx, err // genuine DB error
+		}
+		// Link not found — strategy decides whether this matters.
+		// mcp_spec: ensureFresh returns ErrLinkNotFound.
+		// static_header TenantOwner: Headers uses tenant secret.
+		// static_header BYOK: Headers returns ErrNoCredentials.
+		return lctx, nil
 	}
 	if !link.Enabled || link.AutoDisabledAt != nil {
 		return lctx, ErrNeedsRelink
@@ -185,6 +219,32 @@ func (p *DBAuthProvider) loadLink(ctx context.Context, userID int64) (*storage.U
 			return nil, ErrLinkNotFound
 		}
 		return nil, fmt.Errorf("upstream: load link: %w", err)
+	}
+	return &link, nil
+}
+
+// loadTenantLink fetches the (tenant, upstream) tenant link and decrypts
+// the encrypted columns under tenant AAD. Returns ErrLinkNotFound when
+// no tenant credential row exists for this upstream.
+func (p *DBAuthProvider) loadTenantLink(ctx context.Context) (*storage.UpstreamTenantLink, error) {
+	tx, commit, err := p.store.Session(storage.WithTenant(ctx, p.tenant.ID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	tenantStr := strconv.FormatInt(p.tenant.ID, 10)
+
+	var link storage.UpstreamTenantLink
+	link.AccessToken.SetAAD(tenantStr, "", kindTenantAccessToken)
+	link.RefreshToken.SetAAD(tenantStr, "", kindTenantRefreshToken)
+	link.ExtraJSON.SetAAD(tenantStr, "", kindTenantExtraJSON)
+	err = tx.Where("upstream_id = ?", p.upstream.ID).First(&link).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrLinkNotFound
+		}
+		return nil, fmt.Errorf("upstream: load tenant link: %w", err)
 	}
 	return &link, nil
 }

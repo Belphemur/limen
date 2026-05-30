@@ -22,8 +22,8 @@ import (
 //     and retries the request with the refreshed headers. A second 401
 //     surfaces as a structured re-link error.
 //  3. Records per-link health (success / network / 5xx / 401 / 403) via
-//     RecordSuccess / RecordFailure for the Phase 7 auto-disable
-//     bookkeeping. Tenant-mode strategies (LinkID == 0) skip this step.
+//     RecordSuccess/RecordTenantSuccess and RecordFailure/RecordTenantFailure,
+//     dispatched by the AuthResult.LinkTable discriminator.
 //
 // The Base RoundTripper is the swap point for the Phase 10
 // `resilience.Client("upstream.<name>.calls", cfg).Transport`. Until
@@ -81,16 +81,19 @@ func (t *AuthInjectingTransport) RoundTrip(req *http.Request) (*http.Response, e
 		drain(resp)
 		ar2, refreshErr := t.Auth.HeadersForceRefresh(ctx)
 		if refreshErr != nil {
-			t.record(ctx, ar.LinkID, nil, refreshErr)
+			t.record(ctx, ar.LinkID, ar.LinkTable, nil, refreshErr)
 			return nil, refreshErr
 		}
 		if ar2.LinkID != 0 {
 			ar.LinkID = ar2.LinkID
 		}
+		if ar2.LinkTable != "" {
+			ar.LinkTable = ar2.LinkTable
+		}
 		resp, err = t.do(req, ar2.Headers)
 	}
 
-	t.record(ctx, ar.LinkID, resp, err)
+	t.record(ctx, ar.LinkID, ar.LinkTable, resp, err)
 	return resp, err
 }
 
@@ -105,30 +108,44 @@ func (t *AuthInjectingTransport) do(req *http.Request, headers map[string]string
 	return t.Base.RoundTrip(clone)
 }
 
-func (t *AuthInjectingTransport) record(ctx context.Context, linkID int64, resp *http.Response, err error) {
+func (t *AuthInjectingTransport) record(ctx context.Context, linkID int64, linkTable string, resp *http.Response, err error) {
 	if linkID == 0 || t.Store == nil {
 		return
 	}
-	// Detach from the request ctx so a cancelled call still writes the
-	// failure row. Same pattern as the refresher.
 	bg := context.WithoutCancel(ctx)
 
 	if err != nil {
-		_ = upstream.RecordFailure(bg, t.Store, linkID, upstream.ReasonNetwork, false, t.HealthThresholds)
+		t.recordFailure(bg, linkID, linkTable, upstream.ReasonNetwork, false)
 		return
 	}
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		_ = upstream.RecordSuccess(bg, t.Store, linkID)
+		t.recordSuccess(bg, linkID, linkTable)
 	case resp.StatusCode == http.StatusUnauthorized:
 		// Second 401 after refresh: link is past saving — flip
 		// NeedsRelink immediately.
-		_ = upstream.RecordFailure(bg, t.Store, linkID, upstream.ReasonToolCall401, true, t.HealthThresholds)
+		t.recordFailure(bg, linkID, linkTable, upstream.ReasonToolCall401, true)
 	case resp.StatusCode == http.StatusForbidden:
-		_ = upstream.RecordFailure(bg, t.Store, linkID, upstream.ReasonToolCall403, false, t.HealthThresholds)
+		t.recordFailure(bg, linkID, linkTable, upstream.ReasonToolCall403, false)
 	case resp.StatusCode >= 500:
-		_ = upstream.RecordFailure(bg, t.Store, linkID, upstream.ReasonToolCall5xx, false, t.HealthThresholds)
+		t.recordFailure(bg, linkID, linkTable, upstream.ReasonToolCall5xx, false)
 	}
+}
+
+func (t *AuthInjectingTransport) recordSuccess(ctx context.Context, linkID int64, linkTable string) {
+	if linkTable == "upstream_tenant_links" {
+		_ = upstream.RecordTenantSuccess(ctx, t.Store, linkID)
+		return
+	}
+	_ = upstream.RecordSuccess(ctx, t.Store, linkID)
+}
+
+func (t *AuthInjectingTransport) recordFailure(ctx context.Context, linkID int64, linkTable string, reason upstream.FailureReason, needsRelink bool) {
+	if linkTable == "upstream_tenant_links" {
+		_ = upstream.RecordTenantFailure(ctx, t.Store, linkID, reason, needsRelink, t.HealthThresholds)
+		return
+	}
+	_ = upstream.RecordFailure(ctx, t.Store, linkID, reason, needsRelink, t.HealthThresholds)
 }
 
 func shouldRefresh(resp *http.Response, err error) bool {

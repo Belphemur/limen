@@ -1,16 +1,20 @@
 // Package statichdr implements the "static_header" upstream strategy.
 //
 // A "static_header" upstream attaches a single, configurable HTTP header
-// to every outbound MCP request. The admin always supplies a shared
-// secret — used for "Test Connection" at provision time, for the
-// catalog indexer, and as the working default for every user. The
-// admin can optionally allow individual users to override the shared
-// secret with their own value (e.g. their personal API key); in that
-// mode each user's override lives on UpstreamLink.ExtraJSON (encrypted
-// with AAD tenant|user|"upstream.extra") and shadows the shared
-// secret. With mode=shared no override is ever consulted and the
-// per-user UpstreamLink row exists only as an opt-out marker
-// (Enabled=false).
+// to every outbound MCP request. Two operating modes are supported:
+//
+//   - tenant_owner (default): the admin's secret stored on
+//     UpstreamTenantLink.AccessToken is used for all users, the catalog
+//     indexer, and Test Connection. No per-user overrides are allowed.
+//
+//   - byok (Bring Your Own Key): the admin's secret on
+//     UpstreamTenantLink is used only for the catalog indexer and Test
+//     Connection. Every user MUST provide their own key via the portal;
+//     the per-user secret lives on UpstreamLink.ExtraJSON (encrypted
+//     with AAD tenant|user|"upstream.extra") and is used for user-facing
+//     MCP requests. If a user has not provided a key the gateway returns
+//     ErrNoCredentials; if their key was invalidated (NeedsRelink) it
+//     returns ErrNeedsRelink.
 //
 // HeaderTemplate is a literal HTTP header value with "{value}"
 // substituted at request time — e.g. "Bearer {value}" or
@@ -25,15 +29,19 @@ import (
 	"fmt"
 	"strings"
 
-	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
+	"gorm.io/gorm"
+
 	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/upstream"
-	"gorm.io/gorm"
 )
 
 // kindStrategyConfig is the SecretField AAD kind for UpstreamStrategyConfig.
 const kindStrategyConfig = "upstream.strategy_config"
+
+// kindTenantAccessToken is the SecretField AAD kind for
+// UpstreamTenantLink.AccessToken.
+const kindTenantAccessToken = "upstream.tenant.access_token"
 
 // kindUserExtra is the SecretField AAD kind for UpstreamLink.ExtraJSON
 // when a user has supplied an override secret.
@@ -44,43 +52,20 @@ const kindUserExtra = "upstream.extra"
 // templating vulnerability.
 const placeholder = "{value}"
 
-// HeaderMode mirrors the proto StaticHeaderMode enum as Go constants.
-type HeaderMode string
-
+// Mode values identify the static_header operating mode. Stored in the
+// Mode column of UpstreamStrategyConfig (separate from the encrypted
+// ConfigJSON so SubMode lookups don't require decryption).
 const (
-	ModeShared   HeaderMode = "shared"
-	ModeOverride HeaderMode = "override"
-)
-
-// HeaderModeFromProto maps the proto StaticHeaderMode enum to a mode string.
-func HeaderModeFromProto(m adminv1.StaticHeaderMode) string {
-	switch m {
-	case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE:
-		return string(ModeOverride)
-	default:
-		return string(ModeShared)
-	}
-}
-
-// SubMode values surfaced via the optional subModeProvider hook on the
-// upstream package. The portal SPA renders different CTAs based on
-// this string; sourced from the DB column, not from encrypted config.
-const (
-	SubModeShared   = "shared"
-	SubModeOverride = "override"
+	ModeTenantOwner = "tenant_owner"
+	ModeBYOK        = "byok"
 )
 
 // Config is the JSON payload encrypted into
-// UpstreamStrategyConfig.ConfigJSON. SharedSecret is mandatory in all
-// cases — it powers Test Connection at provision time, the catalog
-// indexer, and serves as the working default for every user when mode
-// is "shared" or the user hasn't submitted an override.
-// NOTE: mode is stored separately in the Mode column of
-// UpstreamStrategyConfig, NOT in this struct.
+// UpstreamStrategyConfig.ConfigJSON. It holds only non-secret fields;
+// the admin's secret lives on UpstreamTenantLink.AccessToken.
 type Config struct {
 	HeaderName     string `json:"header_name"`
 	HeaderTemplate string `json:"header_template"`
-	SharedSecret   string `json:"shared_secret"`
 }
 
 // userExtra is the JSON shape of UpstreamLink.ExtraJSON when a user
@@ -98,9 +83,6 @@ func (c Config) validate() error {
 	}
 	if !strings.Contains(c.HeaderTemplate, placeholder) {
 		return fmt.Errorf("statichdr: header_template must contain %q", placeholder)
-	}
-	if strings.TrimSpace(c.SharedSecret) == "" {
-		return errors.New("statichdr: shared_secret is required")
 	}
 	return nil
 }
@@ -149,17 +131,40 @@ func defaultPortalPath(tenantPublic, upstreamPublic string) string {
 // Type implements upstream.Strategy.
 func (s *Strategy) Type() upstream.StrategyType { return upstream.StrategyStaticHeader }
 
-// SubMode reports "shared" or "override" by reading the Mode column
-// from the UpstreamStrategyConfig DB row. Implements upstream's
-// optional subModeProvider so the portal renders the right CTA
-// without decrypting the config payload.
+// loadMode reads the Mode column from UpstreamStrategyConfig. Falls
+// back to ModeTenantOwner when the row is missing or the column is
+// empty, so existing upstreams without a Mode default to tenant-wide
+// operation.
+func (s *Strategy) loadMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
+	if lctx.Tenant == nil || lctx.Upstream == nil {
+		return ModeTenantOwner, nil
+	}
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
+	if err != nil {
+		return ModeTenantOwner, nil
+	}
+	var row storage.UpstreamStrategyConfig
+	if err := tx.Where("upstream_id = ? AND type = ?", lctx.Upstream.ID, string(upstream.StrategyStaticHeader)).First(&row).Error; err != nil {
+		_ = commit()
+		return ModeTenantOwner, nil
+	}
+	_ = commit()
+	if row.Mode == "" {
+		return ModeTenantOwner, nil
+	}
+	return row.Mode, nil
+}
+
+// SubMode reports "tenant_owner" or "byok" by reading the Mode column
+// directly (no decryption needed). Implements upstream's optional
+// subModeProvider so the portal renders the right CTA.
 func (s *Strategy) SubMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
 	return s.loadMode(ctx, lctx)
 }
 
 // RequiresLink reports true so the upstream package creates per-user
 // UpstreamLink rows on demand. The link doubles as an opt-out marker
-// (Enabled=false) and, when mode is "override", the carrier for the
+// (Enabled=false) and, when mode is "byok", the carrier for the
 // user's override secret. Headers() always succeeds even with no
 // link — falls back to the shared secret.
 func (s *Strategy) RequiresLink() bool { return true }
@@ -171,15 +176,15 @@ func (s *Strategy) Provision(_ context.Context, lctx upstream.LinkContext) error
 	return nil
 }
 
-// StartLink returns the SPA path where the user pastes their override
-// API key. Returns ErrUnsupported when the admin has not enabled user
-// override (mode != "override").
+// StartLink returns the SPA path where the user pastes their BYOK API
+// key. Returns ErrUnsupported when mode is TenantOwner (users must
+// not submit per-user keys in tenant-wide mode).
 func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (upstream.StartLinkResult, error) {
 	mode, err := s.loadMode(ctx, lctx)
 	if err != nil {
 		return upstream.StartLinkResult{}, err
 	}
-	if mode != string(ModeOverride) {
+	if mode != ModeBYOK {
 		return upstream.StartLinkResult{}, upstream.ErrUnsupported
 	}
 	if lctx.Tenant == nil || lctx.Upstream == nil {
@@ -194,15 +199,15 @@ func (s *Strategy) FinishLink(_ context.Context, _ upstream.LinkContext, _ strin
 	return "", upstream.ErrUnsupported
 }
 
-// PersistUserSecret writes the user's override API key into
+// PersistUserSecret writes the user's BYOK API key into
 // UpstreamLink.ExtraJSON. Idempotent: re-running rotates the secret.
-// Returns ErrUnsupported when override is disabled (mode != "override").
+// Returns ErrUnsupported when mode is TenantOwner.
 func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkContext, secret string) error {
 	mode, err := s.loadMode(ctx, lctx)
 	if err != nil {
 		return err
 	}
-	if mode != string(ModeOverride) {
+	if mode != ModeBYOK {
 		return upstream.ErrUnsupported
 	}
 	if strings.TrimSpace(secret) == "" {
@@ -266,10 +271,64 @@ func (s *Strategy) PersistUserSecret(ctx context.Context, lctx upstream.LinkCont
 	return commit()
 }
 
+// PersistTenantSecret writes the admin's secret into
+// UpstreamTenantLink.AccessToken. Idempotent: re-running rotates the
+// secret. Used during upstream creation and secret rotation.
+func (s *Strategy) PersistTenantSecret(ctx context.Context, lctx upstream.LinkContext, secret string) error {
+	if strings.TrimSpace(secret) == "" {
+		return errors.New("statichdr: secret must not be empty")
+	}
+	if lctx.Tenant == nil || lctx.Upstream == nil {
+		return errors.New("statichdr: tenant/upstream missing")
+	}
+
+	tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
+	sf := crypto.NewSecret([]byte(secret))
+	sf.SetAAD(tenantStr, "", kindTenantAccessToken)
+
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
+	if err != nil {
+		return fmt.Errorf("statichdr: open session: %w", err)
+	}
+
+	var existing storage.UpstreamTenantLink
+	if err := tx.Where("upstream_id = ?", lctx.Upstream.ID).First(&existing).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			newLink := storage.UpstreamTenantLink{
+				TenantID:    lctx.Tenant.ID,
+				UpstreamID:  lctx.Upstream.ID,
+				Enabled:     true,
+				AccessToken: sf,
+			}
+			if createErr := tx.Create(&newLink).Error; createErr != nil {
+				_ = commit()
+				return fmt.Errorf("statichdr: create tenant link: %w", createErr)
+			}
+			return commit()
+		}
+		_ = commit()
+		return fmt.Errorf("statichdr: load tenant link: %w", err)
+	}
+
+	existing.AccessToken = sf
+	existing.Enabled = true
+	existing.NeedsRelink = false
+	existing.ConsecutiveFailures = 0
+	existing.FirstFailureAt = nil
+	existing.LastFailureAt = nil
+	existing.LastFailureReason = ""
+	existing.AutoDisabledAt = nil
+	if err := tx.Save(&existing).Error; err != nil {
+		_ = commit()
+		return fmt.Errorf("statichdr: update tenant link: %w", err)
+	}
+	return commit()
+}
+
 // ClearUserOverride drops the per-user override on the link. The link
 // row stays (preserves Enabled / opt-out state); only ExtraJSON is
 // zeroed and the health counters reset so the next request falls back
-// to the shared secret cleanly.
+// to the tenant secret cleanly.
 func (s *Strategy) ClearUserOverride(ctx context.Context, lctx upstream.LinkContext) error {
 	if lctx.Tenant == nil || (lctx.User == nil && lctx.ServiceAccountID == nil) || lctx.Upstream == nil {
 		return errors.New("statichdr: tenant/user/upstream missing")
@@ -301,28 +360,43 @@ func (s *Strategy) ClearUserOverride(ctx context.Context, lctx upstream.LinkCont
 }
 
 // Headers returns the configured header with a secret substituted in.
-// Resolution order:
+// Resolution order depends on mode:
 //
-//  1. If mode is "override" AND the user has an override secret AND
-//     the link is not in NeedsRelink, use the user's secret.
-//  2. Otherwise fall back to cfg.SharedSecret.
+// TenantOwner:
+//   - Always uses the admin secret from UpstreamTenantLink.AccessToken.
 //
-// Tools keep working when a user's override key starts failing — the
-// gateway falls back to shared while the portal nudges the user to fix
-// their key.
+// BYOK:
+//   - No user (system / catalog / indexer): uses the admin secret from
+//     UpstreamTenantLink.AccessToken.
+//   - Link exists with NeedsRelink: returns ErrNeedsRelink.
+//   - Link exists with ExtraJSON (user's key): decrypts and uses it.
+//   - No link or link without key: returns ErrNoCredentials.
 func (s *Strategy) Headers(ctx context.Context, lctx upstream.LinkContext) (map[string]string, error) {
 	cfg, err := s.loadConfig(ctx, lctx)
 	if err != nil {
 		return nil, err
 	}
-	secret := cfg.SharedSecret
 	mode, err := s.loadMode(ctx, lctx)
 	if err != nil {
 		return nil, err
 	}
-	if mode == string(ModeOverride) && lctx.Link != nil && !lctx.Link.ExtraJSON.IsZero() && !lctx.Link.NeedsRelink {
-		if lctx.Tenant == nil {
-			return nil, errors.New("statichdr: tenant missing for override header")
+
+	switch mode {
+	case ModeBYOK:
+		if lctx.User == nil {
+			// System / catalog / indexer — use the admin's setup key.
+			secret, err := s.resolveTenantSecret(ctx, lctx)
+			if err != nil {
+				return nil, err
+			}
+			value := strings.ReplaceAll(cfg.HeaderTemplate, placeholder, secret)
+			return map[string]string{cfg.HeaderName: value}, nil
+		}
+		if lctx.Link == nil || lctx.Link.ExtraJSON.IsZero() {
+			return nil, upstream.ErrNoCredentials
+		}
+		if lctx.Link.NeedsRelink {
+			return nil, upstream.ErrNeedsRelink
 		}
 		tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
 		ownerStr := lctx.OwnerIDStr()
@@ -333,12 +407,73 @@ func (s *Strategy) Headers(ctx context.Context, lctx upstream.LinkContext) (map[
 		if err := json.Unmarshal(lctx.Link.ExtraJSON.Bytes(), &ux); err != nil {
 			return nil, fmt.Errorf("statichdr: parse extra: %w", err)
 		}
-		if strings.TrimSpace(ux.Secret) != "" {
-			secret = ux.Secret
+		if strings.TrimSpace(ux.Secret) == "" {
+			return nil, upstream.ErrNoCredentials
 		}
+		value := strings.ReplaceAll(cfg.HeaderTemplate, placeholder, ux.Secret)
+		return map[string]string{cfg.HeaderName: value}, nil
+
+	default: // ModeTenantOwner
+		secret, err := s.resolveTenantSecret(ctx, lctx)
+		if err != nil {
+			return nil, err
+		}
+		value := strings.ReplaceAll(cfg.HeaderTemplate, placeholder, secret)
+		return map[string]string{cfg.HeaderName: value}, nil
 	}
-	value := strings.ReplaceAll(cfg.HeaderTemplate, placeholder, secret)
-	return map[string]string{cfg.HeaderName: value}, nil
+}
+
+// resolveTenantSecret loads and decrypts the admin secret from
+// UpstreamTenantLink. It prefers a pre-populated lctx.TenantLink; otherwise
+// it hits the database.
+func (s *Strategy) resolveTenantSecret(ctx context.Context, lctx upstream.LinkContext) (string, error) {
+	if lctx.Tenant == nil || lctx.Upstream == nil {
+		return "", errors.New("statichdr: tenant/upstream missing")
+	}
+
+	var tenantLink *storage.UpstreamTenantLink
+	if lctx.TenantLink != nil {
+		tenantLink = lctx.TenantLink
+	} else {
+		loaded, err := s.loadTenantLink(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
+		if err != nil {
+			return "", err
+		}
+		tenantLink = loaded
+	}
+
+	if tenantLink == nil || tenantLink.AccessToken.IsZero() {
+		return "", upstream.ErrNoTenantLink
+	}
+
+	tenantStr := fmt.Sprintf("%d", lctx.Tenant.ID)
+	localCopy := tenantLink.AccessToken
+	if err := localCopy.Decrypt(tenantStr, "", kindTenantAccessToken); err != nil {
+		return "", fmt.Errorf("statichdr: decrypt tenant access token: %w", err)
+	}
+
+	secret := strings.TrimSpace(string(localCopy.Bytes()))
+	if secret == "" {
+		return "", upstream.ErrNoTenantLink
+	}
+	return secret, nil
+}
+
+func (s *Strategy) loadTenantLink(ctx context.Context, tenantID, upstreamID int64) (*storage.UpstreamTenantLink, error) {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return nil, fmt.Errorf("statichdr: open session: %w", err)
+	}
+	defer func() { _ = commit() }()
+
+	var link storage.UpstreamTenantLink
+	if err := tx.Where("upstream_id = ?", upstreamID).First(&link).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("statichdr: load tenant link: %w", err)
+	}
+	return &link, nil
 }
 
 // HeadersForceRefresh is a no-op alias — there's no token to rotate.
@@ -347,35 +482,6 @@ func (s *Strategy) HeadersForceRefresh(ctx context.Context, lctx upstream.LinkCo
 }
 
 func (s *Strategy) Maintain(_ context.Context, _ upstream.LinkContext) error { return nil }
-
-// loadMode reads the Mode column from the UpstreamStrategyConfig DB
-// row. Returns "shared" as the safe default when the mode is empty.
-// The mode is stored separately from the encrypted ConfigJSON so
-// SubMode (and any mode check) does not require decryption.
-func (s *Strategy) loadMode(ctx context.Context, lctx upstream.LinkContext) (string, error) {
-	if lctx.Tenant == nil || lctx.Upstream == nil {
-		return string(ModeShared), nil // safe default
-	}
-	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
-	if err != nil {
-		return string(ModeShared), nil // safe default on session error
-	}
-	var row storage.UpstreamStrategyConfig
-	if err := tx.Where("upstream_id = ?", lctx.Upstream.ID).First(&row).Error; err != nil {
-		_ = commit()
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return string(ModeShared), nil
-		}
-		return string(ModeShared), nil // safe default on lookup error
-	}
-	if commitErr := commit(); commitErr != nil {
-		return string(ModeShared), nil
-	}
-	if row.Mode == "" {
-		return string(ModeShared), nil
-	}
-	return row.Mode, nil
-}
 
 func (s *Strategy) loadConfig(ctx context.Context, lctx upstream.LinkContext) (Config, error) {
 	var zero Config
@@ -429,19 +535,16 @@ func EncodeConfig(tenantID int64, cfg Config) (crypto.SecretField, error) {
 }
 
 // ParseConfig parses the admin-supplied strategy_config map for static_header.
-// Accepted keys: header_name, header_template, value.
-// The mode parameter ("shared" / "override") is passed separately and
-// stored in the Mode DB column, not in the encrypted config.
+// Accepted keys: header_name, header_template.
 //
 // Unknown keys are ignored — the field set is locked here, not at the
 // proto level. The returned Config is validated; an error means the
 // caller should surface it as InvalidArgument with the relevant field
 // path.
-func ParseConfig(m map[string]string, mode string) (Config, error) {
+func ParseConfig(m map[string]string) (Config, error) {
 	cfg := Config{
 		HeaderName:     strings.TrimSpace(m["header_name"]),
 		HeaderTemplate: m["header_template"],
-		SharedSecret:   m["value"],
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -472,20 +575,13 @@ func DecodeConfig(tenantID int64, sf crypto.SecretField) (Config, error) {
 }
 
 // ApplyConfigPatch overlays the wire patch onto an existing Config.
-// Recognised patch keys:
 //
-//	value  empty/absent = keep existing shared secret;
-//	       non-empty = rotate.
-//
-// Mode is NOT handled here — it is managed separately via the Mode DB
-// column. header_name and header_template are intentionally NOT
-// patchable post-creation: changing them constitutes a different
-// upstream and belongs in delete-and-recreate.
+// header_name and header_template are intentionally NOT patchable
+// post-creation: changing them constitutes a different upstream and
+// belongs in delete-and-recreate. Secret rotation goes through
+// PersistTenantSecret, not this patch path.
 func ApplyConfigPatch(cur Config, patch map[string]string) (Config, error) {
 	out := cur
-	if v, ok := patch["value"]; ok && strings.TrimSpace(v) != "" {
-		out.SharedSecret = v
-	}
 	if err := out.validate(); err != nil {
 		return Config{}, err
 	}

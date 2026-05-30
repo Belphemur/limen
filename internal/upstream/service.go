@@ -48,15 +48,15 @@ func NewService(store *storage.Store, registry *Registry, logger *zap.Logger) *S
 
 // StartConnect resolves the upstream + strategy for (tenant, user) and
 // returns the URL the SPA should redirect the user to.
-func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, returnTo string) (string, error) {
+func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamPublicID, returnTo string) (string, error) {
 	if tenant == nil || user == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
 	s.logger.Debug("StartConnect",
 		zap.Int64("tenant_id", tenant.ID),
-		zap.String("identifier", upstreamIdentifier),
+		zap.String("public_id", upstreamPublicID),
 		zap.String("user_subject", user.ZitadelSubject))
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return "", err
 	}
@@ -84,11 +84,11 @@ func (s *Service) StartConnect(ctx context.Context, tenant *storage.Tenant, user
 
 // FinishCallback drives FinishLink on the appropriate strategy. Returns
 // the ReturnTo URL the SPA navigates to after the redirect lands.
-func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier, callbackQuery string) (string, error) {
+func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamPublicID, callbackQuery string) (string, error) {
 	if tenant == nil || user == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return "", err
 	}
@@ -107,11 +107,11 @@ func (s *Service) FinishCallback(ctx context.Context, tenant *storage.Tenant, us
 // Disconnect soft-deletes the (tenant, user, upstream) link row. The
 // strategy registry isn't involved — every strategy treats "delete the
 // link" identically.
-func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamIdentifier string) error {
+func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *storage.User, upstreamPublicID string) error {
 	if tenant == nil || user == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return err
 	}
@@ -127,11 +127,17 @@ func (s *Service) Disconnect(ctx context.Context, tenant *storage.Tenant, user *
 	return commit()
 }
 
-// LoadUpstream returns the Upstream row for (tenant, identifier). Public so
-// the /callback HTTP handler can resolve the route before calling
-// FinishCallback (we need the upstream + link to build LinkContext).
+// LoadUpstream returns the Upstream row for (tenant, identifier).
+// This is the gateway code-mode path — it resolves by identifier so
+// the codemode namespace (codemode.<identifier>.<tool>()) stays readable.
+// All RPC paths use LoadUpstreamByPublicID.
 func (s *Service) LoadUpstream(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
-	return s.loadUpstream(ctx, tenantID, identifier)
+	return s.loadUpstreamByIdentifier(ctx, tenantID, identifier)
+}
+
+// LoadUpstreamByPublicID resolves an upstream by its public_id for the given tenant.
+func (s *Service) LoadUpstreamByPublicID(ctx context.Context, tenantID int64, publicID string) (*storage.Upstream, error) {
+	return s.loadUpstreamByPublicID(ctx, tenantID, publicID)
 }
 
 // ListUpstreams returns every (non-deleted) Upstream row for the tenant,
@@ -164,7 +170,7 @@ func (s *Service) LoadLink(ctx context.Context, tenantID, userID, upstreamID int
 // rule from Phase 8 — Service has no view of OIDC roles. Pass link=nil
 // for tenant-mode strategies (`none`, `static_header` tenant-wide).
 func (s *Service) IndexCatalog(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, link *storage.UpstreamLink) error {
-	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link, nil)
+	return IndexUpstream(ctx, s.store, s.registry, tenant, up, link, nil, nil)
 }
 
 // VerifyLink confirms the credentials this link produces are accepted
@@ -236,7 +242,7 @@ func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenan
 	if err := strat.Provision(ctx, lctx); err != nil {
 		return fmt.Errorf("upstream: provision: %w", err)
 	}
-	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, nil, nil); err != nil {
+	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, nil, nil, nil); err != nil {
 		if errors.Is(err, ErrNeedsRelink) || errors.Is(err, ErrLinkNotFound) {
 			return nil
 		}
@@ -245,14 +251,14 @@ func (s *Service) ProvisionTenantMode(ctx context.Context, tenant *storage.Tenan
 	return nil
 }
 
-func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
-	s.logger.Debug("loadUpstream: starting query",
+func (s *Service) loadUpstreamByIdentifier(ctx context.Context, tenantID int64, identifier string) (*storage.Upstream, error) {
+	s.logger.Debug("loadUpstreamByIdentifier: starting query",
 		zap.Int64("tenant_id", tenantID),
 		zap.String("identifier", identifier))
 
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
-		s.logger.Debug("loadUpstream: session failed", zap.Error(err))
+		s.logger.Debug("loadUpstreamByIdentifier: session failed", zap.Error(err))
 		return nil, err
 	}
 	defer func() { _ = commit() }()
@@ -260,20 +266,37 @@ func (s *Service) loadUpstream(ctx context.Context, tenantID int64, identifier s
 	var up storage.Upstream
 	if err := tx.Where("identifier = ?", identifier).First(&up).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			s.logger.Debug("loadUpstream: not found",
+			s.logger.Debug("loadUpstreamByIdentifier: not found",
 				zap.Int64("tenant_id", tenantID),
 				zap.String("identifier", identifier))
 			return nil, ErrUpstreamNotFound
 		}
-		s.logger.Debug("loadUpstream: query error", zap.Error(err))
+		s.logger.Debug("loadUpstreamByIdentifier: query error", zap.Error(err))
 		return nil, fmt.Errorf("upstream: load: %w", err)
 	}
-	s.logger.Debug("loadUpstream: found",
+	s.logger.Debug("loadUpstreamByIdentifier: found",
 		zap.Int64("tenant_id", tenantID),
 		zap.String("identifier", identifier),
 		zap.Int64("upstream_id", up.ID),
 		zap.Int64("upstream_tenant_id", up.TenantID))
 	return &up, nil
+}
+
+func (s *Service) loadTenantLink(ctx context.Context, tenantID, upstreamID int64) (*storage.UpstreamTenantLink, error) {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	var link storage.UpstreamTenantLink
+	if err := tx.Where("tenant_id = ? AND upstream_id = ?", tenantID, upstreamID).First(&link).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrLinkNotFound
+		}
+		return nil, fmt.Errorf("upstream: load tenant link: %w", err)
+	}
+	return &link, nil
 }
 
 func (s *Service) loadLink(ctx context.Context, tenantID, userID, upstreamID int64) (*storage.UpstreamLink, error) {
@@ -322,14 +345,14 @@ func (s *Service) loadLinkByOwner(ctx context.Context, tenantID int64, lctx Link
 
 // DisconnectByOwner soft-deletes the link row for either a user or service
 // account, depending on the LinkContext.
-func (s *Service) DisconnectByOwner(ctx context.Context, tenant *storage.Tenant, lctx LinkContext, upstreamIdentifier string) error {
+func (s *Service) DisconnectByOwner(ctx context.Context, tenant *storage.Tenant, lctx LinkContext, upstreamPublicID string) error {
 	if tenant == nil {
 		return errors.New("upstream: tenant required")
 	}
 	if !lctx.IsServiceAccount() && lctx.User == nil {
 		return errors.New("upstream: user or service account required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return err
 	}
@@ -353,11 +376,11 @@ func (s *Service) DisconnectByOwner(ctx context.Context, tenant *storage.Tenant,
 // StartConnectForServiceAccount resolves the upstream + strategy and returns
 // the OAuth URL for a service account link. The admin user is the initiator
 // (for state AAD); the SA is the link target.
-func (s *Service) StartConnectForServiceAccount(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier, returnTo string) (string, error) {
+func (s *Service) StartConnectForServiceAccount(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamPublicID, returnTo string) (string, error) {
 	if tenant == nil || adminUser == nil {
 		return "", errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return "", err
 	}
@@ -389,11 +412,11 @@ func (s *Service) StartConnectForServiceAccount(ctx context.Context, tenant *sto
 // PersistServiceAccountStaticHeaderSecret routes to a static_header strategy's
 // service-account-override secret persistence. Returns ErrUnsupported when the
 // upstream is not `static_header` or when the admin has not enabled override.
-func (s *Service) PersistServiceAccountStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier, secret string) error {
+func (s *Service) PersistServiceAccountStaticHeaderSecret(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamPublicID, secret string) error {
 	if tenant == nil || adminUser == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return err
 	}
@@ -413,11 +436,11 @@ func (s *Service) PersistServiceAccountStaticHeaderSecret(ctx context.Context, t
 // ClearServiceAccountStaticHeaderOverride drops the service account's override
 // secret on a `static_header` link. Returns ErrUnsupported when the strategy is
 // not `static_header`.
-func (s *Service) ClearServiceAccountStaticHeaderOverride(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamIdentifier string) error {
+func (s *Service) ClearServiceAccountStaticHeaderOverride(ctx context.Context, tenant *storage.Tenant, adminUser *storage.User, serviceAccountID int64, upstreamPublicID string) error {
 	if tenant == nil || adminUser == nil {
 		return errors.New("upstream: tenant/user required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return err
 	}
@@ -434,13 +457,71 @@ func (s *Service) ClearServiceAccountStaticHeaderOverride(ctx context.Context, t
 	return c.ClearUserOverride(ctx, lctx)
 }
 
+// StartTenantConnect starts the admin OAuth flow for tenant-level credentials.
+func (s *Service) StartTenantConnect(ctx context.Context, tenant *storage.Tenant, admin *storage.User, upstreamPublicID, returnTo string) (string, error) {
+	if tenant == nil || admin == nil {
+		return "", errors.New("upstream: tenant/admin required")
+	}
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
+	if err != nil {
+		return "", err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return "", err
+	}
+	starter, ok := strat.(tenantLinkStarter)
+	if !ok {
+		return "", fmt.Errorf("upstream: strategy %q does not support tenant linking", up.StrategyType)
+	}
+	lctx := LinkContext{
+		Tenant:   tenant,
+		User:     admin,
+		Upstream: up,
+		ReturnTo: returnTo,
+	}
+	if err := strat.Provision(ctx, lctx); err != nil {
+		return "", err
+	}
+	result, err := starter.StartTenantLink(ctx, lctx)
+	if err != nil {
+		return "", err
+	}
+	return result.RedirectURL, nil
+}
+
+// FinishTenantCallback completes the admin OAuth flow for tenant-level credentials.
+func (s *Service) FinishTenantCallback(ctx context.Context, tenant *storage.Tenant, admin *storage.User, upstreamPublicID, callbackQuery string) (string, error) {
+	if tenant == nil || admin == nil {
+		return "", errors.New("upstream: tenant/admin required")
+	}
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
+	if err != nil {
+		return "", err
+	}
+	strat, err := s.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return "", err
+	}
+	finisher, ok := strat.(tenantLinkFinisher)
+	if !ok {
+		return "", fmt.Errorf("upstream: strategy %q does not support tenant linking", up.StrategyType)
+	}
+	lctx := LinkContext{Tenant: tenant, User: admin, Upstream: up}
+	returnTo, err := finisher.FinishTenantLink(ctx, lctx, callbackQuery)
+	if err != nil {
+		return "", err
+	}
+	return returnTo, nil
+}
+
 // SetSALinkEnabled flips UpstreamLink.Enabled for a service account link.
 // Re-enabling an auto_disabled link ALSO clears the failure counters.
-func (s *Service) SetSALinkEnabled(ctx context.Context, tenant *storage.Tenant, serviceAccountID int64, upstreamIdentifier string, enabled bool) error {
+func (s *Service) SetSALinkEnabled(ctx context.Context, tenant *storage.Tenant, serviceAccountID int64, upstreamPublicID string, enabled bool) error {
 	if tenant == nil {
 		return errors.New("upstream: tenant required")
 	}
-	up, err := s.loadUpstream(ctx, tenant.ID, upstreamIdentifier)
+	up, err := s.loadUpstreamByPublicID(ctx, tenant.ID, upstreamPublicID)
 	if err != nil {
 		return err
 	}

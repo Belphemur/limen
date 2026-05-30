@@ -2,6 +2,7 @@ package upstream_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -58,12 +59,24 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	if err := adminTx.Create(up).Error; err != nil {
 		t.Fatalf("create upstream: %v", err)
 	}
-	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}", SharedSecret: "shared"})
+	cfg, err := statichdr.EncodeConfig(tenant.ID, statichdr.Config{HeaderName: "X-Api-Key", HeaderTemplate: "{value}"})
 	if err != nil {
 		t.Fatalf("encode config: %v", err)
 	}
-	if err := adminTx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: cfg, Mode: "override"}).Error; err != nil {
+	if err := adminTx.Create(&storage.UpstreamStrategyConfig{TenantID: tenant.ID, UpstreamID: up.ID, Type: string(upstream.StrategyStaticHeader), ConfigJSON: cfg, Mode: "byok"}).Error; err != nil {
 		t.Fatalf("create cfg: %v", err)
+	}
+	// Create the tenant link with the admin secret.
+	tenantStr := fmt.Sprintf("%d", tenant.ID)
+	token := crypto.NewSecret([]byte("shared"))
+	token.SetAAD(tenantStr, "", "upstream.tenant.access_token")
+	if err := adminTx.Create(&storage.UpstreamTenantLink{
+		TenantID:    tenant.ID,
+		UpstreamID:  up.ID,
+		Enabled:     true,
+		AccessToken: token,
+	}).Error; err != nil {
+		t.Fatalf("create tenant link: %v", err)
 	}
 	if err := commit(); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -89,15 +102,15 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	if rows[0].LinkState != upstream.LinkStateNone {
 		t.Errorf("state = %q, want none", rows[0].LinkState)
 	}
-	if rows[0].StrategySubMode != "override" {
-		t.Errorf("sub_mode = %q, want override", rows[0].StrategySubMode)
+	if rows[0].StrategySubMode != "byok" {
+		t.Errorf("sub_mode = %q, want byok", rows[0].StrategySubMode)
 	}
 	if !rows[0].RequiresLink {
 		t.Errorf("RequiresLink = false, want true")
 	}
 
 	// Submit API key → link created, state connected.
-	if err := svc.PersistUserStaticHeaderSecret(ctx, tenant, user, "github", "tok-abc"); err != nil {
+	if err := svc.PersistUserStaticHeaderSecret(ctx, tenant, user, up.PublicID, "tok-abc"); err != nil {
 		t.Fatalf("PersistUserStaticHeaderSecret: %v", err)
 	}
 	rows, err = svc.ListUpstreamsForUser(ctx, tenant, user)
@@ -109,7 +122,7 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	}
 
 	// Disable.
-	if err := svc.SetLinkEnabled(ctx, tenant, user, "github", false); err != nil {
+	if err := svc.SetLinkEnabled(ctx, tenant, user, up.PublicID, false); err != nil {
 		t.Fatalf("SetLinkEnabled false: %v", err)
 	}
 	rows, _ = svc.ListUpstreamsForUser(ctx, tenant, user)
@@ -118,7 +131,7 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 	}
 
 	// Re-enable.
-	if err := svc.SetLinkEnabled(ctx, tenant, user, "github", true); err != nil {
+	if err := svc.SetLinkEnabled(ctx, tenant, user, up.PublicID, true); err != nil {
 		t.Fatalf("SetLinkEnabled true: %v", err)
 	}
 	rows, _ = svc.ListUpstreamsForUser(ctx, tenant, user)
@@ -151,7 +164,7 @@ func TestService_PortalOps_FullFlow(t *testing.T) {
 		t.Fatalf("state after force-trip = %q, want auto_disabled", rows[0].LinkState)
 	}
 
-	if err := svc.SetLinkEnabled(ctx, tenant, user, "github", true); err != nil {
+	if err := svc.SetLinkEnabled(ctx, tenant, user, up.PublicID, true); err != nil {
 		t.Fatalf("SetLinkEnabled true after auto_disable: %v", err)
 	}
 	rows, _ = svc.ListUpstreamsForUser(ctx, tenant, user)

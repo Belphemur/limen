@@ -34,12 +34,14 @@ import (
 )
 
 const (
-	kindAccessToken    = "upstream.access_token"
-	kindRefreshToken   = "upstream.refresh_token"
-	kindClientSecret   = "upstream.dcr.client_secret"
-	kindRegAccessToken = "upstream.dcr.registration_access_token"
-	kindStrategyConfig = "upstream.mcpspec.strategy_config"
-	defaultHTTPTimeout = 30 * time.Second
+	kindAccessToken        = "upstream.access_token"
+	kindRefreshToken       = "upstream.refresh_token"
+	kindTenantAccessToken  = "upstream.tenant.access_token"
+	kindTenantRefreshToken = "upstream.tenant.refresh_token"
+	kindClientSecret       = "upstream.dcr.client_secret"
+	kindRegAccessToken     = "upstream.dcr.registration_access_token"
+	kindStrategyConfig     = "upstream.mcpspec.strategy_config"
+	defaultHTTPTimeout     = 30 * time.Second
 )
 
 // errInvalidGrant is the OAuth-spec error code that means the refresh

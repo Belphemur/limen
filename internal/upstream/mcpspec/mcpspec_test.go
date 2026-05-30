@@ -8,12 +8,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/belphemur/limen/internal/crypto"
 	"github.com/belphemur/limen/internal/storage"
+	"github.com/belphemur/limen/internal/storage/storagetest"
 	"github.com/belphemur/limen/internal/upstream"
+	"github.com/belphemur/limen/internal/upstream/oauthstate"
+	"github.com/belphemur/limen/internal/valkey"
 )
 
 func TestNewPKCE(t *testing.T) {
@@ -239,6 +245,43 @@ func TestStrategy_Type_RequiresLink(t *testing.T) {
 	}
 }
 
+func newTestCipher(t *testing.T) *crypto.Cipher {
+	t.Helper()
+	var key crypto.Key
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	c, err := crypto.NewCipher(key)
+	if err != nil {
+		t.Fatalf("NewCipher: %v", err)
+	}
+	return c
+}
+
+func setupTenantAndUpstream(t *testing.T, store *storage.Store) (*storage.Tenant, *storage.User, *storage.Upstream) {
+	t.Helper()
+	ctx := context.Background()
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		t.Fatalf("super session: %v", err)
+	}
+	defer func() { _ = commit() }()
+
+	tenant := &storage.Tenant{Name: "acme", ZitadelOrgID: "z-test-1"}
+	if err := tx.Create(tenant).Error; err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user := &storage.User{TenantID: tenant.ID, Email: "admin@example.com", Name: "admin", ZitadelSubject: "sub-test-1"}
+	if err := tx.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	up := &storage.Upstream{TenantID: tenant.ID, Identifier: "test-up", StrategyType: string(upstream.StrategyMCPSpec), McpServerURL: "https://example.com/mcp"}
+	if err := tx.Create(up).Error; err != nil {
+		t.Fatalf("create upstream: %v", err)
+	}
+	return tenant, user, up
+}
+
 func TestHeadersFromLink(t *testing.T) {
 	link := &storage.UpstreamLink{}
 	link.AccessToken.Set([]byte("tok-abc"))
@@ -300,5 +343,231 @@ func TestProvision_DCRPathBuilds(t *testing.T) {
 	resp.Body.Close()
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Fatalf("calls = %d", atomic.LoadInt32(&calls))
+	}
+}
+
+func TestStartTenantLink_BuildsAuthorizeURL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires postgres")
+	}
+	store := storagetest.OpenMigrated(t)
+	cipher := newTestCipher(t)
+	crypto.SetCipher(cipher)
+	t.Cleanup(func() { crypto.SetCipher(nil) })
+
+	ctx := context.Background()
+	tenant, admin, up := setupTenantAndUpstream(t, store)
+
+	// Seed a static registration so loadRegistration succeeds.
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+	reg := &storage.UpstreamRegistration{
+		TenantID:    tenant.ID,
+		UpstreamID:  up.ID,
+		Issuer:      "https://as.example",
+		ClientID:    "cid-tenant",
+		ResourceURI: "https://upstream.example/mcp",
+	}
+	reg.ClientSecret = crypto.NewSecret([]byte("secret"))
+	reg.ClientSecret.SetAAD(strconv.FormatInt(tenant.ID, 10), "", kindClientSecret)
+	if err := tx.Create(reg).Error; err != nil {
+		t.Fatalf("create registration: %v", err)
+	}
+	if err := commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	stateStore := oauthstate.New(valkey.NewInMemory(), cipher, time.Minute)
+	strat, err := New(store, cipher, stateStore, Options{
+		RedirectURLFn: func(tenantPublic, upstreamName string) string {
+			return "https://gw.example/cb"
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Prime the discovery cache so StartTenantLink doesn't need network.
+	strat.discMu.Lock()
+	strat.disc[up.ID] = &discoveryEntry{
+		prm: &prmDoc{Resource: []string{"https://upstream.example/mcp"}, AuthorizationServers: []string{"https://as.example"}},
+		as: &asMetadata{
+			Issuer:                        "https://as.example",
+			AuthorizationEndpoint:         "https://as.example/authorize",
+			TokenEndpoint:                 "https://as.example/token",
+			CodeChallengeMethodsSupported: []string{"S256"},
+		},
+		fetched: time.Now(),
+	}
+	strat.discMu.Unlock()
+
+	lctx := upstream.LinkContext{
+		Tenant:   tenant,
+		User:     admin,
+		Upstream: up,
+		ReturnTo: "/portal",
+	}
+	result, err := strat.StartTenantLink(ctx, lctx)
+	if err != nil {
+		t.Fatalf("StartTenantLink: %v", err)
+	}
+	parsed, err := url.Parse(result.RedirectURL)
+	if err != nil {
+		t.Fatalf("parse redirect url: %v", err)
+	}
+	if parsed.Host != "as.example" {
+		t.Fatalf("host = %q, want as.example", parsed.Host)
+	}
+	q := parsed.Query()
+	if q.Get("client_id") != "cid-tenant" {
+		t.Fatalf("client_id = %q, want cid-tenant", q.Get("client_id"))
+	}
+	if q.Get("response_type") != "code" {
+		t.Fatalf("response_type = %q, want code", q.Get("response_type"))
+	}
+	if q.Get("code_challenge_method") != "S256" {
+		t.Fatalf("code_challenge_method = %q, want S256", q.Get("code_challenge_method"))
+	}
+	if q.Get("state") == "" {
+		t.Fatalf("state missing")
+	}
+}
+
+func TestFinishTenantLink_RoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires postgres")
+	}
+	store := storagetest.OpenMigrated(t)
+	cipher := newTestCipher(t)
+	crypto.SetCipher(cipher)
+	t.Cleanup(func() { crypto.SetCipher(nil) })
+
+	ctx := context.Background()
+	tenant, admin, up := setupTenantAndUpstream(t, store)
+
+	// Seed a static registration.
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+	reg := &storage.UpstreamRegistration{
+		TenantID:    tenant.ID,
+		UpstreamID:  up.ID,
+		Issuer:      "https://as.example",
+		ClientID:    "cid-tenant",
+		ResourceURI: "https://upstream.example/mcp",
+	}
+	reg.ClientSecret = crypto.NewSecret([]byte("secret"))
+	reg.ClientSecret.SetAAD(strconv.FormatInt(tenant.ID, 10), "", kindClientSecret)
+	if err := tx.Create(reg).Error; err != nil {
+		t.Fatalf("create registration: %v", err)
+	}
+	if err := commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Mock token endpoint.
+	var tokenCalls int32
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&tokenCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tokenResp{
+			AccessToken:  "access-tenant-123",
+			RefreshToken: "refresh-tenant-456",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+			Scope:        "tools:read",
+		})
+	}))
+	defer tokenSrv.Close()
+
+	stateStore := oauthstate.New(valkey.NewInMemory(), cipher, time.Minute)
+	strat, err := New(store, cipher, stateStore, Options{
+		RedirectURLFn: func(tenantPublic, upstreamName string) string {
+			return "https://gw.example/cb"
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Prime discovery cache to point at mock token endpoint.
+	strat.discMu.Lock()
+	strat.disc[up.ID] = &discoveryEntry{
+		prm: &prmDoc{Resource: []string{"https://upstream.example/mcp"}, AuthorizationServers: []string{"https://as.example"}},
+		as: &asMetadata{
+			Issuer:                        "https://as.example",
+			AuthorizationEndpoint:         "https://as.example/authorize",
+			TokenEndpoint:                 tokenSrv.URL,
+			CodeChallengeMethodsSupported: []string{"S256"},
+		},
+		fetched: time.Now(),
+	}
+	strat.discMu.Unlock()
+
+	// Store a tenant state envelope.
+	env := oauthstate.Envelope{
+		TenantID:     tenant.ID,
+		UserID:       admin.ID,
+		UpstreamID:   up.ID,
+		ReturnTo:     "/portal",
+		PKCEVerifier: "verifier-abc",
+		Nonce:        "nonce-xyz",
+	}
+	stateVal, err := stateStore.PutWithKind(ctx, env, "upstream.oauth.tenant_state")
+	if err != nil {
+		t.Fatalf("PutWithKind: %v", err)
+	}
+
+	lctx := upstream.LinkContext{
+		Tenant:   tenant,
+		User:     admin,
+		Upstream: up,
+	}
+	callbackQuery := "code=authcode-123&state=" + url.QueryEscape(stateVal)
+	returnTo, err := strat.FinishTenantLink(ctx, lctx, callbackQuery)
+	if err != nil {
+		t.Fatalf("FinishTenantLink: %v", err)
+	}
+	if returnTo != "/portal" {
+		t.Fatalf("returnTo = %q, want /portal", returnTo)
+	}
+	if atomic.LoadInt32(&tokenCalls) != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1", atomic.LoadInt32(&tokenCalls))
+	}
+
+	// Verify the tenant link was persisted.
+	tx2, commit2, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+	defer func() { _ = commit2() }()
+	var tl storage.UpstreamTenantLink
+	if err := tx2.Where("tenant_id = ? AND upstream_id = ?", tenant.ID, up.ID).First(&tl).Error; err != nil {
+		t.Fatalf("load tenant link: %v", err)
+	}
+	tenantStr := strconv.FormatInt(tenant.ID, 10)
+	if err := tl.AccessToken.Decrypt(tenantStr, "", kindTenantAccessToken); err != nil {
+		t.Fatalf("decrypt access token: %v", err)
+	}
+	if tl.AccessToken.String() != "access-tenant-123" {
+		t.Fatalf("access token = %q, want access-tenant-123", tl.AccessToken.String())
+	}
+	if err := tl.RefreshToken.Decrypt(tenantStr, "", kindTenantRefreshToken); err != nil {
+		t.Fatalf("decrypt refresh token: %v", err)
+	}
+	if tl.RefreshToken.String() != "refresh-tenant-456" {
+		t.Fatalf("refresh token = %q, want refresh-tenant-456", tl.RefreshToken.String())
+	}
+	if tl.Scopes != "tools:read" {
+		t.Fatalf("scopes = %q, want tools:read", tl.Scopes)
+	}
+	if !tl.Enabled {
+		t.Fatalf("Enabled = false, want true")
+	}
+	if tl.NeedsRelink {
+		t.Fatalf("NeedsRelink = true, want false")
 	}
 }

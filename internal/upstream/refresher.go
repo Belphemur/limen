@@ -97,6 +97,11 @@ func (r *Refresher) sweep(ctx context.Context) {
 		} else if n > 0 {
 			r.logger.Info("upstream refresher: auto-disabled stale needs_relink rows", zap.Int64("count", n))
 		}
+		if n, err := MaybeAutoDisableTenantForRelink(ctx, r.store, r.opts.HealthThresholds); err != nil {
+			r.logger.Warn("upstream refresher: tenant auto-disable sweep failed", zap.Error(err))
+		} else if n > 0 {
+			r.logger.Info("upstream refresher: auto-disabled stale tenant needs_relink rows", zap.Int64("count", n))
+		}
 	}
 
 	links, err := r.dueLinks(ctx)
@@ -114,6 +119,24 @@ func (r *Refresher) sweep(ctx context.Context) {
 				zap.Error(err))
 		}
 	}
+
+	tenantLinks, err := r.dueTenantLinks(ctx)
+	if err != nil {
+		// Continue on tenant-link sweep failure: user-link sweep already
+		// completed, and tenant links are a best-effort optimization
+		// (catalog/verification purpose only).
+		r.logger.Warn("upstream refresher: load due tenant links failed", zap.Error(err))
+	} else {
+		r.logger.Debug("upstream refresher: sweeping tenant links", zap.Int("count", len(tenantLinks)))
+		for i := range tenantLinks {
+			tl := &tenantLinks[i]
+			if err := r.maintainOneTenant(ctx, tl); err != nil {
+				r.logger.Warn("upstream refresher: maintain tenant link failed",
+					zap.Int64("tenant_link_id", tl.ID),
+					zap.Error(err))
+			}
+		}
+	}
 }
 
 // dueLinks returns links whose expires_at is inside the refresh window
@@ -128,6 +151,30 @@ func (r *Refresher) dueLinks(ctx context.Context) ([]storage.UpstreamLink, error
 
 	cutoff := time.Now().Add(r.opts.RefreshWindow)
 	var out []storage.UpstreamLink
+	if err := tx.Where(`expires_at IS NOT NULL
+		AND expires_at < ?
+		AND needs_relink = false
+		AND auto_disabled_at IS NULL
+		AND enabled = true`, cutoff).
+		Order("expires_at ASC").
+		Limit(500).
+		Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// dueTenantLinks returns tenant links whose expires_at is inside the
+// refresh window and that aren't auto-disabled / needs-relink.
+func (r *Refresher) dueTenantLinks(ctx context.Context) ([]storage.UpstreamTenantLink, error) {
+	tx, commit, err := r.store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = commit() }()
+
+	cutoff := time.Now().Add(r.opts.RefreshWindow)
+	var out []storage.UpstreamTenantLink
 	if err := tx.Where(`expires_at IS NOT NULL
 		AND expires_at < ?
 		AND needs_relink = false
@@ -206,13 +253,68 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 	return nil
 }
 
+// maintainOneTenant loads the upstream + tenant for a tenant link,
+// AAD-binds the encrypted columns under the tenant only, and runs
+// Strategy.Maintain.
+func (r *Refresher) maintainOneTenant(ctx context.Context, tenantLink *storage.UpstreamTenantLink) error {
+	tx, commit, err := r.store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return err
+	}
+	var up storage.Upstream
+	if err := tx.Where("id = ?", tenantLink.UpstreamID).First(&up).Error; err != nil {
+		_ = commit()
+		return err
+	}
+	var tenant storage.Tenant
+	if err := tx.Where("id = ?", tenantLink.TenantID).First(&tenant).Error; err != nil {
+		_ = commit()
+		return err
+	}
+	_ = commit()
+
+	tenantStr := strconv.FormatInt(tenant.ID, 10)
+	if err := tenantLink.AccessToken.Decrypt(tenantStr, "", "upstream.tenant.access_token"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt tenant access_token: %w", err)
+	}
+	if err := tenantLink.RefreshToken.Decrypt(tenantStr, "", "upstream.tenant.refresh_token"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt tenant refresh_token: %w", err)
+	}
+	if err := tenantLink.ExtraJSON.Decrypt(tenantStr, "", "upstream.tenant.extra"); err != nil {
+		return fmt.Errorf("upstream refresher: decrypt tenant extra: %w", err)
+	}
+
+	strat, err := r.registry.Resolve(StrategyType(up.StrategyType))
+	if err != nil {
+		return err
+	}
+
+	lctx := LinkContext{
+		Tenant:     &tenant,
+		User:       nil,
+		Upstream:   &up,
+		TenantLink: tenantLink,
+	}
+	if err := strat.Maintain(ctx, lctx); err != nil {
+		if errors.Is(err, ErrNeedsRelink) {
+			return nil
+		}
+		reason := ReasonRefreshFailed
+		_ = RecordTenantFailure(ctx, r.store, tenantLink.ID, reason, false, r.opts.HealthThresholds)
+		return err
+	}
+	return nil
+}
+
 // sweepCatalog re-runs IndexUpstream for every non-deleted upstream.
 // For tenant-mode strategies (RequiresLink == false) we call without a
-// link. For per-user strategies we pick any healthy link to use as the
-// credential source \u2014 the resulting catalog is shared with every user
-// of the tenant, so the bootstrap-time role gate (see transport/upstream.go)
-// is the only place role enforcement matters. If no healthy link exists,
-// the upstream is skipped and its catalog ages until one appears.
+// link. For per-user strategies we prefer the tenant link (admin
+// credentials) for catalog indexing, falling back to any healthy user
+// link when no tenant link exists. The resulting catalog is shared with
+// every user of the tenant, so the bootstrap-time role gate (see
+// transport/upstream.go) is the only place role enforcement matters. If
+// no healthy link exists, the upstream is skipped and its catalog ages
+// until one appears.
 func (r *Refresher) sweepCatalog(ctx context.Context) {
 	tx, commit, err := r.store.Session(storage.WithSuperuser(ctx))
 	if err != nil {
@@ -272,8 +374,38 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 		return fmt.Errorf("load tenant: %w", err)
 	}
 
+	var tenantLink *storage.UpstreamTenantLink
 	var link *storage.UpstreamLink
-	if strat.RequiresLink() {
+
+	// Best-effort load tenant link (admin credentials) first.
+	tl := new(storage.UpstreamTenantLink)
+	if err := tx.Where(`upstream_id = ?
+		AND enabled = true
+		AND auto_disabled_at IS NULL
+		AND needs_relink = false`, up.ID).
+		First(tl).Error; err == nil {
+		tenantLink = tl
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		_ = commit()
+		return fmt.Errorf("load tenant link: %w", err)
+	}
+
+	if tenantLink != nil {
+		tenantStr := strconv.FormatInt(tenant.ID, 10)
+		if err := tl.AccessToken.Decrypt(tenantStr, "", "upstream.tenant.access_token"); err != nil {
+			_ = commit()
+			return fmt.Errorf("decrypt tenant access_token: %w", err)
+		}
+		if err := tl.RefreshToken.Decrypt(tenantStr, "", "upstream.tenant.refresh_token"); err != nil {
+			_ = commit()
+			return fmt.Errorf("decrypt tenant refresh_token: %w", err)
+		}
+		if err := tl.ExtraJSON.Decrypt(tenantStr, "", "upstream.tenant.extra"); err != nil {
+			_ = commit()
+			return fmt.Errorf("decrypt tenant extra: %w", err)
+		}
+	} else if strat.RequiresLink() {
+		// No tenant link — fall back to any healthy user link.
 		var l storage.UpstreamLink
 		err := tx.Preload("User").
 			Where(`upstream_id = ?
@@ -310,7 +442,7 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 		}
 	}
 
-	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link, nil)
+	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link, tenantLink, nil)
 }
 
 // ensure gorm import is used in builds that don't reference it directly.

@@ -10,6 +10,7 @@ const (
 	PrefixUpstreamRegistration   Prefix = "ureg"
 	PrefixUpstreamLink           Prefix = "ulnk"
 	PrefixUpstreamTool           Prefix = "utl"
+	PrefixUpstreamTenantLink     Prefix = "tulnk"
 	PrefixCodemodeInvocation     Prefix = "cmi"
 	PrefixZitadelApp             Prefix = "zapp"
 	PrefixAllowlistEntry         Prefix = "ral"

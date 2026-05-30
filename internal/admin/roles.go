@@ -43,4 +43,6 @@ var requiredRole = map[string]session.Role{
 	"SubmitServiceAccountAPIKey":       session.RoleAdmin,
 	"ClearServiceAccountOverride":      session.RoleAdmin,
 	"DisconnectServiceAccountUpstream": session.RoleAdmin,
+	"StartAdminConnect":                session.RoleAdmin,
+	"FinishAdminCallback":              session.RoleAdmin,
 }

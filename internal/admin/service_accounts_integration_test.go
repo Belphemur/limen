@@ -172,7 +172,9 @@ func mountRealSAWithConfig(t *testing.T, roles []string, zitadelDomain, zitadelP
 	svc := NewService(store, nil, nil, resolver, nil, nil, fakeSA, zitadelDomain, zitadelProjectID, OIDCCredentials{}, cipher, false, zap.NewNop())
 	_, h := svc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(tenancy.WithTenant(r.Context(), tenant))
+		ctx := tenancy.WithTenant(r.Context(), tenant)
+		ctx = storage.WithTenant(ctx, tenant.ID)
+		r = r.WithContext(ctx)
 		h.ServeHTTP(w, r)
 	})
 	srv := httptest.NewServer(wrapped)

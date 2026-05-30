@@ -56,6 +56,7 @@ func IndexUpstream(
 	tenant *storage.Tenant,
 	up *storage.Upstream,
 	link *storage.UpstreamLink,
+	tenantLink *storage.UpstreamTenantLink,
 	httpClient *http.Client,
 ) error {
 	if store == nil || registry == nil || tenant == nil || up == nil {
@@ -66,7 +67,7 @@ func IndexUpstream(
 		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
 
-	tools, err := listUpstreamTools(ctx, strat, tenant, up, link, httpClient)
+	tools, err := listUpstreamTools(ctx, strat, tenant, up, link, tenantLink, httpClient)
 	if err != nil {
 		return fmt.Errorf("index upstream %q: %w", up.Identifier, err)
 	}
@@ -93,9 +94,10 @@ func listUpstreamTools(
 	tenant *storage.Tenant,
 	up *storage.Upstream,
 	link *storage.UpstreamLink,
+	tenantLink *storage.UpstreamTenantLink,
 	httpClient *http.Client,
 ) ([]mcp.Tool, error) {
-	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link}
+	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link, TenantLink: tenantLink}
 	if link != nil {
 		lctx.User = link.User
 	}

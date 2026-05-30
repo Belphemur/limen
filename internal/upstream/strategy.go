@@ -63,6 +63,16 @@ const (
 // the structured MCP "re-link required" error.
 var ErrNeedsRelink = errors.New("upstream: link needs re-link")
 
+// ErrNoTenantLink is returned when a tenant-level strategy has no
+// credentials configured. The caller should surface a distinct error
+// telling an admin to configure tenant credentials.
+var ErrNoTenantLink = errors.New("upstream: no tenant credentials configured - admin must connect")
+
+// ErrNoCredentials is returned when neither a per-user link nor a
+// tenant link is available. This is the top-level error after the
+// BYOK → tenant → fail resolution cascade is exhausted.
+var ErrNoCredentials = errors.New("upstream: no usable credentials available")
+
 // LinkContext bundles the per-request inputs every Strategy method needs.
 // Tenant and User are pre-loaded; Link is nil when no link exists yet
 // (Strategy.RequiresLink == false, or pre-StartLink).
@@ -71,6 +81,12 @@ type LinkContext struct {
 	User     *storage.User
 	Upstream *storage.Upstream
 	Link     *storage.UpstreamLink
+	// TenantLink is the admin credential row for this (tenant, upstream)
+	// pair. Populated by DBAuthProvider on a best-effort basis for all
+	// strategies. Used for catalog indexing, connection verification, and
+	// static_header TenantOwner shared secrets. Per-user tool calls use
+	// Link instead.
+	TenantLink *storage.UpstreamTenantLink
 	// ReturnTo is where the SPA wants the browser to land after the link
 	// completes. Strategy.FinishLink consumes it; ignored by tenant-mode
 	// strategies.
@@ -157,6 +173,18 @@ type Strategy interface {
 	// within the refresh window. No-op for strategies that don't rotate
 	// tokens (none, static_header).
 	Maintain(ctx context.Context, lctx LinkContext) error
+}
+
+// tenantLinkStarter is the optional capability for strategies that support
+// an admin-initiated OAuth flow for tenant-level credentials.
+type tenantLinkStarter interface {
+	StartTenantLink(ctx context.Context, lctx LinkContext) (StartLinkResult, error)
+}
+
+// tenantLinkFinisher is the optional capability for strategies that complete
+// an admin-initiated OAuth flow for tenant-level credentials.
+type tenantLinkFinisher interface {
+	FinishTenantLink(ctx context.Context, lctx LinkContext, callbackQuery string) (string, error)
 }
 
 // ErrUnsupported is returned by Strategy methods that don't apply to the

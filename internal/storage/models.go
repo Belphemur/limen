@@ -47,5 +47,6 @@ func AllModels() []any {
 		&TenantRedirectURIAllowlist{},
 		&PendingSignup{},
 		&ServiceAccount{},
+		&UpstreamTenantLink{},
 	}
 }

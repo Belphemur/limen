@@ -106,9 +106,9 @@ func (s *Service) StartServiceAccountConnect(ctx context.Context, req *connect.R
 	if saPublicID == "" {
 		return nil, s.invalidArg("service_account_public_id", "required")
 	}
-	upstreamID := strings.TrimSpace(req.Msg.GetUpstreamIdentifier())
-	if upstreamID == "" {
-		return nil, s.invalidArg("upstream_identifier", "required")
+	upstreamPublicID := strings.TrimSpace(req.Msg.GetUpstreamPublicId())
+	if upstreamPublicID == "" {
+		return nil, s.invalidArg("upstream_public_id", "required")
 	}
 
 	t := tenancy.MustTenant(ctx)
@@ -128,7 +128,7 @@ func (s *Service) StartServiceAccountConnect(ctx context.Context, req *connect.R
 		return nil, s.internal("load admin user", err)
 	}
 
-	redirectURL, err := s.upstream.StartConnectForServiceAccount(ctx, t, adminUser, sa.ID, upstreamID, req.Msg.GetReturnTo())
+	redirectURL, err := s.upstream.StartConnectForServiceAccount(ctx, t, adminUser, sa.ID, upstreamPublicID, req.Msg.GetReturnTo())
 	if err != nil {
 		return nil, s.internal("start service account connect", err)
 	}
@@ -145,9 +145,9 @@ func (s *Service) SubmitServiceAccountAPIKey(ctx context.Context, req *connect.R
 	if saPublicID == "" {
 		return nil, s.invalidArg("service_account_public_id", "required")
 	}
-	upstreamID := strings.TrimSpace(req.Msg.GetUpstreamIdentifier())
-	if upstreamID == "" {
-		return nil, s.invalidArg("upstream_identifier", "required")
+	upstreamPublicID := strings.TrimSpace(req.Msg.GetUpstreamPublicId())
+	if upstreamPublicID == "" {
+		return nil, s.invalidArg("upstream_public_id", "required")
 	}
 	apiKey := req.Msg.GetApiKey()
 	if strings.TrimSpace(apiKey) == "" {
@@ -170,7 +170,7 @@ func (s *Service) SubmitServiceAccountAPIKey(ctx context.Context, req *connect.R
 		return nil, s.internal("load admin user", err)
 	}
 
-	if err := s.upstream.PersistServiceAccountStaticHeaderSecret(ctx, t, adminUser, sa.ID, upstreamID, apiKey); err != nil {
+	if err := s.upstream.PersistServiceAccountStaticHeaderSecret(ctx, t, adminUser, sa.ID, upstreamPublicID, apiKey); err != nil {
 		return nil, s.internal("submit service account api key", err)
 	}
 
@@ -184,9 +184,9 @@ func (s *Service) ClearServiceAccountOverride(ctx context.Context, req *connect.
 	if saPublicID == "" {
 		return nil, s.invalidArg("service_account_public_id", "required")
 	}
-	upstreamID := strings.TrimSpace(req.Msg.GetUpstreamIdentifier())
-	if upstreamID == "" {
-		return nil, s.invalidArg("upstream_identifier", "required")
+	upstreamPublicID := strings.TrimSpace(req.Msg.GetUpstreamPublicId())
+	if upstreamPublicID == "" {
+		return nil, s.invalidArg("upstream_public_id", "required")
 	}
 
 	t := tenancy.MustTenant(ctx)
@@ -205,7 +205,7 @@ func (s *Service) ClearServiceAccountOverride(ctx context.Context, req *connect.
 		return nil, s.internal("load admin user", err)
 	}
 
-	if err := s.upstream.ClearServiceAccountStaticHeaderOverride(ctx, t, adminUser, sa.ID, upstreamID); err != nil {
+	if err := s.upstream.ClearServiceAccountStaticHeaderOverride(ctx, t, adminUser, sa.ID, upstreamPublicID); err != nil {
 		return nil, s.internal("clear service account override", err)
 	}
 
@@ -218,9 +218,9 @@ func (s *Service) DisconnectServiceAccountUpstream(ctx context.Context, req *con
 	if saPublicID == "" {
 		return nil, s.invalidArg("service_account_public_id", "required")
 	}
-	upstreamID := strings.TrimSpace(req.Msg.GetUpstreamIdentifier())
-	if upstreamID == "" {
-		return nil, s.invalidArg("upstream_identifier", "required")
+	upstreamPublicID := strings.TrimSpace(req.Msg.GetUpstreamPublicId())
+	if upstreamPublicID == "" {
+		return nil, s.invalidArg("upstream_public_id", "required")
 	}
 
 	t := tenancy.MustTenant(ctx)
@@ -235,7 +235,7 @@ func (s *Service) DisconnectServiceAccountUpstream(ctx context.Context, req *con
 
 	saID := sa.ID
 	lctx := upstream.LinkContext{ServiceAccountID: &saID}
-	if err := s.upstream.DisconnectByOwner(ctx, t, lctx, upstreamID); err != nil {
+	if err := s.upstream.DisconnectByOwner(ctx, t, lctx, upstreamPublicID); err != nil {
 		return nil, s.internal("disconnect service account upstream", err)
 	}
 

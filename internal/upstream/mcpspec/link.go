@@ -58,27 +58,11 @@ func (s *Strategy) StartLink(ctx context.Context, lctx upstream.LinkContext) (up
 		return upstream.StartLinkResult{}, fmt.Errorf("mcpspec: put state: %w", err)
 	}
 
-	q := url.Values{}
-	q.Set("response_type", "code")
-	q.Set("client_id", reg.ClientID)
-	q.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier))
-	q.Set("state", stateVal)
-	q.Set("code_challenge", challenge)
-	q.Set("code_challenge_method", "S256")
-	if reg.ResourceURI != "" {
-		q.Set("resource", reg.ResourceURI)
+	redirectURL, err := s.buildAuthorizeURL(as, reg, cfg, lctx, stateVal, challenge)
+	if err != nil {
+		return upstream.StartLinkResult{}, err
 	}
-	if len(cfg.Scopes) > 0 {
-		q.Set("scope", strings.Join(cfg.Scopes, " "))
-	}
-
-	authURL := as.AuthorizationEndpoint
-	if strings.Contains(authURL, "?") {
-		authURL += "&" + q.Encode()
-	} else {
-		authURL += "?" + q.Encode()
-	}
-	return upstream.StartLinkResult{RedirectURL: authURL}, nil
+	return upstream.StartLinkResult{RedirectURL: redirectURL}, nil
 }
 
 // FinishLink exchanges the authorization code for tokens and persists
@@ -140,7 +124,7 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
-	form.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier))
+	form.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID))
 	form.Set("code_verifier", env.PKCEVerifier)
 	if reg.ResourceURI != "" {
 		form.Set("resource", reg.ResourceURI)
@@ -219,6 +203,200 @@ func (s *Strategy) FinishLink(ctx context.Context, lctx upstream.LinkContext, ca
 		return "", cerr
 	}
 	return env.ReturnTo, nil
+}
+
+// StartTenantLink builds the AS authorization URL with PKCE + state for
+// an admin-initiated tenant-level OAuth flow. The state envelope is stored
+// under the "upstream.oauth.tenant_state" AAD kind so it cannot be confused
+// with per-user state.
+func (s *Strategy) StartTenantLink(ctx context.Context, lctx upstream.LinkContext) (upstream.StartLinkResult, error) {
+	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+		return upstream.StartLinkResult{}, errors.New("mcpspec: tenant/user/upstream missing")
+	}
+	reg, err := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
+	if err != nil {
+		return upstream.StartLinkResult{}, err
+	}
+	_, as, err := s.discover(ctx, lctx)
+	if err != nil {
+		return upstream.StartLinkResult{}, err
+	}
+	cfg, _ := s.tryLoadConfig(ctx, lctx)
+
+	verifier, challenge, err := newPKCE()
+	if err != nil {
+		return upstream.StartLinkResult{}, err
+	}
+	nonce, err := randomB64(16)
+	if err != nil {
+		return upstream.StartLinkResult{}, err
+	}
+	env := oauthstate.Envelope{
+		TenantID:     lctx.Tenant.ID,
+		UserID:       lctx.User.ID,
+		UpstreamID:   lctx.Upstream.ID,
+		ReturnTo:     lctx.ReturnTo,
+		PKCEVerifier: verifier,
+		Nonce:        nonce,
+	}
+	stateVal, err := s.state.PutWithKind(ctx, env, "upstream.oauth.tenant_state")
+	if err != nil {
+		return upstream.StartLinkResult{}, fmt.Errorf("mcpspec: put tenant state: %w", err)
+	}
+
+	redirectURL, err := s.buildAuthorizeURL(as, reg, cfg, lctx, stateVal, challenge)
+	if err != nil {
+		return upstream.StartLinkResult{}, err
+	}
+	return upstream.StartLinkResult{RedirectURL: redirectURL}, nil
+}
+
+// FinishTenantLink exchanges the authorization code for tokens and persists
+// the resulting UpstreamTenantLink. The captured ReturnTo from StartTenantLink
+// is returned so the callback handler can land the SPA where it started.
+func (s *Strategy) FinishTenantLink(ctx context.Context, lctx upstream.LinkContext, callbackQuery string) (string, error) {
+	if lctx.Tenant == nil || lctx.User == nil || lctx.Upstream == nil {
+		return "", errors.New("mcpspec: tenant/user/upstream missing")
+	}
+	vals, err := url.ParseQuery(callbackQuery)
+	if err != nil {
+		return "", fmt.Errorf("mcpspec: parse callback query: %w", err)
+	}
+	stateVal := vals.Get("state")
+
+	// RFC 6749 §4.1.2.1 — when the AS reports an error it still echoes
+	// the original state. Consume the envelope first so we can recover
+	// the SPA's return_to and bounce back to the popup-close page with
+	// the structured error, instead of dead-ending on an HTTP 400.
+	if errCode := vals.Get("error"); errCode != "" {
+		authErr := &upstream.AuthorizationError{
+			Code:        errCode,
+			Description: vals.Get("error_description"),
+		}
+		if stateVal != "" {
+			if env, cerr := s.state.ConsumeWithKind(ctx, stateVal, lctx.Tenant.ID, lctx.User.ID, "upstream.oauth.tenant_state"); cerr == nil && env.UpstreamID == lctx.Upstream.ID {
+				authErr.ReturnTo = env.ReturnTo
+			}
+		}
+		return "", authErr
+	}
+
+	code := vals.Get("code")
+	if code == "" || stateVal == "" {
+		return "", errors.New("mcpspec: callback missing code or state")
+	}
+	env, err := s.state.ConsumeWithKind(ctx, stateVal, lctx.Tenant.ID, lctx.User.ID, "upstream.oauth.tenant_state")
+	if err != nil {
+		return "", fmt.Errorf("mcpspec: consume tenant state: %w", err)
+	}
+	if env.UpstreamID != lctx.Upstream.ID {
+		return "", errors.New("mcpspec: state upstream mismatch")
+	}
+
+	reg, err := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
+	if err != nil {
+		return "", err
+	}
+	_, as, err := s.discover(ctx, lctx)
+	if err != nil {
+		return "", err
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID))
+	form.Set("code_verifier", env.PKCEVerifier)
+	if reg.ResourceURI != "" {
+		form.Set("resource", reg.ResourceURI)
+	}
+	tok, _, err := s.tokenRequest(ctx, as.TokenEndpoint, reg, form)
+	if err != nil {
+		return "", err
+	}
+
+	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
+	at := crypto.NewSecret([]byte(tok.AccessToken))
+	at.SetAAD(tenantStr, "", kindTenantAccessToken)
+	rt := crypto.NewSecret([]byte(tok.RefreshToken))
+	rt.SetAAD(tenantStr, "", kindTenantRefreshToken)
+	var exp *time.Time
+	if tok.ExpiresIn > 0 {
+		t := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
+		exp = &t
+	}
+
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
+	if err != nil {
+		return "", err
+	}
+	var existing storage.UpstreamTenantLink
+	existingErr := tx.Where("upstream_id = ?", lctx.Upstream.ID).First(&existing).Error
+	if existingErr != nil {
+		newLink := storage.UpstreamTenantLink{
+			TenantID:     lctx.Tenant.ID,
+			UpstreamID:   lctx.Upstream.ID,
+			AccessToken:  at,
+			RefreshToken: rt,
+			ExpiresAt:    exp,
+			Scopes:       tok.Scope,
+			ResourceURI:  reg.ResourceURI,
+			Enabled:      true,
+		}
+		if createErr := tx.Create(&newLink).Error; createErr != nil {
+			_ = commit()
+			return "", fmt.Errorf("mcpspec: create tenant link: %w", createErr)
+		}
+		if cerr := commit(); cerr != nil {
+			return "", cerr
+		}
+		return env.ReturnTo, nil
+	}
+	existing.AccessToken = at
+	existing.RefreshToken = rt
+	existing.ExpiresAt = exp
+	existing.Scopes = tok.Scope
+	existing.ResourceURI = reg.ResourceURI
+	existing.Enabled = true
+	existing.NeedsRelink = false
+	existing.ConsecutiveFailures = 0
+	existing.FirstFailureAt = nil
+	existing.LastFailureAt = nil
+	existing.LastFailureReason = ""
+	existing.AutoDisabledAt = nil
+	if updErr := tx.Save(&existing).Error; updErr != nil {
+		_ = commit()
+		return "", fmt.Errorf("mcpspec: update tenant link: %w", updErr)
+	}
+	if cerr := commit(); cerr != nil {
+		return "", cerr
+	}
+	return env.ReturnTo, nil
+}
+
+// buildAuthorizeURL constructs the AS authorization URL with PKCE challenge,
+// client_id, redirect_uri, state, and optional resource / scopes.
+// Returns an error when the authorization endpoint URL is malformed.
+func (s *Strategy) buildAuthorizeURL(as *asMetadata, reg *storage.UpstreamRegistration, cfg Config, lctx upstream.LinkContext, stateVal, challenge string) (string, error) {
+	u, err := url.Parse(as.AuthorizationEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("mcpspec: bad authorization endpoint %q: %w", as.AuthorizationEndpoint, err)
+	}
+	q := u.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", reg.ClientID)
+	q.Set("redirect_uri", s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID))
+	q.Set("state", stateVal)
+	q.Set("code_challenge", challenge)
+	q.Set("code_challenge_method", "S256")
+	if reg.ResourceURI != "" {
+		q.Set("resource", reg.ResourceURI)
+	}
+	if len(cfg.Scopes) > 0 {
+		q.Set("scope", strings.Join(cfg.Scopes, " "))
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 // --- PKCE helpers ------------------------------------------------------

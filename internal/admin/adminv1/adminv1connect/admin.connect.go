@@ -129,6 +129,12 @@ const (
 	// AdminServiceDisconnectServiceAccountUpstreamProcedure is the fully-qualified name of the
 	// AdminService's DisconnectServiceAccountUpstream RPC.
 	AdminServiceDisconnectServiceAccountUpstreamProcedure = "/limen.admin.v1.AdminService/DisconnectServiceAccountUpstream"
+	// AdminServiceStartAdminConnectProcedure is the fully-qualified name of the AdminService's
+	// StartAdminConnect RPC.
+	AdminServiceStartAdminConnectProcedure = "/limen.admin.v1.AdminService/StartAdminConnect"
+	// AdminServiceFinishAdminCallbackProcedure is the fully-qualified name of the AdminService's
+	// FinishAdminCallback RPC.
+	AdminServiceFinishAdminCallbackProcedure = "/limen.admin.v1.AdminService/FinishAdminCallback"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -180,6 +186,11 @@ type AdminServiceClient interface {
 	SubmitServiceAccountAPIKey(context.Context, *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error)
 	ClearServiceAccountOverride(context.Context, *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error)
 	DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error)
+	// Admin OAuth flow for tenant-level upstream credentials.
+	// Stores tokens in upstream_tenant_links for catalog indexing and
+	// connection verification — not for tool call routing.
+	StartAdminConnect(context.Context, *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error)
+	FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -385,6 +396,18 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("DisconnectServiceAccountUpstream")),
 			connect.WithClientOptions(opts...),
 		),
+		startAdminConnect: connect.NewClient[adminv1.StartAdminConnectRequest, adminv1.StartAdminConnectResponse](
+			httpClient,
+			baseURL+AdminServiceStartAdminConnectProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("StartAdminConnect")),
+			connect.WithClientOptions(opts...),
+		),
+		finishAdminCallback: connect.NewClient[adminv1.FinishAdminCallbackRequest, adminv1.FinishAdminCallbackResponse](
+			httpClient,
+			baseURL+AdminServiceFinishAdminCallbackProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("FinishAdminCallback")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -422,6 +445,8 @@ type adminServiceClient struct {
 	submitServiceAccountAPIKey       *connect.Client[adminv1.SubmitServiceAccountAPIKeyRequest, adminv1.SubmitServiceAccountAPIKeyResponse]
 	clearServiceAccountOverride      *connect.Client[adminv1.ClearServiceAccountOverrideRequest, adminv1.ClearServiceAccountOverrideResponse]
 	disconnectServiceAccountUpstream *connect.Client[adminv1.DisconnectServiceAccountUpstreamRequest, adminv1.DisconnectServiceAccountUpstreamResponse]
+	startAdminConnect                *connect.Client[adminv1.StartAdminConnectRequest, adminv1.StartAdminConnectResponse]
+	finishAdminCallback              *connect.Client[adminv1.FinishAdminCallbackRequest, adminv1.FinishAdminCallbackResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -586,6 +611,16 @@ func (c *adminServiceClient) DisconnectServiceAccountUpstream(ctx context.Contex
 	return c.disconnectServiceAccountUpstream.CallUnary(ctx, req)
 }
 
+// StartAdminConnect calls limen.admin.v1.AdminService.StartAdminConnect.
+func (c *adminServiceClient) StartAdminConnect(ctx context.Context, req *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error) {
+	return c.startAdminConnect.CallUnary(ctx, req)
+}
+
+// FinishAdminCallback calls limen.admin.v1.AdminService.FinishAdminCallback.
+func (c *adminServiceClient) FinishAdminCallback(ctx context.Context, req *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error) {
+	return c.finishAdminCallback.CallUnary(ctx, req)
+}
+
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
 type AdminServiceHandler interface {
 	// Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
@@ -635,6 +670,11 @@ type AdminServiceHandler interface {
 	SubmitServiceAccountAPIKey(context.Context, *connect.Request[adminv1.SubmitServiceAccountAPIKeyRequest]) (*connect.Response[adminv1.SubmitServiceAccountAPIKeyResponse], error)
 	ClearServiceAccountOverride(context.Context, *connect.Request[adminv1.ClearServiceAccountOverrideRequest]) (*connect.Response[adminv1.ClearServiceAccountOverrideResponse], error)
 	DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error)
+	// Admin OAuth flow for tenant-level upstream credentials.
+	// Stores tokens in upstream_tenant_links for catalog indexing and
+	// connection verification — not for tool call routing.
+	StartAdminConnect(context.Context, *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error)
+	FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -836,6 +876,18 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("DisconnectServiceAccountUpstream")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceStartAdminConnectHandler := connect.NewUnaryHandler(
+		AdminServiceStartAdminConnectProcedure,
+		svc.StartAdminConnect,
+		connect.WithSchema(adminServiceMethods.ByName("StartAdminConnect")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceFinishAdminCallbackHandler := connect.NewUnaryHandler(
+		AdminServiceFinishAdminCallbackProcedure,
+		svc.FinishAdminCallback,
+		connect.WithSchema(adminServiceMethods.ByName("FinishAdminCallback")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceCreateUpstreamProcedure:
@@ -902,6 +954,10 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceClearServiceAccountOverrideHandler.ServeHTTP(w, r)
 		case AdminServiceDisconnectServiceAccountUpstreamProcedure:
 			adminServiceDisconnectServiceAccountUpstreamHandler.ServeHTTP(w, r)
+		case AdminServiceStartAdminConnectProcedure:
+			adminServiceStartAdminConnectHandler.ServeHTTP(w, r)
+		case AdminServiceFinishAdminCallbackProcedure:
+			adminServiceFinishAdminCallbackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1037,4 +1093,12 @@ func (UnimplementedAdminServiceHandler) ClearServiceAccountOverride(context.Cont
 
 func (UnimplementedAdminServiceHandler) DisconnectServiceAccountUpstream(context.Context, *connect.Request[adminv1.DisconnectServiceAccountUpstreamRequest]) (*connect.Response[adminv1.DisconnectServiceAccountUpstreamResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.DisconnectServiceAccountUpstream is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) StartAdminConnect(context.Context, *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.StartAdminConnect is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.FinishAdminCallback is not implemented"))
 }

@@ -86,8 +86,10 @@ type StaticHeaderMode int32
 
 const (
 	StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED StaticHeaderMode = 0
-	StaticHeaderMode_STATIC_HEADER_MODE_SHARED      StaticHeaderMode = 1
-	StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE    StaticHeaderMode = 2
+	// tenant_owner — the admin secret is shared by every caller.
+	StaticHeaderMode_STATIC_HEADER_MODE_SHARED StaticHeaderMode = 1
+	// byok — each user submits their own API key.
+	StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE StaticHeaderMode = 2
 )
 
 // Enum value maps for StaticHeaderMode.
@@ -219,7 +221,7 @@ type UpstreamSummary struct {
 	McpUrl       string                 `protobuf:"bytes,4,opt,name=mcp_url,json=mcpUrl,proto3" json:"mcp_url,omitempty"`
 	StrategyType string                 `protobuf:"bytes,5,opt,name=strategy_type,json=strategyType,proto3" json:"strategy_type,omitempty"`
 	// String representation of static_header_mode for backward
-	// compatibility: "shared" / "override". Empty for strategies
+	// compatibility: "tenant_owner" / "byok". Empty for strategies
 	// without a sub-mode.
 	StrategySubMode string    `protobuf:"bytes,6,opt,name=strategy_sub_mode,json=strategySubMode,proto3" json:"strategy_sub_mode,omitempty"`
 	RequiresLink    bool      `protobuf:"varint,7,opt,name=requires_link,json=requiresLink,proto3" json:"requires_link,omitempty"`
@@ -239,6 +241,14 @@ type UpstreamSummary struct {
 	// on the link). Drives the portal CTA between Submit and Rotate/Clear.
 	// Always false for shared sub-mode and for other strategies.
 	HasUserOverride bool `protobuf:"varint,13,opt,name=has_user_override,json=hasUserOverride,proto3" json:"has_user_override,omitempty"`
+	// True when the upstream has an active UpstreamTenantLink row
+	// (admin has configured credentials). Used by both the admin SPA
+	// (health monitoring) and portal SPA ("upstream not configured yet" banner).
+	HasTenantLink bool `protobuf:"varint,15,opt,name=has_tenant_link,json=hasTenantLink,proto3" json:"has_tenant_link,omitempty"`
+	// Health state of the tenant-level credentials. UNSPECIFIED when
+	// has_tenant_link is false. Reuses LinkState since the state
+	// machine is identical (connected, needs_relink, auto_disabled).
+	TenantLinkState LinkState `protobuf:"varint,16,opt,name=tenant_link_state,json=tenantLinkState,proto3,enum=limen.portal.v1.LinkState" json:"tenant_link_state,omitempty"`
 	// Typed enum mirroring strategy_sub_mode. SHARED / OVERRIDE for
 	// static_header; UNSPECIFIED for other strategies.
 	StaticHeaderMode StaticHeaderMode `protobuf:"varint,14,opt,name=static_header_mode,json=staticHeaderMode,proto3,enum=limen.portal.v1.StaticHeaderMode" json:"static_header_mode,omitempty"`
@@ -367,6 +377,20 @@ func (x *UpstreamSummary) GetHasUserOverride() bool {
 	return false
 }
 
+func (x *UpstreamSummary) GetHasTenantLink() bool {
+	if x != nil {
+		return x.HasTenantLink
+	}
+	return false
+}
+
+func (x *UpstreamSummary) GetTenantLinkState() LinkState {
+	if x != nil {
+		return x.TenantLinkState
+	}
+	return LinkState_LINK_STATE_UNSPECIFIED
+}
+
 func (x *UpstreamSummary) GetStaticHeaderMode() StaticHeaderMode {
 	if x != nil {
 		return x.StaticHeaderMode
@@ -427,8 +451,8 @@ func (x *UpstreamTool) GetDescription() string {
 }
 
 type StartConnectRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
 	// Path the SPA wants the browser to return to after the dance.
 	ReturnTo      string `protobuf:"bytes,2,opt,name=return_to,json=returnTo,proto3" json:"return_to,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -465,9 +489,9 @@ func (*StartConnectRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *StartConnectRequest) GetUpstreamIdentifier() string {
+func (x *StartConnectRequest) GetUpstreamPublicId() string {
 	if x != nil {
-		return x.UpstreamIdentifier
+		return x.UpstreamPublicId
 	}
 	return ""
 }
@@ -527,11 +551,11 @@ func (x *StartConnectResponse) GetRedirectUrl() string {
 }
 
 type SubmitUpstreamAPIKeyRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
-	ApiKey             string                 `protobuf:"bytes,2,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	ApiKey           string                 `protobuf:"bytes,2,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SubmitUpstreamAPIKeyRequest) Reset() {
@@ -564,9 +588,9 @@ func (*SubmitUpstreamAPIKeyRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *SubmitUpstreamAPIKeyRequest) GetUpstreamIdentifier() string {
+func (x *SubmitUpstreamAPIKeyRequest) GetUpstreamPublicId() string {
 	if x != nil {
-		return x.UpstreamIdentifier
+		return x.UpstreamPublicId
 	}
 	return ""
 }
@@ -615,10 +639,10 @@ func (*SubmitUpstreamAPIKeyResponse) Descriptor() ([]byte, []int) {
 }
 
 type ClearUpstreamOverrideRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ClearUpstreamOverrideRequest) Reset() {
@@ -651,9 +675,9 @@ func (*ClearUpstreamOverrideRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *ClearUpstreamOverrideRequest) GetUpstreamIdentifier() string {
+func (x *ClearUpstreamOverrideRequest) GetUpstreamPublicId() string {
 	if x != nil {
-		return x.UpstreamIdentifier
+		return x.UpstreamPublicId
 	}
 	return ""
 }
@@ -695,11 +719,11 @@ func (*ClearUpstreamOverrideResponse) Descriptor() ([]byte, []int) {
 }
 
 type SetUpstreamLinkEnabledRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
-	Enabled            bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	Enabled          bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SetUpstreamLinkEnabledRequest) Reset() {
@@ -732,9 +756,9 @@ func (*SetUpstreamLinkEnabledRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *SetUpstreamLinkEnabledRequest) GetUpstreamIdentifier() string {
+func (x *SetUpstreamLinkEnabledRequest) GetUpstreamPublicId() string {
 	if x != nil {
-		return x.UpstreamIdentifier
+		return x.UpstreamPublicId
 	}
 	return ""
 }
@@ -783,10 +807,10 @@ func (*SetUpstreamLinkEnabledResponse) Descriptor() ([]byte, []int) {
 }
 
 type DisconnectRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	UpstreamIdentifier string                 `protobuf:"bytes,1,opt,name=upstream_identifier,json=upstreamIdentifier,proto3" json:"upstream_identifier,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UpstreamPublicId string                 `protobuf:"bytes,1,opt,name=upstream_public_id,json=upstreamPublicId,proto3" json:"upstream_public_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DisconnectRequest) Reset() {
@@ -819,9 +843,9 @@ func (*DisconnectRequest) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *DisconnectRequest) GetUpstreamIdentifier() string {
+func (x *DisconnectRequest) GetUpstreamPublicId() string {
 	if x != nil {
-		return x.UpstreamIdentifier
+		return x.UpstreamPublicId
 	}
 	return ""
 }
@@ -1114,7 +1138,7 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"\x1climen/portal/v1/portal.proto\x12\x0flimen.portal.v1\"\x16\n" +
 	"\x14ListUpstreamsRequest\"W\n" +
 	"\x15ListUpstreamsResponse\x12>\n" +
-	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xd7\x04\n" +
+	"\tupstreams\x18\x01 \x03(\v2 .limen.portal.v1.UpstreamSummaryR\tupstreams\"\xc7\x05\n" +
 	"\x0fUpstreamSummary\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\x12\x1e\n" +
 	"\n" +
@@ -1132,29 +1156,31 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	" \x01(\tR\vlastErrorAt\x123\n" +
 	"\x05tools\x18\v \x03(\v2\x1d.limen.portal.v1.UpstreamToolR\x05tools\x12\x18\n" +
 	"\aaliases\x18\f \x03(\tR\aaliases\x12*\n" +
-	"\x11has_user_override\x18\r \x01(\bR\x0fhasUserOverride\x12O\n" +
+	"\x11has_user_override\x18\r \x01(\bR\x0fhasUserOverride\x12&\n" +
+	"\x0fhas_tenant_link\x18\x0f \x01(\bR\rhasTenantLink\x12F\n" +
+	"\x11tenant_link_state\x18\x10 \x01(\x0e2\x1a.limen.portal.v1.LinkStateR\x0ftenantLinkState\x12O\n" +
 	"\x12static_header_mode\x18\x0e \x01(\x0e2!.limen.portal.v1.StaticHeaderModeR\x10staticHeaderMode\"D\n" +
 	"\fUpstreamTool\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\"c\n" +
-	"\x13StartConnectRequest\x12/\n" +
-	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x1b\n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"`\n" +
+	"\x13StartConnectRequest\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\x12\x1b\n" +
 	"\treturn_to\x18\x02 \x01(\tR\breturnTo\"9\n" +
 	"\x14StartConnectResponse\x12!\n" +
-	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl\"g\n" +
-	"\x1bSubmitUpstreamAPIKeyRequest\x12/\n" +
-	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x17\n" +
+	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl\"d\n" +
+	"\x1bSubmitUpstreamAPIKeyRequest\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\x12\x17\n" +
 	"\aapi_key\x18\x02 \x01(\tR\x06apiKey\"\x1e\n" +
-	"\x1cSubmitUpstreamAPIKeyResponse\"O\n" +
-	"\x1cClearUpstreamOverrideRequest\x12/\n" +
-	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\"\x1f\n" +
-	"\x1dClearUpstreamOverrideResponse\"j\n" +
-	"\x1dSetUpstreamLinkEnabledRequest\x12/\n" +
-	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\x12\x18\n" +
+	"\x1cSubmitUpstreamAPIKeyResponse\"L\n" +
+	"\x1cClearUpstreamOverrideRequest\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\"\x1f\n" +
+	"\x1dClearUpstreamOverrideResponse\"g\n" +
+	"\x1dSetUpstreamLinkEnabledRequest\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\" \n" +
-	"\x1eSetUpstreamLinkEnabledResponse\"D\n" +
-	"\x11DisconnectRequest\x12/\n" +
-	"\x13upstream_identifier\x18\x01 \x01(\tR\x12upstreamIdentifier\"\x14\n" +
+	"\x1eSetUpstreamLinkEnabledResponse\"A\n" +
+	"\x11DisconnectRequest\x12,\n" +
+	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\"\x14\n" +
 	"\x12DisconnectResponse\"\x17\n" +
 	"\x15ListMCPClientsRequest\"N\n" +
 	"\x16ListMCPClientsResponse\x124\n" +
@@ -1234,29 +1260,30 @@ var file_limen_portal_v1_portal_proto_depIdxs = []int32{
 	4,  // 0: limen.portal.v1.ListUpstreamsResponse.upstreams:type_name -> limen.portal.v1.UpstreamSummary
 	0,  // 1: limen.portal.v1.UpstreamSummary.link_state:type_name -> limen.portal.v1.LinkState
 	5,  // 2: limen.portal.v1.UpstreamSummary.tools:type_name -> limen.portal.v1.UpstreamTool
-	1,  // 3: limen.portal.v1.UpstreamSummary.static_header_mode:type_name -> limen.portal.v1.StaticHeaderMode
-	18, // 4: limen.portal.v1.ListMCPClientsResponse.clients:type_name -> limen.portal.v1.MCPClient
-	2,  // 5: limen.portal.v1.PortalService.ListUpstreams:input_type -> limen.portal.v1.ListUpstreamsRequest
-	6,  // 6: limen.portal.v1.PortalService.StartConnect:input_type -> limen.portal.v1.StartConnectRequest
-	8,  // 7: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:input_type -> limen.portal.v1.SubmitUpstreamAPIKeyRequest
-	10, // 8: limen.portal.v1.PortalService.ClearUpstreamOverride:input_type -> limen.portal.v1.ClearUpstreamOverrideRequest
-	12, // 9: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:input_type -> limen.portal.v1.SetUpstreamLinkEnabledRequest
-	14, // 10: limen.portal.v1.PortalService.Disconnect:input_type -> limen.portal.v1.DisconnectRequest
-	16, // 11: limen.portal.v1.PortalService.ListMCPClients:input_type -> limen.portal.v1.ListMCPClientsRequest
-	19, // 12: limen.portal.v1.PortalService.RevokeMCPClient:input_type -> limen.portal.v1.RevokeMCPClientRequest
-	3,  // 13: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
-	7,  // 14: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
-	9,  // 15: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
-	11, // 16: limen.portal.v1.PortalService.ClearUpstreamOverride:output_type -> limen.portal.v1.ClearUpstreamOverrideResponse
-	13, // 17: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
-	15, // 18: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
-	17, // 19: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
-	20, // 20: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
-	13, // [13:21] is the sub-list for method output_type
-	5,  // [5:13] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	0,  // 3: limen.portal.v1.UpstreamSummary.tenant_link_state:type_name -> limen.portal.v1.LinkState
+	1,  // 4: limen.portal.v1.UpstreamSummary.static_header_mode:type_name -> limen.portal.v1.StaticHeaderMode
+	18, // 5: limen.portal.v1.ListMCPClientsResponse.clients:type_name -> limen.portal.v1.MCPClient
+	2,  // 6: limen.portal.v1.PortalService.ListUpstreams:input_type -> limen.portal.v1.ListUpstreamsRequest
+	6,  // 7: limen.portal.v1.PortalService.StartConnect:input_type -> limen.portal.v1.StartConnectRequest
+	8,  // 8: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:input_type -> limen.portal.v1.SubmitUpstreamAPIKeyRequest
+	10, // 9: limen.portal.v1.PortalService.ClearUpstreamOverride:input_type -> limen.portal.v1.ClearUpstreamOverrideRequest
+	12, // 10: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:input_type -> limen.portal.v1.SetUpstreamLinkEnabledRequest
+	14, // 11: limen.portal.v1.PortalService.Disconnect:input_type -> limen.portal.v1.DisconnectRequest
+	16, // 12: limen.portal.v1.PortalService.ListMCPClients:input_type -> limen.portal.v1.ListMCPClientsRequest
+	19, // 13: limen.portal.v1.PortalService.RevokeMCPClient:input_type -> limen.portal.v1.RevokeMCPClientRequest
+	3,  // 14: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
+	7,  // 15: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
+	9,  // 16: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
+	11, // 17: limen.portal.v1.PortalService.ClearUpstreamOverride:output_type -> limen.portal.v1.ClearUpstreamOverrideResponse
+	13, // 18: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
+	15, // 19: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
+	17, // 20: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
+	20, // 21: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
+	14, // [14:22] is the sub-list for method output_type
+	6,  // [6:14] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_limen_portal_v1_portal_proto_init() }

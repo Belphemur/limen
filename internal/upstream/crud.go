@@ -42,11 +42,11 @@ type CreateUpstreamInput struct {
 	DisplayName           string
 	MCPServerURL          string
 	StrategyType          StrategyType
-	StrategySubMode       string // "tenant"/"user" for static_header; empty otherwise
+	StrategySubMode       string // "tenant_owner"/"byok" for static_header; empty otherwise
 	StrategyConfig        map[string]string
 	EncodedStrategyConfig crypto.SecretField // optional; zero-value = skip
 	DefaultsJSON          []byte             // validated by contextblob.ValidateContextBlob
-	HeaderMode            string             // "shared" or "override" for static_header; empty otherwise
+	HeaderMode            string             // "tenant_owner" or "byok" for static_header; empty otherwise
 }
 
 // UpdateUpstreamPatch carries the optional mutations CreateUpstream
@@ -121,7 +121,7 @@ func (s *Service) ReplaceStrategyMode(ctx context.Context, tenant *storage.Tenan
 		return errors.New("upstream: tenant/upstream required")
 	}
 	if mode == "" {
-		mode = "shared"
+		mode = "tenant_owner"
 	}
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenant.ID))
 	if err != nil {
@@ -202,7 +202,7 @@ func (s *Service) CreateUpstream(ctx context.Context, tenant *storage.Tenant, in
 	if !in.EncodedStrategyConfig.IsZero() {
 		mode := in.HeaderMode
 		if mode == "" {
-			mode = "shared"
+			mode = "tenant_owner"
 		}
 		row := &storage.UpstreamStrategyConfig{
 			TenantID:   tenant.ID,
@@ -317,7 +317,14 @@ func (s *Service) ReindexCatalog(ctx context.Context, tenant *storage.Tenant, ca
 			link = l
 		}
 	}
-	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, link, nil); err != nil {
+	// Also load tenant link — the refresher's indexOneUpstream prefers it,
+	// and ReindexCatalog should too so admin-initiated reindex works even
+	// when the admin has no per-user link.
+	var tenantLink *storage.UpstreamTenantLink
+	if tl, tlerr := s.loadTenantLink(ctx, tenant.ID, up.ID); tlerr == nil {
+		tenantLink = tl
+	}
+	if err := IndexUpstream(ctx, s.store, s.registry, tenant, up, link, tenantLink, nil); err != nil {
 		if errors.Is(err, ErrLinkNotFound) || errors.Is(err, ErrNeedsRelink) {
 			return nil, ErrCannotReindexWithoutLink
 		}

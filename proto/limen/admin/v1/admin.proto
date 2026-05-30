@@ -69,6 +69,12 @@ service AdminService {
   rpc ClearServiceAccountOverride(ClearServiceAccountOverrideRequest) returns (ClearServiceAccountOverrideResponse);
   rpc DisconnectServiceAccountUpstream(DisconnectServiceAccountUpstreamRequest) returns (DisconnectServiceAccountUpstreamResponse);
 
+  // Admin OAuth flow for tenant-level upstream credentials.
+  // Stores tokens in upstream_tenant_links for catalog indexing and
+  // connection verification — not for tool call routing.
+  rpc StartAdminConnect(StartAdminConnectRequest) returns (StartAdminConnectResponse);
+  rpc FinishAdminCallback(FinishAdminCallbackRequest) returns (FinishAdminCallbackResponse);
+
 }
 
 // ---- CreateUpstream -------------------------------------------------
@@ -518,7 +524,7 @@ message SetServiceAccountLinkEnabledResponse {}
 
 message StartServiceAccountConnectRequest {
   string service_account_public_id = 1;
-  string upstream_identifier = 2;
+  string upstream_public_id = 2;
   // SPA path to return to after OAuth callback.
   string return_to = 3;
 }
@@ -529,20 +535,39 @@ message StartServiceAccountConnectResponse {
 
 message SubmitServiceAccountAPIKeyRequest {
   string service_account_public_id = 1;
-  string upstream_identifier = 2;
+  string upstream_public_id = 2;
   string api_key = 3;
 }
 message SubmitServiceAccountAPIKeyResponse {}
 
 message ClearServiceAccountOverrideRequest {
   string service_account_public_id = 1;
-  string upstream_identifier = 2;
+  string upstream_public_id = 2;
 }
 message ClearServiceAccountOverrideResponse {}
 
 message DisconnectServiceAccountUpstreamRequest {
   string service_account_public_id = 1;
-  string upstream_identifier = 2;
+  string upstream_public_id = 2;
 }
 message DisconnectServiceAccountUpstreamResponse {}
 
+// ---- Admin upstream OAuth (tenant-level credentials) ----------------
+
+message StartAdminConnectRequest {
+  string upstream_public_id = 1;
+  string return_to = 2;  // SPA URL to redirect back to after OAuth completes
+}
+
+message StartAdminConnectResponse {
+  string redirect_url = 1;
+}
+
+message FinishAdminCallbackRequest {
+  string upstream_public_id = 1;
+  string callback_query = 2;  // raw query string from AS redirect
+}
+
+message FinishAdminCallbackResponse {
+  string return_to = 1;  // the SPA URL captured during StartAdminConnect
+}

@@ -224,8 +224,8 @@ func bootUpstream(rt *Runtime) error {
 	registry.Register(statichdr.New(rt.Store, rt.Cipher, nil))
 
 	mcpStrat, err := mcpspec.New(rt.Store, rt.Cipher, stateStore, mcpspec.Options{
-		RedirectURLFn: func(tenantPublic, upstreamIdentifier string) string {
-			return rt.Cfg.Server.BaseURL + "/t/" + tenantPublic + rt.Cfg.Server.UpstreamCallbackPath + "/" + upstreamIdentifier + "/callback"
+		RedirectURLFn: func(tenantPublic, upstreamPublicID string) string {
+			return rt.Cfg.Server.BaseURL + "/t/" + tenantPublic + rt.Cfg.Server.UpstreamCallbackPath + "/" + upstreamPublicID + "/callback"
 		},
 		ProactiveWindow: rt.Cfg.UpstreamRefresh.ProactiveWindow,
 		SoftwareID:      "limen-gateway",

@@ -50,18 +50,11 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 	}
 
 	if in.StrategyType == upstream.StrategyStaticHeader {
-		// Convert proto enum to mode string.
-		modeStr := "shared"
-		switch msg.GetStaticHeaderMode() {
-		case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE:
-			modeStr = "override"
-		case adminv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED,
-			adminv1.StaticHeaderMode_STATIC_HEADER_MODE_SHARED:
-			// fall through to default "shared"
+		in.HeaderMode = msg.GetStrategySubMode()
+		if in.HeaderMode == "" {
+			in.HeaderMode = "tenant_owner"
 		}
-		in.HeaderMode = modeStr
-
-		cfg, parseErr := statichdr.ParseConfig(msg.GetStrategyConfig(), modeStr)
+		cfg, parseErr := statichdr.ParseConfig(msg.GetStrategyConfig())
 		if parseErr != nil {
 			return nil, s.invalidArg("strategy_config", parseErr.Error())
 		}
@@ -77,13 +70,24 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 		return nil, s.mapCreateError(err)
 	}
 
-	// Tenant-mode strategies (`none`, `static_header` tenant mode)
-	// have their tool catalog populated inline; per-user strategies
-	// (`mcp_spec`, `static_header` user mode) only run Provision
-	// here — the catalog is filled in by the first admin/owner to
-	// complete the OAuth flow. A failure here means provision could
-	// not complete (discovery, DCR, missing static client, …) so we
-	// roll back the row.
+	// Persist the admin secret separately to UpstreamTenantLink.
+	if in.StrategyType == upstream.StrategyStaticHeader {
+		if secret := msg.GetStrategyConfig()["value"]; secret != "" {
+			if persistErr := s.upstream.PersistTenantStaticHeaderSecret(ctx, tenant, up, secret); persistErr != nil {
+				s.logger.Warn("admin: CreateUpstream rolling back due to PersistTenantSecret failure",
+					zap.String("upstream", up.Identifier),
+					zap.Error(persistErr))
+				if delErr := s.upstream.DeleteUpstream(ctx, tenant, up.PublicID); delErr != nil {
+					s.logger.Error("admin: rollback after failed tenant secret persist",
+						zap.String("upstream", up.Identifier),
+						zap.Error(delErr))
+				}
+				return nil, s.mapMutationError(persistErr)
+			}
+		}
+	}
+
+	// Strategies are provisioned inline; rollback on failure.
 	if provErr := s.upstream.ProvisionTenantMode(ctx, tenant, up); provErr != nil {
 		s.logger.Warn("admin: CreateUpstream rolling back due to ProvisionTenantMode failure",
 			zap.String("upstream", up.Identifier),
@@ -140,14 +144,6 @@ func (s *Service) UpdateUpstream(ctx context.Context, req *connect.Request[admin
 		}
 	}
 
-	// Handle mode change if explicitly provided.
-	if msg.GetStaticHeaderMode() != adminv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED {
-		modeStr := statichdr.HeaderModeFromProto(msg.GetStaticHeaderMode())
-		if err := s.upstream.ReplaceStrategyMode(ctx, tenant, up, modeStr); err != nil {
-			return nil, s.mapMutationError(err)
-		}
-	}
-
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
 	return connect.NewResponse(&adminv1.UpdateUpstreamResponse{
 		Upstream: protoview.ToSummaryProto(summary),
@@ -158,13 +154,30 @@ func (s *Service) UpdateUpstream(ctx context.Context, req *connect.Request[admin
 // existing UpstreamStrategyConfig row. Only `static_header` carries
 // a config row in v1; other strategies reject the patch with
 // InvalidArgument to surface a programming mistake.
-//
-// Mode changes are NOT handled here — they arrive via the explicit
-// static_header_mode field on UpdateUpstreamRequest.
 func (s *Service) applyStrategyConfigPatch(ctx context.Context, tenant *storage.Tenant, up *storage.Upstream, patch map[string]string) error {
 	if upstream.StrategyType(up.StrategyType) != upstream.StrategyStaticHeader {
 		return s.invalidArg("strategy_config", "only static_header upstreams accept a strategy_config patch")
 	}
+
+	// Secret rotation is handled via PersistTenantSecret, not the encrypted config.
+	if v, ok := patch["value"]; ok && strings.TrimSpace(v) != "" {
+		if err := s.upstream.PersistTenantStaticHeaderSecret(ctx, tenant, up, v); err != nil {
+			return s.mapMutationError(err)
+		}
+	}
+
+	// Filter out "value" before applying to Config. header_name and
+	// header_template are intentionally NOT patchable post-creation.
+	cfgPatch := make(map[string]string)
+	for k, v := range patch {
+		if k != "value" {
+			cfgPatch[k] = v
+		}
+	}
+	if len(cfgPatch) == 0 {
+		return nil
+	}
+
 	encoded, err := s.upstream.LoadStrategyConfig(ctx, tenant, up)
 	if err != nil {
 		return s.mapMutationError(err)
@@ -173,7 +186,7 @@ func (s *Service) applyStrategyConfigPatch(ctx context.Context, tenant *storage.
 	if err != nil {
 		return s.internal("decode statichdr config", err)
 	}
-	next, err := statichdr.ApplyConfigPatch(cur, patch)
+	next, err := statichdr.ApplyConfigPatch(cur, cfgPatch)
 	if err != nil {
 		return s.invalidArg("strategy_config", err.Error())
 	}
@@ -214,6 +227,34 @@ func (s *Service) ReindexUpstreamCatalog(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(&adminv1.ReindexUpstreamCatalogResponse{
 		Upstream: protoview.ToSummaryProto(summary),
 	}), nil
+}
+
+func (s *Service) StartAdminConnect(ctx context.Context, req *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error) {
+	tenant := tenancy.MustTenant(ctx)
+	sess := session.MustUser(ctx)
+	adminUser, err := s.upstream.LoadUserBySubject(ctx, tenant.ID, sess.Subject)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("admin: user must be mirrored"))
+	}
+	redirectURL, err := s.upstream.StartTenantConnect(ctx, tenant, adminUser, req.Msg.GetUpstreamPublicId(), req.Msg.GetReturnTo())
+	if err != nil {
+		return nil, s.mapMutationError(err)
+	}
+	return connect.NewResponse(&adminv1.StartAdminConnectResponse{RedirectUrl: redirectURL}), nil
+}
+
+func (s *Service) FinishAdminCallback(ctx context.Context, req *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error) {
+	tenant := tenancy.MustTenant(ctx)
+	sess := session.MustUser(ctx)
+	adminUser, err := s.upstream.LoadUserBySubject(ctx, tenant.ID, sess.Subject)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("admin: user must be mirrored"))
+	}
+	returnTo, err := s.upstream.FinishTenantCallback(ctx, tenant, adminUser, req.Msg.GetUpstreamPublicId(), req.Msg.GetCallbackQuery())
+	if err != nil {
+		return nil, s.mapMutationError(err)
+	}
+	return connect.NewResponse(&adminv1.FinishAdminCallbackResponse{ReturnTo: returnTo}), nil
 }
 
 func (s *Service) PreviewUpstreamContext(ctx context.Context, req *connect.Request[adminv1.PreviewUpstreamContextRequest]) (*connect.Response[adminv1.PreviewUpstreamContextResponse], error) {

@@ -28,7 +28,25 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	if exists, err := s.registrationExists(ctx, lctx.Tenant.ID, lctx.Upstream.ID); err != nil {
 		return err
 	} else if exists {
-		return nil
+		// Registration exists but the redirect_uri may be stale (e.g.
+		// after an identifier→public_id migration). Try updating the
+		// AS registration via RFC 7592. If the AS doesn't support
+		// client management, delete the stale registration so the next
+		// call re-provisions with the correct redirect_uri.
+		reg, loadErr := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
+		if loadErr == nil && reg.RegistrationClientURI != "" {
+			if err := s.updateRedirectURI(ctx, lctx, reg); err == nil {
+				// Successfully updated at the AS.
+				return nil
+			}
+			// Update failed — delete the stale registration.
+			_ = s.deleteRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
+			// Fall through to fresh DCR below.
+		} else {
+			// No registration management URI (static client) or load
+			// failed — existing registration is fine.
+			return nil
+		}
 	}
 
 	prm, as, err := s.discover(ctx, lctx)
@@ -98,7 +116,7 @@ type dcrResult struct {
 // dynamicallyRegister performs the RFC 7591 POST to the AS's
 // registration_endpoint and returns the issued credentials.
 func (s *Strategy) dynamicallyRegister(ctx context.Context, lctx upstream.LinkContext, endpoint string) (*dcrResult, error) {
-	redirect := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.Identifier)
+	redirect := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID)
 	dcrReq := map[string]any{
 		"redirect_uris":              []string{redirect},
 		"grant_types":                []string{"authorization_code", "refresh_token"},
@@ -138,6 +156,41 @@ func (s *Strategy) dynamicallyRegister(ctx context.Context, lctx upstream.LinkCo
 	return &out, nil
 }
 
+// updateRedirectURI sends a PUT to the AS's registration endpoint to
+// update the registered redirect_uris to the current value. Uses the
+// stored registration access token for authorization (RFC 7592).
+// Returns nil on success, an error if the AS rejects the update.
+func (s *Strategy) updateRedirectURI(ctx context.Context, lctx upstream.LinkContext, reg *storage.UpstreamRegistration) error {
+	redirect := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID)
+	updateReq := map[string]any{
+		"redirect_uris":              []string{redirect},
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
+		"token_endpoint_auth_method": "client_secret_basic",
+	}
+	if s.swID != "" {
+		updateReq["software_id"] = s.swID
+	}
+	body, _ := json.Marshal(updateReq)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reg.RegistrationClientURI, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+reg.RegistrationAccessToken.String())
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("mcpspec: update registration PUT %s: %w", reg.RegistrationClientURI, err)
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("mcpspec: update registration %s: %s: %s", reg.RegistrationClientURI, resp.Status, string(rb))
+	}
+	return nil
+}
+
 func (s *Strategy) buildRegistrationRow(lctx upstream.LinkContext, tenantStr, resource, issuer,
 	clientID, clientSecret, regAccessToken, regClientURI string) *storage.UpstreamRegistration {
 	cs := crypto.NewSecret([]byte(clientSecret))
@@ -164,6 +217,20 @@ func (s *Strategy) persistRegistration(ctx context.Context, tenantID int64, row 
 	if err := tx.Create(row).Error; err != nil {
 		_ = commit()
 		return fmt.Errorf("mcpspec: persist registration: %w", err)
+	}
+	return commit()
+}
+
+// deleteRegistration removes the persisted UpstreamRegistration row so the
+// next Provision call re-registers with a fresh DCR request.
+func (s *Strategy) deleteRegistration(ctx context.Context, tenantID, upstreamID int64) error {
+	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
+	if err != nil {
+		return err
+	}
+	if err := tx.Where("upstream_id = ?", upstreamID).Delete(&storage.UpstreamRegistration{}).Error; err != nil {
+		_ = commit()
+		return fmt.Errorf("mcpspec: delete registration: %w", err)
 	}
 	return commit()
 }

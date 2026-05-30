@@ -69,6 +69,12 @@ func New(vk valkey.Client, cipher *crypto.Cipher, ttl time.Duration) *Store {
 // value, writes it to Valkey with the configured TTL, and returns the
 // state value the caller must send to the AS as the "state" parameter.
 func (s *Store) Put(ctx context.Context, env Envelope) (string, error) {
+	return s.PutWithKind(ctx, env, kindAAD)
+}
+
+// PutWithKind is the same as Put but allows the caller to specify a custom
+// AAD kind (e.g. "upstream.oauth.tenant_state" for admin-initiated flows).
+func (s *Store) PutWithKind(ctx context.Context, env Envelope, kind string) (string, error) {
 	if env.TenantID == 0 || env.UserID == 0 || env.UpstreamID == 0 {
 		return "", errors.New("oauthstate: envelope missing required ids")
 	}
@@ -83,7 +89,7 @@ func (s *Store) Put(ctx context.Context, env Envelope) (string, error) {
 	aad := crypto.AAD{
 		TenantID: fmt.Sprintf("%d", env.TenantID),
 		UserID:   fmt.Sprintf("%d", env.UserID),
-		Kind:     kindAAD,
+		Kind:     kind,
 	}
 	ciphertext, err := s.cipher.Encrypt(plaintext, aad)
 	if err != nil {
@@ -95,17 +101,23 @@ func (s *Store) Put(ctx context.Context, env Envelope) (string, error) {
 	return stateValue, nil
 }
 
-// Consume atomically reads and deletes the envelope for stateValue. The
+// Consume reads and deletes the envelope for stateValue. The
 // expectedTenantID / expectedUserID arguments scope decryption: a state
 // minted under tenant A can never be decrypted under tenant B because AAD
 // mismatch turns into an authentication failure inside the cipher. Returns
 // ErrNotFound if the state is absent (expired or already consumed).
 func (s *Store) Consume(ctx context.Context, stateValue string, expectedTenantID, expectedUserID int64) (Envelope, error) {
+	return s.ConsumeWithKind(ctx, stateValue, expectedTenantID, expectedUserID, kindAAD)
+}
+
+// ConsumeWithKind is the same as Consume but allows the caller to specify a
+// custom AAD kind for decryption.
+func (s *Store) ConsumeWithKind(ctx context.Context, stateValue string, expectedTenantID, expectedUserID int64, kind string) (Envelope, error) {
 	var zero Envelope
 	if stateValue == "" {
 		return zero, ErrNotFound
 	}
-	ciphertext, err := s.vk.GetDel(ctx, keyPrefix+stateValue)
+	ciphertext, err := s.vk.Get(ctx, keyPrefix+stateValue)
 	if err != nil {
 		if errors.Is(err, valkey.ErrNotFound) {
 			return zero, ErrNotFound
@@ -115,12 +127,12 @@ func (s *Store) Consume(ctx context.Context, stateValue string, expectedTenantID
 	aad := crypto.AAD{
 		TenantID: fmt.Sprintf("%d", expectedTenantID),
 		UserID:   fmt.Sprintf("%d", expectedUserID),
-		Kind:     kindAAD,
+		Kind:     kind,
 	}
 	plaintext, err := s.cipher.Decrypt(ciphertext, aad)
 	if err != nil {
-		// AAD mismatch or tamper — treat the same as not-found so we
-		// never leak which case it was to the caller.
+		// AAD mismatch — do NOT delete the key so the correct
+		// consumer (with the right kind/IDs) can still find it.
 		return zero, ErrNotFound
 	}
 	var env Envelope
@@ -128,8 +140,13 @@ func (s *Store) Consume(ctx context.Context, stateValue string, expectedTenantID
 		return zero, fmt.Errorf("oauthstate: unmarshal: %w", err)
 	}
 	if env.TenantID != expectedTenantID || env.UserID != expectedUserID {
+		// AES-SIV already guarantees AAD integrity so this path is
+		// unreachable in practice, but guard anyway.
+		_ = s.vk.Del(ctx, keyPrefix+stateValue)
 		return zero, ErrNotFound
 	}
+	// Successfully consumed — clean up the key now.
+	_ = s.vk.Del(ctx, keyPrefix+stateValue)
 	return env, nil
 }
 

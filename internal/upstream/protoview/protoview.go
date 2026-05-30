@@ -46,6 +46,8 @@ func ToSummaryProto(r upstream.UserUpstreamSummary) *portalv1.UpstreamSummary {
 		Aliases:          r.Aliases,
 		Tools:            toToolProtos(r.Tools),
 		HasUserOverride:  r.HasUserOverride,
+		HasTenantLink:    r.HasTenantLink,
+		TenantLinkState:  linkStateProto(r.TenantLinkState),
 		StaticHeaderMode: staticHeaderModeProto(r.StrategySubMode),
 	}
 	if r.Link != nil && r.Link.LastFailureAt != nil {
@@ -70,9 +72,9 @@ func toToolProtos(rows []storage.UpstreamTool) []*portalv1.UpstreamTool {
 
 func staticHeaderModeProto(s string) portalv1.StaticHeaderMode {
 	switch s {
-	case "override":
+	case "byok":
 		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_OVERRIDE
-	case "shared":
+	case "tenant_owner":
 		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_SHARED
 	default:
 		return portalv1.StaticHeaderMode_STATIC_HEADER_MODE_UNSPECIFIED

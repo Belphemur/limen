@@ -51,10 +51,10 @@ type UpstreamStrategyConfig struct {
 	Type       string             `gorm:"type:text;not null"`
 	ConfigJSON crypto.SecretField `gorm:"type:bytea"`
 	// Mode stores the static_header sub-mode. For static_header:
-	// "shared" → shared secret only, no user overrides
-	// "override" → users may submit their own API keys
+	// "tenant_owner" → admin's shared secret used by all users (default)
+	// "byok" → users must provide their own API keys
 	// Empty/other for non-static_header strategies.
-	Mode string `gorm:"type:text;not null;default:'shared'"`
+	Mode string `gorm:"type:text;not null;default:'tenant_owner'"`
 
 	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
@@ -139,6 +139,48 @@ type UpstreamLink struct {
 func (u *UpstreamLink) BeforeCreate(_ *gorm.DB) error {
 	if u.PublicID == "" {
 		u.PublicID = ids.New(ids.PrefixUpstreamLink)
+	}
+	return nil
+}
+
+// Composite unique constraints are managed by the goose migration
+// 00015_tenant_links.sql, not GORM tags. AutoMigrate only creates
+// plain indexes here; the partial composite unique is applied later.
+
+// UpstreamTenantLink binds a tenant to an upstream's tenant-scoped credentials.
+// Unlike UpstreamLink which is per-user, this table holds OAuth tokens and
+// health state for strategies that operate at the tenant level (e.g., mcp_spec
+// post-Phase-9l refactor). Keyed by (tenant_id, upstream_id).
+type UpstreamTenantLink struct {
+	Base
+	TenantID     int64              `gorm:"not null;index"`
+	UpstreamID   int64              `gorm:"not null;index"`
+	AccessToken  crypto.SecretField `gorm:"type:bytea"`
+	RefreshToken crypto.SecretField `gorm:"type:bytea"`
+	ExpiresAt    *time.Time         `gorm:"type:timestamptz"`
+	Scopes       string             `gorm:"type:text;not null;default:''"`
+	ResourceURI  string             `gorm:"type:text;not null;default:''"`
+	ExtraJSON    crypto.SecretField `gorm:"type:bytea"`
+
+	// Health / lifecycle — mirrored from UpstreamLink.
+	// Enabled is the admin's explicit toggle; AutoDisabledAt is set by the
+	// auto-disable trip in health.RecordFailure. NeedsRelink flips true
+	// when the AS returns invalid_grant during a refresh.
+	Enabled             bool       `gorm:"not null;default:true"`
+	NeedsRelink         bool       `gorm:"not null;default:false;index"`
+	ConsecutiveFailures int        `gorm:"not null;default:0"`
+	FirstFailureAt      *time.Time `gorm:"type:timestamptz"`
+	LastFailureAt       *time.Time `gorm:"type:timestamptz"`
+	LastFailureReason   string     `gorm:"type:text;not null;default:''"`
+	AutoDisabledAt      *time.Time `gorm:"type:timestamptz;index"`
+
+	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
+	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
+}
+
+func (u *UpstreamTenantLink) BeforeCreate(_ *gorm.DB) error {
+	if u.PublicID == "" {
+		u.PublicID = ids.New(ids.PrefixUpstreamTenantLink)
 	}
 	return nil
 }

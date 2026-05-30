@@ -226,10 +226,11 @@ func TestDeleteUpstream_SoftDeletes(t *testing.T) {
 	}
 }
 
-// Phase 9g note: static_header always carries a SharedSecret, so reindex
-// without a user link no longer hits ErrCannotReindexWithoutLink — the
-// shared secret is sufficient. The sentinel is now exercised only by
-// per-user strategies (mcp_spec) which have their own coverage.
+// Phase 9g note: static_header stores the admin secret on
+// UpstreamTenantLink, so reindex without a user link no longer hits
+// ErrCannotReindexWithoutLink — the tenant secret is sufficient. The
+// sentinel is now exercised only by per-user strategies (mcp_spec)
+// which have their own coverage.
 
 func TestPreviewContext_MergesDefaultsAndLink(t *testing.T) {
 	if testing.Short() {
