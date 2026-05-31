@@ -47,6 +47,8 @@
             ripgrep
             just
             gnumake
+            actionlint
+            goreleaser
           ];
 
           env = {
@@ -84,6 +86,22 @@
               name = "go vet";
               entry = "go vet ./...";
               files = "\\.go$";
+              pass_filenames = false;
+            };
+
+            actionlint = {
+              enable = true;
+              name = "actionlint";
+              entry = "actionlint";
+              files = "^\\.github/workflows/.*\\.ya?ml$";
+              pass_filenames = false;
+            };
+
+            goreleaser-dry-run = {
+              enable = true;
+              name = "goreleaser snapshot dry-run";
+              entry = "goreleaser release --snapshot --skip=publish --clean";
+              files = "^\\.goreleaser\\.ya?ml$";
               pass_filenames = false;
             };
           };

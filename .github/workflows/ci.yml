@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat-billing
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Run unit tests
+        run: go test -v ./...
+
+  backend-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Run integration tests
+        run: go test -v -tags=integration ./...
+
+  frontend-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      - name: Add Go bin directory to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install protoc tools and web dependencies
+        run: make tools
+
+      - name: Generate TypeScript protobuf bindings
+        run: make proto
+
+      - name: Run shared unit tests
+        working-directory: web/shared
+        run: pnpm test
+
+      - name: Run portal unit tests
+        working-directory: web/portal
+        run: pnpm test
+
+      - name: Run admin unit tests
+        working-directory: web/admin
+        run: pnpm test
+
+  frontend-e2e-portal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      - name: Add Go bin directory to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install protoc tools and web dependencies
+        run: make tools
+
+      - name: Generate TypeScript protobuf bindings
+        run: make proto
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('web/pnpm-lock.yaml') }}
+
+      - name: Install Playwright system dependencies
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright browsers (cache miss)
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        working-directory: web/portal
+        run: pnpm e2e:install
+
+      - name: Run portal E2E tests
+        working-directory: web/portal
+        run: pnpm e2e
+
+  frontend-e2e-admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      - name: Add Go bin directory to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install protoc tools and web dependencies
+        run: make tools
+
+      - name: Generate TypeScript protobuf bindings
+        run: make proto
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('web/pnpm-lock.yaml') }}
+
+      - name: Install Playwright system dependencies
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright browsers (cache miss)
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        working-directory: web/admin
+        run: pnpm e2e:install
+
+      - name: Run admin E2E tests
+        working-directory: web/admin
+        run: pnpm e2e
+
+  ci-gate:
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - backend-unit
+      - backend-integration
+      - frontend-unit
+      - frontend-e2e-portal
+      - frontend-e2e-admin
+    steps:
+      - name: Check all dependency jobs passed
+        run: |
+          echo "backend-unit:       ${{ needs.backend-unit.result }}"
+          echo "backend-integration: ${{ needs.backend-integration.result }}"
+          echo "frontend-unit:      ${{ needs.frontend-unit.result }}"
+          echo "frontend-e2e-portal: ${{ needs.frontend-e2e-portal.result }}"
+          echo "frontend-e2e-admin:  ${{ needs.frontend-e2e-admin.result }}"
+          if [ "${{ needs.backend-unit.result }}" = "success" ] \
+             && [ "${{ needs.backend-integration.result }}" = "success" ] \
+             && [ "${{ needs.frontend-unit.result }}" = "success" ] \
+             && [ "${{ needs.frontend-e2e-portal.result }}" = "success" ] \
+             && [ "${{ needs.frontend-e2e-admin.result }}" = "success" ]; then
+            echo "All CI jobs passed."
+          else
+            echo "One or more CI jobs failed, were cancelled, or were skipped."
+            exit 1
+          fi

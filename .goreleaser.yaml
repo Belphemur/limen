@@ -1,0 +1,156 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+version: 2
+
+project_name: limen
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: limen
+    main: ./cmd/limen
+    binary: limen
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+  - id: limenctl
+    main: ./cmd/limenctl
+    binary: limenctl
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+  - id: limen-gateway
+    main: ./cmd/gateway
+    binary: limen-gateway
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+  - id: limen-portal
+    main: ./cmd/portal
+    binary: limen-portal
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+  - id: limen-staff
+    main: ./cmd/staff
+    binary: limen-staff
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+  - id: limen-observer
+    main: ./cmd/observer
+    binary: limen-observer
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+dockers_v2:
+  - id: limen
+    ids:
+      - limen
+    dockerfile: deploy/docker/Dockerfile.limen
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limen
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+  - id: limenctl
+    ids:
+      - limenctl
+    dockerfile: deploy/docker/Dockerfile.limenctl
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limenctl
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+  - id: limen-gateway
+    ids:
+      - limen-gateway
+    dockerfile: deploy/docker/Dockerfile.limen-gateway
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limen-gateway
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+  - id: limen-portal
+    ids:
+      - limen-portal
+    dockerfile: deploy/docker/Dockerfile.limen-portal
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limen-portal
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+  - id: limen-staff
+    ids:
+      - limen-staff
+    dockerfile: deploy/docker/Dockerfile.limen-staff
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limen-staff
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+  - id: limen-observer
+    ids:
+      - limen-observer
+    dockerfile: deploy/docker/Dockerfile.limen-observer
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    images:
+      - ghcr.io/belphemur/limen-observer
+    tags:
+      - latest
+      - "{{ .Version }}"
+
+archives:
+  - formats: ["binary"]
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

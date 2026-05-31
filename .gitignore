@@ -3,8 +3,10 @@
 /limen
 /limenctl
 /limen-gateway
+/limen-observer
 /limen-portal
 /limen-staff
+/observer
 /portal
 /staff
 
@@ -51,3 +53,6 @@ web/*/.playwright/
 .devenv/
 .devenv.flake.nix
 .direnv/
+
+# Release artifacts
+/dist/

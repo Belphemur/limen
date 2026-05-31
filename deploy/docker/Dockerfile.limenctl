@@ -1,0 +1,5 @@
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates tzdata
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/limenctl /usr/local/bin/limenctl
+ENTRYPOINT ["/usr/local/bin/limenctl"]

@@ -253,6 +253,7 @@ build:
 	go build -o limen-gateway ./cmd/gateway
 	go build -o limen-portal ./cmd/portal
 	go build -o limen-staff ./cmd/staff
+	go build -o limen-observer ./cmd/observer
 
 test:
 	go test ./...
@@ -269,6 +270,8 @@ tools:
 	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+	go install github.com/rhysd/actionlint/cmd/actionlint@latest
+	go install github.com/goreleaser/goreleaser/v2@latest
 	cd web && corepack pnpm install --frozen-lockfile
 
 # Regenerate Go + TS bindings from proto/. Go output lands under
