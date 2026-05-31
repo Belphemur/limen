@@ -10,6 +10,7 @@ import { test, expect, type Route } from "@playwright/test";
 
 const TENANT = "acme";
 const API_PREFIX = `/t/${TENANT}/api/limen.portal.v1.PortalService/`;
+const SESSION_API = `/t/${TENANT}/api/limen.session.v1.SessionService/`;
 
 interface RpcState {
   authenticated: boolean;
@@ -36,29 +37,34 @@ test.describe("portal happy path (stubbed OIDC + RPC)", () => {
         tenant;
     }, TENANT);
 
+    // Intercept SessionService — the session gate runs before any page renders.
+    await page.route(`**${SESSION_API}**`, async (route) => {
+      const req = route.request();
+      const data = req.postDataJSON();
+      if (data.method === "GetSession") {
+        return route.fulfill(
+          rpcResponse({
+            user: {
+              id: "user_01",
+              publicId: "usr_test",
+              firstName: "Alex",
+              lastName: "Tester",
+              role: "ROLE_OWNER",
+            },
+            tenant: {
+              id: "tnt_01",
+              publicId: "tnt_acme",
+              name: "Acme Corp",
+            },
+          }),
+        );
+      }
+      return route.fulfill(rpcResponse({}));
+    });
+
     await page.route(`**${API_PREFIX}**`, async (route) => {
       const method = route.request().url().split(API_PREFIX)[1];
       switch (method) {
-        case "GetSession":
-          await route.fulfill(
-            rpcResponse(
-              state.authenticated
-                ? {
-                    authenticated: true,
-                    user: {
-                      subject: "zsub_1",
-                      email: "op@acme.example",
-                      name: "Op",
-                    },
-                    roles: ["member"],
-                  }
-                : {
-                    authenticated: false,
-                    loginUrl: `/auth/login?tenant=${TENANT}&return_to=/`,
-                  },
-            ),
-          );
-          return;
         case "ListUpstreams":
           await route.fulfill(
             rpcResponse({
