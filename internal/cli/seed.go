@@ -202,12 +202,12 @@ func seedTenant(t *gorm.DB, f *seedFlags) (*storage.Tenant, error) {
 		return nil, fmt.Errorf("lookup tenant: %w", err)
 	}
 
-		tenant = storage.Tenant{
-			Base:         storage.Base{PublicID: f.tenantPublicID},
-			Name:         f.tenantName,
-			ZitadelOrgID: "zorg-" + gofakeit.UUID(),
-			DCREnabled:   true,
-		}
+	tenant = storage.Tenant{
+		Base:         storage.Base{PublicID: f.tenantPublicID},
+		Name:         f.tenantName,
+		ZitadelOrgID: "zorg-" + gofakeit.UUID(),
+		DCREnabled:   true,
+	}
 	if err := t.Create(&tenant).Error; err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
@@ -275,7 +275,7 @@ func seedRedirectURIAllowlist(t *gorm.DB, tenant *storage.Tenant) error {
 func seedUsers(t *gorm.DB, tenant *storage.Tenant, count int) ([]*storage.User, error) {
 	users := make([]*storage.User, 0, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		var name, email, zsub string
 		if i == 0 {
 			name = "Admin User"
@@ -326,7 +326,7 @@ func seedServiceAccounts(t *gorm.DB, tenant *storage.Tenant, users []*storage.Us
 
 	sas := make([]*storage.ServiceAccount, 0, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		zuid := "zusr_" + gofakeit.UUID()
 
 		var sa storage.ServiceAccount
@@ -543,7 +543,7 @@ func seedBillingMetrics(t *gorm.DB, tenant *storage.Tenant, users []*storage.Use
 
 		for _, sa := range sas {
 			snapshotCount := gofakeit.Number(1, 3)
-			for s := 0; s < snapshotCount; s++ {
+			for range snapshotCount {
 				connectedAt := targetDate.Add(-time.Duration(gofakeit.Number(0, 7200)) * time.Second)
 				duration := time.Duration(gofakeit.Number(15, 120)) * time.Minute
 				disconnectedAt := connectedAt.Add(duration)

@@ -1,4 +1,7 @@
 import { test, expect, type Route } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+
+const INDEX_HTML = readFileSync('dist/index.html', 'utf-8')
 
 // Connect-RPC calls land at:
 //   /t/<tenant>/api/limen.admin.v1.AdminService/<Method>         — slice 1 unimplemented
@@ -10,8 +13,6 @@ import { test, expect, type Route } from '@playwright/test'
 
 const TENANT = 'acme'
 const ADMIN_API = `/t/${TENANT}/api/`
-// Use regex pattern — Playwright glob `**` matching is unreliable for full URLs with ports
-const SESSION_RE = /\/t\/acme\/api\/limen\.session\.v1\.SessionService\//
 
 function rpc(body: unknown): Parameters<Route['fulfill']>[0] {
   return { status: 200, contentType: 'application/json', body: JSON.stringify(body) }
@@ -23,31 +24,51 @@ test.describe('admin dashboard (mocked services)', () => {
       ;(window as Window & { __LIMEN_TENANT__?: string }).__LIMEN_TENANT__ = tenant
     }, TENANT)
 
-    // Intercept /auth/login redirects — serve SPA to re-boot with valid session
+    // Override fetch to intercept SessionService calls before they hit
+    // the network. This runs before addInitScript boots the SPA, so all
+    // Connect-RPC requests go through our mock response in protobuf JSON
+    // format with the correct string-valued enum.
+    await context.addInitScript(() => {
+      const origFetch = window.fetch.bind(window)
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : 'url' in (input as Request) ? (input as Request).url : ''
+        if (url.includes('/limen.session.v1.SessionService/GetSession')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
+                user: { email: 'alex@acme.example', firstName: 'Alex' },
+                role: 'ROLE_ADMIN',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+        return origFetch(input, init)
+      }
+    })
+
+    // Intercept /auth/login redirects — serve the SPA directly so it boots
+    // from the auth URL with the tenant already set, avoiding a redirect loop.
+    // After the SPA boots and the guard's GetSession succeeds, redirect to
+    // the return_to URL so the intended page renders.
     await page.route('**/auth/login**', async (route) => {
       if (route.request().method() === 'GET') {
+        const url = new URL(route.request().url())
+        const returnTo = url.searchParams.get('return_to') || '/'
         return route.fulfill({
           status: 200,
           contentType: 'text/html',
-          body: '<!doctype html><html><head><meta charset="UTF-8"><script>window.__LIMEN_TENANT__="acme";location.replace("/");</script></head></html>',
+          body: INDEX_HTML.replace(
+            '</head>',
+            '<script>window.__LIMEN_TENANT__="acme"</script></head>',
+          ).replace(
+            '</body>',
+            `<script>setTimeout(function(){window.location.replace(${JSON.stringify(returnTo)})},0)</script></body>`,
+          ),
         })
       }
       return route.continue()
-    })
-
-    await page.route(SESSION_RE, async (route) => {
-      const url = route.request().url()
-      if (url.includes('/GetSession')) {
-        await route.fulfill(
-          rpc({
-            tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
-            user: { id: '', firstName: 'Alex', lastName: '', email: 'alex@acme.example' },
-            role: 3,
-          }),
-        )
-        return
-      }
-      await route.fulfill({ status: 404, body: 'unhandled session method' })
     })
 
     await page.route(`**${ADMIN_API}**`, async (route) => {
