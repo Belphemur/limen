@@ -28,15 +28,16 @@ type billingEvent struct {
 // When Valkey is disabled, events flow through an in-memory fallback channel
 // that is drained to Postgres by StartFallbackDrain.
 type BillingRecorder struct {
-	valkey   valkey.Client
-	store    *storage.Store
-	logger   *zap.Logger
-	enabled  atomic.Bool
-	dropped  atomic.Uint64
-	started  atomic.Bool
+	valkey    valkey.Client
+	store     *storage.Store
+	logger    *zap.Logger
+	enabled   atomic.Bool
+	dropped   atomic.Uint64
+	started   atomic.Bool
+	closed    atomic.Bool
 	closeOnce sync.Once
-	fallback chan billingEvent
-	wg       sync.WaitGroup
+	fallback  chan billingEvent
+	wg        sync.WaitGroup
 }
 
 // NewBillingRecorder creates a recorder.
@@ -62,6 +63,11 @@ func NewBillingRecorder(vc valkey.Client, store *storage.Store, logger *zap.Logg
 // isServiceAccount indicates whether this user is a service account.
 func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, userID int64, serviceAccountID int64) {
 	if !r.enabled.Load() {
+		if r.closed.Load() {
+			r.dropped.Add(1)
+			eventsDroppedTotal.Inc()
+			return
+		}
 		ev := billingEvent{
 			Kind:             "active_user",
 			TenantID:         tenantID,
@@ -93,6 +99,11 @@ func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, 
 // Called when a service account MCP connection is established or closed.
 func (r *BillingRecorder) RecordSAConnection(ctx context.Context, tenantID int64, serviceAccountID int64, connected bool) {
 	if !r.enabled.Load() {
+		if r.closed.Load() {
+			r.dropped.Add(1)
+			eventsDroppedTotal.Inc()
+			return
+		}
 		ev := billingEvent{
 			Kind:             "sa_connection",
 			TenantID:         tenantID,
@@ -160,6 +171,7 @@ func (r *BillingRecorder) Close() {
 		return
 	}
 	r.closeOnce.Do(func() {
+		r.closed.Store(true)
 		close(r.fallback)
 		r.wg.Wait()
 	})

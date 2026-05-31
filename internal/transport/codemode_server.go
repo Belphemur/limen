@@ -95,14 +95,18 @@ func (s *MCPServer) SSEHandler() http.Handler {
 			if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
 				if tenant, ok := tenancy.TenantFromContext(ctx); ok {
 					rec.RecordSAConnection(ctx, tenant.ID, sa.ID, true)
+					go func() {
+						<-r.Context().Done()
+						bgCtx := context.Background()
+						rec.RecordSAConnection(bgCtx, tenant.ID, sa.ID, false)
+					}()
 				}
 			}
 		}
 		s.sse.SSEHandler().ServeHTTP(w, r)
-		// TODO: record disconnect when the SSE connection closes.
-		// The UPSERT logic in the billing consumer handles stale
-		// connection counts; a clean disconnect hook would reduce
-		// reconciliation latency.
+		// Disconnect hook: the goroutine above writes connected=false
+		// when the SSE client drops. Without this hook every process
+		// restart or dropped connection inflates concurrent_count.
 	})
 }
 

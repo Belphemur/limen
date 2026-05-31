@@ -57,9 +57,8 @@ type ManagerOptions struct {
 type Manager struct {
 	opts ManagerOptions
 
-	mu              sync.RWMutex
-	bundles         map[int64]map[string]*Bundle
-	billingRecorder *metrics.BillingRecorder
+	mu      sync.RWMutex
+	bundles map[int64]map[string]*Bundle
 }
 
 // NewManager constructs a Manager. Returns an error if any required
@@ -75,9 +74,8 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		opts.Logger = zap.NewNop()
 	}
 	return &Manager{
-		opts:            opts,
-		bundles:         make(map[int64]map[string]*Bundle),
-		billingRecorder: opts.BillingRecorder,
+		opts:    opts,
+		bundles: make(map[int64]map[string]*Bundle),
 	}, nil
 }
 
@@ -119,7 +117,7 @@ func (m *Manager) CallTool(ctx context.Context, upstreamName, toolName string, a
 	if err != nil {
 		return nil, err
 	}
-	if m.billingRecorder != nil {
+	if m.opts.BillingRecorder != nil {
 		userID := int64(0)
 		saID := int64(0)
 		if u, ok := auth.MCPUserFromContext(ctx); ok {
@@ -127,9 +125,8 @@ func (m *Manager) CallTool(ctx context.Context, upstreamName, toolName string, a
 		}
 		if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
 			saID = sa.ID
-			userID = saID
 		}
-		m.billingRecorder.RecordActiveUser(ctx, tenant.ID, userID, saID)
+		m.opts.BillingRecorder.RecordActiveUser(ctx, tenant.ID, userID, saID)
 	}
 	return resp.Content, nil
 }
@@ -430,5 +427,5 @@ func ctxUserResolver(ctx context.Context) (*storage.User, bool) {
 // BillingRecorder returns the recorder configured for this manager.
 // Exposed so the transport layer can emit SA connection events.
 func (m *Manager) BillingRecorder() *metrics.BillingRecorder {
-	return m.billingRecorder
+	return m.opts.BillingRecorder
 }

@@ -34,6 +34,7 @@ DROP INDEX IF EXISTS idx_aum_unique;
 
 CREATE UNIQUE INDEX idx_aum_unique
     ON active_user_months (tenant_id, month_start, user_id, service_account_id)
+    NULLS NOT DISTINCT
     WHERE deleted_at IS NULL;
 
 -- sa_connection_snapshots

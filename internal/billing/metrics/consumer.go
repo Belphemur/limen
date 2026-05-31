@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/belphemur/limen/internal/storage"
@@ -52,8 +53,11 @@ func NewConsumer(vc valkey.Client, store *storage.Store, logger *zap.Logger, con
 func (c *Consumer) Bootstrap(ctx context.Context) {
 	for _, stream := range []string{streamActiveUsers, streamSAConnections} {
 		if err := c.valkey.XGroupCreate(ctx, stream, groupBillingObserver, "$"); err != nil {
-			// BUSYGROUP error means group already exists — that's fine
-			c.logger.Debug("consumer group already exists (ok)", zap.String("stream", stream), zap.Error(err))
+			if strings.Contains(err.Error(), "BUSYGROUP") {
+				c.logger.Debug("consumer group already exists (ok)", zap.String("stream", stream))
+			} else {
+				c.logger.Error("failed to create consumer group", zap.String("stream", stream), zap.Error(err))
+			}
 		} else {
 			c.logger.Info("consumer group created", zap.String("stream", stream))
 		}
@@ -68,13 +72,12 @@ func (c *Consumer) Run(ctx context.Context) {
 	defer autoClaimTicker.Stop()
 
 	for {
+		c.processBatch(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-autoClaimTicker.C:
 			c.runAutoClaim(ctx)
-		default:
-			c.processBatch(ctx)
 		}
 	}
 }
@@ -116,7 +119,10 @@ func (c *Consumer) sweepDLQ(ctx context.Context) {
 				continue
 			}
 			if len(entries) == 0 {
-				c.logger.Warn("dlq sweep: message not found in stream", zap.String("stream", stream), zap.String("id", msg.ID))
+				c.logger.Warn("dlq sweep: message not found in stream, acknowledging to clear PEL", zap.String("stream", stream), zap.String("id", msg.ID))
+				if _, err := c.valkey.XAck(ctx, stream, groupBillingObserver, msg.ID); err != nil {
+					c.logger.Error("dlq sweep: failed to ack ghost message", zap.String("stream", stream), zap.String("id", msg.ID), zap.Error(err))
+				}
 				continue
 			}
 
@@ -210,7 +216,7 @@ func (c *Consumer) processActiveUsers(ctx context.Context, msgs []valkey.StreamM
 			if err != nil {
 				c.logger.Warn("skipping active user message with invalid timestamp", zap.Error(err), zap.String("msg_id", msg.ID))
 				hasError = true
-				continue
+				break
 			}
 			t := time.UnixMilli(ts)
 			monthStart := t.Format("2006-01") + "-01" // first of month
@@ -220,6 +226,7 @@ func (c *Consumer) processActiveUsers(ctx context.Context, msgs []valkey.StreamM
 			if err != nil {
 				c.logger.Error("upsert active_user_months failed", zap.Error(err))
 				hasError = true
+				break
 			}
 		}
 
@@ -271,14 +278,14 @@ func (c *Consumer) processSAConnections(ctx context.Context, msgs []valkey.Strea
 			if err != nil {
 				c.logger.Warn("skipping SA connection message with invalid sa_id", zap.Error(err), zap.String("msg_id", msg.ID))
 				hasError = true
-				continue
+				break
 			}
 			connected := msg.Fields["connected"] == "1"
 			ts, err := parseInt64(msg.Fields, "ts")
 			if err != nil {
 				c.logger.Warn("skipping SA connection message with invalid timestamp", zap.Error(err), zap.String("msg_id", msg.ID))
 				hasError = true
-				continue
+				break
 			}
 			t := time.UnixMilli(ts)
 
@@ -290,7 +297,7 @@ func (c *Consumer) processSAConnections(ctx context.Context, msgs []valkey.Strea
 				if err != nil {
 					c.logger.Error("insert sa_connection_snapshot failed", zap.Error(err))
 					hasError = true
-					continue
+					break
 				}
 			} else {
 				// Disconnect: find the most recent open connection for this SA and close it
@@ -298,7 +305,7 @@ func (c *Consumer) processSAConnections(ctx context.Context, msgs []valkey.Strea
 				if err != nil {
 					c.logger.Error("update sa_connection_snapshot disconnect failed", zap.Error(err))
 					hasError = true
-					continue
+					break
 				}
 			}
 		}
@@ -380,5 +387,9 @@ func isTimeoutError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	// valkey-go client returns a Nil reply when BLOCK expires with no messages.
+	return strings.Contains(err.Error(), "redis: nil")
 }
