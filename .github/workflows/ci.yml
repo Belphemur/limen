@@ -35,6 +35,9 @@ jobs:
   frontend-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      matrix:
+        package: [shared, portal, admin]
     steps:
       - uses: actions/checkout@v4
 
@@ -52,8 +55,10 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: 'web/pnpm-lock.yaml'
 
-      - name: Add Go bin directory to PATH
-        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Add Go and npm bin directories to PATH
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
@@ -61,16 +66,8 @@ jobs:
       - name: Generate TypeScript protobuf bindings
         run: make proto
 
-      - name: Run shared unit tests
-        working-directory: web/shared
-        run: pnpm test
-
-      - name: Run portal unit tests
-        working-directory: web/portal
-        run: pnpm test
-
-      - name: Run admin unit tests
-        working-directory: web/admin
+      - name: Run ${{ matrix.package }} unit tests
+        working-directory: web/${{ matrix.package }}
         run: pnpm test
 
   frontend-e2e-portal:
@@ -93,8 +90,10 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: 'web/pnpm-lock.yaml'
 
-      - name: Add Go bin directory to PATH
-        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Add Go and npm bin directories to PATH
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
@@ -141,8 +140,10 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: 'web/pnpm-lock.yaml'
 
-      - name: Add Go bin directory to PATH
-        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Add Go and npm bin directories to PATH
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
