@@ -9,8 +9,9 @@ import { test, expect, type Route } from '@playwright/test'
 // before navigating to a protected route.
 
 const TENANT = 'acme'
-const API_PREFIX = `/t/${TENANT}/api/limen.portal.v1.PortalService/`
-const SESSION_API = `/t/${TENANT}/api/limen.session.v1.SessionService/`
+// Use regex patterns — Playwright glob `**` matching is unreliable for full URLs with ports
+const API_RE = /\/t\/acme\/api\/limen\.portal\.v1\.PortalService\//
+const SESSION_RE = /\/t\/acme\/api\/limen\.session\.v1\.SessionService\//
 
 interface RpcState {
   authenticated: boolean
@@ -53,10 +54,9 @@ test.describe('portal happy path (stubbed OIDC + RPC)', () => {
     // return an error, which triggers the guard's hard redirect to the
     // server-side /auth/login. When true, we return a valid session so
     // the protected routes render.
-    await page.route(`**${SESSION_API}**`, async (route) => {
-      const req = route.request()
-      const data = req.postDataJSON()
-      if (data.method === 'GetSession') {
+    await page.route(SESSION_RE, async (route) => {
+      const url = route.request().url()
+      if (url.includes('/GetSession')) {
         if (!state.authenticated) {
           return route.fulfill({
             status: 501,
@@ -84,8 +84,9 @@ test.describe('portal happy path (stubbed OIDC + RPC)', () => {
       return route.fulfill(rpcResponse({}))
     })
 
-    await page.route(`**${API_PREFIX}**`, async (route) => {
-      const method = route.request().url().split(API_PREFIX)[1]
+    await page.route(API_RE, async (route) => {
+      const url = route.request().url()
+      const method = url.split('/').pop()
       switch (method) {
         case 'ListUpstreams':
           await route.fulfill(
