@@ -102,10 +102,12 @@ func openMigratedStore(t *testing.T) *storage.Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	// Run AutoMigrate directly; skip goose SQL migrations because the project
-	// currently has a duplicate version number (00014_billing_metrics.sql vs
-	// 00014_strategy_mode_column.sql) that breaks goose. AutoMigrate creates
-	// the tables we need for the fallback-drain integration test.
+	// Run AutoMigrate directly instead of s.Migrate(ctx) so the integration
+	// test exercises the same codepath as production startup. The goose
+	// migration for billing metrics (00014) layers RLS policies and the
+	// partial unique index on top of the AutoMigrate-created tables — for
+	// this test, AutoMigrate alone is sufficient since the fallback drain
+	// does not rely on RLS or the partial unique index.
 	adminDB := s.RawDB()
 	if err := adminDB.AutoMigrate(storage.AllModels()...); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)

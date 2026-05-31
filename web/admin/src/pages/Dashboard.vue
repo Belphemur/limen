@@ -13,7 +13,7 @@ import SetupProgress from '@/components/SetupProgress.vue'
 import TaskBentoCard from '@/components/TaskBentoCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
-import BillingChart, { type ChartDayRecord } from '@/components/BillingChart.vue'
+import BillingChart from '@/components/BillingChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -42,11 +42,11 @@ const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
   })
   return {
     hasData: resp.hasData,
-    days: resp.days as ChartDayRecord[],
+    days: resp.days,
   }
 }
 
-const mapActiveUserData = (day: ChartDayRecord) => day.activeUserCount ?? 0
+const mapActiveUserData = (day: Record<string, any>) => (day.activeUserCount as number) ?? 0
 
 const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
   const resp = await adminClient().getSAConnectionChart({
@@ -57,11 +57,11 @@ const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
   })
   return {
     hasData: resp.hasData,
-    days: resp.days as ChartDayRecord[],
+    days: resp.days,
   }
 }
 
-const mapSAConnectionData = (day: ChartDayRecord) => day.peakConnections ?? 0
+const mapSAConnectionData = (day: Record<string, any>) => (day.peakConnections as number) ?? 0
 
 onMounted(async () => {
   await Promise.all([
@@ -81,25 +81,16 @@ onMounted(async () => {
     fetchDiscovery()
       .then((d) => (issuer.value = d.zitadelIssuer))
       .catch(() => (issuer.value = '')),
+    // Billing chart data availability checks
+    adminClient()
+      .getActiveUserChart({})
+      .then((r) => { hasActiveUserData.value = r.hasData })
+      .catch((err) => { console.error('Failed to pre-check active user chart data availability:', err) }),
+    adminClient()
+      .getSAConnectionChart({})
+      .then((r) => { hasSAConnectionData.value = r.hasData })
+      .catch((err) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
   ])
-
-  // Check billing chart data availability (non-blocking, fire-and-forget)
-  adminClient()
-    .getActiveUserChart({})
-    .then((r) => {
-      hasActiveUserData.value = r.hasData
-    })
-    .catch((err) => {
-      console.error('Failed to pre-check active user chart data availability:', err)
-    })
-  adminClient()
-    .getSAConnectionChart({})
-    .then((r) => {
-      hasSAConnectionData.value = r.hasData
-    })
-    .catch((err) => {
-      console.error('Failed to pre-check service account connection chart data availability:', err)
-    })
 })
 
 interface Step {

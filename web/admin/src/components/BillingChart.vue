@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -16,10 +16,13 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Filler)
 
+function resolveCSSVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#000'
+}
+
 export interface ChartDayRecord {
   date: string
-  activeUserCount?: number
-  peakConnections?: number
+  value: number
 }
 
 const props = defineProps<{
@@ -33,8 +36,8 @@ const props = defineProps<{
   fetchDataFn: (params: {
     from?: Date
     to?: Date
-  }) => Promise<{ hasData: boolean; days: ChartDayRecord[] }>
-  mapDataFn: (day: ChartDayRecord) => number
+  }) => Promise<{ hasData: boolean; days: Record<string, any>[] }>
+  mapDataFn: (day: Record<string, any>) => number
 }>()
 
 const loading = ref(true)
@@ -49,23 +52,23 @@ const options = computed<ChartOptions<'line'>>(() => ({
   plugins: {
     legend: { display: false },
     tooltip: {
-      backgroundColor: 'var(--color-surface-container-high)',
-      titleColor: 'var(--color-on-surface)',
-      bodyColor: 'var(--color-on-surface-variant)',
-      borderColor: 'var(--color-outline-variant)',
+      backgroundColor: resolveCSSVar('--color-surface-container-high'),
+      titleColor: resolveCSSVar('--color-on-surface'),
+      bodyColor: resolveCSSVar('--color-on-surface-variant'),
+      borderColor: resolveCSSVar('--color-outline-variant'),
       borderWidth: 1,
     },
   },
   scales: {
     x: {
       grid: { display: false },
-      ticks: { color: 'var(--color-on-surface-variant)', font: { size: 11 } },
+      ticks: { color: resolveCSSVar('--color-on-surface-variant'), font: { size: 11 } },
     },
     y: {
       beginAtZero: true,
-      grid: { color: 'var(--color-outline-variant)', drawBorder: false },
+      grid: { color: resolveCSSVar('--color-outline-variant'), drawBorder: false },
       ticks: {
-        color: 'var(--color-on-surface-variant)',
+        color: resolveCSSVar('--color-on-surface-variant'),
         font: { size: 11 },
         stepSize: 1,
         callback: (value) => (Number.isInteger(value) ? value : ''),
@@ -110,8 +113,7 @@ async function fetchData() {
   }
 }
 
-onMounted(fetchData)
-watch(() => [props.from, props.to], fetchData)
+watch(() => [props.from, props.to], fetchData, { immediate: true })
 </script>
 
 <template>
