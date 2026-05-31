@@ -1,7 +1,12 @@
-import { test, expect, type Route } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-
-const INDEX_HTML = readFileSync('dist/index.html', 'utf-8')
+import {
+  TENANT,
+  injectTenant,
+  mockSessionFetch,
+  interceptAuthLogin,
+  rpc,
+} from '../../../shared/src/test-utils/e2e-mocks'
 
 // Connect-RPC calls land at:
 //   /t/<tenant>/api/limen.admin.v1.AdminService/<Method>         — slice 1 unimplemented
@@ -11,65 +16,14 @@ const INDEX_HTML = readFileSync('dist/index.html', 'utf-8')
 // The vite preview build does not ship a mock client; we intercept
 // each call below.
 
-const TENANT = 'acme'
 const ADMIN_API = `/t/${TENANT}/api/`
-
-function rpc(body: unknown): Parameters<Route['fulfill']>[0] {
-  return { status: 200, contentType: 'application/json', body: JSON.stringify(body) }
-}
 
 test.describe('admin dashboard (mocked services)', () => {
   test('renders welcome, task bento and system health empty state', async ({ page, context }) => {
-    await context.addInitScript((tenant) => {
-      ;(window as Window & { __LIMEN_TENANT__?: string }).__LIMEN_TENANT__ = tenant
-    }, TENANT)
-
-    // Override fetch to intercept SessionService calls before they hit
-    // the network. This runs before addInitScript boots the SPA, so all
-    // Connect-RPC requests go through our mock response in protobuf JSON
-    // format with the correct string-valued enum.
-    await context.addInitScript(() => {
-      const origFetch = window.fetch.bind(window)
-      window.fetch = (input, init) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : 'url' in (input as Request) ? (input as Request).url : ''
-        if (url.includes('/limen.session.v1.SessionService/GetSession')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
-                user: { email: 'alex@acme.example', firstName: 'Alex' },
-                role: 'ROLE_ADMIN',
-              }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } },
-            ),
-          )
-        }
-        return origFetch(input, init)
-      }
-    })
-
-    // Intercept /auth/login redirects — serve the SPA directly so it boots
-    // from the auth URL with the tenant already set, avoiding a redirect loop.
-    // After the SPA boots and the guard's GetSession succeeds, redirect to
-    // the return_to URL so the intended page renders.
-    await page.route('**/auth/login**', async (route) => {
-      if (route.request().method() === 'GET') {
-        const url = new URL(route.request().url())
-        const returnTo = url.searchParams.get('return_to') || '/'
-        return route.fulfill({
-          status: 200,
-          contentType: 'text/html',
-          body: INDEX_HTML.replace(
-            '</head>',
-            '<script>window.__LIMEN_TENANT__="acme"</script></head>',
-          ).replace(
-            '</body>',
-            `<script>setTimeout(function(){window.location.replace(${JSON.stringify(returnTo)})},0)</script></body>`,
-          ),
-        })
-      }
-      return route.continue()
-    })
+    await injectTenant(context)
+    await mockSessionFetch(context)
+    const INDEX_HTML = readFileSync('dist/index.html', 'utf-8')
+    await interceptAuthLogin(page, INDEX_HTML)
 
     await page.route(`**${ADMIN_API}**`, async (route) => {
       const path = route.request().url().split(ADMIN_API)[1]

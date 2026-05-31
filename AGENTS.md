@@ -165,8 +165,10 @@ discovery endpoint on the root router; all are wired by
   `connectrpc/es` plugin.
 - Unit tests: `pnpm test` (Vitest + jsdom).
 - E2E smoke: `pnpm e2e` (Playwright against `vite preview`, Connect-RPC
-  stubbed via `page.route`). First run requires `pnpm e2e:install` to
-  fetch the Chromium binary.
+  stubbed via `page.route` or `window.fetch` overrides). First run
+  requires `pnpm e2e:install` to fetch the Chromium binary. Shared
+  test utilities live in `web/shared/src/test-utils/e2e-mocks.ts`.
+  See [docs/frontend-e2e.md](docs/frontend-e2e.md) for the full guide.
 
 ## Required pre-commit checks
 
