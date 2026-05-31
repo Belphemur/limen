@@ -9,7 +9,9 @@ import { test, expect, type Route } from "@playwright/test";
 // before navigating to a protected route.
 
 const TENANT = "acme";
-const API_PREFIX = `/t/${TENANT}/api/limen.portal.v1.PortalService/`;
+// Use regex patterns — Playwright glob `**` matching is unreliable for full URLs with ports
+const API_RE = /\/t\/acme\/api\/limen\.portal\.v1\.PortalService\//;
+const SESSION_RE = /\/t\/acme\/api\/limen\.session\.v1\.SessionService\//;
 
 interface RpcState {
   authenticated: boolean;
@@ -36,29 +38,60 @@ test.describe("portal happy path (stubbed OIDC + RPC)", () => {
         tenant;
     }, TENANT);
 
-    await page.route(`**${API_PREFIX}**`, async (route) => {
-      const method = route.request().url().split(API_PREFIX)[1];
+    // The router guard redirects to /auth/login when unauthenticated.
+    // vite preview has no server-side login endpoint, so intercept the
+    // GET and serve a minimal page the test can assert against.
+    await page.route("**/auth/login**", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!DOCTYPE html><html><body>
+<h1>Welcome to Limen</h1>
+<a href="/auth/login">Sign in with Zitadel</a>
+</body></html>`,
+      });
+    });
+
+    // Intercept SessionService — the session gate runs before any page
+    // renders. The handler is stateful: when authenticated is false we
+    // return an error, which triggers the guard's hard redirect to the
+    // server-side /auth/login. When true, we return a valid session so
+    // the protected routes render.
+    await page.route(SESSION_RE, async (route) => {
+      const url = route.request().url();
+      if (url.includes("/GetSession")) {
+        if (!state.authenticated) {
+          return route.fulfill({
+            status: 501,
+            contentType: "application/json",
+            body: JSON.stringify({ code: "unimplemented" }),
+          });
+        }
+        return route.fulfill(
+          rpcResponse({
+            user: {
+              id: "user_01",
+              publicId: "usr_test",
+              firstName: "Alex",
+              lastName: "Tester",
+              role: "ROLE_OWNER",
+            },
+            tenant: {
+              id: "tnt_01",
+              publicId: "tnt_acme",
+              name: "Acme Corp",
+            },
+          }),
+        );
+      }
+      return route.fulfill(rpcResponse({}));
+    });
+
+    await page.route(API_RE, async (route) => {
+      const url = route.request().url();
+      const method = url.split("/").pop();
       switch (method) {
-        case "GetSession":
-          await route.fulfill(
-            rpcResponse(
-              state.authenticated
-                ? {
-                    authenticated: true,
-                    user: {
-                      subject: "zsub_1",
-                      email: "op@acme.example",
-                      name: "Op",
-                    },
-                    roles: ["member"],
-                  }
-                : {
-                    authenticated: false,
-                    loginUrl: `/auth/login?tenant=${TENANT}&return_to=/`,
-                  },
-            ),
-          );
-          return;
         case "ListUpstreams":
           await route.fulfill(
             rpcResponse({
@@ -81,9 +114,9 @@ test.describe("portal happy path (stubbed OIDC + RPC)", () => {
           return;
         case "StartConnect":
           // Pretend the OAuth dance is instant: flip the state then
-          // hand back an in-app path so the SPA stays on /upstreams.
+          // hand back an in-app path so the SPA stays on /mcp-servers.
           state.upstreamLinkState = "CONNECTED";
-          await route.fulfill(rpcResponse({ redirectUrl: "/upstreams" }));
+          await route.fulfill(rpcResponse({ redirectUrl: "/mcp-servers" }));
           return;
         case "Disconnect":
           state.upstreamLinkState = "NONE";
@@ -107,12 +140,12 @@ test.describe("portal happy path (stubbed OIDC + RPC)", () => {
     ).toBeVisible();
 
     // Step 2 — simulate the post-OIDC redirect by flipping the
-    // authenticated flag and navigating straight to /upstreams.
+    // authenticated flag and navigating straight to /mcp-servers.
     state.authenticated = true;
-    await page.goto("/upstreams");
+    await page.goto("/mcp-servers");
 
     await expect(
-      page.getByRole("heading", { name: "Upstreams" }),
+      page.getByRole("heading", { name: "MCP Servers" }),
     ).toBeVisible();
     const card = page.locator('[data-upstream-name="atlassian"]');
     await expect(card).toBeVisible();

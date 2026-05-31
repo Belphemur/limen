@@ -45,4 +45,6 @@ var requiredRole = map[string]session.Role{
 	"DisconnectServiceAccountUpstream": session.RoleAdmin,
 	"StartAdminConnect":                session.RoleAdmin,
 	"FinishAdminCallback":              session.RoleAdmin,
+	"GetActiveUserChart":               session.RoleAdmin,
+	"GetSAConnectionChart":             session.RoleAdmin,
 }

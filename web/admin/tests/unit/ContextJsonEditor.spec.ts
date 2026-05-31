@@ -34,7 +34,7 @@ describe('ContextJsonEditor', () => {
     expect(w.get('[data-testid="context-json-status"]').text()).toMatch(/Invalid key/)
   })
 
-  it('rejects payloads larger than the cap', async () => {
+  it('rejects payloads larger than the cap', () => {
     const big = '{"x":"' + 'a'.repeat(5000) + '"}'
     const w = mk(big)
     expect(w.get('[data-testid="context-json-status"]').text()).toMatch(/Too large/)

@@ -3,6 +3,7 @@ syntax = "proto3";
 package limen.admin.v1;
 
 import "limen/portal/v1/portal.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/belphemur/limen/internal/admin/adminv1;adminv1";
 
@@ -74,6 +75,10 @@ service AdminService {
   // connection verification — not for tool call routing.
   rpc StartAdminConnect(StartAdminConnectRequest) returns (StartAdminConnectResponse);
   rpc FinishAdminCallback(FinishAdminCallbackRequest) returns (FinishAdminCallbackResponse);
+
+  // Billing metrics chart data. Admin floor. See docs/phases/phase-13b-billing-metrics-pipeline.md.
+  rpc GetActiveUserChart(GetActiveUserChartRequest) returns (GetActiveUserChartResponse);
+  rpc GetSAConnectionChart(GetSAConnectionChartRequest) returns (GetSAConnectionChartResponse);
 
 }
 
@@ -570,4 +575,36 @@ message FinishAdminCallbackRequest {
 
 message FinishAdminCallbackResponse {
   string return_to = 1;  // the SPA URL captured during StartAdminConnect
+}
+
+// ---- Billing metrics charts (Phase 13b) ---------------------------
+
+message GetActiveUserChartRequest {
+  // Optional: from_date (inclusive). Defaults to 30 days ago.
+  google.protobuf.Timestamp from_date = 1;
+  // Optional: to_date (exclusive). Defaults to now.
+  google.protobuf.Timestamp to_date = 2;
+}
+
+message GetActiveUserChartResponse {
+  message DataPoint {
+    string date = 1;              // "2026-05-27"
+    int32 active_user_count = 2;  // distinct users (human + SA) on that day
+  }
+  repeated DataPoint days = 1;
+  bool has_data = 2;              // true if any data exists — gates chart visibility
+}
+
+message GetSAConnectionChartRequest {
+  google.protobuf.Timestamp from_date = 1;
+  google.protobuf.Timestamp to_date = 2;
+}
+
+message GetSAConnectionChartResponse {
+  message DataPoint {
+    string date = 1;              // "2026-05-27"
+    int32 peak_connections = 2;   // MAX(concurrent_count) on that day
+  }
+  repeated DataPoint days = 1;
+  bool has_data = 2;
 }

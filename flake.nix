@@ -39,6 +39,7 @@
             golangci-lint
             gotools
             air
+            chromium
             docker
             docker-compose
             git
@@ -47,10 +48,16 @@
             ripgrep
             just
             gnumake
+            actionlint
+            goreleaser
+            playwright-driver
           ];
 
           env = {
             GO111MODULE = "on";
+
+            PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
           };
 
           processes = {
@@ -84,6 +91,22 @@
               name = "go vet";
               entry = "go vet ./...";
               files = "\\.go$";
+              pass_filenames = false;
+            };
+
+            actionlint = {
+              enable = true;
+              name = "actionlint";
+              entry = "actionlint";
+              files = "^\\.github/workflows/.*\\.ya?ml$";
+              pass_filenames = false;
+            };
+
+            goreleaser-dry-run = {
+              enable = true;
+              name = "goreleaser snapshot dry-run";
+              entry = "goreleaser release --snapshot --skip=publish --clean";
+              files = "^\\.goreleaser\\.ya?ml$";
               pass_filenames = false;
             };
           };

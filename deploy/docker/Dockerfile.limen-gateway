@@ -1,0 +1,5 @@
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates tzdata
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/limen-gateway /usr/local/bin/limen-gateway
+ENTRYPOINT ["/usr/local/bin/limen-gateway"]

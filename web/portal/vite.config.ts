@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
-import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
+import tsconfigPaths from 'vite-tsconfig-paths'
 
 // Vite config for the Limen portal SPA.
 //
@@ -19,13 +19,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? './' : '/__vite/portal/',
-  plugins: [vue(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@gen': fileURLToPath(new URL('./src/gen', import.meta.url)),
-    },
-  },
+  plugins: [tsconfigPaths(), vue(), tailwindcss()],
   server: {
     port: 5173,
     strictPort: true,

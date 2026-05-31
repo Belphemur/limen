@@ -135,6 +135,12 @@ const (
 	// AdminServiceFinishAdminCallbackProcedure is the fully-qualified name of the AdminService's
 	// FinishAdminCallback RPC.
 	AdminServiceFinishAdminCallbackProcedure = "/limen.admin.v1.AdminService/FinishAdminCallback"
+	// AdminServiceGetActiveUserChartProcedure is the fully-qualified name of the AdminService's
+	// GetActiveUserChart RPC.
+	AdminServiceGetActiveUserChartProcedure = "/limen.admin.v1.AdminService/GetActiveUserChart"
+	// AdminServiceGetSAConnectionChartProcedure is the fully-qualified name of the AdminService's
+	// GetSAConnectionChart RPC.
+	AdminServiceGetSAConnectionChartProcedure = "/limen.admin.v1.AdminService/GetSAConnectionChart"
 )
 
 // AdminServiceClient is a client for the limen.admin.v1.AdminService service.
@@ -191,6 +197,9 @@ type AdminServiceClient interface {
 	// connection verification — not for tool call routing.
 	StartAdminConnect(context.Context, *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error)
 	FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error)
+	// Billing metrics chart data. Admin floor. See docs/phases/phase-13b-billing-metrics-pipeline.md.
+	GetActiveUserChart(context.Context, *connect.Request[adminv1.GetActiveUserChartRequest]) (*connect.Response[adminv1.GetActiveUserChartResponse], error)
+	GetSAConnectionChart(context.Context, *connect.Request[adminv1.GetSAConnectionChartRequest]) (*connect.Response[adminv1.GetSAConnectionChartResponse], error)
 }
 
 // NewAdminServiceClient constructs a client for the limen.admin.v1.AdminService service. By
@@ -408,6 +417,18 @@ func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(adminServiceMethods.ByName("FinishAdminCallback")),
 			connect.WithClientOptions(opts...),
 		),
+		getActiveUserChart: connect.NewClient[adminv1.GetActiveUserChartRequest, adminv1.GetActiveUserChartResponse](
+			httpClient,
+			baseURL+AdminServiceGetActiveUserChartProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("GetActiveUserChart")),
+			connect.WithClientOptions(opts...),
+		),
+		getSAConnectionChart: connect.NewClient[adminv1.GetSAConnectionChartRequest, adminv1.GetSAConnectionChartResponse](
+			httpClient,
+			baseURL+AdminServiceGetSAConnectionChartProcedure,
+			connect.WithSchema(adminServiceMethods.ByName("GetSAConnectionChart")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -447,6 +468,8 @@ type adminServiceClient struct {
 	disconnectServiceAccountUpstream *connect.Client[adminv1.DisconnectServiceAccountUpstreamRequest, adminv1.DisconnectServiceAccountUpstreamResponse]
 	startAdminConnect                *connect.Client[adminv1.StartAdminConnectRequest, adminv1.StartAdminConnectResponse]
 	finishAdminCallback              *connect.Client[adminv1.FinishAdminCallbackRequest, adminv1.FinishAdminCallbackResponse]
+	getActiveUserChart               *connect.Client[adminv1.GetActiveUserChartRequest, adminv1.GetActiveUserChartResponse]
+	getSAConnectionChart             *connect.Client[adminv1.GetSAConnectionChartRequest, adminv1.GetSAConnectionChartResponse]
 }
 
 // CreateUpstream calls limen.admin.v1.AdminService.CreateUpstream.
@@ -621,6 +644,16 @@ func (c *adminServiceClient) FinishAdminCallback(ctx context.Context, req *conne
 	return c.finishAdminCallback.CallUnary(ctx, req)
 }
 
+// GetActiveUserChart calls limen.admin.v1.AdminService.GetActiveUserChart.
+func (c *adminServiceClient) GetActiveUserChart(ctx context.Context, req *connect.Request[adminv1.GetActiveUserChartRequest]) (*connect.Response[adminv1.GetActiveUserChartResponse], error) {
+	return c.getActiveUserChart.CallUnary(ctx, req)
+}
+
+// GetSAConnectionChart calls limen.admin.v1.AdminService.GetSAConnectionChart.
+func (c *adminServiceClient) GetSAConnectionChart(ctx context.Context, req *connect.Request[adminv1.GetSAConnectionChartRequest]) (*connect.Response[adminv1.GetSAConnectionChartResponse], error) {
+	return c.getSAConnectionChart.CallUnary(ctx, req)
+}
+
 // AdminServiceHandler is an implementation of the limen.admin.v1.AdminService service.
 type AdminServiceHandler interface {
 	// Upstream catalog CRUD + tenant-wide tool-catalog ops. Admin floor.
@@ -675,6 +708,9 @@ type AdminServiceHandler interface {
 	// connection verification — not for tool call routing.
 	StartAdminConnect(context.Context, *connect.Request[adminv1.StartAdminConnectRequest]) (*connect.Response[adminv1.StartAdminConnectResponse], error)
 	FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error)
+	// Billing metrics chart data. Admin floor. See docs/phases/phase-13b-billing-metrics-pipeline.md.
+	GetActiveUserChart(context.Context, *connect.Request[adminv1.GetActiveUserChartRequest]) (*connect.Response[adminv1.GetActiveUserChartResponse], error)
+	GetSAConnectionChart(context.Context, *connect.Request[adminv1.GetSAConnectionChartRequest]) (*connect.Response[adminv1.GetSAConnectionChartResponse], error)
 }
 
 // NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -888,6 +924,18 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(adminServiceMethods.ByName("FinishAdminCallback")),
 		connect.WithHandlerOptions(opts...),
 	)
+	adminServiceGetActiveUserChartHandler := connect.NewUnaryHandler(
+		AdminServiceGetActiveUserChartProcedure,
+		svc.GetActiveUserChart,
+		connect.WithSchema(adminServiceMethods.ByName("GetActiveUserChart")),
+		connect.WithHandlerOptions(opts...),
+	)
+	adminServiceGetSAConnectionChartHandler := connect.NewUnaryHandler(
+		AdminServiceGetSAConnectionChartProcedure,
+		svc.GetSAConnectionChart,
+		connect.WithSchema(adminServiceMethods.ByName("GetSAConnectionChart")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/limen.admin.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AdminServiceCreateUpstreamProcedure:
@@ -958,6 +1006,10 @@ func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOpti
 			adminServiceStartAdminConnectHandler.ServeHTTP(w, r)
 		case AdminServiceFinishAdminCallbackProcedure:
 			adminServiceFinishAdminCallbackHandler.ServeHTTP(w, r)
+		case AdminServiceGetActiveUserChartProcedure:
+			adminServiceGetActiveUserChartHandler.ServeHTTP(w, r)
+		case AdminServiceGetSAConnectionChartProcedure:
+			adminServiceGetSAConnectionChartHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1101,4 +1153,12 @@ func (UnimplementedAdminServiceHandler) StartAdminConnect(context.Context, *conn
 
 func (UnimplementedAdminServiceHandler) FinishAdminCallback(context.Context, *connect.Request[adminv1.FinishAdminCallbackRequest]) (*connect.Response[adminv1.FinishAdminCallbackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.FinishAdminCallback is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) GetActiveUserChart(context.Context, *connect.Request[adminv1.GetActiveUserChartRequest]) (*connect.Response[adminv1.GetActiveUserChartResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.GetActiveUserChart is not implemented"))
+}
+
+func (UnimplementedAdminServiceHandler) GetSAConnectionChart(context.Context, *connect.Request[adminv1.GetSAConnectionChartRequest]) (*connect.Response[adminv1.GetSAConnectionChartResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("limen.admin.v1.AdminService.GetSAConnectionChart is not implemented"))
 }

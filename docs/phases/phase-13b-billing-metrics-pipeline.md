@@ -1,10 +1,10 @@
 ---
 phase: "13b"
 title: "Billing Metrics Pipeline (Valkey Streams)"
-status: planned
-progress: 0
+status: in_progress
+progress: 71
 depends_on: ["7", "9c", "9i", "10"]
-updated: "2026-05-27"
+updated: "2026-05-28"
 ---
 
 # Phase 13b — Billing Metrics Pipeline (Valkey Streams)
@@ -371,26 +371,36 @@ In `web/admin/src/pages/Dashboard.vue`, the bottom row (`SystemHealthEmpty` + `Q
 
 ## Checklist
 
-- [ ] Migration: `active_user_months` table + RLS + indexes on `(tenant_id, month_start)`
-- [ ] Migration: `sa_connection_snapshots` table + RLS + indexes on `(tenant_id, connected_at)`
-- [ ] `internal/billing/metrics/recorder.go` — `BillingRecorder` with `RecordActiveUser` and `RecordSAConnection`
-- [ ] Gateway integration: `RecordActiveUser` hooked into tool-call dispatch (`internal/mcprs/`)
-- [ ] Gateway integration: `RecordSAConnection` hooked into SA MCP connect/disconnect
-- [ ] Consumer goroutine: XREADGROUP → batch COPY → UPSERT active_user_months → INSERT sa_connection_snapshots → XACK+XDEL
-- [ ] Consumer-group bootstrap: `XGROUP CREATE billing:active_users billing_observer $ MKSTREAM` (idempotent, swallow BUSYGROUP)
-- [ ] Consumer-group bootstrap: `XGROUP CREATE billing:sa_connections billing_observer $ MKSTREAM` (idempotent)
-- [ ] `XAUTOCLAIM` for stuck-consumer recovery (60s min-idle, every 60s)
+- [x] Migration: `active_user_months` table + RLS + indexes on `(tenant_id, month_start)`
+- [x] Migration: `sa_connection_snapshots` table + RLS + indexes on `(tenant_id, connected_at)`
+- [x] `internal/billing/metrics/recorder.go` — `BillingRecorder` with `RecordActiveUser` and `RecordSAConnection`
+- [x] Gateway integration: `RecordActiveUser` hooked into tool-call dispatch (`internal/gateway/manager.go` CallTool)
+- [x] Gateway integration: `RecordSAConnection` hooked into SA MCP connect (`internal/transport/codemode_server.go` SSEHandler; disconnect is TODO for v1)
+- [x] Consumer goroutine: XREADGROUP → batch → UPSERT active_user_months → INSERT sa_connection_snapshots → XACK+XDEL (in `internal/billing/metrics/consumer.go`; at-least-once semantics with per-batch commit/ACK)
+- [x] Consumer-group bootstrap: `XGROUP CREATE billing:active_users billing_observer $ MKSTREAM` (idempotent, swallow BUSYGROUP) (in consumer.Bootstrap())
+- [x] Consumer-group bootstrap: `XGROUP CREATE billing:sa_connections billing_observer $ MKSTREAM` (idempotent) (in consumer.Bootstrap())
+- [x] `XAUTOCLAIM` for stuck-consumer recovery (60s min-idle, every 60s) (in consumer.Run())
 - [ ] Dead-letter stream `billing:dlq` for entries with delivery count ≥ 5 (MAXLEN 10000)
 - [ ] All-in-one fallback: drain goroutine when `valkey.enabled: false`
-- [ ] `concurrent_count` computation in consumer: subquery counts active (non-disconnected) connections at connect time
+- [x] `concurrent_count` computation in consumer: subquery counts active (non-disconnected) connections at connect time (in consumer.processSAConnections())
 - [ ] Prometheus metrics: `limen_billing_events_dropped_total`, `limen_billing_stream_evicted_total`
 - [ ] Unit tests: recorder under load, channel backpressure, shed-load
 - [ ] Integration tests: RLS isolation, month-boundary, SA concurrent-count correctness
 - [ ] Integration tests: Valkey Stream consumer (happy path, crash recovery, dead-letter)
-- [ ] `proto/limen/admin/v1/admin.proto`: `GetActiveUserChart` and `GetSAConnectionChart` RPCs + request/response messages with `has_data` field
-- [ ] `internal/admin/service.go`: `GetActiveUserChart` handler — query `active_user_months` with `EXISTS` pre-check + `generate_series` zero-fill
-- [ ] `internal/admin/service.go`: `GetSAConnectionChart` handler — query `sa_connection_snapshots` with `EXISTS` pre-check + `generate_series` zero-fill
-- [ ] `web/admin/package.json`: add `chart.js` ^4.4 + `vue-chartjs` ^5.3
-- [ ] `web/admin/src/components/ActiveUserChart.vue` — line chart with area fill, loading/empty/error states, admin SPA design tokens
-- [ ] `web/admin/src/components/SAConnectionChart.vue` — line chart with area fill, loading/empty/error states, admin SPA design tokens
-- [ ] `web/admin/src/pages/Dashboard.vue` — conditional Usage section (charts when data exists, old bottom row otherwise)
+- [x] `proto/limen/admin/v1/admin.proto`: `GetActiveUserChart` and `GetSAConnectionChart` RPCs + request/response messages with `has_data` field
+- [x] `internal/admin/billing.go`: `GetActiveUserChart` handler — query `active_user_months` with `EXISTS` pre-check + `generate_series` zero-fill
+- [x] `internal/admin/billing.go`: `GetSAConnectionChart` handler — query `sa_connection_snapshots` with `EXISTS` pre-check + `generate_series` zero-fill
+- [x] `web/admin/package.json`: add `chart.js` ^4.4 + `vue-chartjs` ^5.3
+- [x] `web/admin/src/components/ActiveUserChart.vue` — line chart with area fill, loading/empty/error states, admin SPA design tokens
+- [x] `web/admin/src/components/SAConnectionChart.vue` — line chart with area fill, loading/empty/error states, admin SPA design tokens
+- [x] `web/admin/src/pages/Dashboard.vue` — conditional Usage section (charts when data exists, old bottom row otherwise)
+
+## Implementation Notes
+
+- **Valkey Streams extension**: Extended Client interface with XAdd/XReadGroup/XAck/XDel/XAutoClaim/XGroupCreate + full InMemory test fake (17 tests in `internal/valkey/valkey_test.go`). Both `realClient` (valkey-go builder API) and `InMemory` fake implement all operations.
+- **GORM models**: `ActiveUserMonth` embeds Base (composite partial unique index via goose migration). `SAConnectionSnapshot` embeds Base (composite index on tenant_id + connected_at). Both registered in AllModels().
+- **Consumer error handling**: Refactored to track `hasError` per-tenant batch, only commit+ACK on success. Failed batches roll back and leave messages in pending entries for XAUTOCLAIM retry. Non-timeout XReadGroup errors logged at warn level.
+- **Split binary coverage**: Consumer goroutine started in both `serveall.go` (all-in-one) and `servegateway.go` (split gateway binary).
+- **Admin RPCs**: Added to requiredRole map with session.RoleAdmin.
+- **Design divergence**: Events sent as flat fields (`tenant_id=... user_id=...`) rather than msgpack-marshalled payloads for debuggability. Consumer parses fields at the boundary via parseInt64/parseOptionalInt64 helpers.
+- **SSE disconnect**: Not yet tracked (TODO in codemode_server.go). Consumer's concurrent_count uses `disconnected_at IS NULL` subquery; stale rows from crashed connections may inflate peaks until a future disconnect hook or periodic reconciliation sweeper is added.

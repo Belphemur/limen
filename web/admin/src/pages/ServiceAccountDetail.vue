@@ -610,29 +610,43 @@ function linkStatePill(linkState: number): StatusPill {
                           <div class="truncate font-mono text-xs text-on-surface-variant">
                             {{ item.upstream.identifier }}
                           </div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <!-- URL -->
-                  <td class="px-4 py-3 font-mono text-xs text-on-surface-variant">
-                    <span class="block max-w-xs truncate">{{ item.upstream.mcpUrl }}</span>
-                  </td>
-                  <!-- Type -->
-                  <td class="px-4 py-3">
-                    <span v-if="item.upstream.strategyType === 'mcp_spec'"
-                      class="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                      OAuth2
-                    </span>
-                    <span v-else-if="item.upstream.strategyType === 'static_header' && item.upstream.strategySubMode === 'tenant_owner'"
-                      class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                      Static (Shared)
-                    </span>
-                    <span v-else-if="item.upstream.strategyType === 'static_header' && item.upstream.strategySubMode === 'byok'"
-                      class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                      Static (BYOK)
-                    </span>
-                    <span v-else class="text-xs text-on-surface-variant">{{ item.upstream.strategyType }}</span>
-                  </td>
+                    </td>
+                    <!-- URL -->
+                    <td class="px-4 py-3 font-mono text-xs text-on-surface-variant">
+                      <span class="block max-w-xs truncate">{{ item.upstream.mcpUrl }}</span>
+                    </td>
+                    <!-- Type -->
+                    <td class="px-4 py-3">
+                      <span
+                        v-if="item.upstream.strategyType === 'mcp_spec'"
+                        class="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+                      >
+                        OAuth2
+                      </span>
+                      <span
+                        v-else-if="
+                          item.upstream.strategyType === 'static_header' &&
+                          item.upstream.strategySubMode === 'tenant_owner'
+                        "
+                        class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                      >
+                        Static (Shared)
+                      </span>
+                      <span
+                        v-else-if="
+                          item.upstream.strategyType === 'static_header' &&
+                          item.upstream.strategySubMode === 'byok'
+                        "
+                        class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                      >
+                        Static (BYOK)
+                      </span>
+                      <span v-else class="text-xs text-on-surface-variant">{{
+                        item.upstream.strategyType
+                      }}</span>
+                    </td>
                     <!-- Link Status -->
                     <td class="px-4 py-3">
                       <span

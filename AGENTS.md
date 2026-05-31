@@ -22,6 +22,7 @@ cmd/limen/main.go            # All-in-one binary (dev + small self-hosted)
 cmd/gateway/main.go          # MCP RS hot path (Phase 9a)
 cmd/portal/main.go           # Portal/admin Connect-RPC + OIDC RP + OAuth proxy (Phase 9a)
 cmd/staff/main.go            # Staff backoffice scaffold (Phase 9a, routes land in Phase 12)
+cmd/observer/main.go         # Billing telemetry consumer / observer process (decoupled, Phase 11/19/20)
 cmd/limenctl/main.go         # Admin CLI: migrate, create-tenant, create-upstream (Phase 9a)
 internal/
   admin/                      # AdminService Connect-RPC handler (Phase 9c)
@@ -29,6 +30,7 @@ internal/
   boot/                       # BootRuntime + BootProfile bitmask shared by every binary
   boot/{suite}mount/          # Per-suite mount helpers (mcpmount, portalmount, oauthproxymount, ...)
   boot/serve{name}/           # Per-binary Run(configPath) entry points
+  boot/serveobserver/         # Standalone metrics consumer entrypoint
   config/                     # YAML config loading with env var substitution
   contextblob/                # Context merge utilities for ambient context
   crypto/                     # AES-SIV encryption for SecretField (Phase 2)
@@ -163,8 +165,10 @@ discovery endpoint on the root router; all are wired by
   `connectrpc/es` plugin.
 - Unit tests: `pnpm test` (Vitest + jsdom).
 - E2E smoke: `pnpm e2e` (Playwright against `vite preview`, Connect-RPC
-  stubbed via `page.route`). First run requires `pnpm e2e:install` to
-  fetch the Chromium binary.
+  stubbed via `page.route` or `window.fetch` overrides). First run
+  requires `pnpm e2e:install` to fetch the Chromium binary. Shared
+  test utilities live in `web/shared/src/test-utils/e2e-mocks.ts`.
+  See [docs/frontend-e2e.md](docs/frontend-e2e.md) for the full guide.
 
 ## Required pre-commit checks
 

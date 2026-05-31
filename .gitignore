@@ -1,5 +1,14 @@
 # Binary
+/gateway
 /limen
+/limenctl
+/limen-gateway
+/limen-observer
+/limen-portal
+/limen-staff
+/observer
+/portal
+/staff
 
 # IDE
 .idea/
@@ -44,3 +53,6 @@ web/*/.playwright/
 .devenv/
 .devenv.flake.nix
 .direnv/
+
+# Release artifacts
+/dist/

@@ -10,6 +10,7 @@ import (
 	portalv1 "github.com/belphemur/limen/internal/portal/portalv1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -4138,11 +4139,325 @@ func (x *FinishAdminCallbackResponse) GetReturnTo() string {
 	return ""
 }
 
+type GetActiveUserChartRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional: from_date (inclusive). Defaults to 30 days ago.
+	FromDate *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=from_date,json=fromDate,proto3" json:"from_date,omitempty"`
+	// Optional: to_date (exclusive). Defaults to now.
+	ToDate        *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=to_date,json=toDate,proto3" json:"to_date,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveUserChartRequest) Reset() {
+	*x = GetActiveUserChartRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveUserChartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveUserChartRequest) ProtoMessage() {}
+
+func (x *GetActiveUserChartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveUserChartRequest.ProtoReflect.Descriptor instead.
+func (*GetActiveUserChartRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *GetActiveUserChartRequest) GetFromDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FromDate
+	}
+	return nil
+}
+
+func (x *GetActiveUserChartRequest) GetToDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ToDate
+	}
+	return nil
+}
+
+type GetActiveUserChartResponse struct {
+	state         protoimpl.MessageState                  `protogen:"open.v1"`
+	Days          []*GetActiveUserChartResponse_DataPoint `protobuf:"bytes,1,rep,name=days,proto3" json:"days,omitempty"`
+	HasData       bool                                    `protobuf:"varint,2,opt,name=has_data,json=hasData,proto3" json:"has_data,omitempty"` // true if any data exists — gates chart visibility
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveUserChartResponse) Reset() {
+	*x = GetActiveUserChartResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveUserChartResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveUserChartResponse) ProtoMessage() {}
+
+func (x *GetActiveUserChartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveUserChartResponse.ProtoReflect.Descriptor instead.
+func (*GetActiveUserChartResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *GetActiveUserChartResponse) GetDays() []*GetActiveUserChartResponse_DataPoint {
+	if x != nil {
+		return x.Days
+	}
+	return nil
+}
+
+func (x *GetActiveUserChartResponse) GetHasData() bool {
+	if x != nil {
+		return x.HasData
+	}
+	return false
+}
+
+type GetSAConnectionChartRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromDate      *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=from_date,json=fromDate,proto3" json:"from_date,omitempty"`
+	ToDate        *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=to_date,json=toDate,proto3" json:"to_date,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSAConnectionChartRequest) Reset() {
+	*x = GetSAConnectionChartRequest{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSAConnectionChartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSAConnectionChartRequest) ProtoMessage() {}
+
+func (x *GetSAConnectionChartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSAConnectionChartRequest.ProtoReflect.Descriptor instead.
+func (*GetSAConnectionChartRequest) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{77}
+}
+
+func (x *GetSAConnectionChartRequest) GetFromDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FromDate
+	}
+	return nil
+}
+
+func (x *GetSAConnectionChartRequest) GetToDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ToDate
+	}
+	return nil
+}
+
+type GetSAConnectionChartResponse struct {
+	state         protoimpl.MessageState                    `protogen:"open.v1"`
+	Days          []*GetSAConnectionChartResponse_DataPoint `protobuf:"bytes,1,rep,name=days,proto3" json:"days,omitempty"`
+	HasData       bool                                      `protobuf:"varint,2,opt,name=has_data,json=hasData,proto3" json:"has_data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSAConnectionChartResponse) Reset() {
+	*x = GetSAConnectionChartResponse{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSAConnectionChartResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSAConnectionChartResponse) ProtoMessage() {}
+
+func (x *GetSAConnectionChartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSAConnectionChartResponse.ProtoReflect.Descriptor instead.
+func (*GetSAConnectionChartResponse) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *GetSAConnectionChartResponse) GetDays() []*GetSAConnectionChartResponse_DataPoint {
+	if x != nil {
+		return x.Days
+	}
+	return nil
+}
+
+func (x *GetSAConnectionChartResponse) GetHasData() bool {
+	if x != nil {
+		return x.HasData
+	}
+	return false
+}
+
+type GetActiveUserChartResponse_DataPoint struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Date            string                 `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`                                                 // "2026-05-27"
+	ActiveUserCount int32                  `protobuf:"varint,2,opt,name=active_user_count,json=activeUserCount,proto3" json:"active_user_count,omitempty"` // distinct users (human + SA) on that day
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetActiveUserChartResponse_DataPoint) Reset() {
+	*x = GetActiveUserChartResponse_DataPoint{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[81]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveUserChartResponse_DataPoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveUserChartResponse_DataPoint) ProtoMessage() {}
+
+func (x *GetActiveUserChartResponse_DataPoint) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[81]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveUserChartResponse_DataPoint.ProtoReflect.Descriptor instead.
+func (*GetActiveUserChartResponse_DataPoint) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{76, 0}
+}
+
+func (x *GetActiveUserChartResponse_DataPoint) GetDate() string {
+	if x != nil {
+		return x.Date
+	}
+	return ""
+}
+
+func (x *GetActiveUserChartResponse_DataPoint) GetActiveUserCount() int32 {
+	if x != nil {
+		return x.ActiveUserCount
+	}
+	return 0
+}
+
+type GetSAConnectionChartResponse_DataPoint struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Date            string                 `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`                                               // "2026-05-27"
+	PeakConnections int32                  `protobuf:"varint,2,opt,name=peak_connections,json=peakConnections,proto3" json:"peak_connections,omitempty"` // MAX(concurrent_count) on that day
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetSAConnectionChartResponse_DataPoint) Reset() {
+	*x = GetSAConnectionChartResponse_DataPoint{}
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[82]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSAConnectionChartResponse_DataPoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSAConnectionChartResponse_DataPoint) ProtoMessage() {}
+
+func (x *GetSAConnectionChartResponse_DataPoint) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_admin_v1_admin_proto_msgTypes[82]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSAConnectionChartResponse_DataPoint.ProtoReflect.Descriptor instead.
+func (*GetSAConnectionChartResponse_DataPoint) Descriptor() ([]byte, []int) {
+	return file_limen_admin_v1_admin_proto_rawDescGZIP(), []int{78, 0}
+}
+
+func (x *GetSAConnectionChartResponse_DataPoint) GetDate() string {
+	if x != nil {
+		return x.Date
+	}
+	return ""
+}
+
+func (x *GetSAConnectionChartResponse_DataPoint) GetPeakConnections() int32 {
+	if x != nil {
+		return x.PeakConnections
+	}
+	return 0
+}
+
 var File_limen_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1alimen/admin/v1/admin.proto\x12\x0elimen.admin.v1\x1a\x1climen/portal/v1/portal.proto\"W\n" +
+	"\x1alimen/admin/v1/admin.proto\x12\x0elimen.admin.v1\x1a\x1climen/portal/v1/portal.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"W\n" +
 	"\x13OAuthClientOverride\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12#\n" +
 	"\rclient_secret\x18\x02 \x01(\tR\fclientSecret\"\xb9\x04\n" +
@@ -4377,7 +4692,25 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x12upstream_public_id\x18\x01 \x01(\tR\x10upstreamPublicId\x12%\n" +
 	"\x0ecallback_query\x18\x02 \x01(\tR\rcallbackQuery\":\n" +
 	"\x1bFinishAdminCallbackResponse\x12\x1b\n" +
-	"\treturn_to\x18\x01 \x01(\tR\breturnTo*v\n" +
+	"\treturn_to\x18\x01 \x01(\tR\breturnTo\"\x89\x01\n" +
+	"\x19GetActiveUserChartRequest\x127\n" +
+	"\tfrom_date\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\bfromDate\x123\n" +
+	"\ato_date\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x06toDate\"\xce\x01\n" +
+	"\x1aGetActiveUserChartResponse\x12H\n" +
+	"\x04days\x18\x01 \x03(\v24.limen.admin.v1.GetActiveUserChartResponse.DataPointR\x04days\x12\x19\n" +
+	"\bhas_data\x18\x02 \x01(\bR\ahasData\x1aK\n" +
+	"\tDataPoint\x12\x12\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x12*\n" +
+	"\x11active_user_count\x18\x02 \x01(\x05R\x0factiveUserCount\"\x8b\x01\n" +
+	"\x1bGetSAConnectionChartRequest\x127\n" +
+	"\tfrom_date\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\bfromDate\x123\n" +
+	"\ato_date\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x06toDate\"\xd1\x01\n" +
+	"\x1cGetSAConnectionChartResponse\x12J\n" +
+	"\x04days\x18\x01 \x03(\v26.limen.admin.v1.GetSAConnectionChartResponse.DataPointR\x04days\x12\x19\n" +
+	"\bhas_data\x18\x02 \x01(\bR\ahasData\x1aJ\n" +
+	"\tDataPoint\x12\x12\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x12)\n" +
+	"\x10peak_connections\x18\x02 \x01(\x05R\x0fpeakConnections*v\n" +
 	"\x10StaticHeaderMode\x12\"\n" +
 	"\x1eSTATIC_HEADER_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19STATIC_HEADER_MODE_SHARED\x10\x01\x12\x1f\n" +
@@ -4397,7 +4730,7 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x12ServiceAccountRole\x12$\n" +
 	" SERVICE_ACCOUNT_ROLE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bSERVICE_ACCOUNT_ROLE_MEMBER\x10\x01\x12\x1e\n" +
-	"\x1aSERVICE_ACCOUNT_ROLE_ADMIN\x10\x022\x96\x1e\n" +
+	"\x1aSERVICE_ACCOUNT_ROLE_ADMIN\x10\x022\xf6\x1f\n" +
 	"\fAdminService\x12_\n" +
 	"\x0eCreateUpstream\x12%.limen.admin.v1.CreateUpstreamRequest\x1a&.limen.admin.v1.CreateUpstreamResponse\x12_\n" +
 	"\x0eUpdateUpstream\x12%.limen.admin.v1.UpdateUpstreamRequest\x1a&.limen.admin.v1.UpdateUpstreamResponse\x12_\n" +
@@ -4432,7 +4765,9 @@ const file_limen_admin_v1_admin_proto_rawDesc = "" +
 	"\x1bClearServiceAccountOverride\x122.limen.admin.v1.ClearServiceAccountOverrideRequest\x1a3.limen.admin.v1.ClearServiceAccountOverrideResponse\x12\x95\x01\n" +
 	" DisconnectServiceAccountUpstream\x127.limen.admin.v1.DisconnectServiceAccountUpstreamRequest\x1a8.limen.admin.v1.DisconnectServiceAccountUpstreamResponse\x12h\n" +
 	"\x11StartAdminConnect\x12(.limen.admin.v1.StartAdminConnectRequest\x1a).limen.admin.v1.StartAdminConnectResponse\x12n\n" +
-	"\x13FinishAdminCallback\x12*.limen.admin.v1.FinishAdminCallbackRequest\x1a+.limen.admin.v1.FinishAdminCallbackResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
+	"\x13FinishAdminCallback\x12*.limen.admin.v1.FinishAdminCallbackRequest\x1a+.limen.admin.v1.FinishAdminCallbackResponse\x12k\n" +
+	"\x12GetActiveUserChart\x12).limen.admin.v1.GetActiveUserChartRequest\x1a*.limen.admin.v1.GetActiveUserChartResponse\x12q\n" +
+	"\x14GetSAConnectionChart\x12+.limen.admin.v1.GetSAConnectionChartRequest\x1a,.limen.admin.v1.GetSAConnectionChartResponseB;Z9github.com/belphemur/limen/internal/admin/adminv1;adminv1b\x06proto3"
 
 var (
 	file_limen_admin_v1_admin_proto_rawDescOnce sync.Once
@@ -4447,7 +4782,7 @@ func file_limen_admin_v1_admin_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
+var file_limen_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 83)
 var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(StaticHeaderMode)(0),                            // 0: limen.admin.v1.StaticHeaderMode
 	(MemberRole)(0),                                  // 1: limen.admin.v1.MemberRole
@@ -4528,19 +4863,26 @@ var file_limen_admin_v1_admin_proto_goTypes = []any{
 	(*StartAdminConnectResponse)(nil),                // 76: limen.admin.v1.StartAdminConnectResponse
 	(*FinishAdminCallbackRequest)(nil),               // 77: limen.admin.v1.FinishAdminCallbackRequest
 	(*FinishAdminCallbackResponse)(nil),              // 78: limen.admin.v1.FinishAdminCallbackResponse
-	nil,                                              // 79: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
-	nil,                                              // 80: limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
-	(*portalv1.UpstreamSummary)(nil),                 // 81: limen.portal.v1.UpstreamSummary
+	(*GetActiveUserChartRequest)(nil),                // 79: limen.admin.v1.GetActiveUserChartRequest
+	(*GetActiveUserChartResponse)(nil),               // 80: limen.admin.v1.GetActiveUserChartResponse
+	(*GetSAConnectionChartRequest)(nil),              // 81: limen.admin.v1.GetSAConnectionChartRequest
+	(*GetSAConnectionChartResponse)(nil),             // 82: limen.admin.v1.GetSAConnectionChartResponse
+	nil,                                              // 83: limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	nil,                                              // 84: limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	(*GetActiveUserChartResponse_DataPoint)(nil),     // 85: limen.admin.v1.GetActiveUserChartResponse.DataPoint
+	(*GetSAConnectionChartResponse_DataPoint)(nil),   // 86: limen.admin.v1.GetSAConnectionChartResponse.DataPoint
+	(*portalv1.UpstreamSummary)(nil),                 // 87: limen.portal.v1.UpstreamSummary
+	(*timestamppb.Timestamp)(nil),                    // 88: google.protobuf.Timestamp
 }
 var file_limen_admin_v1_admin_proto_depIdxs = []int32{
-	79, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
+	83, // 0: limen.admin.v1.CreateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.CreateUpstreamRequest.StrategyConfigEntry
 	4,  // 1: limen.admin.v1.CreateUpstreamRequest.oauth_client_override:type_name -> limen.admin.v1.OAuthClientOverride
 	0,  // 2: limen.admin.v1.CreateUpstreamRequest.static_header_mode:type_name -> limen.admin.v1.StaticHeaderMode
-	81, // 3: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	80, // 4: limen.admin.v1.UpdateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
+	87, // 3: limen.admin.v1.CreateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	84, // 4: limen.admin.v1.UpdateUpstreamRequest.strategy_config:type_name -> limen.admin.v1.UpdateUpstreamRequest.StrategyConfigEntry
 	0,  // 5: limen.admin.v1.UpdateUpstreamRequest.static_header_mode:type_name -> limen.admin.v1.StaticHeaderMode
-	81, // 6: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
-	81, // 7: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	87, // 6: limen.admin.v1.UpdateUpstreamResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
+	87, // 7: limen.admin.v1.ReindexUpstreamCatalogResponse.upstream:type_name -> limen.portal.v1.UpstreamSummary
 	18, // 8: limen.admin.v1.GetTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
 	18, // 9: limen.admin.v1.UpdateTenantSettingsResponse.settings:type_name -> limen.admin.v1.TenantSettings
 	20, // 10: limen.admin.v1.ListIDEPresetsResponse.presets:type_name -> limen.admin.v1.IDEPreset
@@ -4563,79 +4905,89 @@ var file_limen_admin_v1_admin_proto_depIdxs = []int32{
 	49, // 27: limen.admin.v1.GetServiceAccountResponse.service_account:type_name -> limen.admin.v1.ServiceAccount
 	49, // 28: limen.admin.v1.UpdateServiceAccountResponse.service_account:type_name -> limen.admin.v1.ServiceAccount
 	62, // 29: limen.admin.v1.ListServiceAccountUpstreamLinksResponse.links:type_name -> limen.admin.v1.ServiceAccountUpstreamLink
-	5,  // 30: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
-	7,  // 31: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
-	9,  // 32: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
-	11, // 33: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
-	13, // 34: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
-	15, // 35: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
-	17, // 36: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
-	22, // 37: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
-	24, // 38: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
-	26, // 39: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
-	28, // 40: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
-	30, // 41: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
-	32, // 42: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
-	34, // 43: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
-	36, // 44: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
-	38, // 45: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
-	41, // 46: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
-	43, // 47: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
-	45, // 48: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
-	47, // 49: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
-	50, // 50: limen.admin.v1.AdminService.CreateServiceAccount:input_type -> limen.admin.v1.CreateServiceAccountRequest
-	58, // 51: limen.admin.v1.AdminService.GetServiceAccount:input_type -> limen.admin.v1.GetServiceAccountRequest
-	60, // 52: limen.admin.v1.AdminService.UpdateServiceAccount:input_type -> limen.admin.v1.UpdateServiceAccountRequest
-	52, // 53: limen.admin.v1.AdminService.ListServiceAccounts:input_type -> limen.admin.v1.ListServiceAccountsRequest
-	54, // 54: limen.admin.v1.AdminService.DeleteServiceAccount:input_type -> limen.admin.v1.DeleteServiceAccountRequest
-	56, // 55: limen.admin.v1.AdminService.RegenerateServiceAccountToken:input_type -> limen.admin.v1.RegenerateServiceAccountTokenRequest
-	63, // 56: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:input_type -> limen.admin.v1.ListServiceAccountUpstreamLinksRequest
-	65, // 57: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:input_type -> limen.admin.v1.SetServiceAccountLinkEnabledRequest
-	67, // 58: limen.admin.v1.AdminService.StartServiceAccountConnect:input_type -> limen.admin.v1.StartServiceAccountConnectRequest
-	69, // 59: limen.admin.v1.AdminService.SubmitServiceAccountAPIKey:input_type -> limen.admin.v1.SubmitServiceAccountAPIKeyRequest
-	71, // 60: limen.admin.v1.AdminService.ClearServiceAccountOverride:input_type -> limen.admin.v1.ClearServiceAccountOverrideRequest
-	73, // 61: limen.admin.v1.AdminService.DisconnectServiceAccountUpstream:input_type -> limen.admin.v1.DisconnectServiceAccountUpstreamRequest
-	75, // 62: limen.admin.v1.AdminService.StartAdminConnect:input_type -> limen.admin.v1.StartAdminConnectRequest
-	77, // 63: limen.admin.v1.AdminService.FinishAdminCallback:input_type -> limen.admin.v1.FinishAdminCallbackRequest
-	6,  // 64: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
-	8,  // 65: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
-	10, // 66: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
-	12, // 67: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
-	14, // 68: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
-	16, // 69: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
-	19, // 70: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
-	23, // 71: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
-	25, // 72: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
-	27, // 73: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
-	29, // 74: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
-	31, // 75: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
-	33, // 76: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
-	35, // 77: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
-	37, // 78: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
-	39, // 79: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
-	42, // 80: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
-	44, // 81: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
-	46, // 82: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
-	48, // 83: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
-	51, // 84: limen.admin.v1.AdminService.CreateServiceAccount:output_type -> limen.admin.v1.CreateServiceAccountResponse
-	59, // 85: limen.admin.v1.AdminService.GetServiceAccount:output_type -> limen.admin.v1.GetServiceAccountResponse
-	61, // 86: limen.admin.v1.AdminService.UpdateServiceAccount:output_type -> limen.admin.v1.UpdateServiceAccountResponse
-	53, // 87: limen.admin.v1.AdminService.ListServiceAccounts:output_type -> limen.admin.v1.ListServiceAccountsResponse
-	55, // 88: limen.admin.v1.AdminService.DeleteServiceAccount:output_type -> limen.admin.v1.DeleteServiceAccountResponse
-	57, // 89: limen.admin.v1.AdminService.RegenerateServiceAccountToken:output_type -> limen.admin.v1.RegenerateServiceAccountTokenResponse
-	64, // 90: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:output_type -> limen.admin.v1.ListServiceAccountUpstreamLinksResponse
-	66, // 91: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:output_type -> limen.admin.v1.SetServiceAccountLinkEnabledResponse
-	68, // 92: limen.admin.v1.AdminService.StartServiceAccountConnect:output_type -> limen.admin.v1.StartServiceAccountConnectResponse
-	70, // 93: limen.admin.v1.AdminService.SubmitServiceAccountAPIKey:output_type -> limen.admin.v1.SubmitServiceAccountAPIKeyResponse
-	72, // 94: limen.admin.v1.AdminService.ClearServiceAccountOverride:output_type -> limen.admin.v1.ClearServiceAccountOverrideResponse
-	74, // 95: limen.admin.v1.AdminService.DisconnectServiceAccountUpstream:output_type -> limen.admin.v1.DisconnectServiceAccountUpstreamResponse
-	76, // 96: limen.admin.v1.AdminService.StartAdminConnect:output_type -> limen.admin.v1.StartAdminConnectResponse
-	78, // 97: limen.admin.v1.AdminService.FinishAdminCallback:output_type -> limen.admin.v1.FinishAdminCallbackResponse
-	64, // [64:98] is the sub-list for method output_type
-	30, // [30:64] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	88, // 30: limen.admin.v1.GetActiveUserChartRequest.from_date:type_name -> google.protobuf.Timestamp
+	88, // 31: limen.admin.v1.GetActiveUserChartRequest.to_date:type_name -> google.protobuf.Timestamp
+	85, // 32: limen.admin.v1.GetActiveUserChartResponse.days:type_name -> limen.admin.v1.GetActiveUserChartResponse.DataPoint
+	88, // 33: limen.admin.v1.GetSAConnectionChartRequest.from_date:type_name -> google.protobuf.Timestamp
+	88, // 34: limen.admin.v1.GetSAConnectionChartRequest.to_date:type_name -> google.protobuf.Timestamp
+	86, // 35: limen.admin.v1.GetSAConnectionChartResponse.days:type_name -> limen.admin.v1.GetSAConnectionChartResponse.DataPoint
+	5,  // 36: limen.admin.v1.AdminService.CreateUpstream:input_type -> limen.admin.v1.CreateUpstreamRequest
+	7,  // 37: limen.admin.v1.AdminService.UpdateUpstream:input_type -> limen.admin.v1.UpdateUpstreamRequest
+	9,  // 38: limen.admin.v1.AdminService.DeleteUpstream:input_type -> limen.admin.v1.DeleteUpstreamRequest
+	11, // 39: limen.admin.v1.AdminService.ReindexUpstreamCatalog:input_type -> limen.admin.v1.ReindexUpstreamCatalogRequest
+	13, // 40: limen.admin.v1.AdminService.PreviewUpstreamContext:input_type -> limen.admin.v1.PreviewUpstreamContextRequest
+	15, // 41: limen.admin.v1.AdminService.GetTenantSettings:input_type -> limen.admin.v1.GetTenantSettingsRequest
+	17, // 42: limen.admin.v1.AdminService.UpdateTenantSettings:input_type -> limen.admin.v1.UpdateTenantSettingsRequest
+	22, // 43: limen.admin.v1.AdminService.ListIDEPresets:input_type -> limen.admin.v1.ListIDEPresetsRequest
+	24, // 44: limen.admin.v1.AdminService.ListAllowlistEntries:input_type -> limen.admin.v1.ListAllowlistEntriesRequest
+	26, // 45: limen.admin.v1.AdminService.AddAllowlistEntry:input_type -> limen.admin.v1.AddAllowlistEntryRequest
+	28, // 46: limen.admin.v1.AdminService.UpdateAllowlistEntry:input_type -> limen.admin.v1.UpdateAllowlistEntryRequest
+	30, // 47: limen.admin.v1.AdminService.RemoveAllowlistEntry:input_type -> limen.admin.v1.RemoveAllowlistEntryRequest
+	32, // 48: limen.admin.v1.AdminService.ApplyIDEPreset:input_type -> limen.admin.v1.ApplyIDEPresetRequest
+	34, // 49: limen.admin.v1.AdminService.RemoveIDEPreset:input_type -> limen.admin.v1.RemoveIDEPresetRequest
+	36, // 50: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:input_type -> limen.admin.v1.MarkIDEChoiceSkippedRequest
+	38, // 51: limen.admin.v1.AdminService.DeleteTenant:input_type -> limen.admin.v1.DeleteTenantRequest
+	41, // 52: limen.admin.v1.AdminService.ListMembers:input_type -> limen.admin.v1.ListMembersRequest
+	43, // 53: limen.admin.v1.AdminService.InviteMember:input_type -> limen.admin.v1.InviteMemberRequest
+	45, // 54: limen.admin.v1.AdminService.UpdateMemberRole:input_type -> limen.admin.v1.UpdateMemberRoleRequest
+	47, // 55: limen.admin.v1.AdminService.RemoveMember:input_type -> limen.admin.v1.RemoveMemberRequest
+	50, // 56: limen.admin.v1.AdminService.CreateServiceAccount:input_type -> limen.admin.v1.CreateServiceAccountRequest
+	58, // 57: limen.admin.v1.AdminService.GetServiceAccount:input_type -> limen.admin.v1.GetServiceAccountRequest
+	60, // 58: limen.admin.v1.AdminService.UpdateServiceAccount:input_type -> limen.admin.v1.UpdateServiceAccountRequest
+	52, // 59: limen.admin.v1.AdminService.ListServiceAccounts:input_type -> limen.admin.v1.ListServiceAccountsRequest
+	54, // 60: limen.admin.v1.AdminService.DeleteServiceAccount:input_type -> limen.admin.v1.DeleteServiceAccountRequest
+	56, // 61: limen.admin.v1.AdminService.RegenerateServiceAccountToken:input_type -> limen.admin.v1.RegenerateServiceAccountTokenRequest
+	63, // 62: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:input_type -> limen.admin.v1.ListServiceAccountUpstreamLinksRequest
+	65, // 63: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:input_type -> limen.admin.v1.SetServiceAccountLinkEnabledRequest
+	67, // 64: limen.admin.v1.AdminService.StartServiceAccountConnect:input_type -> limen.admin.v1.StartServiceAccountConnectRequest
+	69, // 65: limen.admin.v1.AdminService.SubmitServiceAccountAPIKey:input_type -> limen.admin.v1.SubmitServiceAccountAPIKeyRequest
+	71, // 66: limen.admin.v1.AdminService.ClearServiceAccountOverride:input_type -> limen.admin.v1.ClearServiceAccountOverrideRequest
+	73, // 67: limen.admin.v1.AdminService.DisconnectServiceAccountUpstream:input_type -> limen.admin.v1.DisconnectServiceAccountUpstreamRequest
+	75, // 68: limen.admin.v1.AdminService.StartAdminConnect:input_type -> limen.admin.v1.StartAdminConnectRequest
+	77, // 69: limen.admin.v1.AdminService.FinishAdminCallback:input_type -> limen.admin.v1.FinishAdminCallbackRequest
+	79, // 70: limen.admin.v1.AdminService.GetActiveUserChart:input_type -> limen.admin.v1.GetActiveUserChartRequest
+	81, // 71: limen.admin.v1.AdminService.GetSAConnectionChart:input_type -> limen.admin.v1.GetSAConnectionChartRequest
+	6,  // 72: limen.admin.v1.AdminService.CreateUpstream:output_type -> limen.admin.v1.CreateUpstreamResponse
+	8,  // 73: limen.admin.v1.AdminService.UpdateUpstream:output_type -> limen.admin.v1.UpdateUpstreamResponse
+	10, // 74: limen.admin.v1.AdminService.DeleteUpstream:output_type -> limen.admin.v1.DeleteUpstreamResponse
+	12, // 75: limen.admin.v1.AdminService.ReindexUpstreamCatalog:output_type -> limen.admin.v1.ReindexUpstreamCatalogResponse
+	14, // 76: limen.admin.v1.AdminService.PreviewUpstreamContext:output_type -> limen.admin.v1.PreviewUpstreamContextResponse
+	16, // 77: limen.admin.v1.AdminService.GetTenantSettings:output_type -> limen.admin.v1.GetTenantSettingsResponse
+	19, // 78: limen.admin.v1.AdminService.UpdateTenantSettings:output_type -> limen.admin.v1.UpdateTenantSettingsResponse
+	23, // 79: limen.admin.v1.AdminService.ListIDEPresets:output_type -> limen.admin.v1.ListIDEPresetsResponse
+	25, // 80: limen.admin.v1.AdminService.ListAllowlistEntries:output_type -> limen.admin.v1.ListAllowlistEntriesResponse
+	27, // 81: limen.admin.v1.AdminService.AddAllowlistEntry:output_type -> limen.admin.v1.AddAllowlistEntryResponse
+	29, // 82: limen.admin.v1.AdminService.UpdateAllowlistEntry:output_type -> limen.admin.v1.UpdateAllowlistEntryResponse
+	31, // 83: limen.admin.v1.AdminService.RemoveAllowlistEntry:output_type -> limen.admin.v1.RemoveAllowlistEntryResponse
+	33, // 84: limen.admin.v1.AdminService.ApplyIDEPreset:output_type -> limen.admin.v1.ApplyIDEPresetResponse
+	35, // 85: limen.admin.v1.AdminService.RemoveIDEPreset:output_type -> limen.admin.v1.RemoveIDEPresetResponse
+	37, // 86: limen.admin.v1.AdminService.MarkIDEChoiceSkipped:output_type -> limen.admin.v1.MarkIDEChoiceSkippedResponse
+	39, // 87: limen.admin.v1.AdminService.DeleteTenant:output_type -> limen.admin.v1.DeleteTenantResponse
+	42, // 88: limen.admin.v1.AdminService.ListMembers:output_type -> limen.admin.v1.ListMembersResponse
+	44, // 89: limen.admin.v1.AdminService.InviteMember:output_type -> limen.admin.v1.InviteMemberResponse
+	46, // 90: limen.admin.v1.AdminService.UpdateMemberRole:output_type -> limen.admin.v1.UpdateMemberRoleResponse
+	48, // 91: limen.admin.v1.AdminService.RemoveMember:output_type -> limen.admin.v1.RemoveMemberResponse
+	51, // 92: limen.admin.v1.AdminService.CreateServiceAccount:output_type -> limen.admin.v1.CreateServiceAccountResponse
+	59, // 93: limen.admin.v1.AdminService.GetServiceAccount:output_type -> limen.admin.v1.GetServiceAccountResponse
+	61, // 94: limen.admin.v1.AdminService.UpdateServiceAccount:output_type -> limen.admin.v1.UpdateServiceAccountResponse
+	53, // 95: limen.admin.v1.AdminService.ListServiceAccounts:output_type -> limen.admin.v1.ListServiceAccountsResponse
+	55, // 96: limen.admin.v1.AdminService.DeleteServiceAccount:output_type -> limen.admin.v1.DeleteServiceAccountResponse
+	57, // 97: limen.admin.v1.AdminService.RegenerateServiceAccountToken:output_type -> limen.admin.v1.RegenerateServiceAccountTokenResponse
+	64, // 98: limen.admin.v1.AdminService.ListServiceAccountUpstreamLinks:output_type -> limen.admin.v1.ListServiceAccountUpstreamLinksResponse
+	66, // 99: limen.admin.v1.AdminService.SetServiceAccountLinkEnabled:output_type -> limen.admin.v1.SetServiceAccountLinkEnabledResponse
+	68, // 100: limen.admin.v1.AdminService.StartServiceAccountConnect:output_type -> limen.admin.v1.StartServiceAccountConnectResponse
+	70, // 101: limen.admin.v1.AdminService.SubmitServiceAccountAPIKey:output_type -> limen.admin.v1.SubmitServiceAccountAPIKeyResponse
+	72, // 102: limen.admin.v1.AdminService.ClearServiceAccountOverride:output_type -> limen.admin.v1.ClearServiceAccountOverrideResponse
+	74, // 103: limen.admin.v1.AdminService.DisconnectServiceAccountUpstream:output_type -> limen.admin.v1.DisconnectServiceAccountUpstreamResponse
+	76, // 104: limen.admin.v1.AdminService.StartAdminConnect:output_type -> limen.admin.v1.StartAdminConnectResponse
+	78, // 105: limen.admin.v1.AdminService.FinishAdminCallback:output_type -> limen.admin.v1.FinishAdminCallbackResponse
+	80, // 106: limen.admin.v1.AdminService.GetActiveUserChart:output_type -> limen.admin.v1.GetActiveUserChartResponse
+	82, // 107: limen.admin.v1.AdminService.GetSAConnectionChart:output_type -> limen.admin.v1.GetSAConnectionChartResponse
+	72, // [72:108] is the sub-list for method output_type
+	36, // [36:72] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_limen_admin_v1_admin_proto_init() }
@@ -4650,7 +5002,7 @@ func file_limen_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_admin_v1_admin_proto_rawDesc), len(file_limen_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   77,
+			NumMessages:   83,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

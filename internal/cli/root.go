@@ -60,6 +60,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newCreateTenantCommand(flags, v))
 	root.AddCommand(newCreateUpstreamCommand(flags, v))
 	root.AddCommand(newMigrateCommand(flags, v))
+	root.AddCommand(newSeedCommand(flags, v))
 
 	return root
 }
@@ -93,6 +94,7 @@ func NewAdminRootCommand() *cobra.Command {
 	root.AddCommand(newCreateTenantCommand(flags, v))
 	root.AddCommand(newCreateUpstreamCommand(flags, v))
 	root.AddCommand(newMigrateCommand(flags, v))
+	root.AddCommand(newSeedCommand(flags, v))
 	return root
 }
 

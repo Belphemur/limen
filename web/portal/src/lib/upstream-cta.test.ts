@@ -24,7 +24,10 @@ function summary(overrides: MessageInitShape<typeof UpstreamSummarySchema>): Ups
   })
 }
 
-const tenantOwnerHeader = { strategyType: 'static_header', strategySubMode: 'tenant_owner' } as const
+const tenantOwnerHeader = {
+  strategyType: 'static_header',
+  strategySubMode: 'tenant_owner',
+} as const
 const byokHeader = {
   strategyType: 'static_header',
   strategySubMode: 'byok',
@@ -69,12 +72,16 @@ describe('upstreamCTAs — static_header tenant_owner', () => {
   })
   it('CONNECTED → Disable + Disconnect', () => {
     expect(
-      upstreamCTAs(summary({ ...tenantOwnerHeader, linkState: LinkState.CONNECTED })).map((c) => c.kind),
+      upstreamCTAs(summary({ ...tenantOwnerHeader, linkState: LinkState.CONNECTED })).map(
+        (c) => c.kind,
+      ),
     ).toEqual(['disable', 'disconnect'])
   })
   it('DISABLED → Enable + Disconnect', () => {
     expect(
-      upstreamCTAs(summary({ ...tenantOwnerHeader, linkState: LinkState.DISABLED })).map((c) => c.kind),
+      upstreamCTAs(summary({ ...tenantOwnerHeader, linkState: LinkState.DISABLED })).map(
+        (c) => c.kind,
+      ),
     ).toEqual(['enable', 'disconnect'])
   })
 })

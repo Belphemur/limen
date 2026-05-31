@@ -26,16 +26,18 @@ import Dashboard from '@/pages/Dashboard.vue'
 import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
 
 function stubDiscovery() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (url.includes('/auth/discovery')) {
-      return new Response(JSON.stringify({ zitadelIssuer: 'https://idp.example' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      return Promise.resolve(
+        new Response(JSON.stringify({ zitadelIssuer: 'https://idp.example' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     }
-    throw new Error(`unexpected fetch in test: ${url}`)
+    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
   })
 }
 
@@ -143,8 +145,8 @@ describe('Dashboard', () => {
   it('renders the three task cards and the system-health empty state', async () => {
     const wrapper = await mountDashboard(adminAndPortalTransport([]))
     const cards = wrapper.findAll('[data-step]')
-    expect(cards).toHaveLength(4)
-    expect(cards.map((c) => c.attributes('data-step'))).toEqual(['connect', 'ide', 'invite', 'configure'])
+    expect(cards).toHaveLength(3)
+    expect(cards.map((c) => c.attributes('data-step'))).toEqual(['connect', 'invite', 'configure'])
     expect(wrapper.text()).toContain('Waiting for data')
   })
 
@@ -156,6 +158,7 @@ describe('Dashboard', () => {
           identifier: 'a',
           requiresLink: true,
           linkState: LinkState.CONNECTED,
+          hasTenantLink: true,
           tools: [
             {
               $typeName: 'limen.portal.v1.UpstreamTool',
@@ -166,11 +169,11 @@ describe('Dashboard', () => {
         },
       ]),
     )
-    expect(wrapper.text()).toContain('1 of 4 steps completed')
-    expect(wrapper.text()).toContain('25%')
+    expect(wrapper.text()).toContain('1 of 3 steps completed')
+    expect(wrapper.text()).toContain('33%')
 
     const cards = wrapper.findAll('[data-step]')
     const doneFlags = cards.map((c) => c.find('[aria-label="Completed"]').exists())
-    expect(doneFlags).toEqual([true, false, false, false])
+    expect(doneFlags).toEqual([true, false, false])
   })
 })

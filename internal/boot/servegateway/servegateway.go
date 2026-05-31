@@ -51,6 +51,5 @@ func Run(configPath string) error {
 	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth); err != nil {
 		return err
 	}
-
 	return boot.RunHTTPServer(rt, r)
 }

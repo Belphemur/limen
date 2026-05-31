@@ -17,7 +17,11 @@
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@shared/*": ["./src/*"],
+      "@shared-gen/*": ["./src/gen/*"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]

@@ -69,6 +69,40 @@ limenctl create-tenant \
 
 The tenant owner can then log in at `https://<limen-host>/t/<slug>/auth/login`.
 
+## Database Seeding (Dev & Testing)
+
+The `seed` subcommand (`limenctl seed` or `limen seed`) populates the
+database with realistic test data — a tenant, users, service accounts,
+and billing history — so developers can exercise the full feature surface
+without manual setup.
+
+### Flags
+
+| Flag           | Default                        | Description                          |
+| -------------- | ------------------------------ | ------------------------------------ |
+| `--tenant-id`  | `tnt_01HGPX4D1Q6G9M0C6G58V206W0` | Tenant ID to seed under            |
+| `--tenant-name`| `Acme Corporation`             | Human-readable tenant name           |
+| `--days`       | `30`                           | Days of billing history to generate  |
+| `--users`      | `3`                            | Number of tenant users to create     |
+| `--sas`        | `2`                            | Number of service accounts to create |
+| `--reset`      | `false`                        | Purge and recreate tenant + dependents in clean LIFO cascade order |
+
+### Determinism
+
+All random data generation uses a fixed seed (`gofakeit.Seed(42)`), so
+every seeding run produces **identical** data. This makes debugging
+reproducible and allows test assertions against known values.
+
+### Examples
+
+```bash
+# Standard seeding run
+limenctl seed --config config.yaml --tenant-id tnt_01HGPX4D1Q6G9M0C6G58V206W0 --days 30
+
+# Re-seeding with reset
+limenctl seed --config config.yaml --reset
+```
+
 ## Rotating Secrets
 
 ### Encryption key rotation
@@ -92,6 +126,11 @@ The tenant owner can then log in at `https://<limen-host>/t/<slug>/auth/login`.
 Standard `pg_dump` / `pg_restore` of the Limen database. Encrypted columns
 (`SecretField`) are backed up as ciphertext — the master encryption key is
 **not** stored in the database and must be backed up separately.
+
+1. Stop `limen-gateway`, `limen-portal`, `limen-staff`, and `limen-observer`.
+2. Run `pg_dump` and save the output.
+3. Restore: `pg_restore` into the target database.
+4. Start `limen-gateway`, `limen-portal`, `limen-staff`, and `limen-observer`.
 
 ### Zitadel
 

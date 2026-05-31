@@ -13,6 +13,7 @@ import SetupProgress from '@/components/SetupProgress.vue'
 import TaskBentoCard from '@/components/TaskBentoCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
+import BillingChart from '@/components/BillingChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -29,13 +30,46 @@ const upstreams = ref<UpstreamSummary[]>([])
 const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
 const zitadelOrgId = ref('')
 const issuer = ref('')
+const hasActiveUserData = ref(false)
+const hasSAConnectionData = ref(false)
+
+const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getActiveUserChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
+  }
+}
+
+const mapActiveUserData = (day: Record<string, any>) => (day.activeUserCount as number) ?? 0
+
+const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getSAConnectionChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
+  }
+}
+
+const mapSAConnectionData = (day: Record<string, any>) => (day.peakConnections as number) ?? 0
 
 onMounted(async () => {
   await Promise.all([
     session.refresh(),
     portalClient()
       .listUpstreams({})
-      .then((r) => (upstreams.value = r.upstreams)),
+      .then((r) => (upstreams.value = r.upstreams))
+      .catch(() => {}),
     adminClient()
       .getTenantSettings({})
       .then((r) => {
@@ -44,10 +78,20 @@ onMounted(async () => {
           configured: (r.settings?.configuredAt ?? '') !== '',
         }
         zitadelOrgId.value = r.zitadelOrgId
-      }),
+      })
+      .catch(() => {}),
     fetchDiscovery()
       .then((d) => (issuer.value = d.zitadelIssuer))
       .catch(() => (issuer.value = '')),
+    // Billing chart data availability checks
+    adminClient()
+      .getActiveUserChart({})
+      .then((r) => { hasActiveUserData.value = r.hasData })
+      .catch((err) => { console.error('Failed to pre-check active user chart data availability:', err) }),
+    adminClient()
+      .getSAConnectionChart({})
+      .then((r) => { hasSAConnectionData.value = r.hasData })
+      .catch((err) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
   ])
 })
 
@@ -59,9 +103,7 @@ interface Step {
 const steps = computed<Step[]>(() => [
   {
     key: 'connect',
-    done: upstreams.value.some(
-      (u) => u.tools.length > 0 && u.hasTenantLink,
-    ),
+    done: upstreams.value.some((u) => u.tools.length > 0 && u.hasTenantLink),
   },
   { key: 'invite', done: settings.value.invitedTeam },
   { key: 'configure', done: settings.value.configured },
@@ -214,8 +256,31 @@ async function openServiceAccounts() {
       </div>
     </section>
 
-    <!-- Bottom row -->
-    <section class="grid gap-gutter md:grid-cols-2">
+    <!-- Usage charts: visible when billing data exists for this tenant -->
+    <section v-if="hasActiveUserData || hasSAConnectionData" class="grid gap-gutter md:grid-cols-2">
+      <BillingChart
+        v-if="hasActiveUserData"
+        title="Active Users"
+        description="Distinct users who made tool calls each day"
+        dataset-label="Active Users"
+        line-color="var(--color-primary)"
+        fill-color="rgba(38, 66, 230, 0.1)"
+        :fetch-data-fn="fetchActiveUserData"
+        :map-data-fn="mapActiveUserData"
+      />
+      <BillingChart
+        v-if="hasSAConnectionData"
+        title="SA Connections"
+        description="Peak concurrent service account connections per day"
+        dataset-label="Peak SA Connections"
+        line-color="var(--color-tertiary)"
+        fill-color="rgba(153, 60, 0, 0.1)"
+        :fetch-data-fn="fetchSAConnectionData"
+        :map-data-fn="mapSAConnectionData"
+      />
+    </section>
+    <!-- Fallback: original bottom row when no usage data yet -->
+    <section v-else class="grid gap-gutter md:grid-cols-2">
       <SystemHealthEmpty />
       <QuickResources />
     </section>

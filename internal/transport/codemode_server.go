@@ -26,6 +26,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
+	"github.com/belphemur/limen/internal/auth"
 	"github.com/belphemur/limen/internal/gateway"
 	"github.com/belphemur/limen/internal/gateway/codemode"
 	"github.com/belphemur/limen/internal/gateway/codemodeaction"
@@ -43,6 +44,7 @@ import (
 // the client reaches them by writing JavaScript that calls codemode.*
 // inside the handler's sandbox.
 type MCPServer struct {
+	manager    *gateway.Manager
 	handler    *codemode.Handler
 	logger     *zap.Logger
 	core       *server.MCPServer
@@ -54,8 +56,9 @@ type MCPServer struct {
 // flows through handler; the Manager passed to codemode.New is
 // what actually fans out to per-(tenant, upstream) Bundles — this
 // transport layer only sees the handler facade.
-func NewMCPServer(_ *gateway.Manager, handler *codemode.Handler, logger *zap.Logger) *MCPServer {
+func NewMCPServer(manager *gateway.Manager, handler *codemode.Handler, logger *zap.Logger) *MCPServer {
 	s := &MCPServer{
+		manager: manager,
 		handler: handler,
 		logger:  logger,
 	}
@@ -85,7 +88,27 @@ func NewMCPServer(_ *gateway.Manager, handler *codemode.Handler, logger *zap.Log
 // open an MCP session. Mount at the tenant subroute path "/sse"; the
 // dynamic base-path callback rewrites the advertised message endpoint
 // to /t/{tenant}/mcp/message before sending it to the client.
-func (s *MCPServer) SSEHandler() http.Handler { return s.sse.SSEHandler() }
+func (s *MCPServer) SSEHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if rec := s.manager.BillingRecorder(); rec != nil {
+			if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
+				if tenant, ok := tenancy.TenantFromContext(ctx); ok {
+					rec.RecordSAConnection(ctx, tenant.ID, sa.ID, true)
+					go func() {
+						<-r.Context().Done()
+						bgCtx := context.Background()
+						rec.RecordSAConnection(bgCtx, tenant.ID, sa.ID, false)
+					}()
+				}
+			}
+		}
+		s.sse.SSEHandler().ServeHTTP(w, r)
+		// Disconnect hook: the goroutine above writes connected=false
+		// when the SSE client drops. Without this hook every process
+		// restart or dropped connection inflates concurrent_count.
+	})
+}
 
 // MessageHandler returns the JSON-RPC POST handler that ingests client
 // requests for an existing SSE session. Mount at the tenant subroute

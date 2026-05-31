@@ -1,3 +1,5 @@
+//go:build integration
+
 package gateway_test
 
 import (

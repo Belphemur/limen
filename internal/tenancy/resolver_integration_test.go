@@ -1,3 +1,5 @@
+//go:build integration
+
 package tenancy_test
 
 import (

@@ -1,3 +1,5 @@
+//go:build integration
+
 package oauthproxy_test
 
 import (

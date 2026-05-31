@@ -48,13 +48,15 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
-| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | ☐            |
+| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
 | 18  | [Social signup (GitHub / Google / Microsoft / Apple)](phase-18-social-signup.md)                              | 5, 9h                   | ☐ (deferred)  |
+| 19  | [CI Pipeline (Parallelized GHA tests and Gate checks)](phase-19-ci-pipeline.md)                               | 10, 13b                 | ✅           |
+| 20  | [CD Pipeline & Multi-Arch Packaging (GoReleaser + GHCR)](phase-20-cd-pipeline.md)                             | 19                      | ✅           |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
 
 ## Global checklist
 
@@ -369,6 +371,26 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Stripe Dashboard runbook: product + seat price + webhook endpoint + Customer Portal toggles + Tax configuration
 - [ ] Staff-audit-log records `billing.comp`, `billing.extend_grace`, `billing.force_cancel` with reason
 - [ ] Integration tests covering: subscribe happy path, reactive + periodic reconciliation, webhook signature + idempotency, payment failure → grace → 402, payment recovery, cancel-at-period-end, staff comp, free-tier limits, staff-tenant exempt, `billing.enabled: false` short-circuit
+
+### Phase 19 — CI Pipeline (Parallelized GHA tests and Gate checks)
+
+- [x] Add `//go:build integration` build tags to all database-dependent test files (24 files total)
+- [x] Verify backend unit tests run in isolation with zero Docker dependencies: `go test -v ./...`
+- [x] Verify backend integration tests execute successfully with testcontainers-go: `go test -v -tags=integration ./...`
+- [x] Create a `.node-version` file containing `24` in the workspace root
+- [x] Implement `.github/workflows/ci.yml` containing the 5 parallelizable test jobs and `ci-gate`
+- [x] Verify GHA workflow syntax using `actionlint`
+
+### Phase 20 — CD Pipeline & Multi-Arch Packaging (GoReleaser + GHCR)
+
+- [x] Create `deploy/docker/Dockerfile.limen` copying the `limen` binary
+- [x] Create `deploy/docker/Dockerfile.limenctl` copying the `limenctl` binary
+- [x] Create `deploy/docker/Dockerfile.limen-gateway` copying the `limen-gateway` binary
+- [x] Create `deploy/docker/Dockerfile.limen-portal` copying the `limen-portal` binary
+- [x] Create `deploy/docker/Dockerfile.limen-staff` copying the `limen-staff` binary
+- [x] Create `.goreleaser.yaml` with the 5 build targets and their `dockers_v2` multi-arch definitions
+- [x] Create `.github/workflows/release.yml` with QEMU, Buildx, GHCR login, and GoReleaser action steps
+- [x] Validate GoReleaser local build failure modes and outputs via `goreleaser release --snapshot --skip=publish --clean`
 
 ## Cross-cutting decisions
 

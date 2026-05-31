@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/metrics"
 	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/contextblob"
 	"github.com/belphemur/limen/internal/resilience"
@@ -41,6 +42,9 @@ type ManagerOptions struct {
 	// distributed mode backed by Valkey so every gateway instance
 	// shares the same breaker state.
 	ValkeyClient valkey.Client
+	// BillingRecorder is optional; when set, billing events are
+	// emitted after successful tool calls and SA connections.
+	BillingRecorder *metrics.BillingRecorder
 }
 
 // Manager owns the per-(tenant, upstream) Bundle cache and serves the
@@ -112,6 +116,17 @@ func (m *Manager) CallTool(ctx context.Context, upstreamName, toolName string, a
 	resp, err := b.CallTool(ctx, toolName, args)
 	if err != nil {
 		return nil, err
+	}
+	userID := int64(0)
+	saID := int64(0)
+	if u, ok := auth.MCPUserFromContext(ctx); ok {
+		userID = u.ID
+	}
+	if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
+		saID = sa.ID
+	}
+	if m.opts.BillingRecorder != nil && (userID != 0 || saID != 0) {
+		m.opts.BillingRecorder.RecordActiveUser(ctx, tenant.ID, userID, saID)
 	}
 	return resp.Content, nil
 }
@@ -407,4 +422,10 @@ func (m *Manager) buildBundle(ctx context.Context, tenant *storage.Tenant, upstr
 
 func ctxUserResolver(ctx context.Context) (*storage.User, bool) {
 	return auth.MCPUserFromContext(ctx)
+}
+
+// BillingRecorder returns the recorder configured for this manager.
+// Exposed so the transport layer can emit SA connection events.
+func (m *Manager) BillingRecorder() *metrics.BillingRecorder {
+	return m.opts.BillingRecorder
 }

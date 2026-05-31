@@ -186,28 +186,17 @@ sequenceDiagram
 
 ## Package Breakdown
 
-### Binaries
+### Binaries & CLI Reference
 
-Limen ships as **five binaries today** (a sixth, `limen-observer`, lands
-in [Phase 16](phases/phase-16-observability-and-active-users.md)) built
-from a single Go module. The split is at the entry-point + Docker-image
-boundary only; everything in `internal/boot` and `internal/*` is shared.
+Limen ships as **six binaries** built from a single Go module. Five are
+production-ready today; the sixth, `limen-observer`, lands in
+[Phase 16](phases/phase-16-observability-and-active-users.md). The split is
+at the entry-point + Docker-image boundary only; everything in `internal/boot`
+and `internal/*` is shared.
 
-| Binary           | Entry            | Mounts                                                                                 | Boot profile                                     |
-| ---------------- | ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `limen`          | `cmd/limen`      | Everything (MCP RS + portal + OIDC RP + OAuth proxy + upstream callback)               | `boot.AllProfiles`                               |
-| `limen-gateway`  | `cmd/gateway`    | `/healthz`, `/readyz`, `/t/{tenant}/mcp/*` — the MCP Resource Server hot path only     | `NeedStore \| NeedCipher \| NeedUpstream`        |
-| `limen-portal`   | `cmd/portal`     | Portal SPA, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, upstream OAuth callback | `NeedStore \| NeedCipher \| NeedSigner`          |
-| `limen-staff`    | `cmd/staff`      | `/healthz`, `/readyz` today; backoffice routes land in Phase 12                        | `NeedStore`                                      |
-| `limenctl`       | `cmd/limenctl`   | Admin CLI: `migrate`, `create-tenant`, `create-upstream` (no HTTP)                     | n/a                                              |
-| `limen-observer` *(Phase 16)* | `cmd/observer` | No HTTP surface — drains the `tool_calls` and `audit` Valkey Streams and owns every Postgres write for observability + audit | `NeedStore \| NeedCipher \| NeedValkey` |
-
-Production runs `limen-gateway`, `limen-portal`, and `limen-staff` as
-separate services with `limenctl migrate` as a one-shot init container. The
-all-in-one `limen` is for dev and small self-hosted deployments (and, once
-Phase 16 lands, embeds the observer as a goroutine rather than a separate
-process). See
-[docs/phases/phase-09a-binary-split.md](phases/phase-09a-binary-split.md).
+Production runs `limen-gateway`, `limen-portal`, and `limen-staff` as separate
+services with `limenctl migrate` as a one-shot init container. The all-in-one
+`limen` is for dev and small self-hosted deployments.
 
 **Load-bearing constraint**: `cmd/gateway`'s transitive import graph must
 **not** include `internal/oauthproxy` or `internal/zitadel`. The hot path
@@ -215,6 +204,124 @@ holds neither the Zitadel management credential nor the portal-session
 cipher key, so a compromise of the MCP RS process cannot mint tokens or
 read portal cookies. The constraint is enforced at test time by
 `cmd/gateway/import_graph_test.go` (`go list -deps`).
+
+---
+
+#### `limen` (All-in-one)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/limen`                                              |
+| **Purpose** | Mounts the union of all routes — intended for local development, testing, and simple self-hosted setups. |
+
+**Mounted suites:** `mcpmount` + `portalmount` + `oauthproxymount` + `upstreammount` + `oidcboot` + `zitadelboot`.
+
+**Boot profile:** `boot.AllProfiles`
+
+**Configuration:** Uses Cobra-based CLI. Reads `-config` flag or `LIMEN_CONFIG` environment variable.
+
+| Subcommand        | Description                                                                             | Flags                                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `serve`           | Launches the all-in-one HTTP/SSE gateway server.                                        | *(none)*                                                                                                       |
+| `create-tenant`   | Provisions a Zitadel org, Limen tenant row, and seed owner.                             | `--name` (string, **required**) — Human-readable tenant name and Zitadel org name<br/>`--owner-email` (string, **required**) — Seed owner's email<br/>`--owner-given-name` (string) — Optional given name<br/>`--owner-family-name` (string) — Optional family name<br/>`--owner-user-id` (string) — Reuses existing Zitadel user ID as seed owner (mutually required with `--zitadel-org-id`)<br/>`--zitadel-org-id` (string) — Binds tenant to an existing Zitadel organization |
+| `create-upstream` | Registers an MCP upstream for a tenant.                                                 | `--tenant` (string, **required**) — Tenant public ID (`tnt_<ULID>`)<br/>`--identifier` (string, **required**) — Unique per-tenant slug<br/>`--strategy` (string, default `"mcp_spec"`) — Linking strategy (`"mcp_spec"` or `"none"`)<br/>`--url` (string, **required**) — Base URL of the upstream MCP server<br/>`--client-id` (string) — Pre-provisioned client ID<br/>`--client-secret` (string) — Paired client secret<br/>`--issuer` (string) — Overrides AS issuer URL<br/>`--authorization-endpoint` (string) — Overrides authorization endpoint<br/>`--token-endpoint` (string) — Overrides token endpoint<br/>`--scope` (stringSlice, repeatable) — OAuth scopes |
+| `migrate`         | Runs database schema auto-migrations and embedded SQL migration scripts against Postgres. | *(none)*                                                                                                       |
+| `seed`            | Seeds database with deterministic mock billing, users, service accounts, and tool history. | `--tenant-id` (string, default `"tnt_01HGPX4D1Q6G9M0C6G58V206W0"`) — Target tenant public ID<br/>`--tenant-name` (string, default `"Acme Corporation"`) — Tenant display name<br/>`--days` (int, default `30`) — Days of billing/activity history<br/>`--users` (int, default `3`) — Number of users to seed<br/>`--sas` (int, default `2`) — Number of service accounts to seed<br/>`--reset` (bool) — Clears all existing tenant and dependency tables before seeding |
+
+---
+
+#### `limen-gateway` (MCP RS Hot Path)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/gateway`                                            |
+| **Purpose** | Serves the low-latency, hot-path MCP Resource Server endpoints. Holds no portal session cipher keys and no Zitadel admin credentials. |
+
+**Mounted suites:** `mcpmount` only (`/healthz`, `/readyz`, `/t/{tenant}/mcp/*`).
+
+**Boot profile:** `NeedStore | NeedCipher | NeedUpstream`
+
+**Import constraints:** The transitive import graph strictly excludes `internal/oauthproxy` and `internal/zitadel` (enforced by `import_graph_test.go`), eliminating potential session or token hijacking surfaces on the public-facing gateway.
+
+**Configuration:** Uses standard Go `flag` package parsing.
+
+| Flag        | Default        | Notes                                                     |
+| ----------- | -------------- | --------------------------------------------------------- |
+| `-config`   | `config.yaml`  | Overridden by the `LIMEN_CONFIG` environment variable.     |
+
+---
+
+#### `limen-portal` (Management Interface & OIDC Relying Party)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/portal`                                             |
+| **Purpose** | Mounts the management Portal SPA, customer and admin Connect-RPC endpoints, OIDC RP, and the OAuth/DCR proxy. Holds the high-privilege keys (Zitadel management credentials and portal-session cipher keys). |
+
+**Mounted suites:** `portalmount` + `oauthproxymount` + `upstreammount` + `oidcboot` + `zitadelboot`.
+
+Routes include the Portal SPA under `/`, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, and the upstream OAuth callback handler.
+
+**Boot profile:** `NeedStore | NeedCipher | NeedSigner`
+
+**Configuration:** Uses standard Go `flag` package parsing.
+
+| Flag        | Default        | Notes                                                     |
+| ----------- | -------------- | --------------------------------------------------------- |
+| `-config`   | `config.yaml`  | Overridden by the `LIMEN_CONFIG` environment variable.     |
+
+---
+
+#### `limen-staff` (Private Admin Backoffice)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/staff`                                              |
+| **Purpose** | Serves private staff-only routes. Intended to live entirely on an isolated network with no public ingress. |
+
+**Mounted suites:** Scaffolds health endpoints (`/healthz`, `/readyz`); backoffice routes land in Phase 12.
+
+**Boot profile:** `NeedStore`
+
+**Configuration:** Uses standard Go `flag` package parsing.
+
+| Flag        | Default        | Notes                                                     |
+| ----------- | -------------- | --------------------------------------------------------- |
+| `-config`   | `config.yaml`  | Overridden by the `LIMEN_CONFIG` environment variable.     |
+
+---
+
+#### `limenctl` (Operator CLI)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/limenctl`                                           |
+| **Purpose** | Minimal operator utility for day-2 maintenance. Exposes only administrative tasks and explicitly excludes HTTP serving capability. |
+
+**Command tree:** Shares the administrative subcommands from `cmd/limen`: `create-tenant`, `create-upstream`, `migrate`, and `seed`. Refer to the `limen` table above for flag details.
+
+**Configuration:** Supports `--config` flag or `LIMEN_CONFIG` environment variable.
+
+---
+
+#### `limen-observer` (Phase 16 Event Stream Consumer)
+
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Entry**   | `cmd/observer`                                           |
+| **Purpose** | Background worker process with no HTTP surface. Consumes high-throughput Valkey Streams and manages bulk Postgres writes and materialized-view refreshes. |
+
+**Stream consumers:** Drains `tool_calls`, `billing:active_users`, `billing:sa_connections`, and `audit` Valkey Streams.
+
+**Write profile:** Performs bulk `COPY` operations and `REFRESH MATERIALIZED VIEW CONCURRENTLY` on a dedicated Postgres connection pool.
+
+**Boot profile:** `NeedStore | NeedCipher | NeedValkey`
+
+**Configuration:** Uses standard Go `flag` package parsing.
+
+| Flag        | Default        | Notes                                                     |
+| ----------- | -------------- | --------------------------------------------------------- |
+| `-config`   | `config.yaml`  | Overridden by the `LIMEN_CONFIG` environment variable.     |
 
 ### `internal/boot` -- Shared boot floor
 
@@ -397,3 +504,147 @@ erDiagram
 | `github.com/go-chi/chi/v5`    | HTTP router for the SSE server                    |
 | `go.uber.org/zap`             | Structured logging                                |
 | `gopkg.in/yaml.v3`            | YAML config parsing                               |
+
+## Operational Analysis: Embedded Consumer vs. Standalone Observer (Phase 16)
+
+Phase 16 introduces a metrics/billing consumer that drains high-throughput
+Valkey Streams (`tool_calls`, `billing:active_users`, `billing:sa_connections`,
+`audit`) and performs bulk Postgres writes (`COPY`), materialized-view
+refreshes, and aggregation. The architecture decision is whether to keep this
+consumer as embedded background goroutines inside `limen-gateway` (Option A)
+or to extract it into a separate, standalone `limen-observer` process
+(Option B).
+
+### Summary Comparison
+
+| Criterion                   | Option A: Embedded in Gateway           | Option B: Standalone Observer           |
+| --------------------------- | --------------------------------------- | --------------------------------------- |
+| Deployment complexity       | Lower (no extra target)                 | Higher (6th binary, consumer groups)    |
+| Hot-path latency impact     | Material risk (contention possible)     | Eliminated (non-blocking `XADD` only)   |
+| Scaling profiles            | Coupled (asymmetric waste)              | Independent (optimal for each tier)     |
+| Security / privilege model  | Contaminated (gateway needs DB write)   | Clean (zero trust boundary preserved)   |
+| DB connection overhead      | Multiplied across N gateway replicas    | Fixed (small dedicated pool)            |
+| Mat-view coordination       | Distributed locking required            | Leader election (single coordinator)    |
+| Data freshness              | Synchronous (minimal delay)             | Eventual (stream-driven, bounded lag)   |
+| Infrastructure footprint    | Minimal (suitable for small setups)     | Greater (warranted at production scale)  |
+
+---
+
+### Option A: Keeping the Consumer Embedded in `limen-gateway`
+
+In this model, the gateway process spawns background goroutines after HTTP
+server startup. Each goroutine polls Valkey Streams, batches records, and
+flushes to Postgres. Materialized-view refreshes are triggered on a timer
+or stream-threshold basis within the same process.
+
+#### Pros
+
+- **Simplified deployment.** No sixth binary to containerize, deploy, scale,
+  or monitor. A single Docker image serves both MCP serving and metrics
+  ingestion.
+- **Reduced infrastructure footprint for small deployments.** Small or
+  single-tenant setups that already run a single `limen-gateway` replica
+  do not need to provision and manage an additional process. The marginal
+  resource cost is negligible at low throughput.
+- **Zero-infrastructure fallback in all-in-one `limen` mode.** When the
+  all-in-one `limen` binary runs without Valkey, the bypass path routes
+  telemetry through an in-process Go channel directly to the embedded
+  consumer goroutines. No external stream infrastructure is required.
+
+#### Cons
+
+- **Hot-path blockage and thread contention.** The MCP hot path executes
+  Goja VMs and manages SSE client connections under tight latency budgets.
+  Heavy background database writes and `REFRESH MATERIALIZED VIEW
+  CONCURRENTLY` operations compete for the same OS thread pool, CPU cycles,
+  and network bandwidth. A bulk `COPY` or an expensive mat-view refresh can
+  stall the Go scheduler's P, increasing P99 response latencies for MCP
+  tool calls.
+- **Asymmetric scaling profiles.** Gateways scale with SSE client
+  connections (fan-out) and CPU-bound Goja evaluations. Consumers scale with
+  stream queue depth and write throughput. Embedding them couples two
+  orthogonal scaling axes: increasing gateway replicas to handle more SSE
+  clients unnecessarily multiplies database writers, leading to connection
+  pool exhaustion on the Postgres side.
+- **Security and privilege contamination.** The gateway is directly exposed
+  to public client traffic. If the metrics writer is embedded, the gateway
+  process requires broad write access to metrics, billing, and audit tables.
+  This breaches the strict isolation boundary that the hot path currently
+  maintains -- the gateway intentionally holds no Zitadel secrets, no session
+  cipher keys, and no direct write access to sensitive data tables. A
+  front-door compromise would gain direct database write capability.
+- **Database connection pool exhaustion.** Across N scaled gateway replicas,
+  each embedding its own connection pool for batch writes, the total
+  concurrent Postgres connections scale as `N * (hot-path pool + consumer
+  pool)`. At moderate replica counts, this saturates `max_connections` and
+  forces tuning that penalizes the hot-path pool.
+- **Materialized-view lock contention.** Running a multi-pod gateway
+  requires robust distributed locking to prevent multiple replicas from
+  concurrently triggering the CPU-intensive `REFRESH MATERIALIZED VIEW
+  CONCURRENTLY` query. Introducing cross-pod coordination (Valkey locks,
+  advisory Postgres locks, or lease tables) inside the gateway process adds
+  failure modes to the hot path.
+
+---
+
+### Option B: Standalone `limen-observer` Process
+
+In this model, the gateway's sole telemetry responsibility is a non-blocking
+`XADD` to the appropriate Valkey Stream (sub-200 µs, in-process fire-and-
+forget). A dedicated `limen-observer` process runs N consumer group workers
+that drain the streams, batch records, and flush to Postgres on a separate
+network path.
+
+#### Pros
+
+- **Robust hot-path isolation.** The gateway's MCP response loop never
+  performs blocking I/O related to telemetry. The only additional overhead
+  per tool call is a non-blocking `XADD` to Valkey Streams (< 200 µs),
+  keeping response latencies fast and predictable regardless of stream
+  volume or consumer state.
+- **Privilege separation and security hardening.** The public-facing gateway
+  holds no direct write access to metrics/billing/audit tables and no
+  Zitadel administrative credentials. The observer deploys deep inside a
+  private VPC network, securing billing and audit data against front-door
+  gateway compromises. This preserves the architecture's zero-trust boundary
+  between the hot path and the data layer.
+- **Optimal scaling profiles.** Gateways scale dynamically based on SSE
+  connection counts and traffic patterns. Observers scale independently based
+  on stream queue depth, batch sizes, and Postgres write throughput. Each
+  tier can be right-sized without affecting the other.
+- **Consolidated batch writing and connection efficiency.** The observer
+  groups, sorts, and bulk-loads records using efficient transaction blocks
+  or `COPY` operations across a small, dedicated database connection pool.
+  This drastically reduces active Postgres overhead compared to N
+  distributed gateway connection pools each performing scattered writes.
+- **Centralized operational coordination.** Mat-view refresh logic runs on a
+  single leader via lease locks, simplifying log tracking, metric scraping,
+  and worker failure investigations. There is exactly one process responsible
+  for the refresh schedule, eliminating distributed locking complexity.
+
+#### Cons
+
+- **Greater operational complexity.** A sixth binary requires an additional
+  deployment target, container image, monitoring dashboard, and alerting
+  rules. Valkey consumer groups need management (pending-entry recovery,
+  dead-letter queue handling, lag monitoring, and rebalancing during
+  deployments).
+- **Eventual consistency delay.** There is a bounded but non-zero delay
+  between a tool call occurring and its appearance on the dashboard. The
+  lag depends on stream polling intervals, batch sizes, and `COPY` flush
+  cadence. For real-time operator dashboards this is acceptable; for
+  synchronous user-facing flows it is not applicable (users do not see
+  billing data synchronously).
+
+### Recommendation
+
+**Option B (standalone `limen-observer`)** is the correct choice for
+production-scale deployments. The hot-path isolation, privilege separation,
+and independent scaling profiles it provides are fundamental requirements
+for a multi-tenant MCP gateway that guarantees low-latency tool execution
+while maintaining a zero-trust security posture.
+
+Option A is appropriate only for the all-in-one `limen` binary in
+development and small self-hosted deployments, where the zero-infrastructure
+fallback and reduced deployment complexity outweigh the contention and
+security risks.

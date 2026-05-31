@@ -1,0 +1,5 @@
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates tzdata
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/limen-staff /usr/local/bin/limen-staff
+ENTRYPOINT ["/usr/local/bin/limen-staff"]

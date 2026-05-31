@@ -3,11 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory } from 'vue-router'
 import { Code, ConnectError, createRouterTransport, type Transport } from '@connectrpc/connect'
 import { create } from '@bufbuild/protobuf'
-import {
-  setSessionTransport,
-  resetSessionTransport,
-  useSessionStore,
-} from '@limen/shared/session'
+import { setSessionTransport, resetSessionTransport, useSessionStore } from '@limen/shared/session'
 import {
   SessionService,
   GetSessionResponseSchema,

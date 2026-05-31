@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/metrics"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/mcpmount"
 	"github.com/belphemur/limen/internal/boot/oauthproxymount"
@@ -84,6 +85,12 @@ func Run(configPath string) error {
 		return err
 	}
 	upstreammount.Mount(r, rt, oidc)
+
+	// Start billing metrics consumer if Valkey is enabled
+	if rt.Valkey != nil {
+		consumer := metrics.NewConsumer(rt.Valkey, rt.Store, rt.Logger.Named("billing-consumer"), "limen-allinone")
+		go consumer.Run(rt.Ctx)
+	}
 
 	return boot.RunHTTPServer(rt, r)
 }

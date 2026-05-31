@@ -22,8 +22,8 @@ function systemPrefersDark(): boolean {
 }
 
 export const useThemeStore = defineStore('theme', {
-  state: () => ({
-    mode: 'system' as ThemeMode,
+  state: (): { mode: ThemeMode; initialized: boolean } => ({
+    mode: 'system',
     initialized: false,
   }),
   getters: {

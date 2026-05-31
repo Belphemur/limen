@@ -1,41 +1,29 @@
-import { test, expect, type Route } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import {
+  TENANT,
+  injectTenant,
+  mockSessionFetch,
+  interceptAuthLogin,
+  rpc,
+} from '../../../shared/src/test-utils/e2e-mocks'
 
 // Connect-RPC calls land at:
-//   /t/<tenant>/admin/api/limen.admin.v1.AdminService/<Method>   — slice 1 unimplemented
-//   /t/<tenant>/admin/api/limen.portal.v1.PortalService/<Method> — phase 9b implemented
+//   /t/<tenant>/api/limen.admin.v1.AdminService/<Method>         — slice 1 unimplemented
+//   /t/<tenant>/api/limen.portal.v1.PortalService/<Method>       — phase 9b implemented
 //   /t/<tenant>/api/limen.session.v1.SessionService/<Method>     — phase 9d
 //
 // The vite preview build does not ship a mock client; we intercept
 // each call below.
 
-const TENANT = 'acme'
-const ADMIN_API = `/t/${TENANT}/admin/api/`
-const SESSION_API = `/t/${TENANT}/api/limen.session.v1.SessionService/`
-
-function rpc(body: unknown): Parameters<Route['fulfill']>[0] {
-  return { status: 200, contentType: 'application/json', body: JSON.stringify(body) }
-}
+const ADMIN_API = `/t/${TENANT}/api/`
 
 test.describe('admin dashboard (mocked services)', () => {
   test('renders welcome, task bento and system health empty state', async ({ page, context }) => {
-    await context.addInitScript((tenant) => {
-      ;(window as Window & { __LIMEN_TENANT__?: string }).__LIMEN_TENANT__ = tenant
-    }, TENANT)
-
-    await page.route(`**${SESSION_API}**`, async (route) => {
-      const method = route.request().url().split(SESSION_API)[1]
-      if (method === 'GetSession') {
-        await route.fulfill(
-          rpc({
-            tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
-            user: { firstName: 'Alex', email: 'alex@acme.example' },
-            role: 'ROLE_OWNER',
-          }),
-        )
-        return
-      }
-      await route.fulfill({ status: 404, body: `unhandled session ${method}` })
-    })
+    await injectTenant(context)
+    await mockSessionFetch(context)
+    const INDEX_HTML = readFileSync('dist/index.html', 'utf-8')
+    await interceptAuthLogin(page, INDEX_HTML)
 
     await page.route(`**${ADMIN_API}**`, async (route) => {
       const path = route.request().url().split(ADMIN_API)[1]
