@@ -53,8 +53,8 @@ test.describe('admin upstreams (mocked services)', () => {
         await route.fulfill(
           rpc({
             tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
-            user: { firstName: 'Alex', email: 'alex@acme.example' },
-            role: 'ROLE_OWNER',
+            user: { id: '', firstName: 'Alex', lastName: '', email: 'alex@acme.example' },
+            role: 3,
           }),
         )
         return
@@ -101,8 +101,8 @@ test.describe('admin upstreams (mocked services)', () => {
       await route.fulfill(
         rpc({
           tenant: { publicId: 'tnt_acme', name: 'Acme' },
-          user: { firstName: 'Alex' },
-          role: 'ROLE_OWNER',
+          user: { id: '', firstName: 'Alex', lastName: '', email: '' },
+          role: 3,
         }),
       )
     })

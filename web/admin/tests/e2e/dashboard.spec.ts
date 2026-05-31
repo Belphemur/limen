@@ -1,8 +1,8 @@
 import { test, expect, type Route } from '@playwright/test'
 
 // Connect-RPC calls land at:
-//   /t/<tenant>/admin/api/limen.admin.v1.AdminService/<Method>   — slice 1 unimplemented
-//   /t/<tenant>/admin/api/limen.portal.v1.PortalService/<Method> — phase 9b implemented
+//   /t/<tenant>/api/limen.admin.v1.AdminService/<Method>         — slice 1 unimplemented
+//   /t/<tenant>/api/limen.portal.v1.PortalService/<Method>       — phase 9b implemented
 //   /t/<tenant>/api/limen.session.v1.SessionService/<Method>     — phase 9d
 //
 // The vite preview build does not ship a mock client; we intercept
@@ -28,8 +28,8 @@ test.describe('admin dashboard (mocked services)', () => {
         await route.fulfill(
           rpc({
             tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
-            user: { firstName: 'Alex', email: 'alex@acme.example' },
-            role: 'ROLE_OWNER',
+            user: { id: '', firstName: 'Alex', lastName: '', email: 'alex@acme.example' },
+            role: 3,
           }),
         )
         return
