@@ -2,7 +2,8 @@ import { test, expect, type Route } from '@playwright/test'
 
 const TENANT = 'acme'
 const ADMIN_API = `/t/${TENANT}/api/`
-const SESSION_API = `/t/${TENANT}/api/limen.session.v1.SessionService/`
+// Use regex pattern — Playwright glob `**` matching is unreliable for full URLs with ports
+const SESSION_RE = /\/t\/acme\/api\/limen\.session\.v1\.SessionService\//
 
 function rpc(body: unknown): Parameters<Route['fulfill']>[0] {
   return { status: 200, contentType: 'application/json', body: JSON.stringify(body) }
@@ -47,9 +48,21 @@ test.describe('admin upstreams (mocked services)', () => {
       deleted: false,
     }
 
-    await page.route(`**${SESSION_API}**`, async (route) => {
-      const method = route.request().url().split(SESSION_API)[1]
-      if (method === 'GetSession') {
+    // Intercept /auth/login redirects — serve SPA to re-boot with valid session
+    await page.route('**/auth/login**', async (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><html><head><meta charset="UTF-8"><script>window.__LIMEN_TENANT__="acme";location.replace("/");</script></head></html>',
+        })
+      }
+      return route.continue()
+    })
+
+    await page.route(SESSION_RE, async (route) => {
+      const url = route.request().url()
+      if (url.includes('/GetSession')) {
         await route.fulfill(
           rpc({
             tenant: { publicId: 'tnt_acme', name: 'Acme Corp' },
@@ -59,7 +72,7 @@ test.describe('admin upstreams (mocked services)', () => {
         )
         return
       }
-      await route.fulfill({ status: 404, body: `unhandled session ${method}` })
+      await route.fulfill({ status: 404, body: 'unhandled session method' })
     })
 
     await page.route(`**${ADMIN_API}**`, async (route) => {
@@ -97,14 +110,31 @@ test.describe('admin upstreams (mocked services)', () => {
       upstreams: [],
     }
 
-    await page.route(`**${SESSION_API}**`, async (route) => {
-      await route.fulfill(
-        rpc({
-          tenant: { publicId: 'tnt_acme', name: 'Acme' },
-          user: { id: '', firstName: 'Alex', lastName: '', email: '' },
-          role: 3,
-        }),
-      )
+    // Intercept /auth/login redirects — serve SPA to re-boot with valid session
+    await page.route('**/auth/login**', async (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><html><head><meta charset="UTF-8"><script>window.__LIMEN_TENANT__="acme";location.replace("/");</script></head></html>',
+        })
+      }
+      return route.continue()
+    })
+
+    await page.route(SESSION_RE, async (route) => {
+      const url = route.request().url()
+      if (url.includes('/GetSession')) {
+        await route.fulfill(
+          rpc({
+            tenant: { publicId: 'tnt_acme', name: 'Acme' },
+            user: { id: '', firstName: 'Alex', lastName: '', email: '' },
+            role: 3,
+          }),
+        )
+        return
+      }
+      await route.fulfill({ status: 404, body: 'unhandled session method' })
     })
 
     await page.route(`**${ADMIN_API}**`, async (route) => {
