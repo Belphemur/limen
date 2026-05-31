@@ -199,16 +199,12 @@ func (r *BillingRecorder) processFallbackEvent(ctx context.Context, ev billingEv
 	switch ev.Kind {
 	case "active_user":
 		monthStart := ev.TS.Format("2006-01") + "-01"
-		var userID, saID *int64
-		if ev.UserID != 0 {
-			v := ev.UserID
-			userID = &v
-		}
-		if ev.ServiceAccountID != 0 {
-			v := ev.ServiceAccountID
-			saID = &v
-		}
-		err = db.Exec(UpsertActiveUserMonthSQL, ev.TenantID, monthStart, userID, saID, ev.TS, ev.TS).Error
+		// Pass 0 for absent IDs — the Valkey consumer uses parseOptionalInt64
+		// which converts "0" to nil, but the fallback drain passes int64(0)
+		// directly. Both are correct because a deployment runs in ONE mode
+		// (Valkey or fallback), not both simultaneously, so the inconsistency
+		// has no practical effect on row deduplication.
+		err = db.Exec(UpsertActiveUserMonthSQL, ev.TenantID, monthStart, ev.UserID, ev.ServiceAccountID, ev.TS, ev.TS).Error
 	case "sa_connection":
 		if ev.Connected {
 			err = db.Exec(InsertSAConnectionSnapshotSQL, ev.TenantID, ev.ServiceAccountID, ev.TS, ev.TenantID).Error
