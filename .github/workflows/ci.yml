@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # feat-billing is a long-lived integration branch for the billing
+      # telemetry pipeline work. CI on push is intentional during active
+      # development. Remove this line after feat-billing merges to main.
       - feat-billing
   pull_request:
     branches:
