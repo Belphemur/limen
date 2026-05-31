@@ -38,6 +38,7 @@ packages compose only the helpers they need.
 | `internal/boot/servegateway`     | `Run(configPath)` for `cmd/gateway` (MCP only)                                                           | `mcpmount`                                  |
 | `internal/boot/serveportal`      | `Run(configPath)` for `cmd/portal` (portal + OIDC + OAuth proxy + upstream callback)                     | `oidcboot`, `zitadelboot`, all portal mounts |
 | `internal/boot/servestaff`       | `Run(configPath)` for `cmd/staff` (scaffold)                                                             | `zitadelboot`                               |
+| `internal/boot/serveobserver`    | `Run(configPath)` for `cmd/observer` (bootstraps background metrics consumer, serves healthz)          | `internal/billing/metrics`                  |
 | `internal/boot/serveall`         | `Run(configPath)` for `cmd/limen` (union of every suite)                                                 | every mount package                         |
 
 ## Phase 9a load-bearing constraint

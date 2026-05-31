@@ -22,6 +22,7 @@ cmd/limen/main.go            # All-in-one binary (dev + small self-hosted)
 cmd/gateway/main.go          # MCP RS hot path (Phase 9a)
 cmd/portal/main.go           # Portal/admin Connect-RPC + OIDC RP + OAuth proxy (Phase 9a)
 cmd/staff/main.go            # Staff backoffice scaffold (Phase 9a, routes land in Phase 12)
+cmd/observer/main.go         # Billing telemetry consumer / observer process (decoupled, Phase 11/19/20)
 cmd/limenctl/main.go         # Admin CLI: migrate, create-tenant, create-upstream (Phase 9a)
 internal/
   admin/                      # AdminService Connect-RPC handler (Phase 9c)
@@ -29,6 +30,7 @@ internal/
   boot/                       # BootRuntime + BootProfile bitmask shared by every binary
   boot/{suite}mount/          # Per-suite mount helpers (mcpmount, portalmount, oauthproxymount, ...)
   boot/serve{name}/           # Per-binary Run(configPath) entry points
+  boot/serveobserver/         # Standalone metrics consumer entrypoint
   config/                     # YAML config loading with env var substitution
   contextblob/                # Context merge utilities for ambient context
   crypto/                     # AES-SIV encryption for SecretField (Phase 2)
