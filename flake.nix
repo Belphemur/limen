@@ -39,6 +39,7 @@
             golangci-lint
             gotools
             air
+            chromium
             docker
             docker-compose
             git
@@ -49,10 +50,14 @@
             gnumake
             actionlint
             goreleaser
+            playwright-driver
           ];
 
           env = {
             GO111MODULE = "on";
+
+            PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
           };
 
           processes = {
