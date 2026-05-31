@@ -4,7 +4,7 @@ title: "Billing (two-plan SaaS model)"
 status: planned
 progress: 0
 depends_on: ["4", "9b", "9c", "9i", "10", "11"]
-updated: "2026-05-27"
+updated: "2026-05-31"
 ---
 
 # Phase 13 — Billing (two-plan SaaS model)
@@ -398,33 +398,9 @@ Goal: Scaffold `web/landing/` as a separate Vite + Vue 3 SPA in the pnpm workspa
 
 See [Phase 13b — Billing Metrics Pipeline](phase-13b-billing-metrics-pipeline.md) for the full design, tables, recorder, consumer, and checklist. This sub-phase delivers the `active_user_months` and `sa_connection_snapshots` tables that the Stripe reconciler (13c) reads from.
 
-### 13c: Stripe Integration
+### 13c: Stripe Integration + Bootstrap
 
-Goal: Stripe SDK integration. Two products (Developer tracking + Team with two prices), checkout session creation, customer portal, webhook handler with signature verification and idempotency.
-
-**Design:**
-
-- `internal/billing/stripe/client.go` — wrapper around Stripe SDK, uses `internal/resilience` clients from [Phase 10](phase-10-wiring-hardening.md).
-- `internal/billing/stripe/webhook.go` — handler at `/billing/stripe/webhook`, signature verification, async drain to in-memory channel.
-- `internal/billing/stripe/service.go` — Connect-RPC `BillingService` handlers: `GetBillingSummary`, `CreateCheckoutSession`, `OpenCustomerPortal`.
-- Checkout session creates a subscription with `line_items` for both the active-user price and SA-connection price (initial quantities from current active counts via the billing metrics tables).
-- Customer lookup/create by tenant ID; metadata includes `tenant_public_id`.
-
-- [ ] Stripe SDK (`github.com/stripe/stripe-go/v82`) added to `go.mod`
-- [ ] `internal/billing/stripe/client.go` — Stripe client wrapper with resilience
-- [ ] `internal/billing/stripe/webhook.go` — webhook handler with signature verification + idempotency
-- [ ] `internal/billing/stripe/service.go` — `BillingService` Connect-RPC handlers
-- [ ] `proto/limen/portal/v1/portal.proto` extended with `BillingService` (owner-only)
-- [ ] `CreateCheckoutSession` RPC: creates Stripe Checkout for Team plan with both line items
-- [ ] `OpenCustomerPortal` RPC: creates Stripe Customer Portal session
-- [ ] `GetBillingSummary` RPC: returns plan, status, active counts, Stripe publishable key
-- [ ] Webhook event handling: `checkout.session.completed` (persist sub, flip status), `customer.subscription.updated` (mirror status), `customer.subscription.deleted` (reset to developer plan), `invoice.payment_failed` (set grace), `invoice.payment_succeeded` (clear grace), `entitlements.active_entitlement_summary.updated` (sync tenant_entitlements)
-- [ ] Resilience config for Stripe endpoints in `config.yaml` resilience section
-- [ ] Stripe Dashboard: create 14 Features with correct lookup_keys (see Feature Definitions table)
-- [ ] Stripe Dashboard: attach Features to Developer Product (8) and Team Product (9)
-- [ ] `entitlements.active_entitlement_summary.updated` webhook handler: parse lookup_keys → DELETE + UPSERT `tenant_entitlements` → derive `plan`
-- [ ] `internal/billing/entitlements.go` — `PlanEntitlements` struct + `EntitlementsFromRows()` resolver
-- [ ] Startup reconciliation: call Stripe List Active Entitlements API for tenants with active subscriptions to repair missed webhook deliveries
+See [Phase 13c — Stripe Integration](phase-13c-stripe-integration.md) for the full design, including the Stripe bootstrap script (`scripts/stripe-bootstrap/`), database models, webhook handler, BillingService RPCs, reconciler, and checklist.
 
 ### 13d: Plan Enforcement
 

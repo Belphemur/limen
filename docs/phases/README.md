@@ -49,6 +49,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
 | 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
+| 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md)                                         | 4, 9b, 9c, 9i, 10, 11, 13b | 🔶 (37%) |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
@@ -56,7 +57,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 19  | [CI Pipeline (Parallelized GHA tests and Gate checks)](phase-19-ci-pipeline.md)                               | 10, 13b                 | ✅           |
 | 20  | [CD Pipeline & Multi-Arch Packaging (GoReleaser + GHCR)](phase-20-cd-pipeline.md)                             | 19                      | ✅           |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 13c (Stripe integration) is in progress at 37% — the `scripts/stripe-bootstrap/` standalone Go module is complete and verified against Stripe test mode (2 Products, 3 Prices, 14 Features, 17 attachments, webhook endpoint — idempotent, converges state). Remaining is the backend integration (stripe-go SDK, webhook handler, BillingService RPCs, reconciler). Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
 
 ## Global checklist
 
@@ -371,6 +372,40 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] Stripe Dashboard runbook: product + seat price + webhook endpoint + Customer Portal toggles + Tax configuration
 - [ ] Staff-audit-log records `billing.comp`, `billing.extend_grace`, `billing.force_cancel` with reason
 - [ ] Integration tests covering: subscribe happy path, reactive + periodic reconciliation, webhook signature + idempotency, payment failure → grace → 402, payment recovery, cancel-at-period-end, staff comp, free-tier limits, staff-tenant exempt, `billing.enabled: false` short-circuit
+
+### Phase 13c — Stripe Integration + Bootstrap
+
+#### 13c-a: Bootstrap Script
+
+- [x] `scripts/stripe-bootstrap/` standalone Go module created
+- [x] DesiredState populated: 2 Products, 3 Prices, 14 Features, attachments, webhook
+- [x] ensureProduct: list + converge (create/update/archive) by name
+- [x] ensurePrice: list + converge by lookup_key
+- [x] ensureFeature: list + converge by lookup_key (archive removed features)
+- [x] ensureProductFeature: list attachments + converge (attach missing)
+- [x] ensureWebhookEndpoint: list + converge by URL
+- [x] Archive logic: resources not in desired state → active: false
+- [x] Output IDs to .bootstrap-out.env
+- [x] AGENTS.md documenting bootstrap script
+- [ ] Makefile target: make stripe-bootstrap
+
+#### 13c-b: Backend Integration
+
+- [ ] stripe-go/v82 added to go.mod
+- [ ] tenant_billing migration + model + RLS
+- [ ] tenant_entitlements migration + model + RLS
+- [ ] internal/billing/entitlements.go resolver
+- [ ] BillingConfig + config.yaml billing section
+- [ ] internal/billing/stripe/client.go with resilience
+- [ ] Webhook handler with signature verification + async drain
+- [ ] 6 webhook event handlers (checkout, subscription updated/deleted, invoice failed/succeeded, entitlements)
+- [ ] BillingService proto + buf generate
+- [ ] GetBillingSummary RPC
+- [ ] CreateCheckoutSession RPC
+- [ ] OpenCustomerPortal RPC
+- [ ] Reconciler: 1h periodic + reactive + upward-only + month reset
+- [ ] Startup entitlement reconciliation
+- [ ] Stripe resilience config in config.yaml
 
 ### Phase 19 — CI Pipeline (Parallelized GHA tests and Gate checks)
 
