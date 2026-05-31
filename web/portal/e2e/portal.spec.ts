@@ -33,11 +33,37 @@ test.describe('portal happy path (stubbed OIDC + RPC)', () => {
       ;(window as Window & { __LIMEN_TENANT__?: string }).__LIMEN_TENANT__ = tenant
     }, TENANT)
 
-    // Intercept SessionService — the session gate runs before any page renders.
+    // The router guard redirects to /auth/login when unauthenticated.
+    // vite preview has no server-side login endpoint, so intercept the
+    // GET and serve a minimal page the test can assert against.
+    await page.route('**/auth/login**', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: `<!DOCTYPE html><html><body>
+<h1>Welcome to Limen</h1>
+<a href="/auth/login">Sign in with Zitadel</a>
+</body></html>`,
+      })
+    })
+
+    // Intercept SessionService — the session gate runs before any page
+    // renders. The handler is stateful: when authenticated is false we
+    // return an error, which triggers the guard's hard redirect to the
+    // server-side /auth/login. When true, we return a valid session so
+    // the protected routes render.
     await page.route(`**${SESSION_API}**`, async (route) => {
       const req = route.request()
       const data = req.postDataJSON()
       if (data.method === 'GetSession') {
+        if (!state.authenticated) {
+          return route.fulfill({
+            status: 501,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 'unimplemented' }),
+          })
+        }
         return route.fulfill(
           rpcResponse({
             user: {
