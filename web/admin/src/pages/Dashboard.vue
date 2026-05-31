@@ -34,7 +34,7 @@ const hasActiveUserData = ref(false)
 const hasSAConnectionData = ref(false)
 
 const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
-  const resp = await adminClient().getActiveUserChart({
+  const resp = await (adminClient() as any).getActiveUserChart({
     fromDate: params.from
       ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
       : undefined,
@@ -49,7 +49,7 @@ const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
 const mapActiveUserData = (day: Record<string, any>) => (day.activeUserCount as number) ?? 0
 
 const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
-  const resp = await adminClient().getSAConnectionChart({
+  const resp = await (adminClient() as any).getSAConnectionChart({
     fromDate: params.from
       ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
       : undefined,
@@ -84,14 +84,14 @@ onMounted(async () => {
       .then((d) => (issuer.value = d.zitadelIssuer))
       .catch(() => (issuer.value = '')),
     // Billing chart data availability checks
-    adminClient()
+    (adminClient() as any)
       .getActiveUserChart({})
-      .then((r) => { hasActiveUserData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check active user chart data availability:', err) }),
-    adminClient()
+      .then((r: any) => { hasActiveUserData.value = r.hasData })
+      .catch((err: any) => { console.error('Failed to pre-check active user chart data availability:', err) }),
+    (adminClient() as any)
       .getSAConnectionChart({})
-      .then((r) => { hasSAConnectionData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
+      .then((r: any) => { hasSAConnectionData.value = r.hasData })
+      .catch((err: any) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
   ])
 })
 
