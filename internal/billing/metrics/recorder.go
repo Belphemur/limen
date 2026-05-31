@@ -34,10 +34,11 @@ type BillingRecorder struct {
 	enabled   atomic.Bool
 	dropped   atomic.Uint64
 	started   atomic.Bool
-	closed    atomic.Bool
 	closeOnce sync.Once
 	fallback  chan billingEvent
 	wg        sync.WaitGroup
+	mu        sync.Mutex
+	closed    bool
 }
 
 // NewBillingRecorder creates a recorder.
@@ -63,11 +64,6 @@ func NewBillingRecorder(vc valkey.Client, store *storage.Store, logger *zap.Logg
 // isServiceAccount indicates whether this user is a service account.
 func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, userID int64, serviceAccountID int64) {
 	if !r.enabled.Load() {
-		if r.closed.Load() {
-			r.dropped.Add(1)
-			eventsDroppedTotal.Inc()
-			return
-		}
 		ev := billingEvent{
 			Kind:             "active_user",
 			TenantID:         tenantID,
@@ -99,11 +95,6 @@ func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, 
 // Called when a service account MCP connection is established or closed.
 func (r *BillingRecorder) RecordSAConnection(ctx context.Context, tenantID int64, serviceAccountID int64, connected bool) {
 	if !r.enabled.Load() {
-		if r.closed.Load() {
-			r.dropped.Add(1)
-			eventsDroppedTotal.Inc()
-			return
-		}
 		ev := billingEvent{
 			Kind:             "sa_connection",
 			TenantID:         tenantID,
@@ -171,8 +162,10 @@ func (r *BillingRecorder) Close() {
 		return
 	}
 	r.closeOnce.Do(func() {
-		r.closed.Store(true)
+		r.mu.Lock()
+		r.closed = true
 		close(r.fallback)
+		r.mu.Unlock()
 		r.wg.Wait()
 	})
 }
@@ -228,3 +221,24 @@ func (r *BillingRecorder) Dropped() uint64 {
 func (r *BillingRecorder) Enabled() bool {
 	return r.enabled.Load()
 }
+
+// sendFallback sends an event to the fallback channel under the mutex.
+// The closed flag and the channel send are protected atomically so that Close()
+// cannot close the channel between the check and the send.
+// Returns true if the event was sent, false if dropped (closed or full channel).
+func (r *BillingRecorder) sendFallback(ev billingEvent) bool {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return false
+	}
+	select {
+	case r.fallback <- ev:
+		r.mu.Unlock()
+		return true
+	default:
+		r.mu.Unlock()
+		return false
+	}
+}
+

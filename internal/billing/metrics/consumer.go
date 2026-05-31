@@ -72,12 +72,21 @@ func (c *Consumer) Run(ctx context.Context) {
 	defer autoClaimTicker.Stop()
 
 	for {
-		c.processBatch(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-autoClaimTicker.C:
 			c.runAutoClaim(ctx)
+		default:
+			c.processBatch(ctx)
+			// Pace the loop to prevent CPU spin if XReadGroup returns immediately.
+			// XReadGroup blocks for blockMs (250ms) internally when there are no
+			// messages, so this sleep is only reached in edge cases.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	}
 }
@@ -215,8 +224,7 @@ func (c *Consumer) processActiveUsers(ctx context.Context, msgs []valkey.StreamM
 			ts, err := parseInt64(msg.Fields, "ts")
 			if err != nil {
 				c.logger.Warn("skipping active user message with invalid timestamp", zap.Error(err), zap.String("msg_id", msg.ID))
-				hasError = true
-				break
+				continue
 			}
 			t := time.UnixMilli(ts)
 			monthStart := t.Format("2006-01") + "-01" // first of month
@@ -277,15 +285,13 @@ func (c *Consumer) processSAConnections(ctx context.Context, msgs []valkey.Strea
 			saID, err := parseInt64(msg.Fields, "sa_id")
 			if err != nil {
 				c.logger.Warn("skipping SA connection message with invalid sa_id", zap.Error(err), zap.String("msg_id", msg.ID))
-				hasError = true
-				break
+				continue
 			}
 			connected := msg.Fields["connected"] == "1"
 			ts, err := parseInt64(msg.Fields, "ts")
 			if err != nil {
 				c.logger.Warn("skipping SA connection message with invalid timestamp", zap.Error(err), zap.String("msg_id", msg.ID))
-				hasError = true
-				break
+				continue
 			}
 			t := time.UnixMilli(ts)
 
