@@ -1,7 +1,7 @@
 import { test, expect, type Route } from '@playwright/test'
 
 const TENANT = 'acme'
-const ADMIN_API = `/t/${TENANT}/admin/api/`
+const ADMIN_API = `/t/${TENANT}/api/`
 const SESSION_API = `/t/${TENANT}/api/limen.session.v1.SessionService/`
 
 function rpc(body: unknown): Parameters<Route['fulfill']>[0] {

@@ -68,7 +68,8 @@ onMounted(async () => {
     session.refresh(),
     portalClient()
       .listUpstreams({})
-      .then((r) => (upstreams.value = r.upstreams)),
+      .then((r) => (upstreams.value = r.upstreams))
+      .catch(() => {}),
     adminClient()
       .getTenantSettings({})
       .then((r) => {
@@ -77,7 +78,8 @@ onMounted(async () => {
           configured: (r.settings?.configuredAt ?? '') !== '',
         }
         zitadelOrgId.value = r.zitadelOrgId
-      }),
+      })
+      .catch(() => {}),
     fetchDiscovery()
       .then((d) => (issuer.value = d.zitadelIssuer))
       .catch(() => (issuer.value = '')),
