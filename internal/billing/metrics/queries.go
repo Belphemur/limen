@@ -18,6 +18,24 @@ const (
 
 	// InsertSAConnectionSnapshotSQL inserts a new SA connection snapshot,
 	// computing the concurrent count via a subquery.
+	//
+	// KNOWN LIMITATIONS — concurrent_count is best-effort only:
+	//
+	// 1. Snapshot isolation (default PostgreSQL READ COMMITTED) means two
+	//    concurrent inserts in separate transactions can both read the same
+	//    COUNT(*) value, causing both to record the same concurrent_count
+	//    and undercount the true peak.
+	//
+	// 2. Rows left with disconnected_at IS NULL after an abnormal SSE
+	//    shutdown (crash, network cut) permanently inflate the count until
+	//    manually reconciled. The system never automatically cleans these up.
+	//
+	// If accurate peak concurrency becomes important, consider:
+	//   - SERIALIZABLE isolation to detect serialisation failures
+	//   - PostgreSQL advisory locks (pg_try_advisory_xact_lock) around the
+	//     insert to serialise concurrent writers
+	//   - A periodic reconciliation job that closes stale open connections
+	//     based on a heartbeat/keepalive timestamp
 	InsertSAConnectionSnapshotSQL = `
 		INSERT INTO sa_connection_snapshots (tenant_id, service_account_id, connected_at, concurrent_count, created_at, updated_at)
 		VALUES (?, ?, ?, (SELECT COUNT(*) + 1 FROM sa_connection_snapshots WHERE tenant_id = ? AND disconnected_at IS NULL AND deleted_at IS NULL), NOW(), NOW())

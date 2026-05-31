@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,6 +19,10 @@ func (s *Service) GetActiveUserChart(ctx context.Context, req *connect.Request[a
 
 	from := defaultFromDate(req.Msg.FromDate)
 	to := defaultToDate(req.Msg.ToDate)
+
+	if from.After(to) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("from_date cannot be after to_date"))
+	}
 
 	db, commit, err := s.store.Session(ctx)
 	if err != nil {
@@ -44,15 +49,17 @@ func (s *Service) GetActiveUserChart(ctx context.Context, req *connect.Request[a
 	}
 	var rows []row
 	if err := db.Raw(`
-		SELECT d::date::text AS date, COALESCE(SUM(cnt), 0)::int AS count
-		FROM generate_series(?::date, ?::date - 1, '1 day'::interval) d
+		SELECT d::date::text AS date, COALESCE(t.cnt, 0)::int AS count
+		FROM generate_series(?::date, ?::date, '1 day'::interval) d
 		LEFT JOIN (
-			SELECT month_start::date AS date, COUNT(DISTINCT COALESCE(user_id, service_account_id)) AS cnt
+			SELECT month_start::date AS month_date, COUNT(DISTINCT COALESCE(user_id, service_account_id)) AS cnt
 			FROM active_user_months
-			WHERE month_start >= ? AND month_start < ? AND deleted_at IS NULL
+			WHERE month_start >= date_trunc('month', ?::date)::date
+			  AND month_start <= date_trunc('month', ?::date)::date
+			  AND deleted_at IS NULL
 			GROUP BY month_start::date
-		) t ON d::date = t.date
-		GROUP BY d::date ORDER BY d::date
+		) t ON date_trunc('month', d)::date = t.month_date
+		GROUP BY d::date, t.cnt ORDER BY d::date
 	`, from, to, from, to).Scan(&rows).Error; err != nil {
 		return nil, s.internal("GetActiveUserChart query", err)
 	}
@@ -74,6 +81,10 @@ func (s *Service) GetSAConnectionChart(ctx context.Context, req *connect.Request
 
 	from := defaultFromDate(req.Msg.FromDate)
 	to := defaultToDate(req.Msg.ToDate)
+
+	if from.After(to) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("from_date cannot be after to_date"))
+	}
 
 	db, commit, err := s.store.Session(ctx)
 	if err != nil {
@@ -100,15 +111,17 @@ func (s *Service) GetSAConnectionChart(ctx context.Context, req *connect.Request
 	}
 	var rows []row
 	if err := db.Raw(`
-		SELECT d::date::text AS date, COALESCE(MAX(peak), 0)::int AS peak
-		FROM generate_series(?::date, ?::date - 1, '1 day'::interval) d
+		SELECT d::date::text AS date, COALESCE(MAX(t.peak), 0)::int AS peak
+		FROM generate_series(?::date, ?::date, '1 day'::interval) d
 		LEFT JOIN (
-			SELECT connected_at::date AS date, MAX(concurrent_count) AS peak
+			SELECT date_trunc('month', connected_at)::date AS month_date, MAX(concurrent_count) AS peak
 			FROM sa_connection_snapshots
-			WHERE connected_at >= ? AND connected_at < ? AND deleted_at IS NULL
-			GROUP BY connected_at::date
-		) t ON d::date = t.date
-		GROUP BY d::date ORDER BY d::date
+			WHERE connected_at >= date_trunc('month', ?::date)::date
+			  AND connected_at <= date_trunc('month', ?::date)::date
+			  AND deleted_at IS NULL
+			GROUP BY date_trunc('month', connected_at)::date
+		) t ON date_trunc('month', d)::date = t.month_date
+		GROUP BY d::date, t.peak ORDER BY d::date
 	`, from, to, from, to).Scan(&rows).Error; err != nil {
 		return nil, s.internal("GetSAConnectionChart query", err)
 	}

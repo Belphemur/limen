@@ -715,6 +715,11 @@ func (m *InMemory) XAutoClaim(_ context.Context, stream, group, consumer string,
 				remaining = append(remaining, id)
 				continue
 			}
+			idleMs := m.now().Sub(state.deliveryTimes[id]).Milliseconds()
+			if idleMs < minIdleMs {
+				remaining = append(remaining, id)
+				continue
+			}
 			claimed = append(claimed, id)
 		}
 		state.consumers[otherConsumer] = remaining

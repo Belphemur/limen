@@ -24,8 +24,8 @@ func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 	billingRecorder := metrics.NewBillingRecorder(rt.Valkey, rt.Store, rt.Logger.Named("billing-recorder"))
 	if !billingRecorder.Enabled() {
 		billingRecorder.StartFallbackDrain(rt.Ctx)
-		rt.AddCleanup(billingRecorder.Close)
 	}
+	rt.AddCleanup(billingRecorder.Close)
 	mgr, err := gateway.NewManager(gateway.ManagerOptions{
 		Store:    rt.Store,
 		Service:  rt.UpstreamService,
