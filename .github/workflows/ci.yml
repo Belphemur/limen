@@ -58,7 +58,7 @@ jobs:
       - name: Add Go and npm bin directories to PATH
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/portal/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
@@ -93,7 +93,7 @@ jobs:
       - name: Add Go and npm bin directories to PATH
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/portal/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
@@ -143,7 +143,7 @@ jobs:
       - name: Add Go and npm bin directories to PATH
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          echo "$GITHUB_WORKSPACE/web/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/web/portal/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install protoc tools and web dependencies
         run: make tools
