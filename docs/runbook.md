@@ -127,6 +127,11 @@ Standard `pg_dump` / `pg_restore` of the Limen database. Encrypted columns
 (`SecretField`) are backed up as ciphertext — the master encryption key is
 **not** stored in the database and must be backed up separately.
 
+1. Stop `limen-gateway`, `limen-portal`, `limen-staff`, and `limen-observer`.
+2. Run `pg_dump` and save the output.
+3. Restore: `pg_restore` into the target database.
+4. Start `limen-gateway`, `limen-portal`, `limen-staff`, and `limen-observer`.
+
 ### Zitadel
 
 Zitadel data (users, orgs, projects) must be backed up separately using
