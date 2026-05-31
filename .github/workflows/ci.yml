@@ -12,6 +12,9 @@ on:
     branches:
       - '**'
 
+permissions:
+  contents: read
+
 jobs:
   backend-unit:
     runs-on: ubuntu-latest

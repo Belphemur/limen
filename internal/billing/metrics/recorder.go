@@ -60,8 +60,8 @@ func NewBillingRecorder(vc valkey.Client, store *storage.Store, logger *zap.Logg
 }
 
 // RecordActiveUser emits an active_user event to the billing:active_users stream.
-// Called after a tool call completes. tenantID and userID come from context.
-// isServiceAccount indicates whether this user is a service account.
+// Called after a tool call completes. tenantID comes from context, userID and
+// serviceAccountID from auth context — one or both may be zero (absent).
 func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, userID int64, serviceAccountID int64) {
 	if !r.enabled.Load() {
 		ev := billingEvent{
@@ -71,9 +71,7 @@ func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, 
 			ServiceAccountID: serviceAccountID,
 			TS:               time.Now(),
 		}
-		select {
-		case r.fallback <- ev:
-		default:
+		if !r.sendFallback(ev) {
 			r.dropped.Add(1)
 			eventsDroppedTotal.Inc()
 		}
@@ -102,9 +100,7 @@ func (r *BillingRecorder) RecordSAConnection(ctx context.Context, tenantID int64
 			Connected:        connected,
 			TS:               time.Now(),
 		}
-		select {
-		case r.fallback <- ev:
-		default:
+		if !r.sendFallback(ev) {
 			r.dropped.Add(1)
 			eventsDroppedTotal.Inc()
 		}
@@ -170,6 +166,26 @@ func (r *BillingRecorder) Close() {
 	})
 }
 
+// sendFallback sends an event to the fallback channel under the mutex.
+// The closed flag and the channel send are protected atomically so that Close()
+// cannot close the channel between the check and the send.
+// Returns true if the event was sent, false if dropped (closed or full channel).
+func (r *BillingRecorder) sendFallback(ev billingEvent) bool {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return false
+	}
+	select {
+	case r.fallback <- ev:
+		r.mu.Unlock()
+		return true
+	default:
+		r.mu.Unlock()
+		return false
+	}
+}
+
 func (r *BillingRecorder) processFallbackEvent(ctx context.Context, ev billingEvent) {
 	tenantCtx := storage.WithTenant(ctx, ev.TenantID)
 	db, commit, err := r.store.Session(tenantCtx)
@@ -183,7 +199,16 @@ func (r *BillingRecorder) processFallbackEvent(ctx context.Context, ev billingEv
 	switch ev.Kind {
 	case "active_user":
 		monthStart := ev.TS.Format("2006-01") + "-01"
-		err = db.Exec(UpsertActiveUserMonthSQL, ev.TenantID, monthStart, ev.UserID, ev.ServiceAccountID, ev.TS, ev.TS).Error
+		var userID, saID *int64
+		if ev.UserID != 0 {
+			v := ev.UserID
+			userID = &v
+		}
+		if ev.ServiceAccountID != 0 {
+			v := ev.ServiceAccountID
+			saID = &v
+		}
+		err = db.Exec(UpsertActiveUserMonthSQL, ev.TenantID, monthStart, userID, saID, ev.TS, ev.TS).Error
 	case "sa_connection":
 		if ev.Connected {
 			err = db.Exec(InsertSAConnectionSnapshotSQL, ev.TenantID, ev.ServiceAccountID, ev.TS, ev.TenantID).Error
@@ -221,24 +246,3 @@ func (r *BillingRecorder) Dropped() uint64 {
 func (r *BillingRecorder) Enabled() bool {
 	return r.enabled.Load()
 }
-
-// sendFallback sends an event to the fallback channel under the mutex.
-// The closed flag and the channel send are protected atomically so that Close()
-// cannot close the channel between the check and the send.
-// Returns true if the event was sent, false if dropped (closed or full channel).
-func (r *BillingRecorder) sendFallback(ev billingEvent) bool {
-	r.mu.Lock()
-	if r.closed {
-		r.mu.Unlock()
-		return false
-	}
-	select {
-	case r.fallback <- ev:
-		r.mu.Unlock()
-		return true
-	default:
-		r.mu.Unlock()
-		return false
-	}
-}
-

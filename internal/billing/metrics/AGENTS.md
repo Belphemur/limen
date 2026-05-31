@@ -10,7 +10,7 @@ The billing telemetry system. It is divided into two phases:
 
 - `recorder.go`: Publishes metrics safely with fallbacks.
 - `consumer.go`: Consumes telemetry streams with robust backoff, retries, batching, and error handling.
-- `queries.go`: Performs queries against Postgres and Valkey.
+- `queries.go`: Centralised SQL statements shared by the recorder's fallback drain and the consumer.
 - `prometheus.go`: Exports internal metrics for Prometheus scraping.
 
 ## Conventions

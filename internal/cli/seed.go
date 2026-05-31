@@ -481,7 +481,7 @@ func seedBillingMetrics(t *gorm.DB, tenant *storage.Tenant, users []*storage.Use
 
 	for day := days - 1; day >= 0; day-- {
 		targetDate := now.AddDate(0, 0, -day)
-		dateStr := targetDate.Format("2006-01-02")
+		dateStr := targetDate.Format("2006-01") + "-01"
 
 		for _, user := range users {
 			firstSeen := targetDate.Add(-time.Duration(gofakeit.Number(0, 3600)) * time.Second)

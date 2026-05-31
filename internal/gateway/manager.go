@@ -117,15 +117,15 @@ func (m *Manager) CallTool(ctx context.Context, upstreamName, toolName string, a
 	if err != nil {
 		return nil, err
 	}
-	if m.opts.BillingRecorder != nil {
-		userID := int64(0)
-		saID := int64(0)
-		if u, ok := auth.MCPUserFromContext(ctx); ok {
-			userID = u.ID
-		}
-		if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
-			saID = sa.ID
-		}
+	userID := int64(0)
+	saID := int64(0)
+	if u, ok := auth.MCPUserFromContext(ctx); ok {
+		userID = u.ID
+	}
+	if sa, ok := auth.MCPServiceAccountFromContext(ctx); ok {
+		saID = sa.ID
+	}
+	if m.opts.BillingRecorder != nil && (userID != 0 || saID != 0) {
 		m.opts.BillingRecorder.RecordActiveUser(ctx, tenant.ID, userID, saID)
 	}
 	return resp.Content, nil
