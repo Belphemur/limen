@@ -201,3 +201,24 @@ resilience:
     #   max_backoff: "1s"
     #   breaker_consecutive_fails: 5
     #   breaker_open_duration: "30s"
+    stripe.api:
+      max_retries: 3
+      base_backoff: "500ms"
+      max_backoff: "5s"
+      breaker_consecutive_fails: 5
+      breaker_open_duration: "30s"
+
+billing:
+  # When false, billing endpoints return CodeUnimplemented and webhooks
+  # are not mounted. Set to true in production once Stripe is configured.
+  enabled: false
+  stripe:
+    api_key: "${STRIPE_API_KEY}"
+    webhook_secret: "${STRIPE_WEBHOOK_SECRET}"
+    publishable_key: "${STRIPE_PUBLISHABLE_KEY}"
+  products:
+    developer_price_id: ""
+    team_active_user_price_id: ""
+    team_sa_connection_price_id: ""
+  trial_days: 14
+  grace_days: 7

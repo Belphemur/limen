@@ -193,6 +193,13 @@ dev-bootstrap:
 		--owner-given-name Test \
 		--owner-family-name Owner'
 
+# Run the Stripe bootstrap script to set up Products, Prices, Features,
+# and webhook endpoints in Stripe. Reads STRIPE_API_KEY and optionally
+# STRIPE_WEBHOOK_URL from the environment. Idempotent — safe to re-run.
+.PHONY: stripe-bootstrap
+stripe-bootstrap:
+	cd scripts/stripe-bootstrap && go run .
+
 # Stop services and wipe all volumes (Limen Postgres, Zitadel Postgres, PATs).
 # Also drops the pinned encryption key so the next `make dev` starts fresh.
 dev-reset:

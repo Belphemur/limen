@@ -39,6 +39,7 @@ type Config struct {
 	Captcha         CaptchaConfig         `yaml:"captcha"`
 	Mailer          MailerConfig          `yaml:"mailer"`
 	Resilience      ResilienceConfig      `yaml:"resilience"`
+	Billing         BillingConfig         `yaml:"billing"`
 }
 
 // ResilienceConfig holds per-dependency retry and circuit-breaker policies.
@@ -54,6 +55,33 @@ type ResiliencePolicy struct {
 	MaxBackoff              time.Duration `yaml:"max_backoff"`
 	BreakerConsecutiveFails int           `yaml:"breaker_consecutive_fails"`
 	BreakerOpenDuration     time.Duration `yaml:"breaker_open_duration"`
+}
+
+// BillingConfig holds Stripe integration settings for the billing subsystem.
+// When Enabled is false the billing service returns CodeUnimplemented and
+// webhooks are not mounted.
+type BillingConfig struct {
+	Enabled   bool            `yaml:"enabled"`
+	Stripe    StripeConfig    `yaml:"stripe"`
+	Products  BillingProducts `yaml:"products"`
+	TrialDays int             `yaml:"trial_days"`
+	GraceDays int             `yaml:"grace_days"`
+}
+
+// StripeConfig holds Stripe API credentials. All fields support
+// ${ENV_VAR} substitution — never hardcode secrets in config.yaml.
+type StripeConfig struct {
+	APIKey         string `yaml:"api_key"`
+	WebhookSecret  string `yaml:"webhook_secret"`
+	PublishableKey string `yaml:"publishable_key"`
+}
+
+// BillingProducts holds the Stripe Price IDs created by the bootstrap
+// script for the two Limen products.
+type BillingProducts struct {
+	DeveloperPriceID        string `yaml:"developer_price_id"`
+	TeamActiveUserPriceID   string `yaml:"team_active_user_price_id"`
+	TeamSAConnectionPriceID string `yaml:"team_sa_connection_price_id"`
 }
 
 // SignupConfig governs the Phase 9h self-serve signup wizard.
@@ -463,6 +491,12 @@ func (c *Config) applyDefaults() {
 	if c.Server.ShutdownTimeout == 0 {
 		c.Server.ShutdownTimeout = 15 * time.Second
 	}
+	if c.Billing.TrialDays == 0 {
+		c.Billing.TrialDays = 14
+	}
+	if c.Billing.GraceDays == 0 {
+		c.Billing.GraceDays = 7
+	}
 	c.Resilience.applyDefaults()
 }
 
@@ -579,6 +613,30 @@ func (p ResiliencePolicy) Validate() error {
 	return nil
 }
 
+// Validate enforces that when billing is enabled, Stripe credentials
+// are present. When disabled, empty credentials are fine.
+func (b BillingConfig) Validate() error {
+	if !b.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(b.Stripe.APIKey) == "" {
+		return errors.New("stripe.api_key is required when billing is enabled")
+	}
+	if strings.TrimSpace(b.Stripe.WebhookSecret) == "" {
+		return errors.New("stripe.webhook_secret is required when billing is enabled")
+	}
+	if strings.TrimSpace(b.Products.DeveloperPriceID) == "" {
+		return errors.New("products.developer_price_id is required when billing is enabled")
+	}
+	if strings.TrimSpace(b.Products.TeamActiveUserPriceID) == "" {
+		return errors.New("products.team_active_user_price_id is required when billing is enabled")
+	}
+	if strings.TrimSpace(b.Products.TeamSAConnectionPriceID) == "" {
+		return errors.New("products.team_sa_connection_price_id is required when billing is enabled")
+	}
+	return nil
+}
+
 // Validate runs every section's validator in declaration order and reports
 // the first failure.
 func (c *Config) Validate() error {
@@ -608,6 +666,9 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Resilience.Validate(); err != nil {
 		return fmt.Errorf("resilience: %w", err)
+	}
+	if err := c.Billing.Validate(); err != nil {
+		return fmt.Errorf("billing: %w", err)
 	}
 	if err := c.Captcha.Validate(); err != nil {
 		return fmt.Errorf("captcha: %w", err)

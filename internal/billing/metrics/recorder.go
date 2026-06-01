@@ -28,17 +28,18 @@ type billingEvent struct {
 // When Valkey is disabled, events flow through an in-memory fallback channel
 // that is drained to Postgres by StartFallbackDrain.
 type BillingRecorder struct {
-	valkey    valkey.Client
-	store     *storage.Store
-	logger    *zap.Logger
-	enabled   atomic.Bool
-	dropped   atomic.Uint64
-	started   atomic.Bool
-	closeOnce sync.Once
-	fallback  chan billingEvent
-	wg        sync.WaitGroup
-	mu        sync.Mutex
-	closed    bool
+	valkey          valkey.Client
+	store           *storage.Store
+	logger          *zap.Logger
+	enabled         atomic.Bool
+	dropped         atomic.Uint64
+	started         atomic.Bool
+	closeOnce       sync.Once
+	fallback        chan billingEvent
+	wg              sync.WaitGroup
+	mu              sync.Mutex
+	closed          bool
+	reactiveTrigger chan struct{} // non-nil when wired to a reconciler
 }
 
 // NewBillingRecorder creates a recorder.
@@ -75,6 +76,7 @@ func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, 
 			r.dropped.Add(1)
 			eventsDroppedTotal.Inc()
 		}
+		r.triggerReactive()
 		return
 	}
 	fields := map[string]string{
@@ -87,6 +89,7 @@ func (r *BillingRecorder) RecordActiveUser(ctx context.Context, tenantID int64, 
 		r.dropped.Add(1)
 		eventsDroppedTotal.Inc()
 	}
+	r.triggerReactive()
 }
 
 // RecordSAConnection emits a connection event to the billing:sa_connections stream.
@@ -104,6 +107,7 @@ func (r *BillingRecorder) RecordSAConnection(ctx context.Context, tenantID int64
 			r.dropped.Add(1)
 			eventsDroppedTotal.Inc()
 		}
+		r.triggerReactive()
 		return
 	}
 	connectedStr := "0"
@@ -120,6 +124,7 @@ func (r *BillingRecorder) RecordSAConnection(ctx context.Context, tenantID int64
 		r.dropped.Add(1)
 		eventsDroppedTotal.Inc()
 	}
+	r.triggerReactive()
 }
 
 // StartFallbackDrain starts the fallback drain goroutine. It is safe to call
@@ -230,6 +235,22 @@ func (r *BillingRecorder) processFallbackEvent(ctx context.Context, ev billingEv
 		r.logger.Warn("fallback drain: commit failed", zap.String("kind", ev.Kind), zap.Int64("tenant_id", ev.TenantID), zap.Error(err))
 		r.dropped.Add(1)
 		eventsDroppedTotal.Inc()
+	}
+}
+
+// SetReactiveTrigger wires the recorder to a reconciler's trigger channel.
+// When non-nil, the recorder does a non-blocking send after each successful
+// recording so the reconciler can react to new billing events.
+func (r *BillingRecorder) SetReactiveTrigger(ch chan struct{}) {
+	r.reactiveTrigger = ch
+}
+
+// triggerReactive sends a non-blocking signal to the reconciler.
+func (r *BillingRecorder) triggerReactive() {
+	select {
+	case r.reactiveTrigger <- struct{}{}:
+	default:
+		// Channel full or nil — reconciler will catch up on periodic scan.
 	}
 }
 

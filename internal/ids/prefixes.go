@@ -18,4 +18,6 @@ const (
 	PrefixServiceAccount         Prefix = "sa"
 	PrefixActiveUserMonth        Prefix = "aum"
 	PrefixSAConnectionSnapshot   Prefix = "ascs"
+	PrefixTenantBilling          Prefix = "tb"
+	PrefixTenantEntitlement      Prefix = "te"
 )

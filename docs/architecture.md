@@ -67,7 +67,7 @@ graph TB
         subgraph Portal["limen-portal"]
             OIDCRP["OIDC Relying Party"]
             OAuthProxy["OAuth Proxy / DCR"]
-            ConnectRPC["Connect-RPC Services<br/>Portal / Admin / Session / Signup"]
+            ConnectRPC["Connect-RPC Services<br/>Portal / Admin / Session / Signup / Billing"]
             UpCallback["Upstream Callback Handler"]
         end
 
@@ -98,6 +98,7 @@ graph TB
     TLS -->|"/t/{tenant}/oauth/*"| OAuthProxy
     TLS -->|"/auth/*"| OIDCRP
     TLS -->|"/.well-known/*"| OAuthProxy
+    TLS -->|"/billing/stripe/webhook"| ConnectRPC
 
     OIDCRP -->|"OIDC RP"| ZitadelAPI
     OIDCRP -->|"Login UI redirect"| ZitadelLogin
@@ -260,7 +261,7 @@ read portal cookies. The constraint is enforced at test time by
 
 **Mounted suites:** `portalmount` + `oauthproxymount` + `upstreammount` + `oidcboot` + `zitadelboot`.
 
-Routes include the Portal SPA under `/`, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, and the upstream OAuth callback handler.
+Routes include the Portal SPA under `/`, OIDC RP under `/t/{tenant}/auth/*`, OAuth proxy under `/t/{tenant}/oauth/*`, the upstream OAuth callback handler, the Stripe webhook at `/billing/stripe/webhook`, and the BillingService Connect-RPC handler (under `/t/{tenant}/api/`).
 
 **Boot profile:** `NeedStore | NeedCipher | NeedSigner`
 
@@ -343,6 +344,7 @@ don't need a given suite never pull it transitively:
 | `internal/boot/portalmount`  | Mounts the portal SPA under `/`                                                        |
 | `internal/boot/oauthproxymount` | Mounts inbound DCR + AS-metadata proxy under `/t/{tenant}/oauth/*`                  |
 | `internal/boot/upstreammount`   | Mounts the upstream OAuth callback                                                  |
+| `internal/boot/billingmount`    | Mounts the Stripe webhook + BillingService Connect-RPC handler + starts the billing reconciler |
 | `internal/boot/oidcboot`     | Builds the OIDC RP (portal login/callback/logout)                                      |
 | `internal/boot/zitadelboot`  | Builds the Zitadel admin client used by the portal + staff                             |
 | `internal/boot/serveall`     | Composes all suites for the all-in-one `cmd/limen`                                     |
@@ -359,7 +361,7 @@ Defines typed configuration structs and YAML loading:
 
 | Type             | Fields                                                                                       |
 | ---------------- | -------------------------------------------------------------------------------------------- |
-| `Config`         | `Server`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy`                |
+| `Config`         | `Server`, `CodeMode`, `Database`, `Security`, `OIDC`, `Zitadel`, `OAuthProxy`, `Billing`      |
 | `ServerConfig`   | `Host` (string), `Port` (int), `BaseURL` (string)                                            |
 | `CodeModeConfig` | `ExecutionTimeout` (time.Duration), `MaxMemoryMB` (int)                                      |
 | `ZitadelConfig`  | `Domain`, `AuthMode`, `PAT`, `JWTKeyPath`, `ProjectID`, `MCPResourceAudience`, `HTTPTimeout` |
