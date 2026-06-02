@@ -101,6 +101,16 @@ func (s *Service) CreateUpstream(ctx context.Context, req *connect.Request[admin
 		return nil, s.mapProvisionError(in.StrategyType, provErr)
 	}
 
+	// Kick off an async catalog index so tools appear immediately.
+	go func() {
+		bgCtx := context.WithoutCancel(ctx)
+		if err := s.upstream.IndexCatalog(bgCtx, tenant, up, nil); err != nil {
+			s.logger.Debug("admin: background catalog index skipped or failed",
+				zap.String("upstream", up.Identifier),
+				zap.Error(err))
+		}
+	}()
+
 	summary := s.upstream.SummariseForAdmin(ctx, tenant, nil, up)
 	return connect.NewResponse(&adminv1.CreateUpstreamResponse{
 		Upstream:          protoview.ToSummaryProto(summary),
@@ -323,9 +333,20 @@ func (s *Service) mapMutationError(err error) error {
 		return connect.NewError(connect.CodeNotFound, errors.New("admin: upstream not found"))
 	case errors.Is(err, upstream.ErrUnsupported):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("admin: operation not supported by strategy"))
+	case errors.Is(err, upstream.ErrCannotReindexWithoutLink):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("admin: connect your account before reindexing"))
 	}
 	if msg := err.Error(); strings.HasPrefix(msg, "context:") {
 		return s.invalidArg("defaults_json", msg)
+	}
+	// Surface upstream connection failures clearly rather than
+	// hiding them behind a generic "internal error".
+	msg := err.Error()
+	if strings.Contains(msg, "transport error") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "no such host") {
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("admin: upstream MCP server is unreachable"))
 	}
 	return s.internal("upstream mutation", err)
 }
