@@ -141,23 +141,23 @@ Flow:
 
    Wildcards in any component, IDN hosts, and trailing-slash mismatches are all rejected. Validation is shared between `POST /register` and `PUT /register/{client_id}`.
 
-   **Tenant-configurable allowlist (subtractive).** `tenant.DCRRedirectURIAllowlist` is a **list** of glob patterns — a tenant admin can add as many entries as needed (e.g. one per environment, one per first-party app, one per public-beta client). When the list is non-empty, every `redirect_uri` in the request must **additionally** match **at least one** pattern in the list. The list can only narrow what the floor allows — it can never relax the floor (e.g. you cannot allowlist a `*.com` wildcard or a `file://` scheme). Empty list = floor only. Order is irrelevant; duplicates are deduped at save time.
+    **DCR enablement via redirect-URI allowlist.** A tenant admin can add as many glob patterns to the allowlist (e.g. one per environment, one per first-party app, one per public-beta client). When non-empty, every `redirect_uri` in the request must **additionally** match **at least one** pattern in the list. The list can only narrow what the floor allows — it can never relax the floor (e.g. you cannot allowlist a `*.com` wildcard or a `file://` scheme). An empty allowlist means DCR is effectively disabled; the floor validation still applies. Order is irrelevant; duplicates are deduped at save time.
 
-   Pattern syntax (glob, not regex):
+    Pattern syntax (glob, not regex):
 
-   | Pattern                             | Matches                                |
-   | ----------------------------------- | -------------------------------------- |
-   | `https://app.acme.com/callback`     | exact URI                              |
-   | `https://*.acme.com/oauth/callback` | any single host label                  |
-   | `https://*.acme.com/**`             | any single host label + any path depth |
-   | `http://127.0.0.1:*/**`             | any port + any path (loopback)         |
-   | `cursor://**`                       | any path under a custom scheme         |
+    | Pattern                             | Matches                                |
+    | ----------------------------------- | -------------------------------------- |
+    | `https://app.acme.com/callback`     | exact URI                              |
+    | `https://*.acme.com/oauth/callback` | any single host label                  |
+    | `https://*.acme.com/**`             | any single host label + any path depth |
+    | `http://127.0.0.1:*/**`             | any port + any path (loopback)         |
+    | `cursor://**`                       | any path under a custom scheme         |
 
-   Matching is component-wise: scheme exact; host glob (`*` = one label, no leading-`*` against `<2` fixed suffix labels — i.e. `*.acme.com` ok, `*.com` rejected at policy-save time); port literal or `*`; path glob (`*` = one segment, `**` = multi-segment). Patterns are validated at save time so an admin can't store something the matcher would later reject.
+    Matching is component-wise: scheme exact; host glob (`*` = one label, no leading-`*` against `<2` fixed suffix labels — i.e. `*.acme.com` ok, `*.com` rejected at policy-save time); port literal or `*`; path glob (`*` = one segment, `**` = multi-segment). Patterns are validated at save time so an admin can't store something the matcher would later reject.
 
-   A DCR rejection due to allowlist mismatch emits a structured log (`tenant_id`, rejected URI, active patterns) for ops triage.
+    A DCR rejection due to allowlist mismatch emits a structured log (`tenant_id`, rejected URI, active patterns) for ops triage.
 
-3. If `tenant.DCREnabled == false` → 403.
+ 3. If the allowlist is empty → DCR registrations are rejected.
 4. If `oauth_proxy.dcr_initial_access_token` is configured, require it on the request.
 5. Call Zitadel's Management API (via the shared `*zitadel.Client` — see [internal/zitadel/](../../internal/zitadel/)) to create an OIDC app inside `tenant.zitadel_org_id`'s project. Map the MCP DCR fields to Zitadel's app-create payload:
 
@@ -217,7 +217,7 @@ internal/zitadel/
 - Existing `ZitadelApp` model ([Phase 1](phase-01-database-foundation.md)) gets a migration adding the `registration_access_token_hash` column (replacing the originally planned encrypted variant — see DCR proxy section).
 - Existing `Tenant` model ([Phase 1](phase-01-database-foundation.md)) gets a migration adding `dcr_redirect_uri_allowlist JSONB NOT NULL DEFAULT '[]'`. Validated at save time against the glob syntax + "≥2 fixed suffix labels" rule; surfaced in the [Phase 9c tenant-admin SPA](phase-09c-tenant-admin-spa.md) Settings page (gated by `RequireRole(owner|admin)`, i.e. tenant administrators) and on `limen create-tenant` via a repeatable `--dcr-redirect-uri-allow` flag for operator bootstrapping.
 - New shared matcher: `internal/oauthproxy/uripolicy.go` — implements both the global floor table and the tenant-allowlist glob matcher; consumed by `dcr.go` and the [Phase 9c](phase-09c-tenant-admin-spa.md) tenant-admin RPC that validates patterns before saving.
-- `internal/config/config.go`: the dead `OAuthServerConfig` (signing algo / TTLs / consent — all moot now that Zitadel is the AS) is **dropped** and replaced with `OAuthProxyConfig { DCREnabled bool; DCRInitialAccessToken string; RateLimit { RPS, Burst int } }`. The Zitadel PAT / project ID are **not** duplicated here — the proxy reuses the existing top-level `zitadel:` block (and the `*zitadel.Client` constructed from it).
+- `internal/config/config.go`: the dead `OAuthServerConfig` (signing algo / TTLs / consent — all moot now that Zitadel is the AS) is **dropped** and replaced with `OAuthProxyConfig { RedirectURIAllowlist string; DCRInitialAccessToken string; RateLimit { RPS, Burst int } }`. The Zitadel PAT / project ID are **not** duplicated here — the proxy reuses the existing top-level `zitadel:` block (and the `*zitadel.Client` constructed from it).
 - Updated `internal/transport/http.go` to mount the routes.
 
 ## Security & operational notes
@@ -257,7 +257,7 @@ internal/zitadel/
 - [x] `internal/oauthproxy/redirector.go` issues 302 redirects for `authorize`, `userinfo`, `end_session` and 307 redirects for `token`, `revoke`, `introspect`
 - [x] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (default 10 rps / burst 20)
 - [x] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
-- [x] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
+- [x] DCR proxy validates the redirect-URI allowlist (empty = disabled) and optional `dcr_initial_access_token`
 - [x] DCR proxy **rejects unknown / unsupported metadata fields** with `invalid_client_metadata` (default-deny)
 - [x] PKCE S256 required on every DCR'd app
 - [x] `redirect_uris` validated per the table in the DCR proxy section (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes); wildcards / IDN / fragments rejected; same validator used by `POST /register` and `PUT /register/{client_id}`
@@ -269,7 +269,7 @@ internal/zitadel/
 - [x] Registration lifecycle documented as operator-driven for v1 (no auto-expiry reaper)
 - [x] `ZitadelApp` mirror row persisted per registration; `registration_access_token_hash` column added by migration and used for constant-time auth
 - [x] RFC 7592 management endpoints (`GET/PUT/DELETE /register/{client_id}`) implemented and authenticated via the registration access token
-- [x] Config additions: `oauth_proxy.{dcr_enabled, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
+- [x] Config additions: `oauth_proxy.{redirect_uri_allowlist, dcr_initial_access_token, rate_limit.{rps, burst}}` (Zitadel PAT / project ID are **reused** from the existing top-level `zitadel:` block)
 - [x] Routes mounted under `/t/{tenant}/oauth/*` behind `RequireTenant`
 - [ ] Integration test: full inbound discovery → DCR → authorize → token → `/mcp` roundtrip against the dev Zitadel container
 - [x] Integration test: DCR with missing initial access token → 401

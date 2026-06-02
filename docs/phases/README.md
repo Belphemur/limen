@@ -125,7 +125,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/oauthproxy/metadata.go` serves AS metadata with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
 - [ ] `internal/oauthproxy/redirector.go` issues 302 (GETs) / 307 (POSTs) redirects to Zitadel for `authorize`, `token`, `userinfo`, `revoke`, `introspect`, `end_session`
 - [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
-- [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
+- [ ] DCR proxy validates the redirect-URI allowlist (empty = disabled) and optional `dcr_initial_access_token`
 - [ ] DCR proxy rejects unknown / unsupported metadata fields with `invalid_client_metadata` (default-deny)
 - [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (`golang.org/x/time/rate`)
 - [ ] PKCE S256 required on every DCR'd app; `redirect_uris` validated (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes; wildcards / IDN / fragments rejected)

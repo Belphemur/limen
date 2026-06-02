@@ -209,7 +209,6 @@ defer func() { _ = commit() }()
 t := &storage.Tenant{
     Name:         "Acme, Inc.",
     ZitadelOrgID: "<id from zitadel>",    // set after Phase 5 lands
-    DCREnabled:   false,                  // toggle in the portal later
 }
 if err := db.Create(t).Error; err != nil {
     return err

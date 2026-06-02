@@ -97,10 +97,10 @@ func NewDCRHandler(cfg DCRConfig, store *storage.Store, apps appManager, allowli
 	}, nil
 }
 
-// dcrRequest is the subset of OAuth 2.0 DCR (RFC 7591) metadata Limen
-// accepts. RFC 7591 §2 requires authorization servers to ignore unknown
-// client metadata, so the decoder is tolerant — fields not listed here
-// are silently dropped after decode rather than rejected.
+// req, decodeErr := decodeDCRRequest(r)
+// Parse body before auth check so we can log redirect_uris on token
+// failures for debugging. The 64KB body limit (decodeDCRRequest) keeps
+// the CPU cost negligible for unauthenticated requests.
 type dcrRequest struct {
 	ClientName              string   `json:"client_name,omitempty"`
 	RedirectURIs            []string `json:"redirect_uris"`
