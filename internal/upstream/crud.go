@@ -291,7 +291,7 @@ func (s *Service) DeleteUpstream(ctx context.Context, tenant *storage.Tenant, pu
 	if err != nil {
 		return err
 	}
-	if err := tx.Where("id = ?", up.ID).Delete(&storage.Upstream{}).Error; err != nil {
+	if err := tx.Delete(up).Error; err != nil {
 		_ = commit()
 		return fmt.Errorf("upstream: delete: %w", err)
 	}

@@ -83,6 +83,23 @@ populated on the row — the policy's `WITH CHECK` rejects mismatches and
 - `Base.ID` carries `json:"-"`. Public IDs are the only IDs that cross the
   process boundary.
 
+## Cascade soft-delete
+
+GORM's `OnDelete:CASCADE` constraint only fires for hard deletes (SQL DELETE).
+For soft-deletes (which are UPDATEs that set `deleted_at`), use a `BeforeDelete`
+hook on the parent model:
+
+```go
+func (u *Upstream) BeforeDelete(tx *gorm.DB) error {
+    // Cascade soft-delete all related records in the same transaction.
+    return tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamLink{}).Error
+}
+```
+
+The hook runs inside the same transaction as the parent delete — both succeed
+or both roll back. Do NOT implement cascade in the service layer; the model is
+the single source of truth for what gets cleaned up when a row is deleted.
+
 ## Adding a new model
 
 1. Add a `Prefix*` constant to [`internal/ids/prefixes.go`](../ids/prefixes.go).
