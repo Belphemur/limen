@@ -100,6 +100,7 @@ func listUpstreamTools(
 	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link, TenantLink: tenantLink}
 	if link != nil {
 		lctx.User = link.User
+		lctx.ServiceAccountID = link.ServiceAccountID
 	}
 	headers, err := strat.Headers(ctx, lctx)
 	if err != nil {

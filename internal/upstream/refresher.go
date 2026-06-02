@@ -207,25 +207,38 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 		return err
 	}
 	var user storage.User
-	if link.UserID == nil {
+	var sa storage.ServiceAccount
+	if link.UserID != nil {
+		if err := tx.Where("id = ?", *link.UserID).First(&user).Error; err != nil {
+			_ = commit()
+			return err
+		}
+	} else if link.ServiceAccountID != nil {
+		if err := tx.Where("id = ?", *link.ServiceAccountID).First(&sa).Error; err != nil {
+			_ = commit()
+			return err
+		}
+	} else {
 		_ = commit()
-		return fmt.Errorf("link %d is a service account link (refresher requires user-based links)", link.ID)
-	}
-	if err := tx.Where("id = ?", *link.UserID).First(&user).Error; err != nil {
-		_ = commit()
-		return err
+		return fmt.Errorf("link %d has neither user nor service account", link.ID)
 	}
 	_ = commit()
 
 	tenantStr := strconv.FormatInt(tenant.ID, 10)
-	userStr := strconv.FormatInt(user.ID, 10)
-	if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {
+	// Use the correct owner ID for AAD: user ID for user links, SA ID for SA links
+	ownerStr := ""
+	if link.UserID != nil {
+		ownerStr = strconv.FormatInt(*link.UserID, 10)
+	} else if link.ServiceAccountID != nil {
+		ownerStr = strconv.FormatInt(*link.ServiceAccountID, 10)
+	}
+	if err := link.AccessToken.Decrypt(tenantStr, ownerStr, "upstream.access_token"); err != nil {
 		return fmt.Errorf("upstream refresher: decrypt access_token: %w", err)
 	}
-	if err := link.RefreshToken.Decrypt(tenantStr, userStr, "upstream.refresh_token"); err != nil {
+	if err := link.RefreshToken.Decrypt(tenantStr, ownerStr, "upstream.refresh_token"); err != nil {
 		return fmt.Errorf("upstream refresher: decrypt refresh_token: %w", err)
 	}
-	if err := link.ExtraJSON.Decrypt(tenantStr, userStr, "upstream.extra"); err != nil {
+	if err := link.ExtraJSON.Decrypt(tenantStr, ownerStr, "upstream.extra"); err != nil {
 		return fmt.Errorf("upstream refresher: decrypt extra: %w", err)
 	}
 
@@ -236,9 +249,14 @@ func (r *Refresher) maintainOne(ctx context.Context, link *storage.UpstreamLink)
 
 	lctx := LinkContext{
 		Tenant:   &tenant,
-		User:     &user,
 		Upstream: &up,
 		Link:     link,
+	}
+	if link.UserID != nil {
+		lctx.User = &user
+	}
+	if link.ServiceAccountID != nil {
+		lctx.ServiceAccountID = link.ServiceAccountID
 	}
 	if err := strat.Maintain(ctx, lctx); err != nil {
 		// Record the failure unless it's the "user needs to re-link" case
@@ -407,7 +425,7 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 	} else if strat.RequiresLink() {
 		// No tenant link — fall back to any healthy user link.
 		var l storage.UpstreamLink
-		err := tx.Preload("User").
+		err := tx.Preload("User").Preload("ServiceAccount").
 			Where(`upstream_id = ?
 				AND enabled = true
 				AND auto_disabled_at IS NULL
@@ -426,18 +444,24 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 	_ = commit()
 
 	if link != nil {
-		if link.UserID == nil {
-			return fmt.Errorf("link %d is a service account link (refresher requires user-based links)", link.ID)
-		}
 		tenantStr := strconv.FormatInt(tenant.ID, 10)
-		userStr := strconv.FormatInt(*link.UserID, 10)
-		if err := link.AccessToken.Decrypt(tenantStr, userStr, "upstream.access_token"); err != nil {
+		// Use the correct owner ID for AAD: user ID for user links, SA ID for SA links
+		ownerStr := ""
+		if link.UserID != nil {
+			ownerStr = strconv.FormatInt(*link.UserID, 10)
+		} else if link.ServiceAccountID != nil {
+			ownerStr = strconv.FormatInt(*link.ServiceAccountID, 10)
+		}
+		if ownerStr == "" {
+			return fmt.Errorf("link %d has neither user nor service account", link.ID)
+		}
+		if err := link.AccessToken.Decrypt(tenantStr, ownerStr, "upstream.access_token"); err != nil {
 			return fmt.Errorf("decrypt access_token: %w", err)
 		}
-		if err := link.RefreshToken.Decrypt(tenantStr, userStr, "upstream.refresh_token"); err != nil {
+		if err := link.RefreshToken.Decrypt(tenantStr, ownerStr, "upstream.refresh_token"); err != nil {
 			return fmt.Errorf("decrypt refresh_token: %w", err)
 		}
-		if err := link.ExtraJSON.Decrypt(tenantStr, userStr, "upstream.extra"); err != nil {
+		if err := link.ExtraJSON.Decrypt(tenantStr, ownerStr, "upstream.extra"); err != nil {
 			return fmt.Errorf("decrypt extra: %w", err)
 		}
 	}
