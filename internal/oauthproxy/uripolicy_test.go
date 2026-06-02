@@ -158,13 +158,13 @@ func TestPattern_Matches(t *testing.T) {
 }
 
 func TestPatternSet_CheckRedirectURI(t *testing.T) {
-	t.Run("empty set allows anything that passes the floor", func(t *testing.T) {
+	t.Run("empty set rejects everything", func(t *testing.T) {
 		var s PatternSet
-		if err := s.CheckRedirectURI("https://anywhere.example/cb"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err := s.CheckRedirectURI("https://anywhere.example/cb"); err == nil {
+			t.Fatal("expected empty allowlist rejection")
 		}
 		if err := s.CheckRedirectURI("http://app.example/cb"); err == nil {
-			t.Fatal("expected floor rejection of non-loopback http")
+			t.Fatal("expected empty allowlist rejection")
 		}
 	})
 

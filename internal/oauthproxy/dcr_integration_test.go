@@ -136,15 +136,23 @@ func mountDCR(t *testing.T, store *storage.Store, cfg oauthproxy.DCRConfig) (chi
 	return r, h, apps
 }
 
-func seedTenant(t *testing.T, store *storage.Store, name string, dcrEnabled bool) *storage.Tenant {
+func seedTenant(t *testing.T, store *storage.Store, name string) *storage.Tenant {
 	t.Helper()
 	tn := &storage.Tenant{
 		Name:         name,
 		ZitadelOrgID: "zorg-" + name,
-		DCREnabled:   dcrEnabled,
 	}
 	if err := store.RawDB().Create(tn).Error; err != nil {
 		t.Fatalf("seed tenant: %v", err)
+	}
+	patterns := []storage.TenantRedirectURIAllowlist{
+		{TenantID: tn.ID, Label: "Test", Pattern: "https://*.acme.test/**"},
+		{TenantID: tn.ID, Label: "Test", Pattern: "http://localhost:*/**"},
+	}
+	for _, p := range patterns {
+		if err := store.RawDB().Create(&p).Error; err != nil {
+			t.Fatalf("seed allowlist: %v", err)
+		}
 	}
 	return tn
 }
@@ -169,8 +177,8 @@ func doJSON(t *testing.T, r http.Handler, method, path, bearer string, body any)
 
 func TestDCR_Integration_HappyPath(t *testing.T) {
 	store := storagetest.OpenMigrated(t)
-	tn := seedTenant(t, store, "acme", true)
-	r, _, apps := mountDCR(t, store, oauthproxy.DCRConfig{DCREnabled: true})
+	tn := seedTenant(t, store, "acme")
+	r, _, apps := mountDCR(t, store, oauthproxy.DCRConfig{})
 
 	rr := doJSON(t, r, http.MethodPost, "/t/"+tn.PublicID+"/oauth/register", "", map[string]any{
 		"client_name":   "Test MCP",
@@ -223,9 +231,8 @@ func TestDCR_Integration_HappyPath(t *testing.T) {
 
 func TestDCR_Integration_MissingInitialAccessToken(t *testing.T) {
 	store := storagetest.OpenMigrated(t)
-	tn := seedTenant(t, store, "acme", true)
+	tn := seedTenant(t, store, "acme")
 	r, _, _ := mountDCR(t, store, oauthproxy.DCRConfig{
-		DCREnabled:         true,
 		InitialAccessToken: "iat_xyz",
 	})
 
@@ -249,8 +256,8 @@ func TestDCR_Integration_MissingInitialAccessToken(t *testing.T) {
 
 func TestDCR_Integration_Management(t *testing.T) {
 	store := storagetest.OpenMigrated(t)
-	tn := seedTenant(t, store, "acme", true)
-	r, _, apps := mountDCR(t, store, oauthproxy.DCRConfig{DCREnabled: true})
+	tn := seedTenant(t, store, "acme")
+	r, _, apps := mountDCR(t, store, oauthproxy.DCRConfig{})
 
 	// 1. Register a client.
 	rr := doJSON(t, r, http.MethodPost, "/t/"+tn.PublicID+"/oauth/register", "", map[string]any{

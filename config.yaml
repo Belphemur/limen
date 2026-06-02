@@ -46,9 +46,6 @@ security:
 # proxy's own knobs; the upstream Zitadel client config lives under
 # `zitadel:` below.
 oauth_proxy:
-  # Global kill-switch for /register* . Per-tenant gating still happens via
-  # Tenant.DCREnabled.
-  dcr_enabled: true
   # If set, /register requires this initial-access-token (RFC 7591 §3).
   dcr_initial_access_token: "${LIMEN_DCR_INITIAL_ACCESS_TOKEN:-}"
   # Per-tenant token-bucket on /register* . Defaults: 10 rps / burst 20.

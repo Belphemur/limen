@@ -41,7 +41,7 @@ security:
   token_encryption_key: "%s"
 
 oauth_proxy:
-  dcr_enabled: true
+  {}
 
 oidc:
   issuer: "https://auth.limen.example.com"
@@ -65,9 +65,6 @@ func TestLoad_MinimalValid(t *testing.T) {
 	}
 	if cfg.Server.Port != 8080 {
 		t.Fatalf("port: %d", cfg.Server.Port)
-	}
-	if !cfg.OAuthProxy.DCREnabled {
-		t.Fatalf("dcr_enabled not parsed")
 	}
 	if cfg.OAuthProxy.RateLimit.RPS != 10 || cfg.OAuthProxy.RateLimit.Burst != 20 {
 		t.Fatalf("default rate limit not applied: %+v", cfg.OAuthProxy.RateLimit)
@@ -99,7 +96,7 @@ security:
   token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
 
 oauth_proxy:
-  dcr_enabled: true
+  {}
 
 oidc:
   issuer: "https://auth.example.com"
@@ -136,7 +133,6 @@ database:
 security:
   token_encryption_key: "${LIMEN_TOKEN_ENCRYPTION_KEY}"
 oauth_proxy:
-  dcr_enabled: true
   dcr_initial_access_token: "${LIMEN_OPTIONAL_THING:-fallback-token}"
 
 oidc:

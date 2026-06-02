@@ -49,9 +49,6 @@ type AllowlistPatternsLoader interface {
 
 // DCRConfig configures the DCR proxy handler.
 type DCRConfig struct {
-	// DCREnabled is the global kill-switch (config-level). Per-tenant
-	// gating still happens via Tenant.DCREnabled.
-	DCREnabled bool
 	// InitialAccessToken, when non-empty, is required on POST /register
 	// (RFC 7591 §3).
 	InitialAccessToken string
@@ -157,26 +154,21 @@ func (h *DCRHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tenant not resolved", http.StatusInternalServerError)
 		return
 	}
-	if !h.cfg.DCREnabled {
-		h.dcrFail(w, r, "register", http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled")
-		return
-	}
-	if !tenant.DCREnabled {
-		h.dcrFail(w, r, "register", http.StatusForbidden, "invalid_client_metadata", "dynamic client registration is disabled for this tenant")
-		return
-	}
+	req, decodeErr := decodeDCRRequest(r)
 	if h.cfg.InitialAccessToken != "" {
 		got := extractBearer(r)
 		if subtle.ConstantTimeCompare([]byte(got), []byte(h.cfg.InitialAccessToken)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="dcr"`)
-			h.dcrFail(w, r, "register", http.StatusUnauthorized, "invalid_token", "initial access token required")
+			var extra []zap.Field
+			if decodeErr == nil {
+				extra = append(extra, zap.Strings("redirect_uris", req.RedirectURIs))
+			}
+			h.dcrFail(w, r, "register", http.StatusUnauthorized, "invalid_token", "initial access token required", extra...)
 			return
 		}
 	}
-
-	req, err := decodeDCRRequest(r)
-	if err != nil {
-		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", err.Error(), zap.String("stage", "decode"))
+	if decodeErr != nil {
+		h.dcrFail(w, r, "register", http.StatusBadRequest, "invalid_client_metadata", decodeErr.Error(), zap.String("stage", "decode"))
 		return
 	}
 	normalized, zitadelInput, err := h.normalize(r.Context(), tenant, req)

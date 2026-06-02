@@ -206,7 +206,6 @@ func seedTenant(t *gorm.DB, f *seedFlags) (*storage.Tenant, error) {
 		Base:         storage.Base{PublicID: f.tenantPublicID},
 		Name:         f.tenantName,
 		ZitadelOrgID: "zorg-" + gofakeit.UUID(),
-		DCREnabled:   true,
 	}
 	if err := t.Create(&tenant).Error; err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)

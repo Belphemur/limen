@@ -60,7 +60,6 @@ func Mount(r chi.Router, deps Deps) error {
 	redirector := oauthproxy.NewRedirector(metadata.UpstreamEndpoints(), deps.MCPRSProjectID)
 
 	dcr, err := oauthproxy.NewDCRHandler(oauthproxy.DCRConfig{
-		DCREnabled:         deps.OAuthCfg.DCREnabled,
 		InitialAccessToken: deps.OAuthCfg.DCRInitialAccessToken,
 		BaseURL:            deps.BaseURL,
 	}, deps.Store, deps.Zitadel, deps.Allowlist, logger)
