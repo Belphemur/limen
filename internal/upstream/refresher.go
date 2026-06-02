@@ -442,7 +442,19 @@ func (r *Refresher) indexOneUpstream(ctx context.Context, up *storage.Upstream) 
 		}
 	}
 
-	return IndexUpstream(ctx, r.store, r.registry, &tenant, up, link, tenantLink, nil)
+	err = IndexUpstream(ctx, r.store, r.registry, &tenant, up, link, tenantLink, nil)
+	if err != nil {
+		// Record the failure on whichever link(s) were used for credentials.
+		reason := ReasonRefreshFailed
+		if tenantLink != nil {
+			_ = RecordTenantFailure(ctx, r.store, tenantLink.ID, reason, false, r.opts.HealthThresholds)
+		}
+		if link != nil {
+			_ = RecordFailure(ctx, r.store, link.ID, reason, false, r.opts.HealthThresholds)
+		}
+		return err
+	}
+	return nil
 }
 
 // ensure gorm import is used in builds that don't reference it directly.
