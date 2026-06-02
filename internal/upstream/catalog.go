@@ -108,7 +108,7 @@ func listUpstreamTools(
 
 	dialCtx, cancelDial := context.WithTimeout(ctx, indexTimeout)
 	defer cancelDial()
-	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, httpClient, indexTimeout, "limen-indexer", "0.1.0")
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, httpClient, indexTimeout, "limen-indexer", "0.1.0", up.Identifier)
 	if err != nil {
 		return nil, err
 	}

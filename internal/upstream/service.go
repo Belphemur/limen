@@ -208,7 +208,7 @@ func (s *Service) VerifyLink(ctx context.Context, tenant *storage.Tenant, up *st
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, indexTimeout)
 	defer cancel()
-	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, nil, indexTimeout, "limen-link-verify", "0.1.0")
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, nil, indexTimeout, "limen-link-verify", "0.1.0", up.Identifier)
 	if err != nil {
 		return err
 	}

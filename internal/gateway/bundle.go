@@ -38,7 +38,7 @@ func (b *Bundle) CallTool(ctx context.Context, toolName string, args map[string]
 	cctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
 
-	c, err := upstream.DialAndInitialize(cctx, b.Upstream.McpServerURL, nil, b.HTTPClient, b.Timeout, "limen", "0.1.0")
+	c, err := upstream.DialAndInitialize(cctx, b.Upstream.McpServerURL, nil, b.HTTPClient, b.Timeout, "limen", "0.1.0", b.Upstream.Identifier)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: dial %q: %w", b.Upstream.Identifier, err)
 	}

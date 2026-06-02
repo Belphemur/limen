@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/util"
 )
 
 // DialAndInitialize opens an mcp-go client against mcpURL, prefers the
@@ -29,14 +31,16 @@ func DialAndInitialize(
 	headers map[string]string,
 	httpClient *http.Client,
 	timeout time.Duration,
-	clientName, clientVersion string,
+	clientName, clientVersion, upstreamID string,
 ) (*client.Client, error) {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{Name: clientName, Version: clientVersion}
 
+	log := &mcpLogger{prefix: fmt.Sprintf("upstream=%s", upstreamID)}
+
 	probe := &probeTransport{base: httpClient}
-	c, err := newStreamableClient(mcpURL, headers, probe.wrap(), timeout)
+	c, err := newStreamableClient(mcpURL, headers, probe.wrap(), timeout, log)
 	if err != nil {
 		return nil, fmt.Errorf("build streamable client: %w", err)
 	}
@@ -61,7 +65,7 @@ func DialAndInitialize(
 		return nil, fmt.Errorf("initialize: %w%s", initErr, probe.diag())
 	}
 
-	sse, sseBuildErr := newSSEClient(mcpURL, headers, httpClient, timeout)
+	sse, sseBuildErr := newSSEClient(mcpURL, headers, httpClient, timeout, log)
 	if sseBuildErr != nil {
 		// Preserve the original StreamableHTTP error in the chain so
 		// the operator can see both failure modes.
@@ -139,7 +143,7 @@ func (r *probeRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-func newStreamableClient(mcpURL string, headers map[string]string, httpClient *http.Client, timeout time.Duration) (*client.Client, error) {
+func newStreamableClient(mcpURL string, headers map[string]string, httpClient *http.Client, timeout time.Duration, log util.Logger) (*client.Client, error) {
 	opts := []transport.StreamableHTTPCOption{transport.WithHTTPTimeout(timeout)}
 	if len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
@@ -147,10 +151,13 @@ func newStreamableClient(mcpURL string, headers map[string]string, httpClient *h
 	if httpClient != nil {
 		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
 	}
+	if log != nil {
+		opts = append(opts, transport.WithHTTPLogger(log))
+	}
 	return client.NewStreamableHttpClient(mcpURL, opts...)
 }
 
-func newSSEClient(mcpURL string, headers map[string]string, httpClient *http.Client, timeout time.Duration) (*client.Client, error) {
+func newSSEClient(mcpURL string, headers map[string]string, httpClient *http.Client, timeout time.Duration, log util.Logger) (*client.Client, error) {
 	opts := []transport.ClientOption{}
 	if len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
@@ -162,6 +169,9 @@ func newSSEClient(mcpURL string, headers map[string]string, httpClient *http.Cli
 		opts = append(opts, transport.WithEndpointTimeout(timeout))
 		opts = append(opts, transport.WithResponseTimeout(timeout))
 	}
+	if log != nil {
+		opts = append(opts, transport.WithSSELogger(log))
+	}
 	sseT, err := transport.NewSSE(mcpURL, opts...)
 	if err != nil {
 		return nil, err
@@ -171,4 +181,18 @@ func newSSEClient(mcpURL string, headers map[string]string, httpClient *http.Cli
 		return nil, fmt.Errorf("start sse client: %w", err)
 	}
 	return c, nil
+}
+
+// mcpLogger wraps the standard log package with an upstream prefix so
+// library-level log lines are identifiable in production logs.
+type mcpLogger struct {
+	prefix string // e.g. "upstream=cloudflare"
+}
+
+func (l *mcpLogger) Infof(format string, v ...any) {
+	log.Printf(l.prefix+" INFO: "+format, v...)
+}
+
+func (l *mcpLogger) Errorf(format string, v ...any) {
+	log.Printf(l.prefix+" ERROR: "+format, v...)
 }
