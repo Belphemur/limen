@@ -142,6 +142,37 @@ Network-discovered values always take precedence; the static config is a fallbac
 - The background refresher (`upstream_refresh.refresh_window`, default 5 m) proactively rotates tokens approaching expiry.
 - On `invalid_grant` or a 401 that survives a forced refresh, the link is flagged as `needs_relink` and the user must re-authorize in the portal.
 
+#### Registration Lifecycle
+
+There is exactly one `UpstreamRegistration` record per `(tenant, upstream)`. It stores the `client_id` and `client_secret` issued by the authorization server. **All three link types (tenant, user, service account) share the same registration row.** Individual tokens live in separate tables: `UpstreamTenantLink` for admin tokens, `UpstreamLink` for user and service account tokens.
+
+```mermaid
+graph TD
+    subgraph "One per (tenant, upstream)"
+        UR[UpstreamRegistration<br/>client_id + client_secret]
+    end
+    UR --> TL[UpstreamTenantLink<br/>admin token]
+    UR --> UL1[UpstreamLink<br/>user token]
+    UR --> UL2[UpstreamLink<br/>service account token]
+    TL --> AS[Authorization Server]
+    UL1 --> AS
+    UL2 --> AS
+```
+
+**Registration creation.** Created on the first `Provision()` call via DCR (RFC 7591) if the authorization server advertises a `registration_endpoint`, or from static client config if not. The computed redirect URI is stored in `UpstreamRegistration.RedirectURI`. Subsequent `Provision()` calls are idempotent — the stored `RedirectURI` is compared against the current computed value, and only if they differ is a RFC 7592 update attempted. If the update fails, the existing registration is kept (deleting it would invalidate every tenant/user/SA token linked to this upstream).
+
+**Redirect URI.** Every link type uses the same callback URL:
+
+```
+https://<gateway>/t/{tenant_public_id}/mcp-servers/{upstream_public_id}/callback
+```
+
+This URI is **immutable during normal operation** because tenant and upstream public IDs never change. The stored `RedirectURI` field on `UpstreamRegistration` is used to detect when it has changed (e.g. after a gateway base URL migration) and only then trigger an AS update.
+
+> ⚠️ **Breaking change:** Changing the redirect URI (e.g., changing the gateway base URL, or modifying public IDs during a migration) requires the upstream to be re-registered at the authorization server. If the RFC 7592 client update fails, the admin must manually delete and recreate the upstream in the portal, and **all users must re-authenticate** (re-link). This is because the authorization server binds tokens to the registered client, and a new registration replaces the old `client_id`.
+
+**Cleanup.** Registrations are cascade-soft-deleted when the upstream or tenant is deleted (via `BeforeDelete` hooks on the model). The `cleanup-dead-records.sql` maintenance script handles hard-deletion of orphaned rows from soft-deleted parents.
+
 #### Link verification on callback
 
 When the OAuth round-trip lands at `/t/{tenant}/mcp-servers/{identifier}/callback`, Limen does **not** trust the AS round-trip in isolation. Token exchange alone is not enough to prove the link works — some authorization servers (PayPal, observed) hand back a usable authorization code and access token even when the user **refused consent** on the AS-hosted screen. The token authenticates against the AS but the MCP resource server then rejects every call (typically 401, sometimes 404 on scope-gated MCP endpoints).

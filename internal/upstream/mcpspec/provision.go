@@ -28,25 +28,26 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 	if exists, err := s.registrationExists(ctx, lctx.Tenant.ID, lctx.Upstream.ID); err != nil {
 		return err
 	} else if exists {
-		// Registration exists but the redirect_uri may be stale (e.g.
-		// after an identifier→public_id migration). Try updating the
-		// AS registration via RFC 7592. If the AS doesn't support
-		// client management, delete the stale registration so the next
-		// call re-provisions with the correct redirect_uri.
+		// Registration exists. Only call updateRedirectURI if the
+		// redirect URI actually changed (e.g. after a gateway base URL
+		// change). If it hasn't changed, the registration is valid as-is.
 		reg, loadErr := s.loadRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
 		if loadErr == nil && reg.RegistrationClientURI != "" {
-			if err := s.updateRedirectURI(ctx, lctx, reg); err == nil {
-				// Successfully updated at the AS.
-				return nil
+			current := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID)
+			if current != reg.RedirectURI {
+				// Redirect URI changed — try updating the AS.
+				if err := s.updateRedirectURI(ctx, lctx, reg); err == nil {
+					reg.RedirectURI = current
+					_ = s.persistRedirectURI(ctx, lctx.Tenant.ID, lctx.Upstream.ID, current)
+					return nil
+				}
+				// Update failed — keep the existing registration. Nuking
+				// it would invalidate every tenant/user/SA token linked to
+				// this upstream. The admin must manually recreate the
+				// upstream if the redirect URI change is permanent.
 			}
-			// Update failed — delete the stale registration.
-			_ = s.deleteRegistration(ctx, lctx.Tenant.ID, lctx.Upstream.ID)
-			// Fall through to fresh DCR below.
-		} else {
-			// No registration management URI (static client) or load
-			// failed — existing registration is fine.
-			return nil
 		}
+		return nil
 	}
 
 	prm, as, err := s.discover(ctx, lctx)
@@ -82,8 +83,9 @@ func (s *Strategy) Provision(ctx context.Context, lctx upstream.LinkContext) err
 		clientSecret = cfg.ClientSecret
 	}
 
+	redirectURI := s.redirFn(lctx.Tenant.PublicID, lctx.Upstream.PublicID)
 	row := s.buildRegistrationRow(lctx, tenantStr, prm.primaryResource(), as.Issuer,
-		clientID, clientSecret, registrationAccessToken, registrationClientURI)
+		clientID, clientSecret, registrationAccessToken, registrationClientURI, redirectURI)
 	if err := s.persistRegistration(ctx, lctx.Tenant.ID, row); err != nil {
 		return fmt.Errorf("%w: %v", ErrPersistFailed, err)
 	}
@@ -167,6 +169,7 @@ func (s *Strategy) updateRedirectURI(ctx context.Context, lctx upstream.LinkCont
 		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},
 		"token_endpoint_auth_method": "client_secret_basic",
+		"client_name":                "Limen Gateway (" + lctx.Tenant.Name + ")",
 	}
 	if s.swID != "" {
 		updateReq["software_id"] = s.swID
@@ -192,7 +195,7 @@ func (s *Strategy) updateRedirectURI(ctx context.Context, lctx upstream.LinkCont
 }
 
 func (s *Strategy) buildRegistrationRow(lctx upstream.LinkContext, tenantStr, resource, issuer,
-	clientID, clientSecret, regAccessToken, regClientURI string) *storage.UpstreamRegistration {
+	clientID, clientSecret, regAccessToken, regClientURI, redirectURI string) *storage.UpstreamRegistration {
 	cs := crypto.NewSecret([]byte(clientSecret))
 	cs.SetAAD(tenantStr, "", kindClientSecret)
 	rat := crypto.NewSecret([]byte(regAccessToken))
@@ -206,6 +209,7 @@ func (s *Strategy) buildRegistrationRow(lctx upstream.LinkContext, tenantStr, re
 		RegistrationAccessToken: rat,
 		RegistrationClientURI:   regClientURI,
 		ResourceURI:             resource,
+		RedirectURI:             redirectURI,
 	}
 }
 
@@ -221,16 +225,19 @@ func (s *Strategy) persistRegistration(ctx context.Context, tenantID int64, row 
 	return commit()
 }
 
-// deleteRegistration removes the persisted UpstreamRegistration row so the
-// next Provision call re-registers with a fresh DCR request.
-func (s *Strategy) deleteRegistration(ctx context.Context, tenantID, upstreamID int64) error {
+// persistRedirectURI updates the stored redirect_uri on an existing
+// registration row. Best-effort — failures are swallowed because the
+// existing registration is still valid.
+func (s *Strategy) persistRedirectURI(ctx context.Context, tenantID, upstreamID int64, redirectURI string) error {
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, tenantID))
 	if err != nil {
 		return err
 	}
-	if err := tx.Where("upstream_id = ?", upstreamID).Delete(&storage.UpstreamRegistration{}).Error; err != nil {
+	if err := tx.Model(&storage.UpstreamRegistration{}).
+		Where("upstream_id = ?", upstreamID).
+		Update("redirect_uri", redirectURI).Error; err != nil {
 		_ = commit()
-		return fmt.Errorf("mcpspec: delete registration: %w", err)
+		return fmt.Errorf("mcpspec: update redirect_uri: %w", err)
 	}
 	return commit()
 }

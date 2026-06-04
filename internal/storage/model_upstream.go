@@ -99,6 +99,7 @@ type UpstreamRegistration struct {
 	RegistrationAccessToken crypto.SecretField `gorm:"type:bytea"`
 	RegistrationClientURI   string             `gorm:"type:text"`
 	ResourceURI             string             `gorm:"type:text;not null"`
+	RedirectURI             string             `gorm:"type:text;not null;default:''"`
 
 	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`
