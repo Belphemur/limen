@@ -1,10 +1,10 @@
 ---
 phase: "7b"
 title: "DCR per-client Zitadel projects (JIT in tenant org)"
-status: planned
-progress: 0
+status: completed
+progress: 100
 depends_on: ["5", "6"]
-updated: "2025-12-15"
+updated: "2026-06-14"
 ---
 
 # Phase 7b — DCR per-client Zitadel projects (JIT in tenant org)

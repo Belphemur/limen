@@ -1,5 +1,5 @@
 ---
-phase: "09l"
+phase: "9l"
 title: "Two-Layer MCP Credentials (UpstreamTenantLink for admin, UpstreamLink for users)"
 status: planned
 progress: 0
