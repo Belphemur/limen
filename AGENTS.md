@@ -242,11 +242,14 @@ the reference shape for any new DB-backed test.
 
 ### Integration tests
 
-Integration tests use `testcontainers-go` with `postgres:18-alpine`:
+Integration tests live **per-package** as `*_integration_test.go` files,
+gated by the `//go:build integration` build tag, and use
+`testcontainers-go` with `postgres:18-alpine`. They sit next to the code
+they cover rather than in a shared `tests/integration/` tree.
 
 ```bash
 # Run integration tests (requires Docker)
-go test ./tests/integration/... -v
+go test -tags integration ./...
 ```
 
 All scenarios run against an ephemeral Postgres container with the full
