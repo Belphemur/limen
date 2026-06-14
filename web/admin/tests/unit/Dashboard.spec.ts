@@ -21,6 +21,8 @@ import {
   AdminService,
   GetTenantSettingsResponseSchema,
   TenantSettingsSchema,
+  GetActiveUserChartResponseSchema,
+  GetSAConnectionChartResponseSchema,
 } from '@/gen/limen/admin/v1/admin_pb.ts'
 import Dashboard from '@/pages/Dashboard.vue'
 import { setAdminTransport, resetAdminTransport } from '@/transport/adminClient'
@@ -106,6 +108,8 @@ function adminAndPortalTransport(
           }),
           zitadelOrgId: 'z-org',
         }),
+      getActiveUserChart: () => create(GetActiveUserChartResponseSchema, { hasData: false }),
+      getSAConnectionChart: () => create(GetSAConnectionChartResponseSchema, { hasData: false }),
     })
   })
 }

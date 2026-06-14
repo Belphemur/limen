@@ -13,7 +13,7 @@ import SetupProgress from '@/components/SetupProgress.vue'
 import OnboardingTaskCard from '@/components/OnboardingTaskCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
-import BillingChart from '@/components/BillingChart.vue'
+import BillingChart, { type BillingDataPoint } from '@/components/BillingChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -57,15 +57,24 @@ const fetchChartData = async (
   }
 }
 
-const mapChartData = (field: string) => (day: Record<string, any>) =>
-  (day[field] as number) ?? 0
-
 const fetchActiveUserData = (params: { from?: Date; to?: Date }) =>
   fetchChartData('getActiveUserChart', params)
-const mapActiveUserData = mapChartData('activeUserCount')
-const fetchSAConnectionData = (params: { from?: Date; to?: Date }) =>
-  fetchChartData('getSAConnectionChart', params)
-const mapSAConnectionData = mapChartData('peakConnections')
+const mapActiveUserData = (day: BillingDataPoint) => (day.activeUserCount as number) ?? 0
+
+const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getSAConnectionChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
+  }
+}
+
+const mapSAConnectionData = (day: BillingDataPoint) => (day.peakConnections as number) ?? 0
 
 onMounted(async () => {
   await Promise.all([
