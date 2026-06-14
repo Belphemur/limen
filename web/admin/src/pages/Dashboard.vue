@@ -101,12 +101,25 @@ onMounted(async () => {
         issuer.value = ''
       }),
     // Billing chart data availability checks
-    fetchChartData('getActiveUserChart')
-      .then((r) => { hasActiveUserData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check active user chart data availability:', err) }),
-    fetchChartData('getSAConnectionChart')
-      .then((r) => { hasSAConnectionData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
+    adminClient()
+      .getActiveUserChart({})
+      .then((r) => {
+        hasActiveUserData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error('Failed to pre-check active user chart data availability:', err)
+      }),
+    adminClient()
+      .getSAConnectionChart({})
+      .then((r) => {
+        hasSAConnectionData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error(
+          'Failed to pre-check service account connection chart data availability:',
+          err,
+        )
+      }),
   ])
 })
 
