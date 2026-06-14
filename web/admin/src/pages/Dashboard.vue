@@ -13,7 +13,7 @@ import SetupProgress from '@/components/SetupProgress.vue'
 import OnboardingTaskCard from '@/components/OnboardingTaskCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
-import BillingChart from '@/components/BillingChart.vue'
+import BillingChart, { type BillingDataPoint } from '@/components/BillingChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -34,38 +34,34 @@ const issuer = ref('')
 const hasActiveUserData = ref(false)
 const hasSAConnectionData = ref(false)
 
-const fetchChartData = async (
-  method: string,
-  params: { from?: Date; to?: Date } = {},
-) => {
-  try {
-    const resp = await (adminClient() as any)[method]({
-      fromDate: params.from
-        ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
-        : undefined,
-      toDate: params.to
-        ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) }
-        : undefined,
-    })
-    return {
-      hasData: resp.hasData as boolean,
-      days: resp.days,
-    }
-  } catch (err) {
-    console.error(`Failed to fetch chart data (${method}):`, err)
-    return { hasData: false, days: [] }
+const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getActiveUserChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
+  }
+}
+const mapActiveUserData = (day: BillingDataPoint) => (day.activeUserCount as number) ?? 0
+
+const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getSAConnectionChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
   }
 }
 
-const mapChartData = (field: string) => (day: Record<string, any>) =>
-  (day[field] as number) ?? 0
-
-const fetchActiveUserData = (params: { from?: Date; to?: Date }) =>
-  fetchChartData('getActiveUserChart', params)
-const mapActiveUserData = mapChartData('activeUserCount')
-const fetchSAConnectionData = (params: { from?: Date; to?: Date }) =>
-  fetchChartData('getSAConnectionChart', params)
-const mapSAConnectionData = mapChartData('peakConnections')
+const mapSAConnectionData = (day: BillingDataPoint) => (day.peakConnections as number) ?? 0
 
 onMounted(async () => {
   await Promise.all([
@@ -92,12 +88,25 @@ onMounted(async () => {
         issuer.value = ''
       }),
     // Billing chart data availability checks
-    fetchChartData('getActiveUserChart')
-      .then((r) => { hasActiveUserData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check active user chart data availability:', err) }),
-    fetchChartData('getSAConnectionChart')
-      .then((r) => { hasSAConnectionData.value = r.hasData })
-      .catch((err) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
+    adminClient()
+      .getActiveUserChart({})
+      .then((r) => {
+        hasActiveUserData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error('Failed to pre-check active user chart data availability:', err)
+      }),
+    adminClient()
+      .getSAConnectionChart({})
+      .then((r) => {
+        hasSAConnectionData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error(
+          'Failed to pre-check service account connection chart data availability:',
+          err,
+        )
+      }),
   ])
 })
 

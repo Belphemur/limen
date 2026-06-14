@@ -1,10 +1,10 @@
 ---
 phase: "9k"
 title: "Service Account Upstream Linking"
-status: in_progress
-progress: 85
+status: completed
+progress: 100
 depends_on: ["9i", "7", "9c"]
-updated: "2026-05-27"
+updated: "2026-06-14"
 ---
 
 # Phase 9k — Service Account Upstream Linking
@@ -229,7 +229,7 @@ The SA list page gains a "Links" column showing "X of Y" linked upstreams.
 
 ### 9k-c: Documentation
 
-- [ ] Create `docs/future-works/impersonation.md` documenting user-to-user impersonation as a future capability: `ImpersonationResolver` wrapper, AES-SIV `limen_impersonate` cookie, `UserSession.ImpersonatedBy` audit field, role gate, no chaining, auto-expiry
+- [x] Create `docs/future-works/impersonation.md` documenting user-to-user impersonation as a future capability: `ImpersonationResolver` wrapper, AES-SIV `limen_impersonate` cookie, `UserSession.ImpersonatedBy` audit field, role gate, no chaining, auto-expiry
 
 ## Design Decisions
 

@@ -73,7 +73,7 @@ so re-runs produce identical rows.`,
 			if err != nil {
 				return fmt.Errorf("open session: %w", err)
 			}
-			defer commit()
+			defer func() { _ = commit() }()
 
 			if err := tx.Transaction(func(t *gorm.DB) error {
 				gofakeit.Seed(42)

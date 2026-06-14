@@ -129,14 +129,14 @@ See [`docs/configuration.md`](docs/configuration.md) for the full reference, or 
 
 ## Roadmap
 
-These features are planned but not yet implemented:
+These features are still planned or in progress:
 
-- [ ] **JWKS token validation** -- Stub exists in `auth/middleware.go`
-- [ ] **DLP scanning** -- Inspect tool responses for sensitive data before forwarding
-- [ ] **Tool-level access control** -- Per-user/per-role tool permissions
-- [ ] **Observability** -- Metrics export and structured logging
-- [ ] **Health checks** -- Upstream liveness probing and auto-reconnect
-- [ ] **Tool caching** -- TTL-based caching for infrequently changing tool schemas
+- [x] **JWKS token validation** — Shipped in [Phase 6](docs/phases/phase-06-resource-server.md); `internal/auth/middleware.go` is a full implementation, not a stub
+- [ ] **DLP scanning** — Inspect tool responses for sensitive data before forwarding
+- [ ] **Tool-level access control** — Per-user/per-role tool permissions (deferred to speculative [Phase 17](docs/phases/phase-17-policy-engine.md))
+- [ ] **Observability** — Prometheus metrics export; structured zap logging already shipped in [Phase 8](docs/phases/phase-08-per-tenant-injection.md). See [Phase 16](docs/phases/phase-16-observability-and-active-users.md)
+- [ ] **Upstream liveness probing** — Active health-check pings; auto-disable on sustained failure shipped in [Phase 7](docs/phases/phase-07-outbound-upstream.md)
+- [ ] **Tool caching** — TTL caching of upstream tool schemas; current [Phase 8](docs/phases/phase-08-per-tenant-injection.md) catalog is DB-backed but not TTL-cached. See [Phase 14](docs/phases/phase-14-upstream-tool-normalization.md)
 
 ## What is Limen?
 

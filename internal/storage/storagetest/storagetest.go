@@ -114,3 +114,43 @@ func OpenMigrated(t *testing.T) *storage.Store {
 	}
 	return s
 }
+
+// OpenMigratedBilling returns a Store opened against a fresh container with
+// the full migration chain applied, plus billing-specific grants and
+// gen_random_uuid() defaults on public_id columns for the billing tables.
+// This is needed because the fallback drain uses the app pool (limen_app)
+// and raw SQL inserts that bypass GORM's BeforeCreate hook.
+func OpenMigratedBilling(t *testing.T) *storage.Store {
+	t.Helper()
+	s := OpenMigrated(t)
+
+	// Grant table permissions to limen_app so the fallback drain (which uses
+	// the app pool) can read and write billing metrics tables.
+	adminDB := s.RawDB()
+	grantStmts := []string{
+		`GRANT ALL PRIVILEGES ON TABLE active_user_months TO limen_app`,
+		`GRANT ALL PRIVILEGES ON TABLE sa_connection_snapshots TO limen_app`,
+		`GRANT ALL ON SEQUENCE active_user_months_id_seq TO limen_app`,
+		`GRANT ALL ON SEQUENCE sa_connection_snapshots_id_seq TO limen_app`,
+	}
+	for _, q := range grantStmts {
+		if err := adminDB.Exec(q).Error; err != nil {
+			t.Fatalf("grant (%s): %v", q, err)
+		}
+	}
+
+	// Raw SQL inserts bypass GORM's BeforeCreate hook, so public_id is not
+	// auto-generated. Add a DB default for the test tables so the fallback
+	// drain SQL can insert without providing one.
+	defaultStmts := []string{
+		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
+		`ALTER TABLE active_user_months ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
+		`ALTER TABLE sa_connection_snapshots ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
+	}
+	for _, q := range defaultStmts {
+		if err := adminDB.Exec(q).Error; err != nil {
+			t.Fatalf("default (%s): %v", q, err)
+		}
+	}
+	return s
+}

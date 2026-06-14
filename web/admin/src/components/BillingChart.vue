@@ -20,9 +20,9 @@ function resolveCSSVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#000'
 }
 
-export interface ChartDayRecord {
+export interface BillingDataPoint {
   date: string
-  value: number
+  [key: string]: unknown
 }
 
 const props = defineProps<{
@@ -36,8 +36,8 @@ const props = defineProps<{
   fetchDataFn: (params: {
     from?: Date
     to?: Date
-  }) => Promise<{ hasData: boolean; days: Record<string, any>[] }>
-  mapDataFn: (day: Record<string, any>) => number
+  }) => Promise<{ hasData: boolean; days: BillingDataPoint[] }>
+  mapDataFn: (day: BillingDataPoint) => number
 }>()
 
 const loading = ref(true)
