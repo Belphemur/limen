@@ -1,149 +1,19 @@
-//go:build integration
-
 package metrics
 
 import (
 	"context"
-	"net/url"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
-	gormpostgres "gorm.io/driver/postgres"
-	"gorm.io/gorm"
 
-	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/storage"
+	"github.com/belphemur/limen/internal/storage/storagetest"
 	"github.com/belphemur/limen/internal/valkey"
 )
 
-// startPostgres spins up a postgres:18-alpine container and returns a DSN.
-func startPostgres(t *testing.T) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	pg, err := postgres.Run(ctx,
-		"postgres:18-alpine",
-		postgres.WithDatabase("limen"),
-		postgres.WithUsername("limen"),
-		postgres.WithPassword("limen_test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = pg.Terminate(context.Background())
-	})
-
-	dsn, err := pg.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("conn string: %v", err)
-	}
-	return dsn
-}
-
-func provisionRoles(t *testing.T, bootstrapDSN string) (appDSN, adminDSN string) {
-	t.Helper()
-	db, err := gorm.Open(gormpostgres.Open(bootstrapDSN), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open bootstrap: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-
-	stmts := []string{
-		`DROP ROLE IF EXISTS limen_app`,
-		`DROP ROLE IF EXISTS limen_admin`,
-		`CREATE ROLE limen_admin LOGIN PASSWORD 'admin_pw' BYPASSRLS`,
-		`CREATE ROLE limen_app   LOGIN PASSWORD 'app_pw'`,
-		`GRANT limen_app TO limen_admin`,
-		`GRANT ALL PRIVILEGES ON DATABASE limen TO limen_admin`,
-		`GRANT CREATE, USAGE ON SCHEMA public TO limen_admin`,
-		`ALTER SCHEMA public OWNER TO limen_admin`,
-	}
-	for _, q := range stmts {
-		if err := db.Exec(q).Error; err != nil {
-			t.Fatalf("provision (%s): %v", q, err)
-		}
-	}
-	return rewriteUser(t, bootstrapDSN, "limen_app", "app_pw"),
-		rewriteUser(t, bootstrapDSN, "limen_admin", "admin_pw")
-}
-
-func rewriteUser(t *testing.T, dsn, user, password string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("parse dsn: %v", err)
-	}
-	u.User = url.UserPassword(user, password)
-	return u.String()
-}
-
-func openMigratedStore(t *testing.T) *storage.Store {
-	t.Helper()
-	bootstrap := startPostgres(t)
-	appDSN, adminDSN := provisionRoles(t, bootstrap)
-	s, err := storage.Open(config.DatabaseConfig{DSN: appDSN, AdminDSN: adminDSN})
-	if err != nil {
-		t.Fatalf("storage.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-
-	// Run AutoMigrate directly instead of s.Migrate(ctx) so the integration
-	// test exercises the same codepath as production startup. The goose
-	// migration for billing metrics (00014) layers RLS policies and the
-	// partial unique index on top of the AutoMigrate-created tables — for
-	// this test, AutoMigrate alone is sufficient since the fallback drain
-	// does not rely on RLS or the partial unique index.
-	adminDB := s.RawDB()
-	if err := adminDB.AutoMigrate(storage.AllModels()...); err != nil {
-		t.Fatalf("AutoMigrate: %v", err)
-	}
-
-	// Grant table permissions to limen_app so the fallback drain (which uses
-	// the app pool) can read and write billing metrics tables.
-	grantStmts := []string{
-		`GRANT ALL PRIVILEGES ON TABLE active_user_months TO limen_app`,
-		`GRANT ALL PRIVILEGES ON TABLE sa_connection_snapshots TO limen_app`,
-		`GRANT ALL ON SEQUENCE active_user_months_id_seq TO limen_app`,
-		`GRANT ALL ON SEQUENCE sa_connection_snapshots_id_seq TO limen_app`,
-	}
-	for _, q := range grantStmts {
-		if err := adminDB.Exec(q).Error; err != nil {
-			t.Fatalf("grant (%s): %v", q, err)
-		}
-	}
-
-	// Raw SQL inserts bypass GORM's BeforeCreate hook, so public_id is not
-	// auto-generated. Add a DB default for the test tables so the fallback
-	// drain SQL can insert without providing one.
-	defaultStmts := []string{
-		`ALTER TABLE active_user_months ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
-		`ALTER TABLE sa_connection_snapshots ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
-	}
-	for _, q := range defaultStmts {
-		if err := adminDB.Exec(q).Error; err != nil {
-			t.Fatalf("default (%s): %v", q, err)
-		}
-	}
-	return s
-}
-
 func TestRecorder_FallbackDrain_ActiveUser(t *testing.T) {
-	store := openMigratedStore(t)
+	store := storagetest.OpenMigratedBilling(t)
 
 	// Create tenant via admin DB
 	adminDB := store.RawDB()
@@ -177,7 +47,7 @@ func TestRecorder_FallbackDrain_ActiveUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session: %v", err)
 	}
-	defer commit()
+	defer func() { _ = commit() }()
 
 	var aum storage.ActiveUserMonth
 	if err := db.Where("tenant_id = ? AND user_id = ?", tenant.ID, 42).First(&aum).Error; err != nil {
@@ -192,7 +62,7 @@ func TestRecorder_FallbackDrain_ActiveUser(t *testing.T) {
 }
 
 func TestRecorder_FallbackDrain_SAConnection(t *testing.T) {
-	store := openMigratedStore(t)
+	store := storagetest.OpenMigratedBilling(t)
 
 	adminDB := store.RawDB()
 	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
@@ -219,7 +89,7 @@ func TestRecorder_FallbackDrain_SAConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session: %v", err)
 	}
-	defer commit()
+	defer func() { _ = commit() }()
 
 	var snaps []storage.SAConnectionSnapshot
 	if err := db.Where("tenant_id = ? AND service_account_id = ?", tenant.ID, 99).Find(&snaps).Error; err != nil {
@@ -237,7 +107,7 @@ func TestRecorder_FallbackDrain_SAConnection(t *testing.T) {
 }
 
 func TestRecorder_FallbackDrain_UnknownKind(t *testing.T) {
-	store := openMigratedStore(t)
+	store := storagetest.OpenMigratedBilling(t)
 
 	adminDB := store.RawDB()
 	tenant := &storage.Tenant{Name: "Acme", ZitadelOrgID: "z1"}
@@ -260,13 +130,13 @@ func TestRecorder_FallbackDrain_UnknownKind(t *testing.T) {
 }
 
 func TestRecorder_FallbackDrain_DroppedWhenFull(t *testing.T) {
-	store := openMigratedStore(t)
+	store := storagetest.OpenMigratedBilling(t)
 
 	recorder := NewBillingRecorder(nil, store, zap.NewNop())
 	ctx := context.Background()
 
 	// Don't start drain — fill the buffer past capacity
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		recorder.RecordActiveUser(ctx, 1, int64(i), 0)
 	}
 
