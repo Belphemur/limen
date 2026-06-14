@@ -143,6 +143,7 @@ func OpenMigratedBilling(t *testing.T) *storage.Store {
 	// auto-generated. Add a DB default for the test tables so the fallback
 	// drain SQL can insert without providing one.
 	defaultStmts := []string{
+		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
 		`ALTER TABLE active_user_months ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
 		`ALTER TABLE sa_connection_snapshots ALTER COLUMN public_id SET DEFAULT gen_random_uuid()::text`,
 	}

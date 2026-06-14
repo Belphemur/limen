@@ -34,31 +34,18 @@ const issuer = ref('')
 const hasActiveUserData = ref(false)
 const hasSAConnectionData = ref(false)
 
-const fetchChartData = async (
-  method: string,
-  params: { from?: Date; to?: Date } = {},
-) => {
-  try {
-    const resp = await (adminClient() as any)[method]({
-      fromDate: params.from
-        ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
-        : undefined,
-      toDate: params.to
-        ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) }
-        : undefined,
-    })
-    return {
-      hasData: resp.hasData as boolean,
-      days: resp.days,
-    }
-  } catch (err) {
-    console.error(`Failed to fetch chart data (${method}):`, err)
-    return { hasData: false, days: [] }
+const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
+  const resp = await adminClient().getActiveUserChart({
+    fromDate: params.from
+      ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
+      : undefined,
+    toDate: params.to ? { seconds: BigInt(Math.floor(params.to.getTime() / 1000)) } : undefined,
+  })
+  return {
+    hasData: resp.hasData,
+    days: resp.days,
   }
 }
-
-const fetchActiveUserData = (params: { from?: Date; to?: Date }) =>
-  fetchChartData('getActiveUserChart', params)
 const mapActiveUserData = (day: BillingDataPoint) => (day.activeUserCount as number) ?? 0
 
 const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {

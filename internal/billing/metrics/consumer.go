@@ -142,7 +142,6 @@ func (c *Consumer) sweepDLQ(ctx context.Context) {
 				c.logger.Error("dlq sweep: failed to add to dlq", zap.String("stream", stream), zap.String("id", msg.ID), zap.Error(err))
 				continue
 			}
-
 			streamEvictedTotal.Inc()
 
 			// ACK and DEL original message

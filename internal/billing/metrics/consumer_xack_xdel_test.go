@@ -37,7 +37,10 @@ func TestConsumer_XAck_RemovesFromPending(t *testing.T) {
 	}
 
 	// Pending list should be empty
-	pending, _ := vc.XPending(ctx, "billing:active_users", "billing_observer", "-", "+", 100)
+	pending, err := vc.XPending(ctx, "billing:active_users", "billing_observer", "-", "+", 100)
+	if err != nil {
+		t.Fatalf("XPending: %v", err)
+	}
 	if len(pending) != 0 {
 		t.Errorf("expected empty PEL after ack, got %+v", pending)
 	}
@@ -49,8 +52,14 @@ func TestConsumer_XDel_RemovesFromStream(t *testing.T) {
 	ctx := context.Background()
 	NewConsumer(vc, nil, zap.NewNop(), "c").Bootstrap(ctx)
 
-	id1, _ := vc.XAdd(ctx, "billing:active_users", map[string]string{"tenant_id": "1"}, 0)
-	id2, _ := vc.XAdd(ctx, "billing:active_users", map[string]string{"tenant_id": "2"}, 0)
+	id1, err := vc.XAdd(ctx, "billing:active_users", map[string]string{"tenant_id": "1"}, 0)
+	if err != nil {
+		t.Fatalf("XAdd 1: %v", err)
+	}
+	id2, err := vc.XAdd(ctx, "billing:active_users", map[string]string{"tenant_id": "2"}, 0)
+	if err != nil {
+		t.Fatalf("XAdd 2: %v", err)
+	}
 
 	n, err := vc.XDel(ctx, "billing:active_users", id1, id2)
 	if err != nil {
@@ -60,7 +69,10 @@ func TestConsumer_XDel_RemovesFromStream(t *testing.T) {
 		t.Errorf("XDel returned %d, want 2", n)
 	}
 
-	entries, _ := vc.XRange(ctx, "billing:active_users", "-", "+")
+	entries, err := vc.XRange(ctx, "billing:active_users", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange: %v", err)
+	}
 	if len(entries) != 0 {
 		t.Errorf("expected empty stream, got %+v", entries)
 	}

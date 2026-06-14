@@ -150,6 +150,18 @@ func TestConsumer_AutoClaim_RespectsMinIdle(t *testing.T) {
 			t.Errorf("message was claimed too early: %+v", p)
 		}
 	}
+
+	// Also verify the message is still owned by consumer-a (wasn't silently deleted)
+	foundA := false
+	for _, p := range pending {
+		if p.Consumer == "consumer-a" {
+			foundA = true
+			break
+		}
+	}
+	if !foundA {
+		t.Errorf("expected message to still be pending for consumer-a, but it's missing from PEL")
+	}
 }
 
 // TestConsumer_XPending_EmptyGroup verifies XPending on an empty group.

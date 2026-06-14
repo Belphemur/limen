@@ -25,6 +25,7 @@ func TestConsumer_DLQ_MessageExceedingThreshold_Moves(t *testing.T) {
 	}, 0); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
+	vc.Now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
 	if _, err := vc.XReadGroup(ctx, "billing_observer", "c", 0, 10, "billing:active_users"); err != nil {
 		t.Fatalf("XReadGroup: %v", err)
 	}
@@ -36,12 +37,18 @@ func TestConsumer_DLQ_MessageExceedingThreshold_Moves(t *testing.T) {
 	c := NewConsumer(vc, nil, zap.NewNop(), "c")
 	c.sweepDLQ(ctx)
 
-	entries, _ := vc.XRange(ctx, "billing:active_users", "-", "+")
+	entries, err := vc.XRange(ctx, "billing:active_users", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(active_users): %v", err)
+	}
 	if len(entries) != 0 {
 		t.Errorf("expected original stream to be empty after DLQ move, got %+v", entries)
 	}
 
-	dlqEntries, _ := vc.XRange(ctx, "billing:dlq", "-", "+")
+	dlqEntries, err := vc.XRange(ctx, "billing:dlq", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(dlq): %v", err)
+	}
 	if len(dlqEntries) != 1 {
 		t.Errorf("expected 1 DLQ entry, got %d", len(dlqEntries))
 	}
@@ -60,21 +67,28 @@ func TestConsumer_DLQ_BelowThreshold_NoMove(t *testing.T) {
 		t.Fatalf("XAdd: %v", err)
 	}
 
-	for i := range 4 {
-		if _, err := vc.XReadGroup(ctx, "billing_observer", "c", 0, 10, "billing:active_users"); err != nil {
-			t.Fatalf("XReadGroup iter %d: %v", i, err)
-		}
+	vc.Now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
+	if _, err := vc.XReadGroup(ctx, "billing_observer", "c", 0, 10, "billing:active_users"); err != nil {
+		t.Fatalf("XReadGroup: %v", err)
 	}
+
+	bumpDeliveryCount(t, vc, "billing:active_users", 4)
 
 	c := NewConsumer(vc, nil, zap.NewNop(), "c")
 	c.sweepDLQ(ctx)
 
-	entries, _ := vc.XRange(ctx, "billing:active_users", "-", "+")
+	entries, err := vc.XRange(ctx, "billing:active_users", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(active_users): %v", err)
+	}
 	if len(entries) != 1 {
 		t.Errorf("expected 1 entry in original stream, got %d", len(entries))
 	}
 
-	dlqEntries, _ := vc.XRange(ctx, "billing:dlq", "-", "+")
+	dlqEntries, err := vc.XRange(ctx, "billing:dlq", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(dlq): %v", err)
+	}
 	if len(dlqEntries) != 0 {
 		t.Errorf("expected empty DLQ, got %d entries", len(dlqEntries))
 	}
@@ -104,6 +118,7 @@ func TestConsumer_DLQ_DLQAddFails_NoAckOriginal(t *testing.T) {
 	}, 0); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
+	vc.Now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
 	if _, err := vc.XReadGroup(ctx, "billing_observer", "c", 0, 10, "billing:active_users"); err != nil {
 		t.Fatalf("XReadGroup: %v", err)
 	}
@@ -114,14 +129,29 @@ func TestConsumer_DLQ_DLQAddFails_NoAckOriginal(t *testing.T) {
 	c := NewConsumer(vc, nil, zap.NewNop(), "c")
 	c.sweepDLQ(ctx)
 
-	entries, _ := vc.XRange(ctx, "billing:active_users", "-", "+")
+	entries, err := vc.XRange(ctx, "billing:active_users", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(active_users): %v", err)
+	}
 	if len(entries) != 1 {
 		t.Errorf("expected original message to remain in stream after DLQ failure, got %d entries", len(entries))
 	}
 
-	dlqEntries, _ := vc.XRange(ctx, "billing:dlq", "-", "+")
+	dlqEntries, err := vc.XRange(ctx, "billing:dlq", "-", "+")
+	if err != nil {
+		t.Fatalf("XRange(dlq): %v", err)
+	}
 	if len(dlqEntries) != 0 {
 		t.Errorf("expected empty DLQ after failure, got %d entries", len(dlqEntries))
+	}
+
+	// Verify the message was NOT acked — it should still be pending
+	pending, err := vc.XPending(ctx, "billing:active_users", "billing_observer", "-", "+", 100)
+	if err != nil {
+		t.Fatalf("XPending: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Error("expected message to still be pending (not acked) after DLQ failure, got empty PEL")
 	}
 }
 
@@ -137,6 +167,7 @@ func TestConsumer_DLQ_StreamEvictedTotal_Increments(t *testing.T) {
 	}, 0); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
+	vc.Now = func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
 	if _, err := vc.XReadGroup(ctx, "billing_observer", "c", 0, 10, "billing:active_users"); err != nil {
 		t.Fatalf("XReadGroup: %v", err)
 	}
