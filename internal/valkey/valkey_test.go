@@ -136,15 +136,15 @@ func TestCompareStreamID_Malformed(t *testing.T) {
 		a, b string
 		want int
 	}{
-		{"foo", "bar", 1},        // both malformed, string compare: "f" > "b"
-		{"foo", "foo", 0},        // both malformed, equal
-		{"1-0", "foo", -1},       // one malformed: "1" < "f"
-		{"foo", "1-0", 1},        // one malformed: "f" > "1"
-		{"1", "2", -1},           // both malformed (no dash): "1" < "2"
-		{"1-0-extra", "1-0", 0},  // extra dash — both have >=2 parts, ParseInt ignores suffix, so 0 == 0
-		{"1-0", "1-1", -1},       // well-formed, seq differs
-		{"1-1", "1-0", 1},        // well-formed, seq differs
-		{"0-0", "0-0", 0},        // well-formed, equal
+		{"foo", "bar", 1},       // both malformed, string compare: "f" > "b"
+		{"foo", "foo", 0},       // both malformed, equal
+		{"1-0", "foo", -1},      // one malformed: "1" < "f"
+		{"foo", "1-0", 1},       // one malformed: "f" > "1"
+		{"1", "2", -1},          // both malformed (no dash): "1" < "2"
+		{"1-0-extra", "1-0", 0}, // extra dash — both have >=2 parts, ParseInt ignores suffix, so 0 == 0
+		{"1-0", "1-1", -1},      // well-formed, seq differs
+		{"1-1", "1-0", 1},       // well-formed, seq differs
+		{"0-0", "0-0", 0},       // well-formed, equal
 	}
 
 	for _, tc := range cases {
