@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm/clause"
 
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/billing/entitlements"
 	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/ids"
@@ -27,6 +28,7 @@ type WebhookHandler struct {
 	secret       string
 	logger       *zap.Logger
 	cfg          config.BillingConfig
+	enforcer     *enforcer.Enforcer
 	events       chan stripe.Event
 	drainDone    chan struct{}
 	stop         chan struct{}
@@ -35,7 +37,7 @@ type WebhookHandler struct {
 
 // NewWebhookHandler constructs a webhook handler. Call StartDrain once
 // after construction and StopDrain on shutdown.
-func NewWebhookHandler(store *storage.Store, secret string, cfg config.BillingConfig, logger *zap.Logger) *WebhookHandler {
+func NewWebhookHandler(store *storage.Store, secret string, cfg config.BillingConfig, enf *enforcer.Enforcer, logger *zap.Logger) *WebhookHandler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -47,6 +49,7 @@ func NewWebhookHandler(store *storage.Store, secret string, cfg config.BillingCo
 		secret:    secret,
 		logger:    logger,
 		cfg:       cfg,
+		enforcer:  enf,
 		events:    make(chan stripe.Event, 100),
 		drainDone: make(chan struct{}),
 		stop:      make(chan struct{}),
@@ -445,5 +448,14 @@ func (h *WebhookHandler) handleEntitlementsUpdated(ctx context.Context, event st
 	}
 	if err := tx.Where("tenant_id = ?", billing.TenantID).Save(&billing).Error; err != nil {
 		h.logger.Error("stripe webhook: failed to update billing plan", zap.Error(err))
+		return
+	}
+
+	// Invalidate entitlement cache so the next request picks up new entitlements.
+	if h.enforcer != nil {
+		if err := h.enforcer.Invalidate(ctx, billing.TenantID); err != nil {
+			h.logger.Warn("stripe webhook: failed to invalidate entitlement cache",
+				zap.Int64("tenant_id", billing.TenantID), zap.Error(err))
+		}
 	}
 }

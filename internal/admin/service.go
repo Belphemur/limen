@@ -52,6 +52,7 @@ type Service struct {
 	tenant           *tenant.Service
 	resolver         session.Resolver
 	bearerIntercept  connect.UnaryInterceptorFunc
+	billingIntercept connect.UnaryInterceptorFunc
 	members          MemberDirectory
 	serviceAccounts  ServiceAccountDirectory
 	zitadelDomain    string
@@ -69,7 +70,7 @@ type Service struct {
 // nil those RPCs return CodeUnimplemented. serviceAccounts is the
 // Zitadel directory pass-through used by the service account RPCs;
 // when nil those RPCs return CodeUnimplemented.
-func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, bearerIntercept connect.UnaryInterceptorFunc, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, oidc OIDCCredentials, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
+func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *tenant.Service, resolver session.Resolver, bearerIntercept, billingIntercept connect.UnaryInterceptorFunc, members MemberDirectory, serviceAccounts ServiceAccountDirectory, zitadelDomain, zitadelProjectID string, oidc OIDCCredentials, cipher *crypto.Cipher, secureCookie bool, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -79,6 +80,7 @@ func NewService(store *storage.Store, upstreamSvc *upstream.Service, tenantSvc *
 		tenant:           tenantSvc,
 		resolver:         resolver,
 		bearerIntercept:  bearerIntercept,
+		billingIntercept: billingIntercept,
 		members:          members,
 		serviceAccounts:  serviceAccounts,
 		zitadelDomain:    zitadelDomain,
@@ -101,6 +103,11 @@ func (s *Service) Handler() (string, http.Handler) {
 	}
 	interceptors = append(interceptors,
 		session.Interceptor(s.resolver, s.logger),
+	)
+	if s.billingIntercept != nil {
+		interceptors = append(interceptors, s.billingIntercept)
+	}
+	interceptors = append(interceptors,
 		session.RoleInterceptor(requiredRole, s.logger),
 	)
 	return adminv1connect.NewAdminServiceHandler(s, connect.WithInterceptors(interceptors...))

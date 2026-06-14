@@ -11,18 +11,19 @@ import (
 // PlanEntitlements holds per-plan feature limits derived from Stripe
 // entitlements.
 type PlanEntitlements struct {
-	MaxActiveUsers   int32
-	MaxSAConnections int32
-	MaxProjects      int32
-	CodeMode         bool
-	AdvancedAI       bool
-	AuditLogs        bool
-	SSOSAML          bool
-	IDEPresets       bool
-	CustomUpstreams  bool
-	PrioritySupport  bool
-	CommunitySupport bool
-	StorageLimitMB   int32
+	MaxActiveUsers     int32
+	MaxServiceAccounts int32
+	MaxSAConnections   int32
+	MaxProjects        int32
+	CodeMode           bool
+	AdvancedAI         bool
+	AuditLogs          bool
+	SSOSAML            bool
+	IDEPresets         bool
+	CustomUpstreams    bool
+	PrioritySupport    bool
+	CommunitySupport   bool
+	StorageLimitMB     int32
 }
 
 // DeveloperEntitlements returns the hardcoded entitlements for the
@@ -30,12 +31,13 @@ type PlanEntitlements struct {
 // exists.
 func DeveloperEntitlements() PlanEntitlements {
 	return PlanEntitlements{
-		MaxActiveUsers:   1,
-		MaxSAConnections: 1,
-		MaxProjects:      5,
-		CodeMode:         true,
-		CommunitySupport: true,
-		StorageLimitMB:   1024,
+		MaxActiveUsers:     1,
+		MaxServiceAccounts: 1,
+		MaxSAConnections:   1,
+		MaxProjects:        5,
+		CodeMode:           true,
+		CommunitySupport:   true,
+		StorageLimitMB:     1024,
 	}
 }
 
@@ -46,9 +48,9 @@ func EntitlementLimitFromLookupKey(lookupKey string, isEnabled bool) int32 {
 		return 0
 	}
 	switch lookupKey {
-	case "max-user_unlimited", "max-sa-connection_unlimited", "max-project_unlimited", "max-storage_unlimited":
+	case "max-user_unlimited", "max-service-account_unlimited", "max-sa-connection_unlimited", "max-project_unlimited", "max-storage_unlimited":
 		return -1
-	case "max-user_1", "max-sa-connection_1":
+	case "max-user_1", "max-service-account_1", "max-sa-connection_1":
 		return 1
 	case "max-project_5":
 		return 5
@@ -77,6 +79,10 @@ func EntitlementsFromRows(rows []storage.TenantEntitlement) PlanEntitlements {
 			e.MaxActiveUsers = -1
 		case "max-user_1":
 			// Already set by Developer default; no-op but explicit.
+		case "max-service-account_unlimited":
+			e.MaxServiceAccounts = -1
+		case "max-service-account_1":
+			// Already set by Developer default.
 		case "max-sa-connection_unlimited":
 			e.MaxSAConnections = -1
 		case "max-sa-connection_1":

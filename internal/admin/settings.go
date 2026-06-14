@@ -13,6 +13,9 @@ import (
 	"github.com/belphemur/limen/internal/tenant"
 )
 
+// TODO(Phase 13d): Gate SSO/SAML settings on the tenant's SSOSAML entitlement.
+// If !ents.SSOSAML, reject updates that would enable SAML configuration.
+
 func (s *Service) GetTenantSettings(ctx context.Context, _ *connect.Request[adminv1.GetTenantSettingsRequest]) (*connect.Response[adminv1.GetTenantSettingsResponse], error) {
 	t := tenancy.MustTenant(ctx)
 	settings, _, err := s.tenant.LoadSettings(ctx, t)

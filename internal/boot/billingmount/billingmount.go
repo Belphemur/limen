@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/belphemur/limen/internal/billing"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/billing/stripe"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/session"
@@ -33,6 +34,10 @@ type Dependencies struct {
 	// Reconciler periodically syncs billing metrics to Stripe.
 	// The caller must call Start(ctx) and Stop() for lifecycle.
 	Reconciler *billing.Reconciler
+
+	// Enforcer resolves and caches tenant entitlements for runtime
+	// feature-gate checks. Callers wire BillingInterceptor from this.
+	Enforcer *enforcer.Enforcer
 
 	// ConnectPrefix is the URL path prefix for the BillingService
 	// Connect-RPC handler. Register on the portal API mux alongside
@@ -66,11 +71,15 @@ func Mount(rt *boot.Runtime, resolver session.Resolver) (*Dependencies, error) {
 		rt.Valkey,
 	)
 
+	// Create entitlement enforcer.
+	enf := enforcer.New(rt.Store, rt.Valkey, rt.Logger.Named("billing-enforcer"))
+
 	// Create webhook handler.
 	webhookHandler := stripe.NewWebhookHandler(
 		rt.Store,
 		rt.Cfg.Billing.Stripe.WebhookSecret,
 		rt.Cfg.Billing,
+		enf,
 		rt.Logger.Named("stripe-webhook"),
 	)
 
@@ -97,6 +106,7 @@ func Mount(rt *boot.Runtime, resolver session.Resolver) (*Dependencies, error) {
 	return &Dependencies{
 		WebhookHandler: webhookHandler,
 		Reconciler:     reconciler,
+		Enforcer:       enf,
 		ConnectPrefix:  prefix,
 		ConnectHandler: handler,
 	}, nil

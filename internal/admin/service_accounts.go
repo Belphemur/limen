@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
@@ -122,6 +123,25 @@ func (s *Service) CreateServiceAccount(ctx context.Context, req *connect.Request
 
 	t := tenancy.MustTenant(ctx)
 	orgID := t.ZitadelOrgID
+
+	// Phase 13d — enforce MaxServiceAccounts entitlement for service accounts.
+	ents, ok := enforcer.EntitlementsFromContext(ctx)
+	if ok && ents.MaxServiceAccounts != -1 {
+		db, commit, err := s.store.Session(ctx)
+		if err != nil {
+			s.logger.Warn("create SA: failed to open db session for count", zap.Error(err))
+		} else {
+			var count int64
+			if err := db.Model(&storage.ServiceAccount{}).Where("tenant_id = ?", t.ID).Count(&count).Error; err != nil {
+				s.logger.Warn("create SA: failed to count existing accounts", zap.Error(err))
+			} else if int32(count) >= ents.MaxServiceAccounts {
+				_ = commit()
+				return nil, connect.NewError(connect.CodePermissionDenied,
+					enforcer.CheckMaxServiceAccounts(ents, int32(count)))
+			}
+			_ = commit()
+		}
+	}
 
 	zitadelUserID, err := s.serviceAccounts.CreateMachineUser(ctx, zitadel.MachineUser{
 		OrgID:           orgID,

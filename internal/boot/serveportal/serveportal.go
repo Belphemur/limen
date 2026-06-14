@@ -9,11 +9,13 @@ package serveportal
 import (
 	"context"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/billingmount"
 	"github.com/belphemur/limen/internal/boot/oauthproxymount"
@@ -71,15 +73,21 @@ func Run(configPath string) error {
 
 	resolver := session.OIDCResolver(oidc)
 
-	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, zclient, zclient, zclient, zclient, resolver)
-	if err != nil {
-		return err
-	}
-
 	billingDeps, err := billingmount.Mount(rt, resolver)
 	if err != nil {
 		return err
 	}
+
+	var billingIntercept connect.UnaryInterceptorFunc
+	if billingDeps != nil && billingDeps.Enforcer != nil {
+		billingIntercept = enforcer.BillingInterceptor(billingDeps.Enforcer, rt.Logger.Named("billing-interceptor"))
+	}
+
+	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, billingIntercept, zclient, zclient, zclient, zclient, resolver)
+	if err != nil {
+		return err
+	}
+
 	if billingDeps != nil {
 		api.Handle(billingDeps.ConnectPrefix, billingDeps.ConnectHandler)
 		r.Handle("/billing/stripe/webhook", billingDeps.WebhookHandler)

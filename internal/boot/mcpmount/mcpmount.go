@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/billing/metrics"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/gateway"
@@ -20,7 +21,8 @@ import (
 
 // Build returns the assembled gateway Manager + MCP transport.
 // Requires boot.NeedStore + NeedUpstream in the profile.
-func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
+// enf is optional; when set, CallTool checks SA connection limits.
+func Build(rt *boot.Runtime, enf *enforcer.Enforcer) (*gateway.Manager, *transport.MCPServer, error) {
 	billingRecorder := metrics.NewBillingRecorder(rt.Valkey, rt.Store, rt.Logger.Named("billing-recorder"))
 	if !billingRecorder.Enabled() {
 		billingRecorder.StartFallbackDrain(rt.Ctx)
@@ -40,6 +42,7 @@ func Build(rt *boot.Runtime) (*gateway.Manager, *transport.MCPServer, error) {
 		ResiliencePolicy: rt.Cfg.Resilience.Resolve("upstream.tool_calls"),
 		ValkeyClient:     rt.Valkey,
 		BillingRecorder:  billingRecorder,
+		Enforcer:         enf,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build gateway manager: %w", err)

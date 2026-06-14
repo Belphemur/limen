@@ -29,6 +29,10 @@ type Emitter interface {
 	Emit(ctx context.Context, event *Event)
 }
 
+// TODO(Phase 13d): Gate audit log persistence on the tenant's AuditLogs entitlement.
+// When the entitlement is disabled, audit events should be dropped or logged
+// locally only, not stored in the audit sink.
+
 // LogEmitter writes audit events as structured zap logs at Info level.
 type LogEmitter struct {
 	logger *zap.Logger
