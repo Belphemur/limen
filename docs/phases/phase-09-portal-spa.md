@@ -7,7 +7,7 @@ depends_on: []
 updated: "2025-11-15"
 ---
 
-# Phase 9b — Portal backend (Connect-RPC) + Vue 3 SPA
+# Phase 9 — Portal backend (Connect-RPC) + Vue 3 SPA
 
 **Depends on**: Phases 4 (portal session), 7 (upstream connect/disconnect)
 **Unblocks**: nothing (final user-facing feature before hardening)

@@ -4,7 +4,7 @@ title: "Crypto + config"
 status: completed
 progress: 100
 depends_on: []
-updated: "2025-09-22"
+updated: "2026-06-14"
 ---
 
 # Phase 2 — Crypto + config

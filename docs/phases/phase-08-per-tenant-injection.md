@@ -2,9 +2,9 @@
 phase: "8"
 title: "Per-tenant, per-user upstream injection"
 status: in_progress
-progress: 77
+progress: 84
 depends_on: ["6", "7"]
-updated: "2026-03-01"
+updated: "2026-06-14"
 ---
 
 # Phase 8 — Per-tenant, per-user upstream injection
@@ -313,7 +313,7 @@ type Bundle struct {
 - [x] `Gateway.ToolsForUser` reads from `upstream_tools` — never calls `tools/list` synchronously on the request path; implemented as `Manager.ToolsForUser` in [internal/gateway/manager.go](../../internal/gateway/manager.go).
 - [x] `internal/upstream/authprovider.go` defines `AuthProvider` (with `Headers` + `HeadersForceRefresh`) and `DBAuthProvider` — pinned to a single (tenant, upstream) pair; resolves the active user via an injected `UserResolver` to avoid the `upstream → auth` import cycle; returns `ErrLinkNotFound` / `ErrNeedsRelink` / `ErrNoUser` for the round-tripper to translate into structured MCP errors.
 - [x] `internal/gateway/upstream.go` uses an `http.RoundTripper` that reads ctx and calls `AuthProvider.Headers` — implemented as `AuthInjectingTransport` in [internal/gateway/authtransport.go](../../internal/gateway/authtransport.go).
-- [ ] The `base` transport under the auth-injecting round-tripper is the `*http.Client` returned by `internal/resilience.Client("upstream.<name>.calls", cfg)` (lands in [Phase 10](phase-10-wiring-hardening.md)) so every upstream tool call inherits the shared timeout → exponential-backoff retry (transport / `502` / `503` / `504` / `429`, honoring `Retry-After`) → per-upstream circuit breaker stack. Until Phase 10 ships, the gateway temporarily wires `http.DefaultTransport` and the wiring is a single-line swap — there must be exactly one construction site so the swap is mechanical.
+- [x] The `base` transport under the auth-injecting round-tripper is the `*http.Client` returned by `internal/resilience.Client("upstream.<name>.calls", cfg)` (lands in [Phase 10](phase-10-wiring-hardening.md)) so every upstream tool call inherits the shared timeout → exponential-backoff retry (transport / `502` / `503` / `504` / `429`, honoring `Retry-After`) → per-upstream circuit breaker stack. Until Phase 10 ships, the gateway temporarily wires `http.DefaultTransport` and the wiring is a single-line swap — there must be exactly one construction site so the swap is mechanical.
 - [ ] A `*resilience.BreakerOpenError` surfaced from `RoundTrip` is mapped to a structured MCP `upstream_unavailable` error (not a 500), counts as a failure for the auto-disable bookkeeping above, and never triggers the bearer-refresh retry.
 - [x] Round-trip clones the request before mutating headers — `cloneRequest` deep-copies via `req.Clone(ctx)` and uses `req.GetBody` to replay the body on the 401 retry.
 - [x] Round-tripper retries exactly once on upstream `401`, calling `HeadersForceRefresh` to drive Phase 7's refresh path; a second consecutive `401` surfaces as a structured "re-link required" MCP error — implemented in `AuthInjectingTransport.RoundTrip`; second 401 records `tool_call_401` with `needsRelink=true`.

@@ -66,7 +66,9 @@ test.describe('admin upstreams (mocked services)', () => {
     })
 
     await page.goto('/mcp-servers')
-    await expect(page.getByRole('heading', { level: 1, name: /MCP Upstream Management/ })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 1, name: /MCP Upstream Management/ }),
+    ).toBeVisible()
     await expect(page.getByTestId('upstream-row-demo')).toBeVisible()
 
     // Click delete to open the ConfirmDeleteModal, then type the

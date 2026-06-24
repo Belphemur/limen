@@ -2,9 +2,9 @@
 phase: "9c"
 title: "Tenant administrative portal (Connect-RPC + Vue 3 SPA)"
 status: in_progress
-progress: 82
+progress: 85
 depends_on: ["4", "7", "9a", "9b"]
-updated: "2026-04-20"
+updated: "2026-06-14"
 ---
 
 # Phase 9c — Tenant administrative portal (Connect-RPC + Vue 3 SPA)
@@ -517,10 +517,10 @@ Previously-considered member / IdP / TransferOwnership RPCs are **dropped entire
 - [x] `Settings.vue` covers tenant name + read-only `PublicID` + read-only Zitadel identity panel + DCR redirect-URI allowlist editor + Danger Zone (`DeleteTenant`)
 - [x] `internal/admin/` ships `members.go` backed by Zitadel User V2 + Authorization V2 pass-through and contains **no** `idp.go`; IdP federation stays permanently delegated to Zitadel Console
 - [x] No `tenant_idp_configurations` migration ever; no `internal/zitadel/` wrappers for `AddOrgOIDCIDP`, `AddOrgSAMLIDP`, etc.
-- [ ] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
-- [ ] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
-- [ ] Signup completes a full round-trip: name + email → Mailpit → password set → admin SPA
-- [ ] Admin SPA routes lazy-loaded; all v1 pages above implemented
+- [x] `StartSignup` is captcha-gated and per-IP rate-limited; returns generic errors
+- [x] `CompleteSignup` is keyed off the `pending_signup` cookie and is idempotent
+- [x] Signup completes a full round-trip: name + email → Mailpit → password set → admin SPA
+- [x] Admin SPA routes lazy-loaded; all v1 pages above implemented
 - [x] `GET /auth/discovery` returns the configured Zitadel issuer URL for the SPA to build Console deep-links
 - [x] Customer portal SPA shows an "Admin" chip iff the session carries `owner` or `admin`
 - [x] Single portal cookie at `Path=/t/<tenant>` covers both `/portal/` and `/admin/`; role interceptor is the only authorization boundary

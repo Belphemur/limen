@@ -48,12 +48,13 @@ test.describe('admin dashboard (mocked services)', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Welcome to Limen/ })).toBeVisible()
 
     const cards = page.locator('[data-step]')
-    await expect(cards).toHaveCount(3)
+    await expect(cards).toHaveCount(4)
     await expect(page.locator('[data-step="connect"]')).toBeVisible()
     await expect(page.locator('[data-step="invite"]')).toBeVisible()
+    await expect(page.locator('[data-step="ide"]')).toBeVisible()
     await expect(page.locator('[data-step="configure"]')).toBeVisible()
 
     await expect(page.getByText('Waiting for data')).toBeVisible()
-    await expect(page.getByText('0 of 3 steps completed')).toBeVisible()
+    await expect(page.getByText('0 of 4 steps completed')).toBeVisible()
   })
 })
