@@ -38,18 +38,17 @@ import (
 // http.ServeMux keyed on the Connect procedure prefix. SignupService
 // is tenant-agnostic and lives at /api/limen.signup.v1.SignupService/*.
 //
-// Returns the constructed *signup.Service so the binary can launch
-// the background sweeper goroutine on its lifetime. Returns an error
-// when SignupService construction fails (template load, mailer
+// Returns the API mux (*http.ServeMux) and the constructed *signup.Service
+// so the binary can register additional Connect handlers (e.g. BillingService)
+// and launch the background sweeper goroutine on its lifetime. Returns an
+// error when SignupService construction fails (template load, mailer
 // build, captcha provider invalid).
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient) (*signup.Service, error) {
-	resolver := session.OIDCResolver(oidc)
-
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept, billingIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient, resolver session.Resolver) (*http.ServeMux, *signup.Service, error) {
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, bearerIntercept, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
 	sessPrefix, sessHandler := sessionmount.NewHandler(rt, resolver, bearerIntercept)
-	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, bearerIntercept, members, serviceAccounts)
+	adminPrefix, adminHandler := adminmount.NewHandler(rt, resolver, bearerIntercept, billingIntercept, members, serviceAccounts)
 
 	// http.ServeMux dispatches on longest-prefix match without
 	// stripping the prefix from r.URL.Path — exactly what Connect
@@ -61,7 +60,7 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept conn
 
 	signupPrefix, signupHandler, signupSvc, err := signupmount.NewHandler(rt, signupZitadel)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	signupAPI := http.NewServeMux()
 	signupAPI.Handle(signupPrefix, signupHandler)
@@ -77,5 +76,5 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept conn
 		ConnectAPI:            api,
 		SignupAPI:             signupAPI,
 	})
-	return signupSvc, nil
+	return api, signupSvc, nil
 }

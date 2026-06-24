@@ -24,6 +24,22 @@ service PortalService {
   rpc RevokeMCPClient(RevokeMCPClientRequest) returns (RevokeMCPClientResponse);
 }
 
+// BillingService is the tenant-scoped billing RPC surface mounted at
+// /t/{tenant}/api/limen.portal.v1.BillingService/*. All RPCs are
+// tenant-owner only (role interceptor enforced at mount time).
+service BillingService {
+  // GetBillingSummary returns the current billing state for the tenant.
+  rpc GetBillingSummary(GetBillingSummaryRequest) returns (GetBillingSummaryResponse);
+
+  // CreateCheckoutSession opens a Stripe Checkout session for upgrading
+  // to the Team plan. Returns a redirect URL that the SPA navigates to.
+  rpc CreateCheckoutSession(CreateCheckoutSessionRequest) returns (CreateCheckoutSessionResponse);
+
+  // OpenCustomerPortal creates a Stripe Customer Portal session for
+  // self-service subscription management. Returns a redirect URL.
+  rpc OpenCustomerPortal(OpenCustomerPortalRequest) returns (OpenCustomerPortalResponse);
+}
+
 // ---- ListUpstreams --------------------------------------------------
 
 message ListUpstreamsRequest {}
@@ -183,3 +199,50 @@ message RevokeMCPClientRequest {
 }
 
 message RevokeMCPClientResponse {}
+
+// ---- GetBillingSummary -----------------------------------------------
+
+message GetBillingSummaryRequest {}
+
+message GetBillingSummaryResponse {
+  // Current plan: "developer" or "team".
+  string plan = 1;
+  // Subscription status: "none", "trialing", "active", "past_due", "canceled", "incomplete", "incomplete_expired", "unpaid".
+  string status = 2;
+  // Current billing period active user count.
+  int32 active_user_count = 3;
+  // Current billing period SA connection count.
+  int32 active_sa_connection_count = 4;
+  // Stripe publishable key for the SPA to initialize Stripe.js.
+  string stripe_publishable_key = 5;
+  // RFC3339 timestamp of the current period end, or empty if no subscription.
+  string current_period_end = 6;
+  // True if the subscription will cancel at period end.
+  bool cancel_at_period_end = 7;
+  // RFC3339 timestamp of grace period expiry, or empty if not in grace.
+  string grace_until = 8;
+}
+
+// ---- CreateCheckoutSession -------------------------------------------
+
+message CreateCheckoutSessionRequest {
+  // The URL the SPA wants the browser to return to after checkout.
+  string return_to = 1;
+}
+
+message CreateCheckoutSessionResponse {
+  // Absolute Stripe Checkout URL. The SPA navigates the browser to this.
+  string redirect_url = 1;
+}
+
+// ---- OpenCustomerPortal -----------------------------------------------
+
+message OpenCustomerPortalRequest {
+  // The URL the SPA wants the browser to return to after the portal.
+  string return_to = 1;
+}
+
+message OpenCustomerPortalResponse {
+  // Absolute Stripe Customer Portal URL.
+  string redirect_url = 1;
+}

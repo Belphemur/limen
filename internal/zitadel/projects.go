@@ -47,6 +47,11 @@ func IsAlreadyExists(err error) bool {
 	return strings.Contains(low, "already exists") || strings.Contains(low, "alreadyexists")
 }
 
+// TODO(Phase 13d): Gate project creation on the tenant's MaxProjects entitlement.
+// Count existing projects before creating and return ErrMaxProjects when the
+// limit would be exceeded. The check should live in the caller (oauthproxy) to
+// keep the zitadel package billing-agnostic.
+
 // EnsureProject returns the projectID of a project named `name` inside
 // orgID. If no such project exists it is created. The lookup uses an
 // EQUALS name filter and the call is safe to retry: a concurrent

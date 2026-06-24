@@ -1131,6 +1131,330 @@ func (*RevokeMCPClientResponse) Descriptor() ([]byte, []int) {
 	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{18}
 }
 
+type GetBillingSummaryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBillingSummaryRequest) Reset() {
+	*x = GetBillingSummaryRequest{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBillingSummaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBillingSummaryRequest) ProtoMessage() {}
+
+func (x *GetBillingSummaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBillingSummaryRequest.ProtoReflect.Descriptor instead.
+func (*GetBillingSummaryRequest) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{19}
+}
+
+type GetBillingSummaryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Current plan: "developer" or "team".
+	Plan string `protobuf:"bytes,1,opt,name=plan,proto3" json:"plan,omitempty"`
+	// Subscription status: "none", "trialing", "active", "past_due", "canceled", "incomplete", "incomplete_expired", "unpaid".
+	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	// Current billing period active user count.
+	ActiveUserCount int32 `protobuf:"varint,3,opt,name=active_user_count,json=activeUserCount,proto3" json:"active_user_count,omitempty"`
+	// Current billing period SA connection count.
+	ActiveSaConnectionCount int32 `protobuf:"varint,4,opt,name=active_sa_connection_count,json=activeSaConnectionCount,proto3" json:"active_sa_connection_count,omitempty"`
+	// Stripe publishable key for the SPA to initialize Stripe.js.
+	StripePublishableKey string `protobuf:"bytes,5,opt,name=stripe_publishable_key,json=stripePublishableKey,proto3" json:"stripe_publishable_key,omitempty"`
+	// RFC3339 timestamp of the current period end, or empty if no subscription.
+	CurrentPeriodEnd string `protobuf:"bytes,6,opt,name=current_period_end,json=currentPeriodEnd,proto3" json:"current_period_end,omitempty"`
+	// True if the subscription will cancel at period end.
+	CancelAtPeriodEnd bool `protobuf:"varint,7,opt,name=cancel_at_period_end,json=cancelAtPeriodEnd,proto3" json:"cancel_at_period_end,omitempty"`
+	// RFC3339 timestamp of grace period expiry, or empty if not in grace.
+	GraceUntil    string `protobuf:"bytes,8,opt,name=grace_until,json=graceUntil,proto3" json:"grace_until,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBillingSummaryResponse) Reset() {
+	*x = GetBillingSummaryResponse{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBillingSummaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBillingSummaryResponse) ProtoMessage() {}
+
+func (x *GetBillingSummaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBillingSummaryResponse.ProtoReflect.Descriptor instead.
+func (*GetBillingSummaryResponse) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetBillingSummaryResponse) GetPlan() string {
+	if x != nil {
+		return x.Plan
+	}
+	return ""
+}
+
+func (x *GetBillingSummaryResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GetBillingSummaryResponse) GetActiveUserCount() int32 {
+	if x != nil {
+		return x.ActiveUserCount
+	}
+	return 0
+}
+
+func (x *GetBillingSummaryResponse) GetActiveSaConnectionCount() int32 {
+	if x != nil {
+		return x.ActiveSaConnectionCount
+	}
+	return 0
+}
+
+func (x *GetBillingSummaryResponse) GetStripePublishableKey() string {
+	if x != nil {
+		return x.StripePublishableKey
+	}
+	return ""
+}
+
+func (x *GetBillingSummaryResponse) GetCurrentPeriodEnd() string {
+	if x != nil {
+		return x.CurrentPeriodEnd
+	}
+	return ""
+}
+
+func (x *GetBillingSummaryResponse) GetCancelAtPeriodEnd() bool {
+	if x != nil {
+		return x.CancelAtPeriodEnd
+	}
+	return false
+}
+
+func (x *GetBillingSummaryResponse) GetGraceUntil() string {
+	if x != nil {
+		return x.GraceUntil
+	}
+	return ""
+}
+
+type CreateCheckoutSessionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The URL the SPA wants the browser to return to after checkout.
+	ReturnTo      string `protobuf:"bytes,1,opt,name=return_to,json=returnTo,proto3" json:"return_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCheckoutSessionRequest) Reset() {
+	*x = CreateCheckoutSessionRequest{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCheckoutSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCheckoutSessionRequest) ProtoMessage() {}
+
+func (x *CreateCheckoutSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCheckoutSessionRequest.ProtoReflect.Descriptor instead.
+func (*CreateCheckoutSessionRequest) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CreateCheckoutSessionRequest) GetReturnTo() string {
+	if x != nil {
+		return x.ReturnTo
+	}
+	return ""
+}
+
+type CreateCheckoutSessionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absolute Stripe Checkout URL. The SPA navigates the browser to this.
+	RedirectUrl   string `protobuf:"bytes,1,opt,name=redirect_url,json=redirectUrl,proto3" json:"redirect_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCheckoutSessionResponse) Reset() {
+	*x = CreateCheckoutSessionResponse{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCheckoutSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCheckoutSessionResponse) ProtoMessage() {}
+
+func (x *CreateCheckoutSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCheckoutSessionResponse.ProtoReflect.Descriptor instead.
+func (*CreateCheckoutSessionResponse) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreateCheckoutSessionResponse) GetRedirectUrl() string {
+	if x != nil {
+		return x.RedirectUrl
+	}
+	return ""
+}
+
+type OpenCustomerPortalRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The URL the SPA wants the browser to return to after the portal.
+	ReturnTo      string `protobuf:"bytes,1,opt,name=return_to,json=returnTo,proto3" json:"return_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenCustomerPortalRequest) Reset() {
+	*x = OpenCustomerPortalRequest{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenCustomerPortalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenCustomerPortalRequest) ProtoMessage() {}
+
+func (x *OpenCustomerPortalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenCustomerPortalRequest.ProtoReflect.Descriptor instead.
+func (*OpenCustomerPortalRequest) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *OpenCustomerPortalRequest) GetReturnTo() string {
+	if x != nil {
+		return x.ReturnTo
+	}
+	return ""
+}
+
+type OpenCustomerPortalResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absolute Stripe Customer Portal URL.
+	RedirectUrl   string `protobuf:"bytes,1,opt,name=redirect_url,json=redirectUrl,proto3" json:"redirect_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenCustomerPortalResponse) Reset() {
+	*x = OpenCustomerPortalResponse{}
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenCustomerPortalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenCustomerPortalResponse) ProtoMessage() {}
+
+func (x *OpenCustomerPortalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_limen_portal_v1_portal_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenCustomerPortalResponse.ProtoReflect.Descriptor instead.
+func (*OpenCustomerPortalResponse) Descriptor() ([]byte, []int) {
+	return file_limen_portal_v1_portal_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *OpenCustomerPortalResponse) GetRedirectUrl() string {
+	if x != nil {
+		return x.RedirectUrl
+	}
+	return ""
+}
+
 var File_limen_portal_v1_portal_proto protoreflect.FileDescriptor
 
 const file_limen_portal_v1_portal_proto_rawDesc = "" +
@@ -1196,7 +1520,26 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\"5\n" +
 	"\x16RevokeMCPClientRequest\x12\x1b\n" +
 	"\tpublic_id\x18\x01 \x01(\tR\bpublicId\"\x19\n" +
-	"\x17RevokeMCPClientResponse*\xaa\x01\n" +
+	"\x17RevokeMCPClientResponse\"\x1a\n" +
+	"\x18GetBillingSummaryRequest\"\xe6\x02\n" +
+	"\x19GetBillingSummaryResponse\x12\x12\n" +
+	"\x04plan\x18\x01 \x01(\tR\x04plan\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12*\n" +
+	"\x11active_user_count\x18\x03 \x01(\x05R\x0factiveUserCount\x12;\n" +
+	"\x1aactive_sa_connection_count\x18\x04 \x01(\x05R\x17activeSaConnectionCount\x124\n" +
+	"\x16stripe_publishable_key\x18\x05 \x01(\tR\x14stripePublishableKey\x12,\n" +
+	"\x12current_period_end\x18\x06 \x01(\tR\x10currentPeriodEnd\x12/\n" +
+	"\x14cancel_at_period_end\x18\a \x01(\bR\x11cancelAtPeriodEnd\x12\x1f\n" +
+	"\vgrace_until\x18\b \x01(\tR\n" +
+	"graceUntil\";\n" +
+	"\x1cCreateCheckoutSessionRequest\x12\x1b\n" +
+	"\treturn_to\x18\x01 \x01(\tR\breturnTo\"B\n" +
+	"\x1dCreateCheckoutSessionResponse\x12!\n" +
+	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl\"8\n" +
+	"\x19OpenCustomerPortalRequest\x12\x1b\n" +
+	"\treturn_to\x18\x01 \x01(\tR\breturnTo\"?\n" +
+	"\x1aOpenCustomerPortalResponse\x12!\n" +
+	"\fredirect_url\x18\x01 \x01(\tR\vredirectUrl*\xaa\x01\n" +
 	"\tLinkState\x12\x1a\n" +
 	"\x16LINK_STATE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fLINK_STATE_NONE\x10\x01\x12\x18\n" +
@@ -1217,7 +1560,11 @@ const file_limen_portal_v1_portal_proto_rawDesc = "" +
 	"\n" +
 	"Disconnect\x12\".limen.portal.v1.DisconnectRequest\x1a#.limen.portal.v1.DisconnectResponse\x12a\n" +
 	"\x0eListMCPClients\x12&.limen.portal.v1.ListMCPClientsRequest\x1a'.limen.portal.v1.ListMCPClientsResponse\x12d\n" +
-	"\x0fRevokeMCPClient\x12'.limen.portal.v1.RevokeMCPClientRequest\x1a(.limen.portal.v1.RevokeMCPClientResponseB>Z<github.com/belphemur/limen/internal/portal/portalv1;portalv1b\x06proto3"
+	"\x0fRevokeMCPClient\x12'.limen.portal.v1.RevokeMCPClientRequest\x1a(.limen.portal.v1.RevokeMCPClientResponse2\xe3\x02\n" +
+	"\x0eBillingService\x12j\n" +
+	"\x11GetBillingSummary\x12).limen.portal.v1.GetBillingSummaryRequest\x1a*.limen.portal.v1.GetBillingSummaryResponse\x12v\n" +
+	"\x15CreateCheckoutSession\x12-.limen.portal.v1.CreateCheckoutSessionRequest\x1a..limen.portal.v1.CreateCheckoutSessionResponse\x12m\n" +
+	"\x12OpenCustomerPortal\x12*.limen.portal.v1.OpenCustomerPortalRequest\x1a+.limen.portal.v1.OpenCustomerPortalResponseB>Z<github.com/belphemur/limen/internal/portal/portalv1;portalv1b\x06proto3"
 
 var (
 	file_limen_portal_v1_portal_proto_rawDescOnce sync.Once
@@ -1232,7 +1579,7 @@ func file_limen_portal_v1_portal_proto_rawDescGZIP() []byte {
 }
 
 var file_limen_portal_v1_portal_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_limen_portal_v1_portal_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_limen_portal_v1_portal_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_limen_portal_v1_portal_proto_goTypes = []any{
 	(LinkState)(0),                         // 0: limen.portal.v1.LinkState
 	(StaticHeaderMode)(0),                  // 1: limen.portal.v1.StaticHeaderMode
@@ -1255,6 +1602,12 @@ var file_limen_portal_v1_portal_proto_goTypes = []any{
 	(*MCPClient)(nil),                      // 18: limen.portal.v1.MCPClient
 	(*RevokeMCPClientRequest)(nil),         // 19: limen.portal.v1.RevokeMCPClientRequest
 	(*RevokeMCPClientResponse)(nil),        // 20: limen.portal.v1.RevokeMCPClientResponse
+	(*GetBillingSummaryRequest)(nil),       // 21: limen.portal.v1.GetBillingSummaryRequest
+	(*GetBillingSummaryResponse)(nil),      // 22: limen.portal.v1.GetBillingSummaryResponse
+	(*CreateCheckoutSessionRequest)(nil),   // 23: limen.portal.v1.CreateCheckoutSessionRequest
+	(*CreateCheckoutSessionResponse)(nil),  // 24: limen.portal.v1.CreateCheckoutSessionResponse
+	(*OpenCustomerPortalRequest)(nil),      // 25: limen.portal.v1.OpenCustomerPortalRequest
+	(*OpenCustomerPortalResponse)(nil),     // 26: limen.portal.v1.OpenCustomerPortalResponse
 }
 var file_limen_portal_v1_portal_proto_depIdxs = []int32{
 	4,  // 0: limen.portal.v1.ListUpstreamsResponse.upstreams:type_name -> limen.portal.v1.UpstreamSummary
@@ -1271,16 +1624,22 @@ var file_limen_portal_v1_portal_proto_depIdxs = []int32{
 	14, // 11: limen.portal.v1.PortalService.Disconnect:input_type -> limen.portal.v1.DisconnectRequest
 	16, // 12: limen.portal.v1.PortalService.ListMCPClients:input_type -> limen.portal.v1.ListMCPClientsRequest
 	19, // 13: limen.portal.v1.PortalService.RevokeMCPClient:input_type -> limen.portal.v1.RevokeMCPClientRequest
-	3,  // 14: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
-	7,  // 15: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
-	9,  // 16: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
-	11, // 17: limen.portal.v1.PortalService.ClearUpstreamOverride:output_type -> limen.portal.v1.ClearUpstreamOverrideResponse
-	13, // 18: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
-	15, // 19: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
-	17, // 20: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
-	20, // 21: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
-	14, // [14:22] is the sub-list for method output_type
-	6,  // [6:14] is the sub-list for method input_type
+	21, // 14: limen.portal.v1.BillingService.GetBillingSummary:input_type -> limen.portal.v1.GetBillingSummaryRequest
+	23, // 15: limen.portal.v1.BillingService.CreateCheckoutSession:input_type -> limen.portal.v1.CreateCheckoutSessionRequest
+	25, // 16: limen.portal.v1.BillingService.OpenCustomerPortal:input_type -> limen.portal.v1.OpenCustomerPortalRequest
+	3,  // 17: limen.portal.v1.PortalService.ListUpstreams:output_type -> limen.portal.v1.ListUpstreamsResponse
+	7,  // 18: limen.portal.v1.PortalService.StartConnect:output_type -> limen.portal.v1.StartConnectResponse
+	9,  // 19: limen.portal.v1.PortalService.SubmitUpstreamAPIKey:output_type -> limen.portal.v1.SubmitUpstreamAPIKeyResponse
+	11, // 20: limen.portal.v1.PortalService.ClearUpstreamOverride:output_type -> limen.portal.v1.ClearUpstreamOverrideResponse
+	13, // 21: limen.portal.v1.PortalService.SetUpstreamLinkEnabled:output_type -> limen.portal.v1.SetUpstreamLinkEnabledResponse
+	15, // 22: limen.portal.v1.PortalService.Disconnect:output_type -> limen.portal.v1.DisconnectResponse
+	17, // 23: limen.portal.v1.PortalService.ListMCPClients:output_type -> limen.portal.v1.ListMCPClientsResponse
+	20, // 24: limen.portal.v1.PortalService.RevokeMCPClient:output_type -> limen.portal.v1.RevokeMCPClientResponse
+	22, // 25: limen.portal.v1.BillingService.GetBillingSummary:output_type -> limen.portal.v1.GetBillingSummaryResponse
+	24, // 26: limen.portal.v1.BillingService.CreateCheckoutSession:output_type -> limen.portal.v1.CreateCheckoutSessionResponse
+	26, // 27: limen.portal.v1.BillingService.OpenCustomerPortal:output_type -> limen.portal.v1.OpenCustomerPortalResponse
+	17, // [17:28] is the sub-list for method output_type
+	6,  // [6:17] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1297,9 +1656,9 @@ func file_limen_portal_v1_portal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_limen_portal_v1_portal_proto_rawDesc), len(file_limen_portal_v1_portal_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   19,
+			NumMessages:   25,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_limen_portal_v1_portal_proto_goTypes,
 		DependencyIndexes: file_limen_portal_v1_portal_proto_depIdxs,

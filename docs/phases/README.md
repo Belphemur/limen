@@ -14,7 +14,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 - **Frontend** is a Vue 3 SPA over Connect-RPC, shipped as plain static assets and served by the reverse proxy (Caddy `file_server`) or Cloudflare Pages — **not** embedded in the Go binary. Limen serves only JSON / OAuth / MCP endpoints. Same-origin deployment keeps cookie path-scoping (`Path=/t/<tenant>`) working unchanged. Login is a redirect into Zitadel's hosted UI — Limen never sees a password.
 - **Deployment** is reproducible via Docker Compose: a dev stack ([Phase 0](phase-00-dev-environment.md)) and a production stack with TLS, secrets, and backups ([Phase 11](phase-11-production-deployment.md)).
 - **SaaS operator surface** — a reserved **staff tenant** at `/t/_staff/` with a `super_admin` role, a backoffice SPA for cross-tenant visibility, and audited impersonation via Zitadel ([Phase 12](phase-12-staff-backoffice.md)).
-- **Billing** — two-plan SaaS billing via Stripe ([Phase 13](phase-13-billing-stripe.md)): a free Developer plan (1 dev + 1 SA, hard limits) and a paid Team plan (per-active-user + per-concurrent-SA-connection, flat rate). Plan entitlements are defined via Stripe Entitlements Features, synced to a local `tenant_entitlements` table via webhook. Zero Stripe API calls on the hot path. Hosted Checkout + Customer Portal handle PCI scope. Usage-based pricing is out of scope for v1.
+- **Billing** — two-plan SaaS billing via Stripe ([Phase 13](phase-13-billing-stripe.md)): a free Developer plan (1 dev + 1 SA, hard limits) and a paid Team plan (per-active-user + per-concurrent-SA-connection, flat rate). Plan entitlements are defined via Stripe Entitlements Features, synced to a local `tenant_entitlements` table via webhook. Runtime enforcement ([Phase 13d](phase-13d-plan-enforcement.md)) gates features via the BillingInterceptor. Zero Stripe API calls on the hot path. Hosted Checkout + Customer Portal handle PCI scope. Usage-based pricing is out of scope for v1.
 
 ## Phase index & dependencies
 
@@ -48,8 +48,9 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
-| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | ✅           |
-| 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md)                                         | 4, 9b, 9c, 9i, 10, 11, 13b | 🔶 (37%) |
+| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
+| 13d | [Plan Enforcement](phase-13d-plan-enforcement.md) | 13c | 🔶 (85%) |
+| 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md) | 4, 9b, 9c, 9i, 10, 11, 13b | ✅ |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
@@ -57,7 +58,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 19  | [CI Pipeline (Parallelized GHA tests and Gate checks)](phase-19-ci-pipeline.md)                               | 10, 13b                 | ✅           |
 | 20  | [CD Pipeline & Multi-Arch Packaging (GoReleaser + GHCR)](phase-20-cd-pipeline.md)                             | 19                      | ✅           |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 13c (Stripe integration) is in progress at 37% — the `scripts/stripe-bootstrap/` standalone Go module is complete and verified against Stripe test mode (2 Products, 3 Prices, 14 Features, 17 attachments, webhook endpoint — idempotent, converges state). Remaining is the backend integration (stripe-go SDK, webhook handler, BillingService RPCs, reconciler). Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 13c (Stripe integration) is complete with all backend code, bootstrap script, and integration tests (entitlements + reconciler) done. Remaining items are integration tests and final hardening. Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
 
 ## Global checklist
 
@@ -381,31 +382,50 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] DesiredState populated: 2 Products, 3 Prices, 14 Features, attachments, webhook
 - [x] ensureProduct: list + converge (create/update/archive) by name
 - [x] ensurePrice: list + converge by lookup_key
-- [x] ensureFeature: list + converge by lookup_key (leaves non-desired features unchanged)
+- [x] ensureFeature: list + converge by lookup_key (archive removed features)
 - [x] ensureProductFeature: list attachments + converge (attach missing)
 - [x] ensureWebhookEndpoint: list + converge by URL
-- [x] Archive logic: managed products not in desired state → active: false
+- [x] Archive logic: resources not in desired state → active: false
 - [x] Output IDs to .bootstrap-out.env
 - [x] AGENTS.md documenting bootstrap script
 - [ ] Makefile target: make stripe-bootstrap
 
 #### 13c-b: Backend Integration
 
-- [ ] stripe-go/v82 added to go.mod
-- [ ] tenant_billing migration + model + RLS
-- [ ] tenant_entitlements migration + model + RLS
-- [ ] internal/billing/entitlements.go resolver
-- [ ] BillingConfig + config.yaml billing section
-- [ ] internal/billing/stripe/client.go with resilience
-- [ ] Webhook handler with signature verification + async drain
-- [ ] 6 webhook event handlers (checkout, subscription updated/deleted, invoice failed/succeeded, entitlements)
-- [ ] BillingService proto + buf generate
-- [ ] GetBillingSummary RPC
-- [ ] CreateCheckoutSession RPC
-- [ ] OpenCustomerPortal RPC
-- [ ] Reconciler: 1h periodic + reactive + upward-only + month reset
-- [ ] Startup entitlement reconciliation
-- [ ] Stripe resilience config in config.yaml
+- [x] stripe-go/v82 added to go.mod
+- [x] tenant_billing migration + model + RLS
+- [x] tenant_entitlements migration + model + RLS
+- [x] internal/billing/entitlements.go resolver
+- [x] BillingConfig + config.yaml billing section
+- [x] internal/billing/stripe/client.go with resilience
+- [x] Webhook handler with signature verification + async drain
+- [x] 6 webhook event handlers (checkout, subscription updated/deleted, invoice failed/succeeded, entitlements)
+- [x] BillingService proto + buf generate
+- [x] GetBillingSummary RPC
+- [x] CreateCheckoutSession RPC
+- [x] OpenCustomerPortal RPC
+- [x] Reconciler: 1h periodic + reactive + upward-only + month reset
+- [x] Startup entitlement reconciliation
+- [x] Stripe resilience config in config.yaml
+
+### Phase 13d — Plan Enforcement
+
+- [x] Entitlement enforcer package (`internal/billing/enforcer/`) with 7 files
+- [x] Context injection (`WithEntitlements` / `EntitlementsFromContext`)
+- [x] Valkey-backed entitlement cache with DB fallback (5-min TTL)
+- [x] `ErrFeatureLocked` structured error with feature key, limit, usage
+- [x] Feature gate helpers (`CheckMaxUsers`, `CheckMaxSAConnections`, `CheckMaxProjects`, etc.)
+- [x] `BillingInterceptor` Connect-RPC unary interceptor
+- [x] BillingInterceptor wired into admin.Service.Handler() interceptor chain
+- [x] `InviteMember` RPC gated on `MaxActiveUsers`
+- [x] `CreateServiceAccount` RPC gated on `MaxActiveUsers`
+- [x] `StartServiceAccountConnect` RPC gated on `MaxSAConnections`
+- [x] Webhook cache invalidation on `entitlements.active_entitlement_summary.updated`
+- [x] Enforcer created in `billingmount.Mount()` and passed through Dependencies
+- [x] `serveportal` and `serveall` reordered: billingmount before portalmount
+- [x] 23 unit tests for enforcer package
+- [ ] Integration tests for enforcement points
+- [ ] CodeMode, AdvancedAI, SSOSAML, AuditLogs, MaxProjects, Storage enforcement
 
 ### Phase 19 — CI Pipeline (Parallelized GHA tests and Gate checks)
 
@@ -444,7 +464,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - **Outbound transport**: custom `http.RoundTripper` for per-request bearer injection (tenant + user read from ctx).
 - **Resilience**: every outbound HTTP dependency (upstream MCP servers, upstream OAuth token endpoints, Zitadel Management / Session / JWKS, DCR endpoints) is wrapped in a context-aware **timeout → retry-with-exponential-backoff-and-jitter → circuit-breaker** stack. One shared package, `internal/resilience/`, exports a `Client(name, cfg) *http.Client` helper that composes `github.com/cenkalti/backoff/v4` + `github.com/sony/gobreaker/v2` into an `http.RoundTripper`. Per-dependency policies (max retries, base / max interval, breaker thresholds, retryable status codes) live in `config.yaml`. Retries only fire on transport errors and `5xx` / `429`; `4xx` is terminal. Each breaker exposes Prometheus-style state via structured logs (`closed` / `half-open` / `open`) for observability.
 - **SaaS-operator visibility**: a fourth Zitadel project role `super_admin` exists alongside `owner` / `admin` / `member`, but is honored **only** inside the reserved staff tenant `_staff` (Phase 12). Cross-tenant visibility is granted at the data layer via a Postgres GUC `limen.staff_mode` that loosens `SELECT` RLS policies only — writes still require `limen.tenant_id` to be set explicitly, so even staff cannot accidentally cross-write. Targeted support actions go through audited RPCs (force-unlink, force re-enable, breaker control) and impersonation rides on Zitadel token-exchange with a hard 15-minute TTL plus customer-side banner.
-- **Billing model**: two-plan SaaS billing: a free Developer plan with hard limits (1 human developer, 1 SA at 1 concurrent connection) and a paid Team plan billed per active user per month plus per concurrent SA connection. Plan entitlements are defined via Stripe Entitlements Features with prefix-pattern lookup_keys (`max-user_1`, `code-mode`, etc.), synced to a local `tenant_entitlements` table via the `entitlements.active_entitlement_summary.updated` webhook. At runtime, entitlements are read from the local DB — zero Stripe API calls on the hot path. Active-user and SA-connection counts come from a dedicated billing metrics pipeline (Valkey Streams → Postgres, Phase 13b), not from Zitadel grant counting. Stripe hosted Checkout + Customer Portal handle all PCI scope. The staff tenant is never billed; self-hosters set `billing.enabled: false` to skip Stripe entirely.
+- **Billing model**: two-plan SaaS billing: a free Developer plan with hard limits (1 human developer, 1 SA at 1 concurrent connection) and a paid Team plan billed per active user per month plus per concurrent SA connection. Plan entitlements are defined via Stripe Entitlements Features with prefix-pattern lookup_keys (`max-user_1`, `code-mode`, etc.), synced to a local `tenant_entitlements` table via the `entitlements.active_entitlement_summary.updated` webhook. At runtime, entitlements are loaded by the BillingInterceptor from a Valkey-backed cache (Phase 13d) with DB fallback — zero Stripe API calls on the hot path. Runtime enforcement gates each RPC via guard clauses. Active-user and SA-connection counts come from a dedicated billing metrics pipeline (Valkey Streams → Postgres, Phase 13b), not from Zitadel grant counting. Stripe hosted Checkout + Customer Portal handle all PCI scope. The staff tenant is never billed; self-hosters set `billing.enabled: false` to skip Stripe entirely.
 - **Deployment**: Docker Compose for both dev and prod, single declarative source of truth.
 
 ## Explicitly out of scope this iteration

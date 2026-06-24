@@ -50,5 +50,7 @@ func AllModels() []any {
 		&UpstreamTenantLink{},
 		&ActiveUserMonth{},
 		&SAConnectionSnapshot{},
+		&TenantBilling{},
+		&TenantEntitlement{},
 	}
 }

@@ -33,7 +33,7 @@ func Run(configPath string) error {
 	r.Use(boot.RequestLogger(rt.Logger))
 	boot.MountHealth(r)
 
-	_, mcpServer, err := mcpmount.Build(rt)
+	_, mcpServer, err := mcpmount.Build(rt, nil)
 	if err != nil {
 		return err
 	}

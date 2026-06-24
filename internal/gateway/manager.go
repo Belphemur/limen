@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/billing/metrics"
 	"github.com/belphemur/limen/internal/config"
 	"github.com/belphemur/limen/internal/contextblob"
@@ -45,6 +46,10 @@ type ManagerOptions struct {
 	// BillingRecorder is optional; when set, billing events are
 	// emitted after successful tool calls and SA connections.
 	BillingRecorder *metrics.BillingRecorder
+
+	// Enforcer is optional; when set, CallTool checks SA connection
+	// limits before forwarding calls from service accounts.
+	Enforcer *enforcer.Enforcer
 }
 
 // Manager owns the per-(tenant, upstream) Bundle cache and serves the
@@ -109,6 +114,30 @@ func (m *Manager) CallTool(ctx context.Context, upstreamName, toolName string, a
 	if !ok {
 		return nil, errors.New("gateway: no tenant on ctx")
 	}
+
+	// Phase 13d — soft SA connection rate limit.
+	if _, ok := auth.MCPServiceAccountFromContext(ctx); ok && m.opts.Enforcer != nil {
+		ents, err := m.opts.Enforcer.ForTenant(ctx, tenant.ID)
+		if err == nil && ents.MaxSAConnections != -1 {
+			db, commit, dbErr := m.opts.Store.Session(storage.WithTenant(ctx, tenant.ID))
+			if dbErr == nil {
+				var count int64
+				if dbErr = db.Model(&storage.UpstreamLink{}).
+					Where("tenant_id = ? AND service_account_id IS NOT NULL AND enabled = true AND deleted_at IS NULL", tenant.ID).
+					Count(&count).Error; dbErr == nil {
+					if int32(count) >= ents.MaxSAConnections {
+						_ = commit()
+						return nil, enforcer.CheckSAConnectionLimit(ents, int32(count))
+					}
+				}
+				_ = commit()
+			}
+			if dbErr != nil {
+				m.opts.Logger.Warn("calltool: failed to count SA connections", zap.Error(dbErr))
+			}
+		}
+	}
+
 	b, err := m.bundleFor(ctx, tenant, upstreamName)
 	if err != nil {
 		return nil, err

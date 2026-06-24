@@ -165,6 +165,10 @@ func buildTool(def codemodeaction.Definition) mcp.Tool {
 	)
 }
 
+// TODO(Phase 13d): Gate codemode tools on the tenant's CodeMode entitlement.
+// If !ents.CodeMode, return an MCP error result indicating the feature
+// is not available on the current plan.
+
 // handleSearch runs the supplied JS through codemode.Handler.Search,
 // which exposes only codemode.tools() — no upstream dispatch. Argument
 // validation and handler errors are surfaced as MCP error results

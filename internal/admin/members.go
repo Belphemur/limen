@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"go.uber.org/zap"
 
 	adminv1 "github.com/belphemur/limen/internal/admin/adminv1"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/session"
 	"github.com/belphemur/limen/internal/tenancy"
 	"github.com/belphemur/limen/internal/zitadel"
-	"go.uber.org/zap"
 )
 
 // MemberDirectory is the slice of the Zitadel client the admin
@@ -179,6 +180,18 @@ func (s *Service) InviteMember(ctx context.Context, req *connect.Request[adminv1
 
 	t := tenancy.MustTenant(ctx)
 	orgID := t.ZitadelOrgID
+
+	// Phase 13d — enforce MaxActiveUsers entitlement.
+	ents, ok := enforcer.EntitlementsFromContext(ctx)
+	if ok && ents.MaxActiveUsers != -1 {
+		existing, err := s.members.ListOrgUsers(ctx, orgID, "")
+		if err != nil {
+			s.logger.Warn("invite: failed to count existing members", zap.Error(err))
+		} else if int32(len(existing)) >= ents.MaxActiveUsers {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				enforcer.CheckMaxUsers(ents, int32(len(existing))))
+		}
+	}
 
 	givenName := strings.TrimSpace(msg.GetGivenName())
 	familyName := strings.TrimSpace(msg.GetFamilyName())
