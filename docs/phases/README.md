@@ -48,7 +48,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 11  | [Production deployment (Docker Compose)](phase-11-production-deployment.md)                                    | 0–10                    | ☐            |
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
-| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
+| 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | ✅           |
 | 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md)                                         | 4, 9b, 9c, 9i, 10, 11, 13b | 🔶 (37%) |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
@@ -126,7 +126,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [ ] `internal/oauthproxy/metadata.go` serves AS metadata with `registration_endpoint` rewritten to Limen and `jwks_uri` pointing directly at Zitadel
 - [ ] `internal/oauthproxy/redirector.go` issues 302 (GETs) / 307 (POSTs) redirects to Zitadel for `authorize`, `token`, `userinfo`, `revoke`, `introspect`, `end_session`
 - [ ] `internal/oauthproxy/dcr.go` accepts MCP-spec DCR requests and creates Zitadel OIDC apps via the shared `*zitadel.Client`
-- [ ] DCR proxy enforces `tenant.DCREnabled` and optional `dcr_initial_access_token`
+- [ ] DCR proxy validates the redirect-URI allowlist (empty = disabled) and optional `dcr_initial_access_token`
 - [ ] DCR proxy rejects unknown / unsupported metadata fields with `invalid_client_metadata` (default-deny)
 - [ ] `internal/oauthproxy/ratelimit.go` enforces a per-tenant token bucket on `/register*` (`golang.org/x/time/rate`)
 - [ ] PKCE S256 required on every DCR'd app; `redirect_uris` validated (HTTPS exact-match, RFC 8252 loopback, reverse-DNS custom schemes; wildcards / IDN / fragments rejected)

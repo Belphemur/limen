@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
+
 
 // Vite config for the Limen tenant-admin SPA.
 //
@@ -19,7 +19,8 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? './' : '/__vite/admin/',
-  plugins: [tsconfigPaths(), vue(), tailwindcss()],
+  resolve: { tsconfigPaths: true },
+  plugins: [vue(), tailwindcss()],
   server: {
     port: 5174,
     strictPort: true,

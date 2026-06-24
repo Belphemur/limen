@@ -6,7 +6,6 @@ import { create } from '@bufbuild/protobuf'
 import {
   Filter,
   KeyRound,
-  Link2Off,
   Pencil,
   Plus,
   RefreshCw,
@@ -18,9 +17,11 @@ import {
   ConfirmDeleteModal,
   faviconUrl,
   onFaviconError,
+  openOAuthPopup,
   Tooltip,
   SecretInputModal,
 } from '@limen/shared'
+import { tenantPrefix } from '@limen/shared/session'
 import { adminClient, portalClient } from '@/transport/adminClient'
 import {
   DeleteUpstreamRequestSchema,
@@ -237,13 +238,23 @@ async function confirmDelete() {
 async function connectAdmin(u: UpstreamSummary) {
   busy.value = { ...busy.value, [u.publicId]: 'connect-admin' }
   try {
+    const prefix = tenantPrefix() ?? ''
+    const adminBase = window.location.pathname.startsWith(`${prefix}/admin/`)
+      ? `${prefix}/admin`
+      : prefix
     const resp = await adminClient().startAdminConnect({
       upstreamPublicId: u.publicId,
-      returnTo: window.location.pathname,
+      returnTo: `${window.location.origin}${adminBase}/oauth-popup-close`,
     })
-    if (resp.redirectUrl) {
-      window.location.href = resp.redirectUrl
+    if (!resp.redirectUrl) {
+      throw new Error('Backend did not return an authorize URL')
     }
+    const result = await openOAuthPopup({ url: resp.redirectUrl })
+    if (!result.ok) {
+      error.value = result.errorDescription || result.error || 'OAuth failed'
+      return
+    }
+    await refresh()
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -510,14 +521,19 @@ const noMatches = computed(
               <!-- Actions -->
               <td class="px-6 py-4">
                 <div class="flex items-center justify-end gap-1">
-                  <!-- Admin / tenant-level actions -->
-                  <Tooltip
-                    v-if="
-                      u.strategyType === 'mcp_spec' &&
-                      (u.tenantLinkState === LinkState.NEEDS_RELINK || !u.hasTenantLink)
-                    "
-                    :text="!u.hasTenantLink ? 'Configure OAuth' : 'Reconfigure OAuth'"
-                  >
+
+<Tooltip
+  v-if="u.strategyType === 'mcp_spec'"
+  :text="
+    u.tenantLinkState === LinkState.NEEDS_RELINK
+      ? 'Reconfigure OAuth'
+      : !u.hasTenantLink
+        ? 'Configure OAuth'
+        : u.tenantLinkState === LinkState.CONNECTED
+          ? 'Reconfigure'
+          : 'Configure OAuth'
+  "
+>
                     <button
                       type="button"
                       class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
@@ -529,26 +545,6 @@ const noMatches = computed(
                         :size="18"
                         aria-hidden="true"
                         :class="busy[u.publicId] === 'connect-admin' ? 'animate-spin' : ''"
-                      />
-                    </button>
-                  </Tooltip>
-                  <Tooltip
-                    v-else-if="
-                      u.strategyType === 'static_header' && u.strategySubMode === 'tenant_owner'
-                    "
-                    text="Rotate shared secret"
-                  >
-                    <button
-                      type="button"
-                      class="rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
-                      :disabled="busy[u.publicId] === 'rotate-key'"
-                      :data-testid="`upstream-rotate-key-${u.identifier}`"
-                      @click="openRotateModal(u)"
-                    >
-                      <KeyRound
-                        :size="18"
-                        aria-hidden="true"
-                        :class="busy[u.publicId] === 'rotate-key' ? 'animate-spin' : ''"
                       />
                     </button>
                   </Tooltip>
@@ -571,17 +567,6 @@ const noMatches = computed(
                     </button>
                   </Tooltip>
 
-                  <!-- Per-user link actions -->
-                  <Tooltip text="Connected">
-                    <button
-                      v-if="u.linkState === LinkState.CONNECTED"
-                      type="button"
-                      disabled
-                      class="rounded-md p-1.5 text-on-surface-variant opacity-40"
-                    >
-                      <Link2Off :size="18" aria-hidden="true" />
-                    </button>
-                  </Tooltip>
                   <Tooltip text="Edit">
                     <button
                       type="button"

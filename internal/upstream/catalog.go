@@ -100,6 +100,7 @@ func listUpstreamTools(
 	lctx := LinkContext{Tenant: tenant, Upstream: up, Link: link, TenantLink: tenantLink}
 	if link != nil {
 		lctx.User = link.User
+		lctx.ServiceAccountID = link.ServiceAccountID
 	}
 	headers, err := strat.Headers(ctx, lctx)
 	if err != nil {
@@ -108,7 +109,7 @@ func listUpstreamTools(
 
 	dialCtx, cancelDial := context.WithTimeout(ctx, indexTimeout)
 	defer cancelDial()
-	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, httpClient, indexTimeout, "limen-indexer", "0.1.0")
+	c, err := DialAndInitialize(dialCtx, up.McpServerURL, headers, httpClient, indexTimeout, "limen-indexer", "0.1.0", up.Identifier)
 	if err != nil {
 		return nil, err
 	}

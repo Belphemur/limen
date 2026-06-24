@@ -13,7 +13,7 @@ Limen is a Model Context Protocol (MCP) gateway written in Go. It aggregates ups
 
 Limen also includes a **Code Mode** feature — a JavaScript sandbox powered by Goja that lets you compose tools and define custom logic server-side. The sandbox has no filesystem or network access; only explicitly injected tool functions are available.
 
-Limen ships as **five binaries** built from a single Go module (see Phase 9a). All five share `internal/boot` and `internal/*` packages; the split is at the entry-point + Docker-image boundary only.
+Limen ships as **six binaries** built from a single Go module (see Phase 9a). All six share `internal/boot` and `internal/*` packages; the split is at the entry-point + Docker-image boundary only.
 
 ## Architecture
 
@@ -121,7 +121,7 @@ start if the database is un-migrated.
 make build           # or: go build ./cmd/...
 
 # Regenerate Go + TypeScript bindings from proto/
-buf generate        # writes internal/portal/portalv1{,connect}/* and web/src/gen/*
+buf generate        # writes internal/portal/portalv1{,connect}/* and web/*/src/gen/*
 
 # Build the Vue SPA (web/)
 cd web && pnpm install --frozen-lockfile && pnpm build
@@ -157,7 +157,7 @@ discovery endpoint on the root router; all are wired by
 - Package manager: **pnpm v11** via Corepack (`"packageManager": "pnpm@11.x.x"`
   in `web/package.json`). `npm install` / `yarn install` are not supported.
 - Codegen: `pnpm run gen` (a `pnpm build` prebuild hook) shells out to
-  `buf generate`. The generated TS lives under `web/src/gen/` and is
+  `buf generate`. The generated TS lives under `web/*/src/gen/` (e.g., `web/portal/src/gen/`, `web/admin/src/gen/`) and is
   `.gitignore`d; the Go bindings under `internal/portal/portalv1/` are
   checked in.
 - Connect-ES v2: the `bufbuild/es:v2.x` plugin emits both messages and
@@ -179,7 +179,6 @@ trip.
 ```bash
 go mod tidy
 go fmt ./...
-go fix ./...
 go vet ./...
 go build ./...
 golangci-lint run ./...
@@ -243,11 +242,14 @@ the reference shape for any new DB-backed test.
 
 ### Integration tests
 
-Integration tests use `testcontainers-go` with `postgres:18-alpine`:
+Integration tests live **per-package** as `*_integration_test.go` files,
+gated by the `//go:build integration` build tag, and use
+`testcontainers-go` with `postgres:18-alpine`. They sit next to the code
+they cover rather than in a shared `tests/integration/` tree.
 
 ```bash
 # Run integration tests (requires Docker)
-go test ./tests/integration/... -v
+go test -tags integration ./...
 ```
 
 All scenarios run against an ephemeral Postgres container with the full

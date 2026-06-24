@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Server, Users, KeyRound, ArrowRight, Copy, Share2 } from '@lucide/vue'
+import { Server, Users, KeyRound, Code2, Copy, Share2 } from '@lucide/vue'
 import { fetchDiscovery, useSessionStore } from '@limen/shared'
 import { tenantPrefix } from '@limen/shared/session'
 import { create } from '@bufbuild/protobuf'
@@ -10,10 +10,10 @@ import { UpdateTenantSettingsRequestSchema } from '@/gen/limen/admin/v1/admin_pb
 import { type UpstreamSummary } from '@/gen/limen/portal/v1/portal_pb.ts'
 import { ROUTES } from '@/router/routes'
 import SetupProgress from '@/components/SetupProgress.vue'
-import TaskBentoCard from '@/components/TaskBentoCard.vue'
+import OnboardingTaskCard from '@/components/OnboardingTaskCard.vue'
 import SystemHealthEmpty from '@/components/SystemHealthEmpty.vue'
 import QuickResources from '@/components/QuickResources.vue'
-import BillingChart from '@/components/BillingChart.vue'
+import BillingChart, { type BillingDataPoint } from '@/components/BillingChart.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -22,19 +22,20 @@ const session = useSessionStore()
 // dashboard only needs the "was it ever set?" signal for each
 // onboarding timestamp.
 interface DashboardSettings {
+  choseIde: boolean
   invitedTeam: boolean
   configured: boolean
 }
 
 const upstreams = ref<UpstreamSummary[]>([])
-const settings = ref<DashboardSettings>({ invitedTeam: false, configured: false })
+const settings = ref<DashboardSettings>({ choseIde: false, invitedTeam: false, configured: false })
 const zitadelOrgId = ref('')
 const issuer = ref('')
 const hasActiveUserData = ref(false)
 const hasSAConnectionData = ref(false)
 
 const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
-  const resp = await (adminClient() as any).getActiveUserChart({
+  const resp = await adminClient().getActiveUserChart({
     fromDate: params.from
       ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
       : undefined,
@@ -45,11 +46,10 @@ const fetchActiveUserData = async (params: { from?: Date; to?: Date }) => {
     days: resp.days,
   }
 }
-
-const mapActiveUserData = (day: Record<string, any>) => (day.activeUserCount as number) ?? 0
+const mapActiveUserData = (day: BillingDataPoint) => (day.activeUserCount as number) ?? 0
 
 const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
-  const resp = await (adminClient() as any).getSAConnectionChart({
+  const resp = await adminClient().getSAConnectionChart({
     fromDate: params.from
       ? { seconds: BigInt(Math.floor(params.from.getTime() / 1000)) }
       : undefined,
@@ -61,7 +61,7 @@ const fetchSAConnectionData = async (params: { from?: Date; to?: Date }) => {
   }
 }
 
-const mapSAConnectionData = (day: Record<string, any>) => (day.peakConnections as number) ?? 0
+const mapSAConnectionData = (day: BillingDataPoint) => (day.peakConnections as number) ?? 0
 
 onMounted(async () => {
   await Promise.all([
@@ -69,34 +69,49 @@ onMounted(async () => {
     portalClient()
       .listUpstreams({})
       .then((r) => (upstreams.value = r.upstreams))
-      .catch(() => {}),
+      .catch((err) => console.error('Failed to load upstreams:', err)),
     adminClient()
       .getTenantSettings({})
       .then((r) => {
         settings.value = {
+          choseIde: (r.settings?.choseIdeAt ?? '') !== '',
           invitedTeam: (r.settings?.invitedTeamAt ?? '') !== '',
           configured: (r.settings?.configuredAt ?? '') !== '',
         }
         zitadelOrgId.value = r.zitadelOrgId
       })
-      .catch(() => {}),
+      .catch((err) => console.error('Failed to load tenant settings:', err)),
     fetchDiscovery()
       .then((d) => (issuer.value = d.zitadelIssuer))
-      .catch(() => (issuer.value = '')),
+      .catch((err) => {
+        console.error('Failed to fetch discovery:', err)
+        issuer.value = ''
+      }),
     // Billing chart data availability checks
-    (adminClient() as any)
+    adminClient()
       .getActiveUserChart({})
-      .then((r: any) => { hasActiveUserData.value = r.hasData })
-      .catch((err: any) => { console.error('Failed to pre-check active user chart data availability:', err) }),
-    (adminClient() as any)
+      .then((r) => {
+        hasActiveUserData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error('Failed to pre-check active user chart data availability:', err)
+      }),
+    adminClient()
       .getSAConnectionChart({})
-      .then((r: any) => { hasSAConnectionData.value = r.hasData })
-      .catch((err: any) => { console.error('Failed to pre-check service account connection chart data availability:', err) }),
+      .then((r) => {
+        hasSAConnectionData.value = r.hasData
+      })
+      .catch((err) => {
+        console.error(
+          'Failed to pre-check service account connection chart data availability:',
+          err,
+        )
+      }),
   ])
 })
 
 interface Step {
-  key: 'connect' | 'invite' | 'configure'
+  key: 'connect' | 'ide' | 'invite' | 'configure'
   done: boolean
 }
 
@@ -105,6 +120,7 @@ const steps = computed<Step[]>(() => [
     key: 'connect',
     done: upstreams.value.some((u) => u.tools.length > 0 && u.hasTenantLink),
   },
+  { key: 'ide', done: settings.value.choseIde },
   { key: 'invite', done: settings.value.invitedTeam },
   { key: 'configure', done: settings.value.configured },
 ])
@@ -133,26 +149,26 @@ async function copyPortalUrl() {
 
 async function openMembers() {
   try {
-    const resp = await adminClient().updateTenantSettings(
+    await adminClient().updateTenantSettings(
       create(UpdateTenantSettingsRequestSchema, { invitedTeamAtNow: true }),
     )
-    settings.value.invitedTeam = (resp.settings?.invitedTeamAt ?? '') !== ''
-  } catch {
     settings.value.invitedTeam = true
+    router.push(ROUTES.members)
+  } catch (err) {
+    console.error('Failed to mark members as opened:', err)
   }
-  void router.push(ROUTES.members)
 }
 
 async function openServiceAccounts() {
   try {
-    const resp = await adminClient().updateTenantSettings(
+    await adminClient().updateTenantSettings(
       create(UpdateTenantSettingsRequestSchema, { configuredAtNow: true }),
     )
-    settings.value.configured = (resp.settings?.configuredAt ?? '') !== ''
-  } catch {
     settings.value.configured = true
+    router.push(ROUTES.serviceAccounts)
+  } catch (err) {
+    console.error('Failed to mark service accounts as opened:', err)
   }
-  void router.push(ROUTES.serviceAccounts)
 }
 </script>
 
@@ -177,34 +193,38 @@ async function openServiceAccounts() {
       class="grid gap-gutter md:grid-cols-2 xl:grid-cols-3"
       aria-label="Setup tasks"
     >
-      <TaskBentoCard
-        variant="primary"
+      <OnboardingTaskCard
         :icon="Server"
         title="Connect MCP Servers"
         body="Link your internal AI tools, external APIs, and custom data sources to the gateway."
         cta-label="Add First Server"
-        :cta-icon="ArrowRight"
         :done="isDone('connect')"
         data-step="connect"
         @activate="router.push(ROUTES.mcpServerNew)"
       />
-      <TaskBentoCard
-        variant="secondary"
+      <OnboardingTaskCard
         :icon="Users"
         title="Invite Your Team"
         body="Add collaborators to your organization to manage resources."
         cta-label="Manage Users"
-        :cta-icon="ArrowRight"
         :done="isDone('invite')"
         data-step="invite"
         @activate="openMembers"
       />
-      <TaskBentoCard
-        :variant="'primary'"
+      <OnboardingTaskCard
+        :icon="Code2"
+        title="Choose Your IDE"
+        body="Pre-load the official redirect URIs for the AI IDE your users will connect from."
+        cta-label="Pick IDEs"
+        :done="isDone('ide')"
+        data-step="ide"
+        @activate="router.push(ROUTES.ideConfiguration)"
+      />
+      <OnboardingTaskCard
         :icon="KeyRound"
-        :title="'Create Service Account'"
-        :body="'Generate an API token for cloud agents and CLI tools to access your gateway programmatically.'"
-        :cta-label="'Set Up Service Account'"
+        title="Create Service Account"
+        body="Generate an API token for cloud agents and CLI tools to access your gateway programmatically."
+        cta-label="Set Up Service Account"
         :done="isDone('configure')"
         data-step="configure"
         @activate="openServiceAccounts"

@@ -88,7 +88,7 @@ func (s *Strategy) ensureFresh(ctx context.Context, lctx upstream.LinkContext, f
 	// No user/link means the caller is the tenant-mode bootstrap path
 	// (e.g. CreateUpstream's inline IndexUpstream). Surface the
 	// documented sentinel so ProvisionTenantMode can swallow it.
-	if lctx.User == nil || lctx.Link == nil {
+	if lctx.Link == nil || (!lctx.IsServiceAccount() && lctx.User == nil) {
 		return nil, upstream.ErrLinkNotFound
 	}
 	missing := make([]string, 0, 2)
@@ -105,11 +105,11 @@ func (s *Strategy) ensureFresh(ctx context.Context, lctx upstream.LinkContext, f
 		return nil, upstream.ErrNeedsRelink
 	}
 	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
-	userStr := strconv.FormatInt(lctx.User.ID, 10)
-	if err := lctx.Link.AccessToken.Decrypt(tenantStr, userStr, kindAccessToken); err != nil {
+	ownerStr := lctx.OwnerIDStr()
+	if err := lctx.Link.AccessToken.Decrypt(tenantStr, ownerStr, kindAccessToken); err != nil {
 		return nil, fmt.Errorf("mcpspec: decrypt access token: %w", err)
 	}
-	if err := lctx.Link.RefreshToken.Decrypt(tenantStr, userStr, kindRefreshToken); err != nil {
+	if err := lctx.Link.RefreshToken.Decrypt(tenantStr, ownerStr, kindRefreshToken); err != nil {
 		return nil, fmt.Errorf("mcpspec: decrypt refresh token: %w", err)
 	}
 	if !force && lctx.Link.ExpiresAt != nil && time.Until(*lctx.Link.ExpiresAt) > s.proWin {
@@ -294,7 +294,7 @@ func (s *Strategy) refreshLink(ctx context.Context, lctx upstream.LinkContext) (
 	}
 
 	tenantStr := strconv.FormatInt(lctx.Tenant.ID, 10)
-	userStr := strconv.FormatInt(lctx.User.ID, 10)
+	ownerStr := lctx.OwnerIDStr()
 
 	tx, commit, err := s.store.Session(storage.WithTenant(ctx, lctx.Tenant.ID))
 	if err != nil {
@@ -312,11 +312,11 @@ func (s *Strategy) refreshLink(ctx context.Context, lctx upstream.LinkContext) (
 		_ = commit()
 		return lctx.Link, nil
 	}
-	if err := locked.AccessToken.Decrypt(tenantStr, userStr, kindAccessToken); err != nil {
+	if err := locked.AccessToken.Decrypt(tenantStr, ownerStr, kindAccessToken); err != nil {
 		_ = commit()
 		return nil, fmt.Errorf("mcpspec: decrypt access_token: %w", err)
 	}
-	if err := locked.RefreshToken.Decrypt(tenantStr, userStr, kindRefreshToken); err != nil {
+	if err := locked.RefreshToken.Decrypt(tenantStr, ownerStr, kindRefreshToken); err != nil {
 		_ = commit()
 		return nil, fmt.Errorf("mcpspec: decrypt refresh_token: %w", err)
 	}
@@ -343,10 +343,10 @@ func (s *Strategy) refreshLink(ctx context.Context, lctx upstream.LinkContext) (
 	}
 
 	locked.AccessToken = crypto.NewSecret([]byte(tok.AccessToken))
-	locked.AccessToken.SetAAD(tenantStr, userStr, kindAccessToken)
+	locked.AccessToken.SetAAD(tenantStr, ownerStr, kindAccessToken)
 	if tok.RefreshToken != "" {
 		locked.RefreshToken = crypto.NewSecret([]byte(tok.RefreshToken))
-		locked.RefreshToken.SetAAD(tenantStr, userStr, kindRefreshToken)
+		locked.RefreshToken.SetAAD(tenantStr, ownerStr, kindRefreshToken)
 	}
 	if tok.ExpiresIn > 0 {
 		t := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)

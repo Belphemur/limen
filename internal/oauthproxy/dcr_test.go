@@ -99,9 +99,9 @@ func TestDCR_IgnoresUnknownMetadataFields(t *testing.T) {
 	// RFC 7591 §2: the authorization server MUST ignore unknown client
 	// metadata. The decoder should accept and silently drop extra fields
 	// rather than returning 400.
-	tn := &storage.Tenant{ZitadelOrgID: "org_a", DCREnabled: true}
+	tn := &storage.Tenant{ZitadelOrgID: "org_a"}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{}, &fakeAppManager{}, []string{"https://*.example.com/**"})
 
 	body := []byte(`{"redirect_uris":["https://app.example.com/cb"],"future_flag":true,"logo_uri":"https://app.example.com/logo.png"}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -115,25 +115,25 @@ func TestDCR_IgnoresUnknownMetadataFields(t *testing.T) {
 	}
 }
 
-func TestDCR_RequiresDCREnabledOnTenant(t *testing.T) {
-	tn := &storage.Tenant{DCREnabled: false}
+func TestDCR_EmptyAllowlistRejects(t *testing.T) {
+	tn := &storage.Tenant{}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{}, &fakeAppManager{}, nil)
 	req := httptest.NewRequest(http.MethodPost, "/",
 		bytes.NewReader([]byte(`{"redirect_uris":["https://app.example.com/cb"]}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req = dcrRequestCtx(req, tn)
 	rr := httptest.NewRecorder()
 	h.Register(rr, req)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rr.Code)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
 	}
 }
 
 func TestDCR_RequiresInitialAccessToken(t *testing.T) {
-	tn := &storage.Tenant{DCREnabled: true}
+	tn := &storage.Tenant{}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true, InitialAccessToken: "s3cret"}, &fakeAppManager{})
+	h := newDCRHandlerForValidation(t, DCRConfig{InitialAccessToken: "s3cret"}, &fakeAppManager{})
 
 	body := []byte(`{"redirect_uris":["https://app.example.com/cb"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -160,9 +160,9 @@ func TestDCR_RequiresInitialAccessToken(t *testing.T) {
 }
 
 func TestDCR_RejectsRedirectURIFailingFloor(t *testing.T) {
-	tn := &storage.Tenant{DCREnabled: true}
+	tn := &storage.Tenant{}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidation(t, DCRConfig{}, &fakeAppManager{})
 
 	body := []byte(`{"redirect_uris":["http://evil.example.com/cb"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -176,9 +176,9 @@ func TestDCR_RejectsRedirectURIFailingFloor(t *testing.T) {
 }
 
 func TestDCR_RejectsRedirectURIFailingAllowlist(t *testing.T) {
-	tn := &storage.Tenant{DCREnabled: true}
+	tn := &storage.Tenant{}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{DCREnabled: true}, &fakeAppManager{}, []string{"https://*.acme.com/**"})
+	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{}, &fakeAppManager{}, []string{"https://*.acme.com/**"})
 
 	body := []byte(`{"redirect_uris":["https://app.example.com/cb"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -194,7 +194,7 @@ func TestDCR_RejectsRedirectURIFailingAllowlist(t *testing.T) {
 func TestDCR_NormalizeDefaults(t *testing.T) {
 	tn := &storage.Tenant{ZitadelOrgID: "org_a"}
 	tn.PublicID = "tnt_a"
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidationWithAllowlist(t, DCRConfig{}, &fakeAppManager{}, []string{"https://*.example.com/**"})
 
 	norm, zin, err := h.normalize(context.Background(), tn, dcrRequest{RedirectURIs: []string{"https://app.example.com/cb"}})
 	if err != nil {
@@ -216,7 +216,7 @@ func TestDCR_NormalizeDefaults(t *testing.T) {
 
 func TestDCR_NormalizeRejectsBadGrantType(t *testing.T) {
 	tn := &storage.Tenant{ZitadelOrgID: "org_a"}
-	h := newDCRHandlerForValidation(t, DCRConfig{DCREnabled: true}, &fakeAppManager{})
+	h := newDCRHandlerForValidation(t, DCRConfig{}, &fakeAppManager{})
 	_, _, err := h.normalize(context.Background(), tn, dcrRequest{
 		RedirectURIs: []string{"https://app.example.com/cb"},
 		GrantTypes:   []string{"implicit"},

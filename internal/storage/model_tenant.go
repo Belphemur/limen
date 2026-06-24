@@ -15,7 +15,6 @@ type Tenant struct {
 	Base
 	Name         string `gorm:"type:text;not null"`
 	ZitadelOrgID string `gorm:"type:text;uniqueIndex;not null"`
-	DCREnabled   bool   `gorm:"not null;default:false"`
 }
 
 func (t *Tenant) BeforeCreate(_ *gorm.DB) error {

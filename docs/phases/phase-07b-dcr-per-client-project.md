@@ -1,10 +1,10 @@
 ---
 phase: "7b"
 title: "DCR per-client Zitadel projects (JIT in tenant org)"
-status: planned
-progress: 0
+status: completed
+progress: 100
 depends_on: ["5", "6"]
-updated: "2025-12-15"
+updated: "2026-06-14"
 ---
 
 # Phase 7b — DCR per-client Zitadel projects (JIT in tenant org)
@@ -205,16 +205,16 @@ The fake in `dcr_integration_test.go` records calls and asserts:
 
 ## Checklist
 
-- [ ] `internal/zitadel/projects.go::EnsureProject` lands with a unit test
-      stubbing `ProjectServiceV2`.
-- [ ] `AddOIDCAppInput.ProjectID` / `UpdateOIDCAppInput.ProjectID` / new
+- [x] `internal/zitadel/projects.go::EnsureProject` lands with a unit test
+stubbing `ProjectServiceV2`.
+- [x] `AddOIDCAppInput.ProjectID` / `UpdateOIDCAppInput.ProjectID` / new
       `projectID` args on Delete/Get; all callers updated.
-- [ ] `storage.ZitadelApp.ZitadelProjectID` column + migration applied;
+- [x] `storage.ZitadelApp.ZitadelProjectID` column + migration applied;
       AutoMigrate covers the new field shape.
-- [ ] `dcr.go::Register` creates the project first, persists the project id
+- [x] `dcr.go::Register` creates the project first, persists the project id
       on the mirror, threads it into `AddOIDCApp`.
-- [ ] `dcr.go::{Read,Update,Delete}` use `row.ZitadelProjectID`.
-- [ ] `fakeAppManager` in tests records `EnsureProject`; tests cover both
+- [x] `dcr.go::{Read,Update,Delete}` use `row.ZitadelProjectID`.
+- [x] `fakeAppManager` in tests records `EnsureProject`; tests cover both
       first-registration and idempotent-on-name paths.
-- [ ] `make` toolchain green (`go mod tidy`, `go fmt`, `go vet`,
+- [x] `make` toolchain green (`go mod tidy`, `go fmt`, `go vet`,
       `golangci-lint`, `go test ./...`).

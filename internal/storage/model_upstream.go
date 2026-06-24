@@ -42,6 +42,26 @@ func (u *Upstream) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+func (u *Upstream) BeforeDelete(tx *gorm.DB) error {
+	// Cascade soft-delete all related records in the same transaction.
+	if err := tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamLink{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamTenantLink{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamStrategyConfig{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamRegistration{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("upstream_id = ?", u.ID).Delete(&UpstreamTool{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // UpstreamStrategyConfig holds strategy-specific parameters as opaque-to-storage
 // JSON. mcp_spec and none leave ConfigJSON empty in v1.
 type UpstreamStrategyConfig struct {
@@ -79,6 +99,7 @@ type UpstreamRegistration struct {
 	RegistrationAccessToken crypto.SecretField `gorm:"type:bytea"`
 	RegistrationClientURI   string             `gorm:"type:text"`
 	ResourceURI             string             `gorm:"type:text;not null"`
+	RedirectURI             string             `gorm:"type:text;not null;default:''"`
 
 	Tenant   *Tenant   `gorm:"foreignKey:TenantID;constraint:OnDelete:CASCADE"`
 	Upstream *Upstream `gorm:"foreignKey:UpstreamID;constraint:OnDelete:CASCADE"`

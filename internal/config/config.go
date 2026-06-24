@@ -177,8 +177,6 @@ type SecurityConfig struct {
 // signing algorithm / token TTL / consent knobs of the old
 // OAuthServerConfig are gone. What remains:
 //
-//   - DCREnabled: global master kill-switch for /register*. Per-tenant
-//     gating still happens via Tenant.DCREnabled.
 //   - DCRInitialAccessToken: when set, /register requires this token
 //     (RFC 7591 §3); empty disables the check.
 //   - RateLimit: per-tenant token bucket applied to /register* — see
@@ -187,7 +185,6 @@ type SecurityConfig struct {
 // The Zitadel PAT / project ID are reused from the top-level zitadel:
 // block; do not duplicate them here.
 type OAuthProxyConfig struct {
-	DCREnabled            bool            `yaml:"dcr_enabled"`
 	DCRInitialAccessToken string          `yaml:"dcr_initial_access_token"`
 	RateLimit             RateLimitConfig `yaml:"rate_limit"`
 }

@@ -404,7 +404,7 @@ func (s PatternSet) CheckRedirectURI(raw string) error {
 		return err
 	}
 	if s.Empty() {
-		return nil
+		return fmt.Errorf("redirect_uri %q is not permitted: tenant has no DCR redirect URI allowlist patterns", raw)
 	}
 	if !s.Match(raw) {
 		return fmt.Errorf("redirect_uri %q is not permitted by the tenant allowlist", raw)

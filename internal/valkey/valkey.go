@@ -453,8 +453,8 @@ type inMemoryStreamEntry struct {
 
 type consumerGroupState struct {
 	lastDeliveredID string
-	consumers       map[string][]string // consumer name -> pending message IDs
-	deliveryCounts  map[string]int64    // message ID -> delivery count
+	consumers       map[string][]string  // consumer name -> pending message IDs
+	deliveryCounts  map[string]int64     // message ID -> delivery count
 	deliveryTimes   map[string]time.Time // message ID -> last delivery time
 }
 

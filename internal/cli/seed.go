@@ -73,7 +73,7 @@ so re-runs produce identical rows.`,
 			if err != nil {
 				return fmt.Errorf("open session: %w", err)
 			}
-			defer commit()
+			defer func() { _ = commit() }()
 
 			if err := tx.Transaction(func(t *gorm.DB) error {
 				gofakeit.Seed(42)
@@ -206,7 +206,6 @@ func seedTenant(t *gorm.DB, f *seedFlags) (*storage.Tenant, error) {
 		Base:         storage.Base{PublicID: f.tenantPublicID},
 		Name:         f.tenantName,
 		ZitadelOrgID: "zorg-" + gofakeit.UUID(),
-		DCREnabled:   true,
 	}
 	if err := t.Create(&tenant).Error; err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)

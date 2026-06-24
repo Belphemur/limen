@@ -288,7 +288,7 @@ async function runOAuthPopup(publicId: string) {
   const adminBase = window.location.pathname.startsWith(`${prefix}/admin/`)
     ? `${prefix}/admin`
     : prefix
-  const sc = await portalClient().startConnect({
+  const sc = await adminClient().startAdminConnect({
     upstreamPublicId: publicId,
     returnTo: `${window.location.origin}${adminBase}${ROUTES.oauthPopupClose}`,
   })

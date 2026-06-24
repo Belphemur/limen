@@ -4,6 +4,7 @@
 // Layout:
 //
 //	GET  /t/{tenant}/mcp/.well-known/oauth-protected-resource  (public PRM)
+//	GET  /.well-known/oauth-protected-resource/t/{tenant}/mcp  (public PRM, RFC 9728 §3.2)
 //	GET  /t/{tenant}/mcp/sse        (SSE stream, bearer required)
 //	POST /t/{tenant}/mcp/message    (JSON-RPC ingest, bearer required)
 //
@@ -66,6 +67,16 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 			// on method (POST/GET/DELETE) so a single mount serves all.
 			ar.Handle("/", deps.MCPServer.StreamableHandler())
 		})
+	})
+
+	// RFC 9728 §3.2 host-root PRM discovery for strict MCP clients
+	// (mcp-inspector, MCP TypeScript SDK, Claude Desktop). The
+	// well-known URI sits between the origin and the resource path
+	// so the server can publish metadata without the client knowing
+	// the full resource-path prefix ahead of time.
+	r.Route("/.well-known/oauth-protected-resource/t/{tenant}/mcp", func(wr chi.Router) {
+		wr.Use(tenancy.RequireTenant(deps.Store, logger))
+		wr.Get("/", deps.Metadata.ServeHTTP)
 	})
 	return nil
 }

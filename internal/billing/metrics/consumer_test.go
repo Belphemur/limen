@@ -67,11 +67,19 @@ type xAckFailClient struct {
 	fields     map[string]string
 }
 
-func (m *xAckFailClient) SetEX(_ context.Context, _ string, _ []byte, _ time.Duration) error { return nil }
-func (m *xAckFailClient) SetNX(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) { return true, nil }
-func (m *xAckFailClient) GetDel(_ context.Context, _ string) ([]byte, error) { return nil, valkey.ErrNotFound }
+func (m *xAckFailClient) SetEX(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return nil
+}
+func (m *xAckFailClient) SetNX(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
+	return true, nil
+}
+func (m *xAckFailClient) GetDel(_ context.Context, _ string) ([]byte, error) {
+	return nil, valkey.ErrNotFound
+}
 func (m *xAckFailClient) Del(_ context.Context, _ string) error { return nil }
-func (m *xAckFailClient) Get(_ context.Context, _ string) ([]byte, error) { return nil, valkey.ErrNotFound }
+func (m *xAckFailClient) Get(_ context.Context, _ string) ([]byte, error) {
+	return nil, valkey.ErrNotFound
+}
 func (m *xAckFailClient) Close() {}
 
 func (m *xAckFailClient) XAdd(_ context.Context, _ string, fields map[string]string, _ int64) (string, error) {
