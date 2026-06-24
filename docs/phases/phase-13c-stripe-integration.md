@@ -27,8 +27,8 @@ A standalone Go module following the same pattern as `scripts/zitadel-bootstrap/
 - **Separate module** — `go.mod` only depends on `stripe-go/v82`, not the Limen codebase
 - **Declarative state** — define desired Products, Prices, Features, Product Feature attachments, and Webhook endpoints in the Go source
 - **`ensureX` pattern** — every resource helper searches for existing resource first, creates if missing, updates if the definition changed, and is safe to re-run
-- **Archive/delete** — Features and Products cannot be deleted via the Stripe API. Instead, the bootstrap marks resources not in the desired state as `active: false` (archive) and logs them. Resources that exist but are not in the desired set are archived — the bootstrap converges to the declared state.
-- **Outputs IDs** — writes `STRIPE_DEVELOPER_PRODUCT_ID`, `STRIPE_TEAM_PRODUCT_ID`, `STRIPE_TEAM_ACTIVE_USER_PRICE_ID`, `STRIPE_TEAM_SA_CONNECTION_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, etc. to `.bootstrap-out.env`
+- **Archive/delete** — Products cannot be deleted via the Stripe API. The bootstrap archives orphaned **managed** products by setting `active: false`. Orphan prices/features are currently left unchanged (only desired resources are ensured).
+- **Outputs IDs** — writes `STRIPE_DEVELOPER_PRODUCT_ID`, `STRIPE_TEAM_PRODUCT_ID`, `STRIPE_TEAM_ACTIVE_USER_PRICE_ID`, `STRIPE_TEAM_SA_CONNECTION_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, etc. to `.bootstrap-out.env` (`STRIPE_WEBHOOK_SECRET` is preserved from `STRIPE_WEBHOOK_SECRET` env var for existing webhook endpoints because Stripe does not return secrets after creation)
 - **Idempotent** — safe to re-run, only touches resources that differ from desired state
 
 **Resource definitions (declared in Go source):**
@@ -46,8 +46,6 @@ type DesiredProduct struct {
     Key         string // "developer" or "team"
     Name        string // "Limen Developer" or "Limen Team"
     Description string
-    Active      bool
-    Metadata    map[string]string
 }
 
 type DesiredPrice struct {
@@ -63,7 +61,6 @@ type DesiredPrice struct {
 type DesiredFeature struct {
     LookupKey string // e.g. "max-user_1", "code-mode"
     Name      string // "Maximum 1 Active User"
-    Active    bool
 }
 
 type DesiredProductFeature struct {
@@ -72,9 +69,9 @@ type DesiredProductFeature struct {
 }
 
 type DesiredWebhookEndpoint struct {
-    URL           string
-    EnabledEvents []string
-    Description   string
+    URL         string
+    Events      []string
+    Description string
 }
 ```
 
@@ -82,11 +79,11 @@ type DesiredWebhookEndpoint struct {
 
 1. List all existing Products from Stripe → for each, compare with desired state:
    - In desired & matches → no-op
-   - In desired & differs → update (name, description, metadata)
-   - Not in desired → set `active: false` (archive), log warning
+   - In desired & differs → update (description, active flag, Limen-managed metadata marker)
+   - Not in desired and marked Limen-managed metadata → set `active: false` (archive)
    - In desired but not existing → create
 2. List all existing Prices → same converge pattern (by lookup_key)
-3. List all existing Features → converge (by lookup_key); note: Features cannot be deleted, only archived
+3. List all existing Features → converge (by lookup_key): update names for desired features, create missing desired features; features not in desired are currently left unchanged
 4. For each Product, list attached Features → converge attachments (attach missing, no-op matching)
 5. List webhook endpoints → converge (by URL)
 
@@ -236,7 +233,7 @@ Proto added to `proto/limen/portal/v1/portal.proto`.
 
 - **Bootstrap idempotency**: run `stripe-bootstrap` twice against same Stripe account → second run is no-op, all IDs identical
 - **Bootstrap convergence**: add a new feature to desired state → re-run → feature created and attached to products
-- **Bootstrap archive**: remove a feature from desired state → re-run → feature archived (active: false), logged
+- **Bootstrap archive**: remove a feature from desired state → re-run → feature remains in Stripe (current behavior), desired features still converge
 - **Subscribe happy path**: tenant owner clicks "Upgrade to Team" → Stripe Checkout opens in test mode → completes with test card `4242 4242 4242 4242` → returns to portal with `status=trialing`, `plan=team`
 - **Entitlement webhook — subscribe**: subscribe via Stripe → `entitlements.active_entitlement_summary.updated` fires → `tenant_entitlements` populated correctly → `plan` derived correctly
 - **Entitlement webhook — upgrade**: upgrade from Developer to Team → webhook fires → entitlements updated → plan flips to 'team'
@@ -255,10 +252,10 @@ Proto added to `proto/limen/portal/v1/portal.proto`.
 - [x] `main.go` with DesiredState struct populated with 2 Products, 3 Prices, 14 Features, attachments, webhook
 - [x] `ensureProduct` helper: list + converge (create/update/archive) by name
 - [x] `ensurePrice` helper: list + converge by lookup_key
-- [x] `ensureFeature` helper: list + converge by lookup_key (archives not in desired state)
+- [x] `ensureFeature` helper: list + converge by lookup_key (leaves non-desired features unchanged)
 - [x] `ensureProductFeature` helper: list attachments + converge (attach missing)
 - [x] `ensureWebhookEndpoint` helper: list + converge by URL
-- [x] Archive logic: resources not in desired state → `active: false`, log warning
+- [x] Archive logic: managed products not in desired state → `active: false`
 - [x] Output IDs to `.bootstrap-out.env` in KEY=VALUE format
 - [x] `AGENTS.md` documenting: what it does, how to run, idempotency guarantees, adding new resources
 - [ ] Makefile target: `make stripe-bootstrap` runs `go run ./scripts/stripe-bootstrap/`

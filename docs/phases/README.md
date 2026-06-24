@@ -381,10 +381,10 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] DesiredState populated: 2 Products, 3 Prices, 14 Features, attachments, webhook
 - [x] ensureProduct: list + converge (create/update/archive) by name
 - [x] ensurePrice: list + converge by lookup_key
-- [x] ensureFeature: list + converge by lookup_key (archive removed features)
+- [x] ensureFeature: list + converge by lookup_key (leaves non-desired features unchanged)
 - [x] ensureProductFeature: list attachments + converge (attach missing)
 - [x] ensureWebhookEndpoint: list + converge by URL
-- [x] Archive logic: resources not in desired state → active: false
+- [x] Archive logic: managed products not in desired state → active: false
 - [x] Output IDs to .bootstrap-out.env
 - [x] AGENTS.md documenting bootstrap script
 - [ ] Makefile target: make stripe-bootstrap

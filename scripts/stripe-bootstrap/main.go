@@ -12,7 +12,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/stripe/stripe-go/v82/product"
 	"github.com/stripe/stripe-go/v82/productfeature"
 	"github.com/stripe/stripe-go/v82/webhookendpoint"
+	"go.uber.org/zap"
 )
 
 // DesiredProduct defines a product that must exist in Stripe.
@@ -71,6 +71,11 @@ type WebhookInfo struct {
 // bootstrap holds the Stripe client configuration.
 type bootstrap struct{}
 
+const (
+	managedResourceMetadataKey   = "limen_managed"
+	managedResourceMetadataValue = "true"
+)
+
 // ensureProducts lists all products, converges with desired state
 // (create/update/archive), and returns map[productKey]stripeID.
 func (b *bootstrap) ensureProducts(desired []DesiredProduct) (map[string]string, error) {
@@ -92,14 +97,16 @@ func (b *bootstrap) ensureProducts(desired []DesiredProduct) (map[string]string,
 		}
 		d, ok := desiredByName[p.Name]
 		if !ok {
+			if p.Metadata[managedResourceMetadataKey] != managedResourceMetadataValue {
+				continue
+			}
 			// Orphan — archive it.
 			if p.Active {
-				log.Printf("warning: archiving orphan product %q (%s)", p.Name, p.ID)
 				_, err := product.Update(p.ID, &stripe.ProductParams{
 					Active: stripe.Bool(false),
 				})
 				if err != nil {
-					log.Printf("warning: failed to archive product %s: %v", p.ID, err)
+					return nil, fmt.Errorf("archive orphan product %q (%s): %w", p.Name, p.ID, err)
 				}
 			}
 			continue
@@ -116,11 +123,14 @@ func (b *bootstrap) ensureProducts(desired []DesiredProduct) (map[string]string,
 			needsUpdate = true
 			updateParams.Description = stripe.String(d.Description)
 		}
+		if p.Metadata[managedResourceMetadataKey] != managedResourceMetadataValue {
+			needsUpdate = true
+			updateParams.AddMetadata(managedResourceMetadataKey, managedResourceMetadataValue)
+		}
 		if needsUpdate {
 			if _, err := product.Update(p.ID, updateParams); err != nil {
 				return nil, fmt.Errorf("update product %q: %w", d.Key, err)
 			}
-			log.Printf("updated product %q (%s)", d.Key, p.ID)
 		}
 	}
 	if err := iter.Err(); err != nil {
@@ -132,16 +142,17 @@ func (b *bootstrap) ensureProducts(desired []DesiredProduct) (map[string]string,
 		if _, ok := found[d.Key]; ok {
 			continue
 		}
-		p, err := product.New(&stripe.ProductParams{
+		params := &stripe.ProductParams{
 			Name:        stripe.String(d.Name),
 			Description: stripe.String(d.Description),
 			Active:      stripe.Bool(true),
-		})
+		}
+		params.AddMetadata(managedResourceMetadataKey, managedResourceMetadataValue)
+		p, err := product.New(params)
 		if err != nil {
 			return nil, fmt.Errorf("create product %q: %w", d.Key, err)
 		}
 		found[d.Key] = p.ID
-		log.Printf("created product %q (%s)", d.Key, p.ID)
 	}
 
 	return found, nil
@@ -168,14 +179,11 @@ func (b *bootstrap) ensurePrices(desired []DesiredPrice, productIDs map[string]s
 	params.Limit = stripe.Int64(100)
 	iter := price.List(params)
 
-	// Collect all prices to detect orphaned ones later.
-	var allPrices []*stripe.Price
 	for iter.Next() {
 		pr := iter.Price()
 		if pr == nil || pr.LookupKey == "" {
 			continue
 		}
-		allPrices = append(allPrices, pr)
 		if d, ok := desiredKeys[pr.LookupKey]; ok {
 			found[d.Key] = pr.ID
 		}
@@ -184,17 +192,9 @@ func (b *bootstrap) ensurePrices(desired []DesiredPrice, productIDs map[string]s
 		return nil, fmt.Errorf("list prices: %w", err)
 	}
 
-	// Log orphan prices (exist in Stripe but not in desired set).
-	for _, pr := range allPrices {
-		if _, ok := desiredKeys[pr.LookupKey]; !ok {
-			log.Printf("warning: orphaned price %q (%s) exists in Stripe but is not desired", pr.LookupKey, pr.ID)
-		}
-	}
-
 	// Create missing prices.
 	for _, d := range desired {
 		if _, ok := found[d.Key]; ok {
-			log.Printf("found price %q (%s)", d.Key, d.LookupKey)
 			continue
 		}
 
@@ -219,14 +219,13 @@ func (b *bootstrap) ensurePrices(desired []DesiredPrice, productIDs map[string]s
 			return nil, fmt.Errorf("create price %q: %w", d.Key, err)
 		}
 		found[d.Key] = pr.ID
-		log.Printf("created price %q (%s)", d.Key, pr.ID)
 	}
 
 	return found, nil
 }
 
-// ensureFeatures searches by lookup_key, creates if missing, logs orphaned
-// features, and returns map[lookupKey]stripeID.
+// ensureFeatures searches by lookup_key, creates if missing, and returns
+// map[lookupKey]stripeID.
 func (b *bootstrap) ensureFeatures(desired []DesiredFeature) (map[string]string, error) {
 	desiredByKey := make(map[string]DesiredFeature, len(desired))
 	for _, d := range desired {
@@ -254,10 +253,7 @@ func (b *bootstrap) ensureFeatures(desired []DesiredFeature) (map[string]string,
 				if err != nil {
 					return nil, fmt.Errorf("update feature %q name: %w", f.LookupKey, err)
 				}
-				log.Printf("updated feature %q name to %q", f.LookupKey, d.Name)
 			}
-		} else {
-			log.Printf("warning: orphaned feature %q (%s) exists in Stripe but is not desired", f.LookupKey, f.ID)
 		}
 	}
 	if err := iter.Err(); err != nil {
@@ -277,7 +273,6 @@ func (b *bootstrap) ensureFeatures(desired []DesiredFeature) (map[string]string,
 			return nil, fmt.Errorf("create feature %q: %w", d.LookupKey, err)
 		}
 		found[d.LookupKey] = f.ID
-		log.Printf("created feature %q (%s)", d.LookupKey, f.ID)
 	}
 
 	return found, nil
@@ -330,7 +325,6 @@ func (b *bootstrap) ensureProductFeatures(desired []DesiredProductFeature, produ
 			if err != nil {
 				return fmt.Errorf("attach feature %q to product %q: %w", fk, productKey, err)
 			}
-			log.Printf("attached feature %q to product %q", fk, productKey)
 		}
 	}
 
@@ -368,7 +362,6 @@ func (b *bootstrap) ensureWebhookEndpoints(desired []DesiredWebhookEndpoint) (ma
 				if err != nil {
 					return nil, fmt.Errorf("update webhook endpoint %q: %w", d.URL, err)
 				}
-				log.Printf("updated webhook endpoint %q events", d.URL)
 			}
 			found[d.URL] = WebhookInfo{ID: existing.ID, Secret: existing.Secret}
 			continue
@@ -384,7 +377,6 @@ func (b *bootstrap) ensureWebhookEndpoints(desired []DesiredWebhookEndpoint) (ma
 			return nil, fmt.Errorf("create webhook endpoint %q: %w", d.URL, err)
 		}
 		found[d.URL] = WebhookInfo{ID: we.ID, Secret: we.Secret}
-		log.Printf("created webhook endpoint %q (%s)", d.URL, we.ID)
 	}
 
 	return found, nil
@@ -419,10 +411,21 @@ var outputKeys = []string{
 
 func main() {
 	// stripe-go uses its own HTTP client; no context plumbing needed for bootstrap.
+	logger, err := zap.NewProduction()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	apiKey := os.Getenv("STRIPE_API_KEY")
 	if apiKey == "" {
-		log.Fatal("STRIPE_API_KEY not set")
+		logger.Fatal("STRIPE_API_KEY not set")
+	}
+	if strings.HasPrefix(apiKey, "sk_live_") && os.Getenv("STRIPE_BOOTSTRAP_ALLOW_LIVE") != "1" {
+		logger.Fatal("refusing live Stripe key; set STRIPE_BOOTSTRAP_ALLOW_LIVE=1 to override intentionally")
 	}
 	stripe.Key = apiKey
 
@@ -435,10 +438,10 @@ func main() {
 	}
 	productIDs, err := b.ensureProducts(desiredProducts)
 	if err != nil {
-		log.Fatalf("ensure products: %v", err)
+		logger.Fatal("ensure products", zap.Error(err))
 	}
 	for k, id := range productIDs {
-		log.Printf("product %q: %s", k, id)
+		logger.Info("product ensured", zap.String("key", k), zap.String("id", id))
 	}
 
 	// --- Prices ---
@@ -476,10 +479,10 @@ func main() {
 	}
 	priceIDs, err := b.ensurePrices(desiredPrices, productIDs)
 	if err != nil {
-		log.Fatalf("ensure prices: %v", err)
+		logger.Fatal("ensure prices", zap.Error(err))
 	}
 	for k, id := range priceIDs {
-		log.Printf("price %q: %s", k, id)
+		logger.Info("price ensured", zap.String("key", k), zap.String("id", id))
 	}
 
 	// --- Features ---
@@ -501,10 +504,10 @@ func main() {
 	}
 	featureIDs, err := b.ensureFeatures(desiredFeatures)
 	if err != nil {
-		log.Fatalf("ensure features: %v", err)
+		logger.Fatal("ensure features", zap.Error(err))
 	}
 	for k, id := range featureIDs {
-		log.Printf("feature %q: %s", k, id)
+		logger.Info("feature ensured", zap.String("key", k), zap.String("id", id))
 	}
 
 	// --- Product-Feature Attachments ---
@@ -530,9 +533,9 @@ func main() {
 		{ProductKey: "team", FeatureKey: "ide-preset"},
 	}
 	if err := b.ensureProductFeatures(desiredProductFeatures, productIDs, featureIDs); err != nil {
-		log.Fatalf("ensure product features: %v", err)
+		logger.Fatal("ensure product features", zap.Error(err))
 	}
-	log.Printf("product-feature attachments ensured")
+	logger.Info("product-feature attachments ensured")
 
 	// --- Webhook Endpoint ---
 	webhookURL := os.Getenv("STRIPE_WEBHOOK_URL")
@@ -554,12 +557,20 @@ func main() {
 		}
 		webhookMap, err := b.ensureWebhookEndpoints(desiredWebhooks)
 		if err != nil {
-			log.Fatalf("ensure webhook endpoints: %v", err)
+			logger.Fatal("ensure webhook endpoints", zap.Error(err))
 		}
 		webhookInfo = webhookMap[webhookURL]
-		log.Printf("webhook endpoint: %s", webhookInfo.ID)
+		if webhookInfo.Secret == "" {
+			if envSecret := os.Getenv("STRIPE_WEBHOOK_SECRET"); envSecret != "" {
+				webhookInfo.Secret = envSecret
+				logger.Warn("webhook secret not returned by Stripe; using STRIPE_WEBHOOK_SECRET from environment", zap.String("url", webhookURL))
+			} else {
+				logger.Fatal("webhook secret not returned by Stripe for existing endpoint; set STRIPE_WEBHOOK_SECRET to preserve idempotent output", zap.String("url", webhookURL))
+			}
+		}
+		logger.Info("webhook endpoint ensured", zap.String("id", webhookInfo.ID), zap.String("url", webhookURL))
 	} else {
-		log.Printf("STRIPE_WEBHOOK_URL not set, skipping webhook endpoint")
+		logger.Info("STRIPE_WEBHOOK_URL not set, skipping webhook endpoint")
 	}
 
 	// --- Output ---
@@ -579,7 +590,7 @@ func main() {
 		outPath = ".bootstrap-out.env"
 	}
 	if err := writeEnvFile(outPath, out); err != nil {
-		log.Fatalf("write %s: %v", outPath, err)
+		logger.Fatal("write output env file", zap.String("path", outPath), zap.Error(err))
 	}
 
 	fmt.Println("\n--- bootstrap output (copy into .env) ---")
