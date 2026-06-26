@@ -143,6 +143,43 @@ func (f *fakeServiceAccountDirectory) ListUserGrants(_ context.Context, orgID, u
 	return out, nil
 }
 
+func (f *fakeServiceAccountDirectory) ListOrgUsers(_ context.Context, orgID, search string) ([]zitadel.OrgUser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return nil, nil
+}
+
+func (f *fakeServiceAccountDirectory) AddHumanUser(_ context.Context, u zitadel.HumanUser) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counter++
+	id := fmt.Sprintf("human-%d", f.counter)
+	return id, nil
+}
+
+func (f *fakeServiceAccountDirectory) CreateInviteCode(_ context.Context, userID string) error {
+	return nil
+}
+
+func (f *fakeServiceAccountDirectory) UpdateUserGrant(_ context.Context, grantID string, roleKeys []string) error {
+	return nil
+}
+
+func (f *fakeServiceAccountDirectory) DeleteUser(_ context.Context, userID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted[userID] = true
+	return nil
+}
+
+func (f *fakeServiceAccountDirectory) AddOrgRoles(_ context.Context, orgID, userID string, roles []string) error {
+	return nil
+}
+
+func (f *fakeServiceAccountDirectory) RemoveOrgRoles(_ context.Context, orgID, userID string) error {
+	return nil
+}
+
 func mountRealSAWithConfig(t *testing.T, roles []string, zitadelDomain, zitadelProjectID string, cipher *crypto.Cipher) (adminv1connect.AdminServiceClient, *storage.Tenant, *storage.User, *fakeServiceAccountDirectory) {
 	t.Helper()
 	store := storagetest.OpenMigrated(t)
