@@ -23,18 +23,42 @@ function buildBaseUrl(): string {
   return `${window.location.origin}/t/${discoverTenant()}/api`
 }
 
+// billingHeaderFetch is the cookie-bearing fetch wrapper the portal
+// transport uses. On top of forwarding credentials, it peeks at the
+// `X-Limen-Billing` response header the server stamps on every
+// request that was served during a billing grace window and signals
+// the billing store to refresh. The store import is dynamic so the
+// client module stays usable in tests that haven't installed the
+// billing transport yet.
+const billingHeaderFetch: typeof globalThis.fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, { ...init, credentials: 'include' })
+  if (response.headers.get('X-Limen-Billing') === 'grace') {
+    // Lazy import: useBillingStore pulls in Pinia + the billing
+    // client transport pin, both of which may not be configured
+    // during the first test render. The store is a singleton, so
+    // importing it on first signal is safe.
+    void import('@limen/shared/billing').then(({ useBillingStore }) => {
+      useBillingStore().handleHeaderSignal()
+    })
+  }
+  return response
+}
+
 let cachedTransport: Transport | null = null
 let cached: Client<typeof PortalService> | null = null
 
 // portalTransport returns the process-wide cookie-bearing Connect
 // transport. The same transport is reused for SessionService (see
 // main.ts) so SessionService.GetSession and PortalService.* both
-// hit /t/{tenant}/api/ with credentials: 'include'.
+// hit /t/{tenant}/api/ with credentials: 'include'. It also drives
+// the response-header interceptor that feeds the billing store, so
+// every Connect call (PortalService + SessionService + BillingService)
+// is covered without per-service plumbing.
 export function portalTransport(): Transport {
   if (cachedTransport) return cachedTransport
   cachedTransport = createConnectTransport({
     baseUrl: buildBaseUrl(),
-    fetch: (input, init) => globalThis.fetch(input, { ...init, credentials: 'include' }),
+    fetch: billingHeaderFetch,
   })
   return cachedTransport
 }

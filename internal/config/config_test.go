@@ -174,6 +174,78 @@ security:
 	}
 }
 
+// billingBase is the minimal config scaffold needed to reach the Billing
+// section of applyDefaults without tripping unrelated validators.
+const billingBase = `
+server:
+  host: "127.0.0.1"
+  port: 8080
+  base_url: "https://limen.example.com"
+
+database:
+  dsn: "postgres://limen:limen@localhost:5432/limen?sslmode=disable"
+
+security:
+  token_encryption_key: "%s"
+
+oauth_proxy:
+  {}
+
+oidc:
+  issuer: "https://auth.limen.example.com"
+  client_id: "limen-portal"
+  redirect_uri: "https://limen.example.com/auth/callback"
+  scopes: ["openid", "profile", "email"]
+
+zitadel:
+  domain: "https://auth.limen.example.com"
+  auth_mode: "pat"
+  pat: "dev-pat"
+  project_id: "proj-1"
+  mcp_resource_audience: "limen-mcp"
+`
+
+// TestLoad_BillingGraceDaysDefault locks in the GraceDays default so a
+// future refactor of applyDefaults cannot silently weaken the grace window
+// (and the 402 from internal/billing/enforcer must keep firing past the
+// configured deadline).
+func TestLoad_BillingGraceDaysDefault(t *testing.T) {
+	key := randomHexKey(t)
+	cases := []struct {
+		name  string
+		extra string
+		want  int
+	}{
+		{
+			name:  "missing billing section still picks up default 14",
+			extra: "",
+			want:  14,
+		},
+		{
+			name:  "zero grace_days falls back to default 14",
+			extra: "\nbilling:\n  enabled: false\n",
+			want:  14,
+		},
+		{
+			name:  "explicit grace_days is preserved",
+			extra: "\nbilling:\n  enabled: false\n  grace_days: 30\n",
+			want:  30,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Replace(billingBase, "%s", key, 1) + tc.extra
+			cfg, err := Load(writeConfig(t, body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Billing.GraceDays != tc.want {
+				t.Fatalf("Billing.GraceDays = %d, want %d", cfg.Billing.GraceDays, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoad_ValidationErrors(t *testing.T) {
 	key := randomHexKey(t)
 	cases := map[string]string{

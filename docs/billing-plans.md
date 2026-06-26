@@ -1,7 +1,7 @@
 # Billing Plans & Entitlements
 
 **Status**: Canonical reference — single source of truth for billing plans, features, and enforcement.
-**Updated**: 2026-06-01
+**Updated**: 2026-06-26
 **Supersedes**: `docs/phases/phase-13-billing-stripe.md` (design intent — this doc is implementation reality)
 
 ## Plans
@@ -10,6 +10,101 @@
 |-------------|----------|-------------|------------------|---------------------------|--------------------------------------------|
 | **Developer** (free) | $0 | 1            | 1                | 1                         | Hard block at RPC level (4/03 Permission Denied) |
 | **Team** (paid)       | $X/user/mo + $Y/SA-conn/mo | Unlimited      | Unlimited        | Unlimited                 | No enforcement; billed by reconciler       |
+
+## Plan Lifecycle
+
+A tenant moves through a small set of billing states. The transitions are
+driven by Stripe webhooks on the back end and by the lifecycle middleware
+in `internal/billing/enforcer/lifecycle.go` on the request path. The two
+have to agree or the UX gets confusing, so they're designed to converge
+on the same `tenant_billing` row.
+
+### Developer (free, no Stripe)
+
+- The `tenant_billing` row is either absent or has
+  `plan = "developer"` and `status = "none"`. There is no Stripe customer
+  or subscription id.
+- Every request resolves `DeveloperEntitlements()` from
+  `entitlements.PlanEntitlements`. The hard limits
+  (`MaxActiveUsers = 1`, `MaxServiceAccounts = 1`,
+  `MaxSAConnections = 1`) are enforced by the per-RPC gates in
+  `internal/billing/enforcer/gates.go` — exceeding them returns
+  `connect.CodePermissionDenied` with a `billing.limit.*` payload.
+- The lifecycle middleware is a no-op on this state
+  (`status = "none"` → `decisionPass`, no downgrade candidate).
+
+### Team (paid, normal flow)
+
+1. **Active / trialing** — Stripe subscription is live. `status` mirrors
+   Stripe verbatim. The entitlement cache is populated from the
+   `tenant_entitlements` rows (populated by the
+   `entitlements.active_entitlement_summary.updated` webhook). Requests
+   resolve Team entitlements.
+2. **`invoice.payment_failed`** — Stripe webhook sets
+   `status = "past_due" | "unpaid"` and `grace_until = now + grace_days`
+   (default **14**). The lifecycle middleware returns `decisionPassGrace`
+   for the duration of the window: the request proceeds, the response
+   carries the `X-Limen-Billing: grace` header, and the portal SPA
+   renders the non-blocking warning banner.
+3. **`customer.subscription.deleted` / `subscription.updated` →
+   `canceled`** — the webhook runs `enforcer.DowngradeToDeveloper` in
+   the same tx, setting `plan = "developer"`, clearing `grace_until`,
+   hard-deleting the `tenant_entitlements` rows, and invalidating the
+   entitlement cache.
+
+### Auto-downgrade (cancellation + expired-grace recovery)
+
+The lifecycle middleware's `decisionPass` verdict covers two Stripe
+states that are *finished* rather than *paused*:
+
+- `canceled` — subscription is gone regardless of grace
+- `past_due` / `unpaid` whose grace window has expired (or was never
+  set, e.g. a webhook that never fired)
+
+For any of these, the middleware runs the **same**
+`enforcer.DowngradeToDeveloper` helper the webhook uses, inside an
+auto-managed tx, and invalidates the entitlement cache after commit.
+The tenant's next request resolves `DeveloperEntitlements()` from
+scratch and is served with developer limits rather than 402'd.
+
+The downgrade is **one-time and idempotent** — a request that arrives
+after the row is already on the Developer plan is a no-op (the helper
+short-circuits on `billing.Plan == DeveloperPlan`). The billing status
+remains whatever Stripe says it is (`canceled` / `past_due` /
+`unpaid`); only the `plan` and `grace_until` columns and the
+`tenant_entitlements` rows are mutated. The `tenant_billing` row
+therefore remains an accurate mirror of Stripe truth while the
+tenant operates under developer limits.
+
+**The 402 path is now reserved for the Stripe mid-flow states**
+(`incomplete`, `incomplete_expired`, `paused`) — the cases where the
+customer must complete checkout or un-pause before they can come
+back. These return `402 Payment Required` with
+`{"error": "payment required"}` and the portal renders the
+"finish checkout" page.
+
+### Recovery
+
+Recovery is fully reversible. The customer re-subscribes from the
+customer portal:
+
+1. `OpenCustomerPortal` RPC returns a Stripe-hosted URL.
+2. The customer picks the Team plan. Stripe fires
+   `checkout.session.completed` and the webhook re-creates the
+   `tenant_billing` row (or updates the existing one) with
+   `plan = "team"`, `status = "active"`, and a new subscription id.
+3. Stripe fires
+   `entitlements.active_entitlement_summary.updated` and the webhook
+   re-populates the `tenant_entitlements` rows.
+4. The next request invalidates / refreshes the entitlement cache
+   and the tenant is back on Team entitlements.
+
+No manual data fix-up is required at any step. The auto-downgrade
+path is purely additive — the only columns it mutates are
+`plan`, `grace_until`, and the `tenant_entitlements` table; the
+authoritative Stripe ids (`stripe_customer_id`,
+`stripe_subscription_id`) are preserved through
+`handleSubscriptionDeleted` so a resubscribe reuses the same customer.
 
 ## Feature Definitions (Stripe → Go → Gate)
 

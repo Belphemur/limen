@@ -49,8 +49,9 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
 | 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
-| 13d | [Plan Enforcement](phase-13d-plan-enforcement.md) | 13c | 🔶 (85%) |
+| 13d | [Plan Enforcement](phase-13d-plan-enforcement.md) | 13c | 🔶 (95%) |
 | 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md) | 4, 9b, 9c, 9i, 10, 11, 13b | ✅ |
+| 13e | [Portal Billing Page + Status Banner](phase-13e-portal-billing-page.md) | 13c, 13d | 🔶 (30%) |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
@@ -58,7 +59,7 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 19  | [CI Pipeline (Parallelized GHA tests and Gate checks)](phase-19-ci-pipeline.md)                               | 10, 13b                 | ✅           |
 | 20  | [CD Pipeline & Multi-Arch Packaging (GoReleaser + GHCR)](phase-20-cd-pipeline.md)                             | 19                      | ✅           |
 
-Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 13c (Stripe integration) is complete with all backend code, bootstrap script, and integration tests (entitlements + reconciler) done. Remaining items are integration tests and final hardening. Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
+Foundational phases (0–3) and the initial platform phases (4–8, 9a–9d) are substantially complete. Phase 8 (per-tenant injection) is at 77% — the resilience client is deferred to Phase 10. Portal (9b, 92%) and Admin (9c, 82%) SPAs are functional; remaining items are primarily signup (9h), IDE presets (9f), and integration tests. Active work continues on: Phase 10 (wiring/hardening), Phase 11 (production deployment), and Phases 9f–9l (IDE presets, static-header rework, self-serve signup, service accounts, impersonation UX, SA upstream linking, tenant-level MCP credentials). Phase 9g (static-header rework) and 9l (tenant-level mcp_spec) are sister phases that converge on the design principle: when credentials are tenant-wide, there should be no per-user link row. Phase 12 (staff/backoffice) layers on top of everything and is the last phase before declaring the platform production-ready for paying customers — but its bootstrap step is wired into Phase 0 (Zitadel org) and Phase 11 (migrate ensure-row) so the staff tenant exists from day one. Phase 13 (billing) is opt-in: self-hosters can run the gateway indefinitely with `billing.enabled: false` and never touch Stripe. Phase 13b (billing metrics pipeline) is at 71% — the core Valkey Streams pipeline, GORM models, migration, admin chart RPCs, and Vue chart components are complete. Remaining items are integration tests, Prometheus metrics, the dead-letter stream, and the all-in-one fallback path. Phase 13c (Stripe integration) is complete with all backend code, bootstrap script, and integration tests (entitlements + reconciler) done. Remaining items are integration tests and final hardening. Phase 13d (Plan Enforcement) is at 95% — the entitlement cache, feature gates, BillingInterceptor, lifecycle state machine, and the new cancellation + expired-grace auto-downgrade path (via `enforcer.DowngradeToDeveloper` in `internal/billing/enforcer/downgrade.go`, called from both the Stripe webhook and the `RequireBillingActive` middleware) are all in place. The 402 path is now reserved for the Stripe mid-flow states (`incomplete`, `incomplete_expired`, `paused`); cancelled or grace-expired tenants are auto-downgraded to the Developer plan on the next request. Remaining items are integration tests and the deferred feature gates (CodeMode, AdvancedAI, SSOSAML, AuditLogs, MaxProjects, Storage). Phase 13e (Portal Billing Page + Status Banner) is at 30% — the shared `useBillingStore` (Pinia) with an exhaustive `bannerState` (5 states), reactive `X-Limen-Billing: grace` header plumbing, and the `BillingBanner` component landed today for both SPAs. Remaining items are the `BillingPage.vue` (`/billing`), the Playwright e2e spec, and final type-check / lint verification. Phase 19 (CI Pipeline) is complete (100%) — our parallelized CI pipeline (`.github/workflows/ci.yml`) has been successfully implemented and verified, with 5 parallel test jobs and a robust Merge Gate isolating backend unit, backend integration, frontend unit, and frontend E2E test suites. Progress: 100% — build tag isolation complete (24 test files tagged), unit and integration test suites verified independently, `.node-version` file created, GHA workflow implemented, and actionlint validation passed. Phase 20 (CD Pipeline & Multi-Arch Packaging) follows, using GoReleaser to publish multi-architecture Docker images to GHCR on version-tagged releases.
 
 ## Global checklist
 
@@ -410,7 +411,7 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 ### Phase 13d — Plan Enforcement
 
-- [x] Entitlement enforcer package (`internal/billing/enforcer/`) with 7 files
+- [x] Entitlement enforcer package (`internal/billing/enforcer/`) with 8 files (added `downgrade.go`)
 - [x] Context injection (`WithEntitlements` / `EntitlementsFromContext`)
 - [x] Valkey-backed entitlement cache with DB fallback (5-min TTL)
 - [x] `ErrFeatureLocked` structured error with feature key, limit, usage
@@ -421,11 +422,51 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 - [x] `CreateServiceAccount` RPC gated on `MaxActiveUsers`
 - [x] `StartServiceAccountConnect` RPC gated on `MaxSAConnections`
 - [x] Webhook cache invalidation on `entitlements.active_entitlement_summary.updated`
+- [x] Webhook cache invalidation on `customer.subscription.updated` and `customer.subscription.deleted` (gated on commit success AND `billing.TenantID != 0`)
 - [x] Enforcer created in `billingmount.Mount()` and passed through Dependencies
 - [x] `serveportal` and `serveall` reordered: billingmount before portalmount
-- [x] 23 unit tests for enforcer package
+- [x] `RequireBillingActive` signature now takes `*Enforcer` so the lifecycle middleware can invalidate the cache after auto-downgrade
+- [x] `servegateway` constructs `*Enforcer` inline (no `billingmount` import) to preserve the `cmd/gateway` import-graph test
+- [x] `enforcer.DowngradeToDeveloper(tx, tenantID)` package-level helper — sets `plan = "developer"`, clears `grace_until`, hard-deletes `tenant_entitlements` via `Unscoped()`. Idempotent.
+- [x] Lifecycle state machine reworked: `canceled` and `past_due`/`unpaid` with expired/nil grace now return `decisionPass` (was `decisionBlock`); the middleware triggers a one-time `DowngradeToDeveloper` on first request after the boundary. `incomplete` / `incomplete_expired` / `paused` remain `decisionBlock` (402).
+- [x] Stripe webhook `handleSubscriptionUpdated` (on `SubscriptionStatusCanceled`) and `handleSubscriptionDeleted` both call `enforcer.DowngradeToDeveloper` and `h.enforcer.Invalidate(...)` inside the same tx
+- [x] 31 enforcer unit tests + 20 lifecycle cases (18 table-driven + 2 boundary) = 51/51 passing
 - [ ] Integration tests for enforcement points
 - [ ] CodeMode, AdvancedAI, SSOSAML, AuditLogs, MaxProjects, Storage enforcement
+
+### Phase 13e — Portal Billing Page + Status Banner
+
+#### 13e-a: Pinia store + reactive banner (both SPAs)
+
+- [ ] `web/shared/src/billing/billingClient.ts` — `setBillingTransport` / `resetBillingTransport` / `createBillingClient(transport?)` with module-level pin; throws on missing transport when no override is given
+- [ ] `web/shared/src/stores/useBillingStore.ts` — Pinia store with all state fields, `bannerState` exhaustive over `(status, plan, cancelAtPeriodEnd, graceUntil)`, `needsAttention`, `countdown` (0 on past/empty/unparseable)
+- [ ] Actions implemented: `fetchBillingSummary` (swallows errors into `error`), `createCheckoutSession(returnTo)`, `openCustomerPortal(returnTo)`, `handleHeaderSignal`
+- [ ] `web/shared/src/billing/index.ts` re-exports client + store
+- [ ] `web/shared/package.json` adds `"./billing": "./src/billing/index.ts"` subpath export
+- [ ] `buf.gen.billing-ts.yaml` (modeled after `buf.gen.session-ts.yaml`) generates `proto/limen/portal` into `web/shared/src/gen` so the shared store can `import { BillingService }` without reaching into `web/portal` or `web/admin` (dependency direction preserved)
+- [ ] `web/shared/src/api/billingHeaderFetch.ts` — wraps cookie fetch, peeks `X-Limen-Billing: grace`, dynamic-imports `@limen/shared/billing`, calls `useBillingStore().handleHeaderSignal()`. Dynamic import keeps Pinia out of test renders.
+- [ ] `web/portal/src/api/client.ts` — `portalTransport` uses `billingHeaderFetch` (covers `SessionService` + `PortalService` + `BillingService`)
+- [ ] `web/admin/src/transport/adminClient.ts` — per-tenant `buildAdminTransport` uses `billingHeaderFetch`; signup transport stays plain cookie fetch (no tenant, no header)
+- [ ] `web/portal/src/main.ts` pins the per-tenant transport to `session` + `billing`, then fires `void useBillingStore().fetchBillingSummary()`
+- [ ] `web/admin/src/main.ts` pins `session` + `billing` + `admin` to one `perTenantTransport` const, then fires `void useBillingStore().fetchBillingSummary()`; dedupes the three `createConnectTransport` calls
+- [ ] 60s polling fallback started in both `main.ts` files, torn down on logout
+- [ ] `BillingBanner.vue` (portal + admin) — 4 states rendered, `setInterval(1s)` for live ticks, dismissable only on `downgraded-info`, "Refresh" link in footer on `error`
+- [ ] `<BillingBanner v-if="needsAttention" />` mounted above `<RouterView>` in both `App.vue` shells
+- [ ] `vue-tsc --noEmit` clean in both SPAs; shared billing module type-checks clean under a temp tsconfig
+- [ ] ESLint clean on changed files
+- [ ] Shared vitest pass (store unit tests for `bannerState` matrix + `countdown`)
+
+#### 13e-b: Portal `/billing` page
+
+- [ ] `web/portal/src/pages/BillingPage.vue` — plan card, usage counters (active users / max active users, peak SA connections / max SA connections), period end, CTAs
+- [ ] Owner-only route guard: `role === 'owner'` or render a "Billing is only available to owners" notice (no redirect)
+- [ ] `web/portal/src/router/index.ts` adds `/billing` route
+- [ ] `web/portal/src/components/Sidebar.vue` — "Billing" link hidden for `admin` / `member`, visible for `owner`
+- [ ] "Open Customer Portal" / "Resubscribe" / "Upgrade" CTAs call the right store action with `returnTo` set to `/billing`
+- [ ] Reads reactive store (no second `GetBillingSummary` call on mount)
+- [ ] `web/portal/tests/e2e/billing.spec.ts` Playwright spec: navigate to `/billing` as owner, see plan card + usage bars, click "Open Customer Portal" sees a 302 / stubbed redirect
+- [ ] `vue-tsc --noEmit`, ESLint clean
+- [ ] `pnpm test` and `pnpm build` green in both SPAs
 
 ### Phase 19 — CI Pipeline (Parallelized GHA tests and Gate checks)
 

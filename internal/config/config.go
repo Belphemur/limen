@@ -60,12 +60,19 @@ type ResiliencePolicy struct {
 // BillingConfig holds Stripe integration settings for the billing subsystem.
 // When Enabled is false the billing service returns CodeUnimplemented and
 // webhooks are not mounted.
+//
+// PortalOrigin is the absolute URL of the customer portal (e.g.
+// "https://limen.example.com"). It is embedded in MCP in-band billing
+// warnings so an MCP client can tell its user where to update payment.
+// Empty disables the link — the warning still surfaces, just without
+// a clickable target.
 type BillingConfig struct {
-	Enabled   bool            `yaml:"enabled"`
-	Stripe    StripeConfig    `yaml:"stripe"`
-	Products  BillingProducts `yaml:"products"`
-	TrialDays int             `yaml:"trial_days"`
-	GraceDays int             `yaml:"grace_days"`
+	Enabled      bool            `yaml:"enabled"`
+	Stripe       StripeConfig    `yaml:"stripe"`
+	Products     BillingProducts `yaml:"products"`
+	TrialDays    int             `yaml:"trial_days"`
+	GraceDays    int             `yaml:"grace_days"`
+	PortalOrigin string          `yaml:"portal_origin"`
 }
 
 // StripeConfig holds Stripe API credentials. All fields support
@@ -495,7 +502,7 @@ func (c *Config) applyDefaults() {
 		c.Billing.TrialDays = 14
 	}
 	if c.Billing.GraceDays == 0 {
-		c.Billing.GraceDays = 7
+		c.Billing.GraceDays = 14
 	}
 	c.Resilience.applyDefaults()
 }

@@ -23,8 +23,20 @@ function discoverTenant(): string {
   return match ? match[1] : 'dev'
 }
 
-function cookieFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return globalThis.fetch(input, { ...init, credentials: 'include' })
+// billingHeaderFetch wraps the cookie-bearing fetch with a peek at the
+// `X-Limen-Billing` response header. The server stamps `grace` on
+// every request served during a billing grace window; we forward that
+// to the shared billing store so the banner appears without the user
+// navigating. Lazy import keeps the module loadable in tests that
+// haven't installed the billing transport pin yet.
+const billingHeaderFetch: typeof globalThis.fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, { ...init, credentials: 'include' })
+  if (response.headers.get('X-Limen-Billing') === 'grace') {
+    void import('@limen/shared/billing').then(({ useBillingStore }) => {
+      useBillingStore().handleHeaderSignal()
+    })
+  }
+  return response
 }
 
 let adminTransportCache: Transport | null = null
@@ -33,14 +45,18 @@ let signupTransportCache: Transport | null = null
 function buildAdminTransport(): Transport {
   return createConnectTransport({
     baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
-    fetch: cookieFetch,
+    fetch: billingHeaderFetch,
   })
 }
 
+// Signup transport stays on the plain cookie fetch: the wizard runs
+// before any tenant exists, so the X-Limen-Billing header will never
+// be stamped on its responses. Using billingHeaderFetch there would
+// just add a no-op header check on every wizard call.
 function buildSignupTransport(): Transport {
   return createConnectTransport({
     baseUrl: `${window.location.origin}/api`,
-    fetch: cookieFetch,
+    fetch: (input, init) => globalThis.fetch(input, { ...init, credentials: 'include' }),
   })
 }
 

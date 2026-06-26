@@ -221,4 +221,4 @@ billing:
     team_active_user_price_id: ""
     team_sa_connection_price_id: ""
   trial_days: 14
-  grace_days: 7
+  grace_days: 14

@@ -78,12 +78,26 @@ func Run(configPath string) error {
 		return err
 	}
 
-	var billingIntercept connect.UnaryInterceptorFunc
-	if billingDeps != nil && billingDeps.Enforcer != nil {
-		billingIntercept = enforcer.BillingInterceptor(billingDeps.Enforcer, rt.Logger.Named("billing-interceptor"))
+	var enf *enforcer.Enforcer
+	if billingDeps != nil {
+		enf = billingDeps.Enforcer
 	}
 
-	billingMiddleware := enforcer.RequireBillingActive(rt.Store, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
+	var billingIntercept connect.UnaryInterceptorFunc
+	if enf != nil {
+		billingIntercept = enforcer.BillingInterceptor(enf, rt.Logger.Named("billing-interceptor"))
+	}
+
+	// Pass the enforcer through so the lifecycle middleware can
+	// invalidate the entitlement cache after a one-time auto-downgrade
+	// for cancelled/expired-grace tenants. enf is nil when billing is
+	// disabled — the middleware short-circuits before touching it.
+	//
+	// The portal binary doesn't mount MCP routes (those live on the
+	// gateway / all-in-one binaries), so only the Connect-RPC-style
+	// HTTP 402 gate is needed here. The MCP transport uses
+	// RequireBillingActiveMCP separately in servegateway / serveall.
+	billingMiddleware := enforcer.RequireBillingActive(rt.Store, enf, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
 
 	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, billingIntercept, zclient, zclient, zclient, zclient, resolver, billingMiddleware)
 	if err != nil {

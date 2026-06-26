@@ -53,9 +53,6 @@ func NewWebhookHandler(store *storage.Store, secret string, cfg config.BillingCo
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	if cfg.GraceDays <= 0 {
-		cfg.GraceDays = 7
-	}
 	return &WebhookHandler{
 		store:     store,
 		secret:    secret,
@@ -243,19 +240,38 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, event st
 		h.logger.Error("stripe webhook: subscription.updated session failed", zap.Error(err))
 		return
 	}
+	var billing storage.TenantBilling
 	defer func() {
 		if err := commit(); err != nil {
 			h.logger.Error("stripe webhook: commit failed", zap.Error(err), zap.String("event_type", string(event.Type)))
+			return
+		}
+		// Skip cache invalidation when the billing row was never resolved
+		// (early return on lookup failure) — there's nothing new to cache.
+		if billing.TenantID == 0 || h.enforcer == nil {
+			return
+		}
+		if err := h.enforcer.Invalidate(ctx, billing.TenantID); err != nil {
+			h.logger.Warn("stripe webhook: failed to invalidate entitlement cache",
+				zap.Int64("tenant_id", billing.TenantID), zap.Error(err))
 		}
 	}()
 
-	var billing storage.TenantBilling
 	if err := tx.Where("stripe_customer_id = ?", sub.Customer.ID).First(&billing).Error; err != nil {
 		h.logger.Warn("stripe webhook: billing row not found for customer", zap.String("customer", sub.Customer.ID), zap.Error(err))
 		return
 	}
 
 	billing.Status = string(sub.Status)
+	if sub.Status == stripe.SubscriptionStatusCanceled {
+		// Mirror the helper's DB writes onto the in-memory struct so the
+		// Save() below doesn't clobber them with the pre-cancelation state.
+		billing.Plan = "developer"
+		billing.GraceUntil = nil
+		if err := enforcer.DowngradeToDeveloper(tx, billing.TenantID); err != nil {
+			h.logger.Error("stripe webhook: failed to downgrade to developer", zap.Error(err))
+		}
+	}
 	if sub.Items != nil && len(sub.Items.Data) > 0 && sub.Items.Data[0].CurrentPeriodEnd > 0 {
 		t := time.Unix(sub.Items.Data[0].CurrentPeriodEnd, 0).UTC()
 		billing.CurrentPeriodEnd = &t
@@ -292,20 +308,36 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event st
 		h.logger.Error("stripe webhook: subscription.deleted session failed", zap.Error(err))
 		return
 	}
+	var billing storage.TenantBilling
 	defer func() {
 		if err := commit(); err != nil {
 			h.logger.Error("stripe webhook: commit failed", zap.Error(err), zap.String("event_type", string(event.Type)))
+			return
+		}
+		// Skip cache invalidation when the billing row was never resolved
+		// (early return on lookup failure) — there's nothing new to cache.
+		if billing.TenantID == 0 || h.enforcer == nil {
+			return
+		}
+		if err := h.enforcer.Invalidate(ctx, billing.TenantID); err != nil {
+			h.logger.Warn("stripe webhook: failed to invalidate entitlement cache",
+				zap.Int64("tenant_id", billing.TenantID), zap.Error(err))
 		}
 	}()
 
-	var billing storage.TenantBilling
 	if err := tx.Where("stripe_customer_id = ?", sub.Customer.ID).First(&billing).Error; err != nil {
 		h.logger.Warn("stripe webhook: billing row not found for customer", zap.String("customer", sub.Customer.ID), zap.Error(err))
 		return
 	}
 
 	billing.Status = "canceled"
+	// Mirror the helper's DB writes onto the in-memory struct so the
+	// Save() below doesn't clobber them with the pre-cancelation state.
 	billing.Plan = "developer"
+	billing.GraceUntil = nil
+	if err := enforcer.DowngradeToDeveloper(tx, billing.TenantID); err != nil {
+		h.logger.Error("stripe webhook: failed to downgrade to developer", zap.Error(err))
+	}
 	billing.StripeSubscriptionID = nil
 	billing.StripeActiveUserPriceID = nil
 	billing.StripeSAConnectionPriceID = nil

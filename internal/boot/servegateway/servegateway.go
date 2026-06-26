@@ -49,8 +49,22 @@ func Run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	billingMiddleware := enforcer.RequireBillingActive(rt.Store, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
-	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth, billingMiddleware); err != nil {
+	// The gateway binary doesn't import billingmount (that pulls the
+	// Stripe service and its portal dependency — see cmd/gateway's
+	// import-graph test). We still need a live Enforcer here so the
+	// lifecycle middleware can invalidate the entitlement cache after
+	// a one-time auto-downgrade for cancelled/expired-grace tenants.
+	// enforcer.New is safe with a nil valkey (caching is simply
+	// disabled) and only does work when cfg.Billing.Enabled is true
+	// (the middleware short-circuits otherwise).
+	enf := enforcer.New(rt.Store, rt.Valkey, rt.Logger.Named("billing-enforcer"))
+	// The MCP transport uses the JSON-RPC-shaped lifecycle gate so
+	// past-due tenants see an in-band `notifications/billing_warning`
+	// rather than an HTTP 402 (which MCP clients can't interpret).
+	// The gate is mounted on the POST endpoints only — SSE is
+	// ungated by design, see internal/transport/mcprs.go.
+	mcpBillingMiddleware := enforcer.RequireBillingActiveMCP(rt.Store, enf, rt.Cfg.Billing, rt.Cfg.Billing.PortalOrigin, rt.Logger.Named("billing-lifecycle"))
+	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth, mcpBillingMiddleware); err != nil {
 		return err
 	}
 	return boot.RunHTTPServer(rt, r)

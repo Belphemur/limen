@@ -153,7 +153,7 @@ billing:
     team_active_user_price_id: "price_..."
     team_sa_connection_price_id: "price_..."
   trial_days: 14
-  grace_days: 7
+  grace_days: 14
 ```
 
 #### Stripe Client Wrapper
