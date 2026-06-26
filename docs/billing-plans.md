@@ -27,10 +27,10 @@ This table maps every entitlement from Stripe definition → Go `PlanEntitlement
 | 8 | `max-upstream-link_unlimited` | max-upstream-links | numeric | — | -1 | ❌ Not in struct | ❌ MISSING | ❌ MISSING | ❌ Not in gates | — | ❌ NOT PLANNED |
 | 9 | `audit-retention_7d` | audit-retention | numeric | 7 | — | ❌ Not in struct | ❌ MISSING | ❌ MISSING | ❌ Not in gates | Audit log pruning | ❌ NOT PLANNED |
 | 10 | `audit-retention_90d` | audit-retention | numeric | — | 90 | ❌ Not in struct | ❌ MISSING | ❌ MISSING | ❌ Not in gates | Audit log pruning | ❌ NOT PLANNED |
-| 11 | `sso` | sso | boolean | — | enabled | `SSOSAML` | ❌ MISSING (has `sso-saml` instead) | ❌ MISSING | ❌ Not in gates | Portal SSO config | ❌ DEFERRED (TODO in `admin/settings.go`) |
+| 11 | `sso` | sso | boolean | — | enabled | `SSOSAML` | ✅ | ✅ | ❌ Not in gates | Portal SSO config | ❌ DEFERRED (TODO in `admin/settings.go`) |
 | 12 | `code-mode` | code-mode | boolean | enabled | enabled | `CodeMode` | ✅ | ✅ | `CheckFeature(CodeMode)` | MCP SSE connect | ❌ DEFERRED (TODO in `transport/codemode_server.go`) |
-| 13 | `custom-upstream` | custom-upstreams | boolean | enabled | enabled | `CustomUpstreams` | ✅ | ✅ | `CheckFeature(CustomUpstreams)` | Upstream creation | ❌ NOT PLANNED |
-| 14 | `ide-preset` | ide-presets | boolean | enabled | enabled | `IDEPresets` | ✅ | ✅ | `CheckFeature(IDEPresets)` | IDE preset CRUD | ❌ NOT PLANNED |
+| 13 | `custom-upstream` | custom-upstream | boolean | enabled | enabled | `CustomUpstreams` | ✅ | ✅ | `CheckFeature(CustomUpstreams)` | Upstream creation | ❌ NOT PLANNED |
+| 14 | `ide-preset` | ide-preset | boolean | enabled | enabled | `IDEPresets` | ✅ | ✅ | `CheckFeature(IDEPresets)` | IDE preset CRUD | ❌ NOT PLANNED |
 | — | (not in Stripe) | max-projects | numeric | 5 | — | `MaxProjects` | N/A | N/A | `CheckMaxProjects` | `EnsureProject` (zitadel client) | ❌ DEFERRED |
 | — | (not in Stripe) | max-storage | numeric | 1GB | 10GB | `StorageLimitMB` | N/A | N/A | `CheckStorageLimit` | File upload endpoint | ❌ DEFERRED |
 | — | (not in Stripe) | advanced-ai | boolean | disabled | enabled | `AdvancedAI` | N/A | N/A | `CheckFeature(AdvancedAI)` | Tool call routing | ❌ DEFERRED |
@@ -49,9 +49,9 @@ type PlanEntitlements struct {
     CodeMode           bool   // ✅ code-mode
     AdvancedAI         bool   // ⚠️ NOT in Stripe bootstrap — Go-only field
     AuditLogs          bool   // ⚠️ NOT in Stripe bootstrap — Go-only field (Named "AuditLogs", not "audit-retention")
-    SSOSAML            bool   // ⚠️ MISMATCH: Go uses "sso-saml", Stripe uses "sso"
-    IDEPresets         bool   // ⚠️ MISMATCH: Go uses "ide-presets", Stripe uses "ide-preset"
-    CustomUpstreams    bool   // ⚠️ MISMATCH: Go uses "custom-upstreams", Stripe uses "custom-upstream"
+    SSOSAML            bool   // ✅ aligned with Stripe `sso` lookup_key
+    IDEPresets         bool   // ✅ aligned with Stripe `ide-preset` lookup_key
+    CustomUpstreams    bool   // ✅ aligned with Stripe `custom-upstream` lookup_key
     PrioritySupport    bool   // ⚠️ NOT in Stripe bootstrap — Go-only field
     CommunitySupport   bool   // ⚠️ NOT in Stripe bootstrap — Go-only field
     StorageLimitMB     int32  // ⚠️ NOT in Stripe bootstrap — Go-only field
@@ -84,9 +84,9 @@ type PlanEntitlements struct {
 |-----|--------|-----|
 | `MaxUpstreamLinks` missing | Upstream link count not limited | Add field, mapping, gate |
 | `AuditRetentionDays` missing | Audit retention not configurable by plan | Add field, mapping, pruning logic |
-| `sso` ↔ `sso-saml` naming mismatch | Webhook won't match feature name | Align naming (rename Go or Stripe) |
-| `custom-upstream` ↔ `custom-upstreams` mismatch | Webhook won't match | Align naming |
-| `ide-preset` ↔ `ide-presets` mismatch | Webhook won't match | Align naming |
+| `sso` ↔ Go `SSOSAML` field | Aligned (lookup_key `sso` maps to `SSOSAML`) | ✅ Resolved (Phase 13d fixup) |
+| `custom-upstream` ↔ Go `CustomUpstreams` field | Aligned (lookup_key `custom-upstream` maps to `CustomUpstreams`) | ✅ Resolved (Phase 13d fixup) |
+| `ide-preset` ↔ Go `IDEPresets` field | Aligned (lookup_key `ide-preset` maps to `IDEPresets`) | ✅ Resolved (Phase 13d fixup) |
 
 ## Enforcement Architecture
 
@@ -121,16 +121,16 @@ The BillingInterceptor loads but does NOT enforce — enforcement happens in ind
 
 The `scripts/stripe-bootstrap/main.go` defines 14 Features. Here's which are wired to Go:
 
-**Wired (7 of 14):**
+**Wired (9 of 14):**
 - `max-user_1` / `max-user_unlimited` → ✅ wired
 - `max-service-account_1` / `max-service-account_unlimited` → ✅ wired
 - `max-sa-connection_1` / `max-sa-connection_unlimited` → ✅ wired
 - `code-mode` → ✅ wired
-- `custom-upstream` → ✅ wired (but naming mismatch: Go expects `custom-upstreams`)
-- `ide-preset` → ✅ wired (but naming mismatch: Go expects `ide-presets`)
+- `custom-upstream` → ✅ wired
+- `ide-preset` → ✅ wired
 
-**Not wired (7 of 14):**
+**Not wired (5 of 14):**
 - `max-upstream-link_5` / `max-upstream-link_unlimited` → ❌ deferred (v2)
 - `audit-retention_7d` / `audit-retention_90d` → ❌ deferred (v2)
-- `sso` → ❌ deferred (Go expects `sso-saml`)
+- `sso` → ❌ deferred (gate not yet enforced; lookup_key is aligned)
 ```

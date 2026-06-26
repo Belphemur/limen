@@ -15,6 +15,7 @@ package transport
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -32,6 +33,13 @@ type MCPRSDeps struct {
 	MCPAuth   *auth.MCPAuth
 	Metadata  *mcprs.Handler
 	Logger    *zap.Logger
+	// BillingMiddleware, when non-nil, gates the authenticated MCP
+	// endpoints on the tenant's subscription lifecycle state. Mounted
+	// AFTER RequireMCPAuth (anonymous traffic is rejected first) and
+	// BEFORE the MCP handlers so the 402 response is what the client
+	// sees, not a confusing in-band MCP error. May be nil — the
+	// auth-only group is still constructed.
+	BillingMiddleware func(http.Handler) http.Handler
 }
 
 // MountMCPRS attaches the MCP RS routes onto r.
@@ -60,6 +68,9 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 
 		mr.Group(func(ar chi.Router) {
 			ar.Use(deps.MCPAuth.RequireMCPAuth)
+			if deps.BillingMiddleware != nil {
+				ar.Use(deps.BillingMiddleware)
+			}
 			ar.Handle("/sse", deps.MCPServer.SSEHandler())
 			ar.Handle("/message", deps.MCPServer.MessageHandler())
 			// Streamable HTTP (MCP 2025-03-26) — clients POST JSON-RPC

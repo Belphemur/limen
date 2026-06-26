@@ -58,7 +58,7 @@ func EntitlementLimitFromLookupKey(lookupKey string, isEnabled bool) int32 {
 		return 1024
 	case "max-storage_10gb":
 		return 10240
-	case "code-mode", "advanced-ai", "audit-logs", "sso-saml", "ide-presets", "custom-upstreams", "priority-support", "community-support":
+	case "code-mode", "advanced-ai", "audit-logs", "sso", "ide-preset", "custom-upstream", "priority-support", "community-support":
 		return 1 // boolean features → enabled = 1
 	default:
 		return 0
@@ -93,11 +93,11 @@ func EntitlementsFromRows(rows []storage.TenantEntitlement) PlanEntitlements {
 			e.AdvancedAI = true
 		case "audit-logs":
 			e.AuditLogs = true
-		case "sso-saml":
+		case "sso":
 			e.SSOSAML = true
-		case "ide-presets":
+		case "ide-preset":
 			e.IDEPresets = true
-		case "custom-upstreams":
+		case "custom-upstream":
 			e.CustomUpstreams = true
 		case "priority-support":
 			e.PrioritySupport = true

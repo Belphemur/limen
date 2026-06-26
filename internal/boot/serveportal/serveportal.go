@@ -83,7 +83,9 @@ func Run(configPath string) error {
 		billingIntercept = enforcer.BillingInterceptor(billingDeps.Enforcer, rt.Logger.Named("billing-interceptor"))
 	}
 
-	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, billingIntercept, zclient, zclient, zclient, zclient, resolver)
+	billingMiddleware := enforcer.RequireBillingActive(rt.Store, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
+
+	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, billingIntercept, zclient, zclient, zclient, zclient, resolver, billingMiddleware)
 	if err != nil {
 		return err
 	}
