@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 
 import { createConnectTransport } from '@connectrpc/connect-web'
 import { setSessionTransport } from '@limen/shared/session'
-import { setBillingTransport, useBillingStore } from '@limen/shared/billing'
+import { setBillingTransport, setBillingService, useBillingStore } from '@limen/shared/billing'
 
 import '@fontsource-variable/outfit'
 
@@ -11,6 +11,7 @@ import App from './App.vue'
 import { createRouter } from './router'
 import { useThemeStore } from './stores/theme'
 import { setAdminTransport, setSignupTransport } from '@/transport/adminClient'
+import { BillingService } from '@gen/limen/portal/v1/portal_pb.ts'
 import './styles/main.css'
 
 // Build the cookie-bearing Connect transports for SessionService,
@@ -34,6 +35,7 @@ const perTenantTransport = createConnectTransport({
 
 setSessionTransport(perTenantTransport)
 setBillingTransport(perTenantTransport)
+setBillingService(BillingService)
 setAdminTransport(perTenantTransport)
 
 setSignupTransport(

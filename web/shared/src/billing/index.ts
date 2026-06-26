@@ -1,4 +1,5 @@
 export {
+  setBillingService,
   createBillingClient,
   setBillingTransport,
   resetBillingTransport,

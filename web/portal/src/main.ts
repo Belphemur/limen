@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
 import { setSessionTransport } from '@limen/shared/session'
-import { setBillingTransport, useBillingStore } from '@limen/shared/billing'
+import { setBillingTransport, setBillingService, useBillingStore } from '@limen/shared/billing'
 
 import '@fontsource-variable/inter'
 import '@fontsource-variable/outfit'
@@ -11,6 +11,7 @@ import App from './App.vue'
 import { createRouter } from './router'
 import { useThemeStore } from './stores/theme'
 import { portalTransport } from './api/client'
+import { BillingService } from '@gen/limen/portal/v1/portal_pb.ts'
 import './styles/main.css'
 
 // The shared session store reads its Connect transport from a module
@@ -24,6 +25,7 @@ setSessionTransport(portalTransport())
 // keeps the billing store decoupled from the portal client module —
 // the store only ever sees the Transport, never the URL.
 setBillingTransport(portalTransport())
+setBillingService(BillingService)
 
 const app = createApp(App)
 app.use(createPinia())
