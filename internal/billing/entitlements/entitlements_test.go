@@ -60,8 +60,9 @@ func TestEntitlementsFromRows_TeamPlan(t *testing.T) {
 		{Feature: "max-sa-connection_unlimited", LimitValue: -1},
 		{Feature: "advanced-ai", LimitValue: 1},
 		{Feature: "audit-logs", LimitValue: 1},
-		{Feature: "sso-saml", LimitValue: 1},
-		{Feature: "ide-presets", LimitValue: 1},
+		{Feature: "sso", LimitValue: 1},
+		{Feature: "ide-preset", LimitValue: 1},
+		{Feature: "custom-upstream", LimitValue: 1},
 		{Feature: "priority-support", LimitValue: 1},
 		{Feature: "community-support", LimitValue: 1},
 		{Feature: "code-mode", LimitValue: 1},
@@ -92,8 +93,8 @@ func TestEntitlementsFromRows_TeamPlan(t *testing.T) {
 	if !e.IDEPresets {
 		t.Error("IDEPresets = false, want true")
 	}
-	if e.CustomUpstreams {
-		t.Error("CustomUpstreams = true, want false")
+	if !e.CustomUpstreams {
+		t.Error("CustomUpstreams = false, want true")
 	}
 	if !e.PrioritySupport {
 		t.Error("PrioritySupport = false, want true")
@@ -148,7 +149,7 @@ func TestEntitlementLimitFromLookupKey_Numeric(t *testing.T) {
 }
 
 func TestEntitlementLimitFromLookupKey_BooleanFeatures(t *testing.T) {
-	features := []string{"code-mode", "advanced-ai", "audit-logs", "sso-saml", "ide-presets", "custom-upstreams", "priority-support", "community-support"}
+	features := []string{"code-mode", "advanced-ai", "audit-logs", "sso", "ide-preset", "custom-upstream", "priority-support", "community-support"}
 	for _, f := range features {
 		if v := EntitlementLimitFromLookupKey(f, true); v != 1 {
 			t.Errorf("%s enabled = %d, want 1", f, v)

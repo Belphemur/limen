@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -33,6 +34,14 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 	"github.com/belphemur/limen/internal/tenancy"
 )
+
+// billingServiceProcedurePrefix is the Connect procedure path prefix
+// exempted from the billing lifecycle gate. The portal SPA needs to
+// reach GetBillingSummary / OpenCustomerPortal even when the tenant's
+// subscription has expired — the "your subscription expired" page and
+// the "Pay now" CTA both fire from those RPCs. Without the exemption
+// the SPA would 402 itself into an unrecoverable state.
+const billingServiceProcedurePrefix = "/limen.portal.v1.BillingService/"
 
 // PortalDeps bundles everything MountPortal needs.
 type PortalDeps struct {
@@ -59,6 +68,14 @@ type PortalDeps struct {
 	// for the tenant-agnostic SignupService. No tenancy middleware
 	// fires here.
 	SignupAPI http.Handler
+	// BillingMiddleware, when non-nil, gates the /t/{tenant}/api/*
+	// mount on the tenant's subscription lifecycle state. The
+	// /limen.portal.v1.BillingService/* procedure prefix is exempt —
+	// a tenant whose subscription is expired still needs to be able
+	// to call GetBillingSummary to see the "your subscription expired"
+	// page and OpenCustomerPortal to fix it. May be nil; the /api
+	// mount is still constructed.
+	BillingMiddleware func(http.Handler) http.Handler
 }
 
 // MountPortal attaches the OIDC + tenant routes onto r.
@@ -133,7 +150,17 @@ func MountPortal(r chi.Router, deps PortalDeps) {
 			// full "/t/{tenant}/api/limen.portal.v1.PortalService/..."
 			// and 404. Rewrite r.URL.Path to the unmatched remainder so
 			// the Connect handler sees its own procedure prefix.
-			tr.Mount("/api", connectMountAdapter(deps.ConnectAPI))
+			//
+			// The billing lifecycle gate wraps the /api mount group. The
+			// BillingService procedure prefix is exempted — a tenant with
+			// an expired subscription must still be able to call
+			// GetBillingSummary (to render the "expired" page) and
+			// OpenCustomerPortal (to pay and recover).
+			apiHandler := connectMountAdapter(deps.ConnectAPI)
+			if deps.BillingMiddleware != nil {
+				apiHandler = skipBillingForBillingService(deps.BillingMiddleware, apiHandler)
+			}
+			tr.Mount("/api", apiHandler)
 		}
 	})
 }
@@ -189,6 +216,31 @@ func connectMountAdapter(h http.Handler) http.Handler {
 		r2.URL.Path = rctx.RoutePath
 		r2.URL.RawPath = ""
 		h.ServeHTTP(w, r2)
+	})
+}
+
+// skipBillingForBillingService composes a middleware that runs the
+// billing lifecycle gate except when the request's matched route path
+// targets the BillingService namespace. The check uses
+// chi.RouteContext().RoutePath because the chi.Mount at /api/* sets
+// that to the unmatched procedure remainder (e.g.
+// "/limen.portal.v1.BillingService/GetBillingSummary") without
+// modifying r.URL.Path — which is what connect-go dispatches on but
+// also what we don't want the gate to inspect directly (chi.Mount
+// forwards the original URL through).
+//
+// Why this exists: a Team tenant whose payment has lapsed must still
+// be able to call BillingService.GetBillingSummary to render the
+// "expired" page and BillingService.OpenCustomerPortal to fix it.
+// Gating those RPCs would 402 the SPA into an unrecoverable state.
+func skipBillingForBillingService(billingMW func(http.Handler) http.Handler, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rctx := chi.RouteContext(r.Context())
+		if rctx != nil && strings.HasPrefix(rctx.RoutePath, billingServiceProcedurePrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		billingMW(next).ServeHTTP(w, r)
 	})
 }
 

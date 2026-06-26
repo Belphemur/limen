@@ -78,7 +78,9 @@ RPCs return `connect.CodePermissionDenied` when a feature gate blocks the operat
 | `errors.go` | `ErrFeatureLocked` structured error type |
 | `gates.go` | `CheckMaxUsers`, `CheckMaxSAConnections`, `CheckMaxProjects`, `CheckStorageLimit`, `CheckFeature` |
 | `interceptor.go` | `BillingInterceptor` Connect-RPC unary interceptor |
+| `lifecycle.go` | `RequireBillingActive` HTTP middleware + pure `evaluateBillingStatus` state machine |
 | `enforcer_test.go` | 23 unit tests covering context round-trip, cache, gates, errors, interceptor |
+| `lifecycle_test.go` | 19 table-driven cases for `evaluateBillingStatus` (every Stripe status, grace-window edge cases) |
 
 ### Wired Enforcement Points (complete)
 
@@ -92,8 +94,10 @@ RPCs return `connect.CodePermissionDenied` when a feature gate blocks the operat
 
 | Component | File | Change |
 |-----------|------|--------|
-| Enforcer creation | `boot/billingmount/billingand_mount.go` | Creates `enforcer.New()`, adds to Dependencies |
+| Enforcer creation | `boot/billingmount/billingmount.go` | Creates `enforcer.New()`, adds to Dependencies |
 | Interceptor wiring | `admin/service.go` | Added BillingInterceptor after session auth |
+| Lifecycle middleware wiring | `internal/transport/mcprs.go` + `internal/transport/portal.go` | `RequireBillingActive` mounted on MCP auth group and `/t/{tenant}/api/*` (BillingService prefix exempt) |
+| Lifecycle middleware construction | `boot/servegateway/`, `boot/serveportal/`, `boot/serveall/` | `RequireBillingActive` built per-binary and passed into `mcpmount.Mount` / `portalmount.Mount` |
 | Serve binaries | `serveportal/serveportal.go`, `serveall/serveall.go` | Reordered billingmount before portalmount |
 | Webhook invalidation | `billing/stripe/webhook.go` | `Invalidate()` called after entitlement upsert |
 
@@ -103,13 +107,14 @@ RPCs return `connect.CodePermissionDenied` when a feature gate blocks the operat
 |---------|------|--------|
 | `code-mode` | `transport/codemode_server.go` | Needs MCP protocol integration for error surfacing |
 | `advanced-ai` | `gateway/manager.go` | Needs model-tier routing logic; basic-ai always allowed |
-| `sso-saml` | `admin/settings.go` | Needs UI integration for hiding/configuring SSO |
+| `sso` | `admin/settings.go` | Needs UI integration for hiding/configuring SSO |
 | `audit-logs` | `audit/audit.go` | Audit emitter is fire-and-forget; cleanest to gate at Emit |
 | `max-projects` | `zitadel/projects.go` | Cross-package concern; caller should check before calling EnsureProject |
 | `max-storage` | (no upload endpoint yet) | File upload/storage not yet implemented |
 
 ## Verification
 
-- **Unit tests**: 23/23 passing in `internal/billing/enforcer/`
+- **Unit tests**: 23 enforcer + 19 lifecycle = 42/42 passing in `internal/billing/enforcer/`
+- **Import graph**: `cmd/gateway` continues to exclude `internal/oauthproxy`, `internal/zitadel`, `internal/portal`, `internal/admin`, `internal/signup` — the lifecycle middleware lives in `internal/billing/enforcer/` (a subpackage of `internal/billing`) so the gateway can import it without pulling the Stripe service that depends on `internal/portal/portalv1`.
 - **Integration**: Enforcement tests require a running instance; deferred to CI
 - **Manual**: Invite a 2nd member on Developer plan → expect `CodePermission PermissionDenied` with `billing.limit.max-users`

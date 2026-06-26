@@ -330,7 +330,7 @@ The webhook handler is **not** behind a tenant or session middleware — but it 
 
 ### Gating Middleware
 
-A new middleware `RequireBillingActive` lives in `internal/billing/middleware.go`:
+A new middleware `RequireBillingActive` lives in `internal/billing/enforcer/lifecycle.go` (gateway forbids importing `internal/billing` directly — see `cmd/gateway/import_graph_test.go`; the `enforcer` subpackage is the safe surface):
 
 ```
 read tenant_billing + tenant_entitlements (single query with JOIN)
@@ -352,7 +352,7 @@ read tenant_billing + tenant_entitlements (single query with JOIN)
 Mounted on:
 
 - `/t/{tenant}/mcp` (the value-generating path) — gated.
-- `/t/{tenant}/api/*` (portal RPCs) — gated **except** the billing sub-namespace (`limen.portal.v1.BillingService/*`) and the read-only Settings RPCs that the SPA needs to render the "your subscription expired" page. An admin always needs to be able to click "Pay now."
+- `/t/{tenant}/api/*` (portal RPCs) — gated **except** the billing sub-namespace (`limen.portal.v1.BillingService/*`). The transport layer checks `chi.RouteContext().RoutePath` and bypasses the gate when the matched procedure falls under that prefix, so a tenant whose subscription has expired can still call `GetBillingSummary` (to render the "expired" page) and `OpenCustomerPortal` (to pay and recover). An admin always needs to be able to click "Pay now."
 
 The middleware reads `tenant_entitlements` (not hard-coded constants) for plan enforcement. The `plan` column is used only for billing state gating (trialing/active/past_due). Entitlement limits like `max-user` are enforced by comparing current counts against `PlanEntitlements` resolved from the DB:
 
@@ -406,7 +406,7 @@ See [Phase 13c — Stripe Integration](phase-13c-stripe-integration.md) for the 
 
 Goal: Middleware and guards that enforce plan limits. Hard blocks for Developer plan exceeds. Grace-period soft blocks for Team plan payment failures.
 
-- [ ] `internal/billing/middleware.go` — `RequireBillingActive` middleware
+- [x] `internal/billing/enforcer/lifecycle.go` — `RequireBillingActive` middleware
 - [ ] Developer plan enforcement: `InviteMember` rejects if already 1 active user
 - [ ] Developer plan enforcement: SA connection rejects if already 1 concurrent SA connection
 - [ ] Team plan gating: status check (trialing/active → pass, past_due+grace → pass+warn, past_due+nograce → 402, canceled → 402)
@@ -502,7 +502,7 @@ Goal: Staff (`super_admin`) can view tenant billing state, comp accounts, extend
 - [ ] Stripe SDK (`github.com/stripe/stripe-go/v82`) added to `go.mod`; SDK calls go through `internal/resilience.Client("stripe.<endpoint>", cfg)`
 - [ ] `proto/limen/portal/v1/portal.proto` extended with `BillingService` (owner-only)
 - [ ] `proto/limen/staff/v1/staff.proto` extended with `GetTenantBilling`, `ExtendGrace`, `CompTenant`, `ForceCancel` (all audited)
-- [ ] `RequireBillingActive` middleware mounted on `/t/{tenant}/mcp` and `/t/{tenant}/api/*` except the billing namespace; staff tenant exempt
+- [x] `RequireBillingActive` middleware mounted on `/t/{tenant}/mcp` and `/t/{tenant}/api/*` except the billing namespace; staff tenant exempt
 - [ ] Developer plan hard enforcement in `InviteMember` and SA connect paths
 - [ ] Webhook handler at `/billing/stripe/webhook` with Stripe signature verification, idempotency by Stripe object ID, async drain
 - [ ] Billing metrics pipeline: Valkey Streams `billing:active_users` + `billing:sa_connections` → observer consumer → `COPY` → Postgres

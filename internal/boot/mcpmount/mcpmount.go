@@ -5,6 +5,7 @@ package mcpmount
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
@@ -59,7 +60,9 @@ func Build(rt *boot.Runtime, enf *enforcer.Enforcer) (*gateway.Manager, *transpo
 // Mount attaches the MCP Resource Server under /t/{tenant}/mcp/*.
 // The caller must supply a pre-built MCPAuth (which performs OIDC
 // discovery against the configured issuer to fetch jwks_uri at startup).
-func Mount(r chi.Router, rt *boot.Runtime, mcpServer *transport.MCPServer, mcpAuth *auth.MCPAuth) error {
+// billingMiddleware is the lifecycle gate; pass nil to skip — the
+// authenticated MCP endpoints will then be ungated.
+func Mount(r chi.Router, rt *boot.Runtime, mcpServer *transport.MCPServer, mcpAuth *auth.MCPAuth, billingMiddleware func(http.Handler) http.Handler) error {
 	metadataHandler, err := mcprs.NewHandler(mcprs.MetadataConfig{
 		BaseURL: rt.Cfg.Server.BaseURL,
 	})
@@ -67,11 +70,12 @@ func Mount(r chi.Router, rt *boot.Runtime, mcpServer *transport.MCPServer, mcpAu
 		return fmt.Errorf("build mcp resource metadata: %w", err)
 	}
 	if err := transport.MountMCPRS(r, transport.MCPRSDeps{
-		Store:     rt.Store,
-		MCPServer: mcpServer,
-		MCPAuth:   mcpAuth,
-		Metadata:  metadataHandler,
-		Logger:    rt.Logger,
+		Store:             rt.Store,
+		MCPServer:         mcpServer,
+		MCPAuth:           mcpAuth,
+		Metadata:          metadataHandler,
+		Logger:            rt.Logger,
+		BillingMiddleware: billingMiddleware,
 	}); err != nil {
 		return fmt.Errorf("mount mcp resource server: %w", err)
 	}

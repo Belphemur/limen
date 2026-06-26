@@ -415,10 +415,15 @@ func (h *WebhookHandler) handleEntitlementsUpdated(ctx context.Context, event st
 	}
 
 	teamFeatures := map[string]struct{}{
-		"advanced-ai":      {},
-		"audit-logs":       {},
-		"sso-saml":         {},
-		"priority-support": {},
+		"advanced-ai":                   {},
+		"audit-logs":                    {},
+		"sso":                           {},
+		"priority-support":              {},
+		"max-user_unlimited":            {},
+		"max-service-account_unlimited": {},
+		"max-sa-connection_unlimited":   {},
+		"max-upstream-link_unlimited":   {},
+		"audit-retention_90d":           {},
 	}
 	hasTeamFeature := false
 

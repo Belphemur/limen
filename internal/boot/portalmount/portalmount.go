@@ -32,6 +32,10 @@ import (
 // the same *zitadel.Client also satisfies admin.MemberDirectory.
 // signupZitadel is the Zitadel client SignupService uses to provision
 // new orgs; the same *zitadel.Client also satisfies signup.ZitadelClient.
+// billingMiddleware is the lifecycle gate mounted on the /api mount;
+// the BillingService procedure prefix is exempted inside the transport
+// layer so an expired tenant can still call GetBillingSummary /
+// OpenCustomerPortal. Pass nil to skip the gate.
 //
 // PortalService, SessionService, and AdminService share the same
 // /t/{tenant}/api/ mount point — they're multiplexed via an
@@ -43,7 +47,7 @@ import (
 // and launch the background sweeper goroutine on its lifetime. Returns an
 // error when SignupService construction fails (template load, mailer
 // build, captcha provider invalid).
-func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept, billingIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient, resolver session.Resolver) (*http.ServeMux, *signup.Service, error) {
+func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept, billingIntercept connect.UnaryInterceptorFunc, apps portal.AppManager, members admin.MemberDirectory, serviceAccounts admin.ServiceAccountDirectory, signupZitadel signup.ZitadelClient, resolver session.Resolver, billingMiddleware func(http.Handler) http.Handler) (*http.ServeMux, *signup.Service, error) {
 	portalSvc := portal.NewService(rt.Store, rt.UpstreamService, apps, resolver, bearerIntercept, rt.Logger)
 	portalPrefix, portalHandler := portalSvc.Handler()
 
@@ -75,6 +79,7 @@ func Mount(r chi.Router, rt *boot.Runtime, oidc *auth.OIDC, bearerIntercept, bil
 		CaptchaSiteKey:        rt.Cfg.Captcha.SiteKey,
 		ConnectAPI:            api,
 		SignupAPI:             signupAPI,
+		BillingMiddleware:     billingMiddleware,
 	})
 	return api, signupSvc, nil
 }

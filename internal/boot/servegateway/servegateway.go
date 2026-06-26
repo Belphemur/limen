@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/belphemur/limen/internal/auth"
+	"github.com/belphemur/limen/internal/billing/enforcer"
 	"github.com/belphemur/limen/internal/boot"
 	"github.com/belphemur/limen/internal/boot/mcpmount"
 	"github.com/belphemur/limen/internal/mcprs"
@@ -48,7 +49,8 @@ func Run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth); err != nil {
+	billingMiddleware := enforcer.RequireBillingActive(rt.Store, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
+	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth, billingMiddleware); err != nil {
 		return err
 	}
 	return boot.RunHTTPServer(rt, r)
