@@ -78,9 +78,9 @@ RPCs return `connect.CodePermissionDenied` when a feature gate blocks the operat
 | `errors.go` | `ErrFeatureLocked` structured error type |
 | `gates.go` | `CheckMaxUsers`, `CheckMaxSAConnections`, `CheckMaxProjects`, `CheckStorageLimit`, `CheckFeature` |
 | `interceptor.go` | `BillingInterceptor` Connect-RPC unary interceptor |
-| `lifecycle.go` | `RequireBillingActive` HTTP middleware + pure `evaluateBillingStatus` state machine |
+| `lifecycle.go` | `RequireBillingActive` HTTP middleware + pure `evaluateBillingStatus` state machine (`decisionPass` / `decisionPassGrace` / `decisionBlock` / `decisionPassUnknown`) |
 | `enforcer_test.go` | 23 unit tests covering context round-trip, cache, gates, errors, interceptor |
-| `lifecycle_test.go` | 19 table-driven cases for `evaluateBillingStatus` (every Stripe status, grace-window edge cases) |
+| `lifecycle_test.go` | 18 table-driven cases for `evaluateBillingStatus` (every Stripe status, grace-window edge cases, unknown-status fail-open) |
 
 ### Wired Enforcement Points (complete)
 
@@ -114,7 +114,7 @@ RPCs return `connect.CodePermissionDenied` when a feature gate blocks the operat
 
 ## Verification
 
-- **Unit tests**: 23 enforcer + 19 lifecycle = 42/42 passing in `internal/billing/enforcer/`
+- **Unit tests**: 23 enforcer + 18 lifecycle = 41/41 passing in `internal/billing/enforcer/`
 - **Import graph**: `cmd/gateway` continues to exclude `internal/oauthproxy`, `internal/zitadel`, `internal/portal`, `internal/admin`, `internal/signup` — the lifecycle middleware lives in `internal/billing/enforcer/` (a subpackage of `internal/billing`) so the gateway can import it without pulling the Stripe service that depends on `internal/portal/portalv1`.
 - **Integration**: Enforcement tests require a running instance; deferred to CI
 - **Manual**: Invite a 2nd member on Developer plan → expect `CodePermission PermissionDenied` with `billing.limit.max-users`

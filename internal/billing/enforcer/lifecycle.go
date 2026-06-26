@@ -2,6 +2,7 @@ package enforcer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -29,14 +30,20 @@ const GraceHeaderValue = "grace"
 const StaffPublicID = "_staff"
 
 // lifecycleDecision is the verdict evaluateBillingStatus returns.
-// A pure function turning (status, graceUntil, now) into one of three
+// A pure function turning (status, graceUntil, now) into one of four
 // outcomes keeps the middleware body flat and trivially testable.
+//
+// decisionPassUnknown is the fail-open verdict for statuses the state
+// machine does not recognise (e.g. a future Stripe enum). The caller
+// distinguishes it from decisionPass so it can log a warning — we'd
+// rather let a tenant through on a typo than lock them out silently.
 type lifecycleDecision int
 
 const (
 	decisionPass lifecycleDecision = iota
 	decisionPassGrace
 	decisionBlock
+	decisionPassUnknown
 )
 
 // RequireBillingActive returns a chi middleware that gates the request
@@ -90,7 +97,14 @@ func RequireBillingActive(store *storage.Store, cfg config.BillingConfig, logger
 				w.Header().Set(GraceHeader, GraceHeaderValue)
 				next.ServeHTTP(w, r)
 			case decisionBlock:
-				http.Error(w, "payment required", http.StatusPaymentRequired)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusPaymentRequired)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "payment required"})
+			case decisionPassUnknown:
+				logger.Warn("billing lifecycle: unknown status, passing through",
+					zap.Int64("tenant_id", t.ID),
+					zap.String("status", billing.Status))
+				next.ServeHTTP(w, r)
 			default:
 				next.ServeHTTP(w, r)
 			}
@@ -135,9 +149,9 @@ func evaluateBillingStatus(status string, graceUntil *time.Time, now time.Time) 
 	case "canceled", "incomplete", "incomplete_expired", "paused":
 		return decisionBlock
 	default:
-		// Unknown status — fail-open with a warning would normally
-		// log here; the caller wraps this fn and logs so we keep
-		// it pure.
-		return decisionPass
+		// Unknown status — fail-open but flag it. The caller logs
+		// a warning so an unrecognised Stripe enum (typo, new
+		// release) never silently locks a tenant out.
+		return decisionPassUnknown
 	}
 }

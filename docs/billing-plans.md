@@ -121,7 +121,7 @@ The BillingInterceptor loads but does NOT enforce — enforcement happens in ind
 
 The `scripts/stripe-bootstrap/main.go` defines 14 Features. Here's which are wired to Go:
 
-**Wired (7 of 14):**
+**Wired (9 of 14):**
 - `max-user_1` / `max-user_unlimited` → ✅ wired
 - `max-service-account_1` / `max-service-account_unlimited` → ✅ wired
 - `max-sa-connection_1` / `max-sa-connection_unlimited` → ✅ wired
@@ -129,7 +129,7 @@ The `scripts/stripe-bootstrap/main.go` defines 14 Features. Here's which are wir
 - `custom-upstream` → ✅ wired
 - `ide-preset` → ✅ wired
 
-**Not wired (7 of 14):**
+**Not wired (5 of 14):**
 - `max-upstream-link_5` / `max-upstream-link_unlimited` → ❌ deferred (v2)
 - `audit-retention_7d` / `audit-retention_90d` → ❌ deferred (v2)
 - `sso` → ❌ deferred (gate not yet enforced; lookup_key is aligned)

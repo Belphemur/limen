@@ -19,6 +19,18 @@ import (
 	"github.com/belphemur/limen/internal/storage"
 )
 
+var teamFeatures = map[string]struct{}{
+	"advanced-ai":                   {},
+	"audit-logs":                    {},
+	"sso":                           {},
+	"priority-support":              {},
+	"max-user_unlimited":            {},
+	"max-service-account-unlimited": {},
+	"max-sa-connection-unlimited":   {},
+	"max-upstream-link-unlimited":   {},
+	"audit-retention_90d":           {},
+}
+
 // WebhookHandler handles incoming Stripe webhook events.
 // Signature verification via stripe.ConstructEvent.
 // Uses async drain: enqueue to in-memory channel, ACK Stripe immediately,
@@ -414,17 +426,6 @@ func (h *WebhookHandler) handleEntitlementsUpdated(ctx context.Context, event st
 		return
 	}
 
-	teamFeatures := map[string]struct{}{
-		"advanced-ai":                   {},
-		"audit-logs":                    {},
-		"sso":                           {},
-		"priority-support":              {},
-		"max-user_unlimited":            {},
-		"max-service-account_unlimited": {},
-		"max-sa-connection_unlimited":   {},
-		"max-upstream-link_unlimited":   {},
-		"audit-retention_90d":           {},
-	}
 	hasTeamFeature := false
 
 	for _, ent := range raw.Data.Object.Entitlements {

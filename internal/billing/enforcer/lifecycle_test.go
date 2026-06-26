@@ -123,24 +123,26 @@ func TestEvaluateBillingStatus(t *testing.T) {
 		},
 
 		// Unknown / future statuses — fail-open (pass with a
-		// warning in the caller). Better to let a tenant through
+		// warning in the caller). The verdict is the dedicated
+		// decisionPassUnknown so the caller can log it separately
+		// from a known-good pass. Better to let a tenant through
 		// than to lock them out on a typo.
 		{
 			name:   "unknown status fails open",
 			status: "totally_new_status",
-			want:   decisionPass,
+			want:   decisionPassUnknown,
 		},
 		{
 			name:       "unknown status with grace still fails open",
 			status:     "weird_state",
 			graceUntil: &grace,
 			now:        now,
-			want:       decisionPass,
+			want:       decisionPassUnknown,
 		},
 		{
 			name:   "empty status fails open",
 			status: "",
-			want:   decisionPass,
+			want:   decisionPassUnknown,
 		},
 	}
 
