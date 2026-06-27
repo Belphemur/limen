@@ -43,6 +43,9 @@ test -r scripts/zitadel-bootstrap/.bootstrap-out.env || { \
 }
 set -a
 source scripts/zitadel-bootstrap/.bootstrap-out.env
+# Stripe bootstrap output is optional — present only after running `make stripe-bootstrap`.
+# Source it so `create-tenant` picks up STRIPE_DEV_TENANT_* env vars for billing row seed.
+test -f scripts/stripe-bootstrap/.bootstrap-out.env && source scripts/stripe-bootstrap/.bootstrap-out.env || true
 source .env.dev
 export LIMEN_BASE_URL=http://localhost:8000
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
@@ -175,7 +178,7 @@ dev-fix-bootstrap-perms:
 
 # Run (or re-run) the Zitadel bootstrap, then mirror the resulting sample
 # org + seed owner into Limen's own database. Both steps are idempotent.
-dev-bootstrap:
+dev-bootstrap: stripe-bootstrap
 	$(COMPOSE) run --rm \
 		--user "$$(id -u):$$(id -g)" \
 		-v "$$(go env GOMODCACHE):/go/pkg/mod" \
@@ -198,7 +201,7 @@ dev-bootstrap:
 # STRIPE_WEBHOOK_URL from the environment. Idempotent — safe to re-run.
 .PHONY: stripe-bootstrap
 stripe-bootstrap:
-	cd scripts/stripe-bootstrap && go run .
+	cd scripts/stripe-bootstrap && LIMEN_DEV_TENANT_LABEL=acme go run .
 
 # Stop services and wipe all volumes (Limen Postgres, Zitadel Postgres, PATs).
 # Also drops the pinned encryption key so the next `make dev` starts fresh.
