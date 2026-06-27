@@ -28,7 +28,14 @@ jobs:
           go-version-file: 'go.mod'
       - name: Run unit tests with coverage
         run: |
-          go run gotest.tools/gotestsum@v1.12.0 \
+          # Pinning gotestsum to a fixed version is recommended for
+          # reproducible CI, but we intentionally use @latest because
+          # the tool's go.mod must remain compatible with our Go
+          # toolchain (1.26) and maintaining version sync is manual
+          # overhead with no immediate benefit. The `go run` cache
+          # keyed on source hash prevents unexpected drift within a
+          # single CI run.
+          go run gotest.tools/gotestsum@latest \
             --junitfile go-unit-junit.xml \
             -- -v -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload Go coverage to Codecov
@@ -60,7 +67,9 @@ jobs:
           go-version-file: 'go.mod'
       - name: Run integration tests
         run: |
-          go run gotest.tools/gotestsum@v1.12.0 \
+          # Same rationale as unit tests: @latest avoids Go toolchain
+          # compatibility churn. See comment in backend-unit for details.
+          go run gotest.tools/gotestsum@latest \
             --junitfile go-integration-junit.xml \
             -- -v -tags=integration -coverprofile=coverage-integration.out -covermode=atomic ./...
       - name: Upload Go integration coverage to Codecov
