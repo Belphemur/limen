@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"net/http"
 	"time"
 
@@ -241,13 +240,14 @@ func RequireBillingActiveMCP(store *storage.Store, enforcer *Enforcer, cfg confi
 						zap.Int64("tenant_id", result.tenant.ID), zap.Error(err))
 				}
 			case decisionBlock:
-				// Same auto-downgrade contract — the request is being
-				// rejected with an in-band error, but the tenant's
-				// entitlement row should still be flipped to Developer
-				// so a recovery flow can take over.
-				if enforcer != nil && isAutoDowngradeStatus(result.billing.Status) && result.billing.Plan != DeveloperPlan {
-					autoDowngradeTenant(r.Context(), store, enforcer, result.tenant.ID, logger)
-				}
+				// Hard block: the state machine only returns
+				// decisionBlock for Stripe mid-flow statuses
+				// (incomplete / incomplete_expired / paused), none of
+				// which appear in isAutoDowngradeStatus. There is no
+				// entitlement to flip — the tenant needs to take
+				// action in the portal (resume / complete checkout)
+				// before re-trying, so we reject the in-band call and
+				// leave the tenant_billing row untouched.
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write(mcpBillingBlockBody(portalOrigin))
@@ -335,7 +335,6 @@ func mcpBillingWarningMessage(portalOrigin string) string {
 // notification append needs anyway.
 type jsonRPCBufferingWriter struct {
 	http.ResponseWriter
-	header      http.Header
 	body        bytes.Buffer
 	status      int
 	wroteHeader bool
@@ -344,14 +343,15 @@ type jsonRPCBufferingWriter struct {
 func newJSONRPCBufferingWriter(w http.ResponseWriter) *jsonRPCBufferingWriter {
 	return &jsonRPCBufferingWriter{
 		ResponseWriter: w,
-		header:         make(http.Header),
 		status:         http.StatusOK,
 	}
 }
 
-// Header returns the buffered header map. Modifications land in the
-// underlying ResponseWriter only on commit.
-func (b *jsonRPCBufferingWriter) Header() http.Header { return b.header }
+// Header delegates to the underlying ResponseWriter so the handler's
+// header mutations land directly on the response. The handler never
+// triggers a flush (WriteHeader is intercepted), so direct access is
+// safe — the underlying writer is only committed in commit().
+func (b *jsonRPCBufferingWriter) Header() http.Header { return b.ResponseWriter.Header() }
 
 // WriteHeader captures the status code without flushing. Calling
 // WriteHeader more than once is a no-op — matches net/http's
@@ -380,8 +380,6 @@ func (b *jsonRPCBufferingWriter) Write(p []byte) (int, error) {
 // the underlying writer is treated as success — there's nothing
 // the middleware can do about a closed connection here.
 func (b *jsonRPCBufferingWriter) commit(extra []byte) error {
-	dst := b.ResponseWriter.Header()
-	maps.Copy(dst, b.header)
 	b.ResponseWriter.WriteHeader(b.status)
 	if _, err := b.ResponseWriter.Write(b.body.Bytes()); err != nil {
 		return err

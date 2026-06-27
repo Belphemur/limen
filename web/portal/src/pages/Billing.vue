@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useBillingStore } from '@limen/shared/billing'
 
 const store = useBillingStore()
@@ -9,6 +9,27 @@ onMounted(() => {
   void store.fetchBillingSummary()
 })
 
+// ---- ticker ----------------------------------------------------------
+// `store.countdown` reads `Date.now()` inside a Vue computed, so it only
+// re-evaluates when `graceUntil` changes — wall-clock movement is not a
+// reactive dependency. We tick a local ref once a second and force the
+// computed to re-derive from `store.graceUntil` so the rendered string
+// actually counts down.
+const tick = ref(0)
+let timer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  timer = setInterval(() => {
+    tick.value++
+  }, 1000)
+})
+
+onBeforeUnmount(() => {
+  if (timer === null) return
+  clearInterval(timer)
+  timer = null
+})
+
 const nextBillingDate = computed(() => {
   if (!store.currentPeriodEnd) return ''
   const ms = Date.parse(store.currentPeriodEnd)
@@ -16,7 +37,18 @@ const nextBillingDate = computed(() => {
   return new Date(ms).toLocaleDateString()
 })
 
-const graceCountdown = computed(() => formatCountdown(store.countdown))
+const localCountdown = computed(() => {
+  // Reading tick.value is what makes this computed re-run every second;
+  // without it, we'd be back to a cached value that never counts down.
+  void tick.value
+  const raw = store.graceUntil
+  if (!raw) return 0
+  const graceMs = Date.parse(raw)
+  if (!Number.isFinite(graceMs)) return 0
+  return graceMs - Date.now()
+})
+
+const graceCountdown = computed(() => formatCountdown(localCountdown.value))
 
 const usageLimit = computed(() => (store.plan === 'developer' ? 1 : 'Unlimited'))
 

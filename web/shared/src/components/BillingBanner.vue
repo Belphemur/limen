@@ -163,7 +163,7 @@ const variant = computed<Variant | null>(() => {
       return {
         container: 'border-error/40 bg-error/10 text-on-surface',
         cta: 'bg-error text-on-error hover:bg-error/90',
-        ctaLabel: 'Resubscribe',
+        ctaLabel: 'Upgrade',
       }
     case 'canceling-amber':
       return {
@@ -175,7 +175,7 @@ const variant = computed<Variant | null>(() => {
       return {
         container: 'border-blue-200 bg-blue-50 text-on-surface',
         cta: 'bg-primary text-on-primary hover:bg-primary/90',
-        ctaLabel: 'Resubscribe',
+        ctaLabel: 'Upgrade',
       }
     case 'none':
       return null
