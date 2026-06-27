@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { LogOut, Shield, User } from '@lucide/vue'
 import { useSessionStore, tenantPrefix } from '@limen/shared/session'
+import { BillingBanner } from '@limen/shared'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import logoUrl from '@/assets/limen-logo.svg'
 
@@ -128,6 +129,8 @@ function closeMenu() {
         </div>
       </div>
     </header>
+
+    <BillingBanner />
 
     <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
       <RouterView />

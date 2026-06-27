@@ -14,5 +14,11 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.spec.ts"],
     passWithNoTests: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["lcov", "text"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,vue}"],
+    },
   },
 });

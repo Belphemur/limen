@@ -1,0 +1,17 @@
+version: v2
+
+# Shared billing TS bindings — the BillingService proto types are
+# consumed by the cross-SPA billing Pinia store in web/shared, so the
+# portal proto is emitted here alongside the session bindings. The
+# PortalService types (also defined in proto/limen/portal/v1) are
+# re-generated into web/portal and web/admin by their own templates.
+inputs:
+  - directory: proto
+    paths:
+      - proto/limen/portal
+plugins:
+  - local: protoc-gen-es
+    out: web/shared/src/gen
+    opt:
+      - target=ts
+      - import_extension=js

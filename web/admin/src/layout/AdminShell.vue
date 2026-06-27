@@ -4,6 +4,7 @@ import { RouterView } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
 import { useSessionStore } from '@limen/shared/session'
+import { BillingBanner } from '@limen/shared'
 
 const session = useSessionStore()
 
@@ -23,6 +24,7 @@ onMounted(() => {
     <Sidebar />
     <Topbar />
     <main id="main" class="ml-0 pt-header-height md:ml-sidebar-width">
+      <BillingBanner />
       <div class="mx-auto w-full max-w-[1440px] p-4 md:p-container-padding">
         <RouterView />
       </div>

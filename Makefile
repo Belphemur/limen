@@ -295,3 +295,4 @@ proto:
 	buf generate --template buf.gen.portal-ts.yaml
 	buf generate --template buf.gen.admin-ts.yaml
 	buf generate --template buf.gen.session-ts.yaml
+	buf generate --template buf.gen.billing-ts.yaml

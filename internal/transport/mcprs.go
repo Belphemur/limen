@@ -5,12 +5,22 @@
 //
 //	GET  /t/{tenant}/mcp/.well-known/oauth-protected-resource  (public PRM)
 //	GET  /.well-known/oauth-protected-resource/t/{tenant}/mcp  (public PRM, RFC 9728 §3.2)
-//	GET  /t/{tenant}/mcp/sse        (SSE stream, bearer required)
-//	POST /t/{tenant}/mcp/message    (JSON-RPC ingest, bearer required)
+//	GET  /t/{tenant}/mcp/sse        (SSE stream, bearer required, NOT billing-gated)
+//	GET  /t/{tenant}/mcp/           (Streamable HTTP notifications, bearer required, NOT billing-gated)
+//	POST /t/{tenant}/mcp/message    (JSON-RPC ingest, bearer required, billing-gated)
+//	POST /t/{tenant}/mcp/           (Streamable HTTP requests, bearer required, billing-gated)
 //
 // All routes run behind tenancy.RequireTenant. The PRM endpoint is
 // intentionally public — RFC 9728 §3 mandates discovery without
 // authentication.
+//
+// SSE and the Streamable-HTTP GET stream are deliberately split OUT
+// of the billing-gated group: they are read-only transport plumbing,
+// and a past-due tenant's tool-calling LLM still needs to be able to
+// open the event stream to receive the in-band
+// `notifications/billing_warning` the billing middleware appends to
+// other responses. The only state-changing or upstream-bound
+// endpoints (POST /message, POST /) sit behind BillingMiddleware.
 package transport
 
 import (
@@ -33,12 +43,15 @@ type MCPRSDeps struct {
 	MCPAuth   *auth.MCPAuth
 	Metadata  *mcprs.Handler
 	Logger    *zap.Logger
-	// BillingMiddleware, when non-nil, gates the authenticated MCP
-	// endpoints on the tenant's subscription lifecycle state. Mounted
-	// AFTER RequireMCPAuth (anonymous traffic is rejected first) and
-	// BEFORE the MCP handlers so the 402 response is what the client
-	// sees, not a confusing in-band MCP error. May be nil — the
-	// auth-only group is still constructed.
+	// BillingMiddleware, when non-nil, gates the auth-protected
+	// POST endpoints (message ingest + Streamable HTTP) on the
+	// tenant's subscription lifecycle state. Mounted AFTER
+	// RequireMCPAuth (anonymous traffic is rejected first) and BEFORE
+	// the MCP handlers so the in-band JSON-RPC error / warning the
+	// middleware produces is what the client sees. SSE is
+	// intentionally not wrapped — see file header. May be nil; the
+	// auth+billing group is still constructed but without the billing
+	// middleware.
 	BillingMiddleware func(http.Handler) http.Handler
 }
 
@@ -66,17 +79,49 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 
 		mr.Get(mcprs.MetadataPath, deps.Metadata.ServeHTTP)
 
+		// Auth-only group — SSE is the long-lived event stream. The
+		// billing gate never blocks it: a past-due tenant's LLM must
+		// still be able to open the stream to receive the in-band
+		// notifications/billing_warning notifications that get
+		// appended to the POST responses.
 		mr.Group(func(ar chi.Router) {
 			ar.Use(deps.MCPAuth.RequireMCPAuth)
-			if deps.BillingMiddleware != nil {
-				ar.Use(deps.BillingMiddleware)
-			}
 			ar.Handle("/sse", deps.MCPServer.SSEHandler())
-			ar.Handle("/message", deps.MCPServer.MessageHandler())
-			// Streamable HTTP (MCP 2025-03-26) — clients POST JSON-RPC
-			// to the tenant base URL itself. mcp-go's handler dispatches
-			// on method (POST/GET/DELETE) so a single mount serves all.
-			ar.Handle("/", deps.MCPServer.StreamableHandler())
+		})
+
+		// Auth + billing group — POST endpoints. These are the only
+		// paths that touch upstream tools or session state, so they
+		// are the only ones that need the lifecycle gate. The
+		// billing middleware in this slot is constructed by the
+		// serve* binaries as RequireBillingActiveMCP so the verdict
+		// surfaces as a JSON-RPC error (block) or notification
+		// (grace) rather than an HTTP 402.
+		//
+		// Per MCP 2025-03-26 §2.1.2 the Streamable HTTP transport
+		// exposes a long-lived GET on the same path that posts
+		// JSON-RPC. We register the same Streamable handler twice
+		// under explicit method routing — POST behind the billing
+		// gate, GET outside it — so a past-due tenant's LLM can
+		// still open the notification stream and receive the
+		// in-band `notifications/billing_warning` events the
+		// middleware appends to the POST responses. Both still
+		// require a valid bearer (the group-level RequireMCPAuth
+		// above). `Method` is used over `Handle("POST /", ...)`
+		// because the method prefix parsing in chi's `Handle` is
+		// easy to misread on a long line; the explicit form makes
+		// the intent — and the middleware split — obvious at the
+		// call site.
+		mr.Group(func(ar chi.Router) {
+			ar.Use(deps.MCPAuth.RequireMCPAuth)
+			if deps.BillingMiddleware == nil {
+				ar.Method(http.MethodPost, "/message", deps.MCPServer.MessageHandler())
+				ar.Method(http.MethodPost, "/", deps.MCPServer.StreamableHandler())
+				ar.Method(http.MethodGet, "/", deps.MCPServer.StreamableHandler())
+				return
+			}
+			ar.With(deps.BillingMiddleware).Method(http.MethodPost, "/message", deps.MCPServer.MessageHandler())
+			ar.With(deps.BillingMiddleware).Method(http.MethodPost, "/", deps.MCPServer.StreamableHandler())
+			ar.Method(http.MethodGet, "/", deps.MCPServer.StreamableHandler())
 		})
 	})
 

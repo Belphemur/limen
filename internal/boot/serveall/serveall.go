@@ -90,11 +90,24 @@ func Run(configPath string) error {
 	boot.MountHealth(r)
 
 	var billingIntercept connect.UnaryInterceptorFunc
-	if billingDeps != nil && billingDeps.Enforcer != nil {
-		billingIntercept = enforcer.BillingInterceptor(billingDeps.Enforcer, rt.Logger.Named("billing-interceptor"))
+	if enf != nil {
+		billingIntercept = enforcer.BillingInterceptor(enf, rt.Logger.Named("billing-interceptor"))
 	}
 
-	billingMiddleware := enforcer.RequireBillingActive(rt.Store, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
+	// Pass the shared enforcer through so the lifecycle middleware can
+	// invalidate the entitlement cache after a one-time auto-downgrade
+	// for cancelled/expired-grace tenants. enf is nil when billing is
+	// disabled — the middleware short-circuits before touching it.
+	//
+	// The portal / Connect-RPC surface uses RequireBillingActive (HTTP
+	// 402 + JSON). The MCP transport uses RequireBillingActiveMCP
+	// (HTTP 200 + JSON-RPC error / notification). They share the same
+	// state machine (via the package-internal checkBillingStatus
+	// helper) but the wire shapes differ — MCP clients don't see
+	// HTTP status codes, only the in-band error / notification
+	// payloads.
+	billingMiddleware := enforcer.RequireBillingActive(rt.Store, enf, rt.Cfg.Billing, rt.Logger.Named("billing-lifecycle"))
+	mcpBillingMiddleware := enforcer.RequireBillingActiveMCP(rt.Store, enf, rt.Cfg.Billing, rt.Cfg.Billing.PortalOrigin, rt.Logger.Named("billing-lifecycle-mcp"))
 
 	api, signupSvc, err := portalmount.Mount(r, rt, oidc, bearerIntercept, billingIntercept, zclient, zclient, zclient, zclient, resolver, billingMiddleware)
 	if err != nil {
@@ -132,7 +145,7 @@ func Run(configPath string) error {
 	if err := oauthproxymount.Mount(r, rt, zclient); err != nil {
 		return err
 	}
-	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth, billingMiddleware); err != nil {
+	if err := mcpmount.Mount(r, rt, mcpServer, mcpAuth, mcpBillingMiddleware); err != nil {
 		return err
 	}
 	upstreammount.Mount(r, rt, oidc)

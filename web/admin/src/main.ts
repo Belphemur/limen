@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 
 import { createConnectTransport } from '@connectrpc/connect-web'
 import { setSessionTransport } from '@limen/shared/session'
+import { setBillingTransport, setBillingService, useBillingStore } from '@limen/shared/billing'
 
 import '@fontsource-variable/outfit'
 
@@ -10,6 +11,7 @@ import App from './App.vue'
 import { createRouter } from './router'
 import { useThemeStore } from './stores/theme'
 import { setAdminTransport, setSignupTransport } from '@/transport/adminClient'
+import { BillingService } from '@gen/limen/portal/v1/portal_pb.ts'
 import './styles/main.css'
 
 // Build the cookie-bearing Connect transports for SessionService,
@@ -26,19 +28,15 @@ function discoverTenant(): string {
 const cookieFetch = (input: RequestInfo | URL, init?: RequestInit) =>
   globalThis.fetch(input, { ...init, credentials: 'include' })
 
-setSessionTransport(
-  createConnectTransport({
-    baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
-    fetch: cookieFetch,
-  }),
-)
+const perTenantTransport = createConnectTransport({
+  baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
+  fetch: cookieFetch,
+})
 
-setAdminTransport(
-  createConnectTransport({
-    baseUrl: `${window.location.origin}/t/${discoverTenant()}/api`,
-    fetch: cookieFetch,
-  }),
-)
+setSessionTransport(perTenantTransport)
+setBillingTransport(perTenantTransport)
+setBillingService(BillingService)
+setAdminTransport(perTenantTransport)
 
 setSignupTransport(
   createConnectTransport({
@@ -52,5 +50,11 @@ app.use(createPinia())
 app.use(createRouter())
 
 useThemeStore().init()
+
+// Fire-and-forget initial billing fetch. The store swallows errors
+// into its own `error` ref, and the response-header interceptor
+// installed in adminClient will re-trigger this on the next gated
+// request once the server stamps a grace signal.
+void useBillingStore().fetchBillingSummary()
 
 app.mount('#app')

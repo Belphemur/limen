@@ -314,7 +314,7 @@ Mounted at `/billing/stripe/webhook` (root-level, no tenant prefix — Stripe do
 | `checkout.session.completed` | Persist subscription ID + both price IDs; flip `plan='team'` and `status`; `Reconcile` once. |
 | `customer.subscription.updated` | Mirror `status`, `current_period_end`, `cancel_at_period_end`, price IDs. |
 | `customer.subscription.deleted` | Set `status='canceled'`, `plan='developer'`; clear `stripe_subscription_id`; retain `stripe_customer_id` for invoice history. |
-| `invoice.payment_failed` | Set `grace_until = now + config.grace_days` (default 7); status mirrors (`past_due` / `unpaid`). |
+| `invoice.payment_failed` | Set `grace_until = now + config.grace_days` (default 14); status mirrors (`past_due` / `unpaid`). |
 | `invoice.payment_succeeded` | Clear `grace_until`. |
 | `entitlements.active_entitlement_summary.updated` | Parse lookup_keys → DELETE + UPSERT `tenant_entitlements` for the tenant. Derive `plan` column from feature set. Handle `has_more` pagination if present. Idempotent (complete overwrite). |
 
@@ -346,7 +346,7 @@ read tenant_billing + tenant_entitlements (single query with JOIN)
         ∧ now < grace_until                                                → pass with warning header (X-Limen-Billing: grace)
     → plan == 'team' AND status ∈ {'past_due','unpaid'}
         ∧ now ≥ grace_until                                                → 402 Payment Required
-    → plan == 'team' AND status == 'canceled'                              → 402 Payment Required
+    → plan == 'team' AND status == 'canceled'                              → auto-downgrade to Developer (pass)
 ```
 
 Mounted on:
@@ -375,7 +375,7 @@ billing:
     team_active_user_price_id: "price_..."
     team_sa_connection_price_id: "price_..."
   trial_days: 14
-  grace_days: 7
+  grace_days: 14
 ```
 
 Note: Developer plan limits are **not** in config — they are defined by Stripe Entitlements Features attached to the Developer Product, synced to `tenant_entitlements`, and enforced from there. Feature lookup_keys and Product-Feature attachments are managed in the Stripe Dashboard, not in config.yaml or migrations. If `billing.enabled: false` (self-hosters who don't want Stripe), the gating middleware short-circuits to pass-through and the portal billing page is hidden.
@@ -467,7 +467,7 @@ Goal: Staff (`super_admin`) can view tenant billing state, comp accounts, extend
 - **Entitlement webhook — cancel**: cancel Team subscription → entitlement webhook fires with Developer lookups → `tenant_entitlements` reset → `plan` flips to `'developer'` → 1-user limit re-applies.
 - **Startup reconciliation**: simulate a missed entitlement webhook (gateway was down) → restart gateway → startup reconciliation calls Stripe API → `tenant_entitlements` repaired.
 - **Developer plan hard limits**: Developer tenant attempts to invite a 2nd user → `InviteMember` returns 402. Developer tenant's service account attempts a 2nd concurrent MCP connection → 402.
-- **Payment failure → grace**: trigger `invoice.payment_failed` from Stripe CLI → `grace_until` set 7 days out → portal banner shows → MCP still works during grace → after grace expires (or force `now > grace_until`) → MCP returns 402.
+- **Payment failure → grace**: trigger `invoice.payment_failed` from Stripe CLI → `grace_until` set 14 days out → portal banner shows → MCP still works during grace → after grace expires (or force `now > grace_until`) → MCP returns 402.
 - **Payment recovery**: trigger `invoice.payment_succeeded` after a `payment_failed` → grace cleared → banner gone.
 - **Cancel → reset**: tenant cancels via Customer Portal → `customer.subscription.deleted` fires → `plan` resets to `developer` → Developer hard limits re-apply immediately.
 - **Downgrade mid-month**: quantities don't decrease mid-cycle; next month's reconciler resets to the new month's accumulating count.

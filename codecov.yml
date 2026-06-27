@@ -1,0 +1,45 @@
+flag_management:
+  default_rules:
+    carryforward: true
+    statuses:
+      - type: project
+        target: auto
+        threshold: 2%
+      - type: patch
+        target: 80%
+  individual_flags:
+    - name: backend
+      paths:
+        - internal/**
+        - cmd/**
+      carryforward: true
+      statuses:
+        - type: project
+          target: 70%
+        - type: patch
+          target: 80%
+    - name: frontend
+      paths:
+        - web/**
+      carryforward: true
+      statuses:
+        - type: project
+          target: 60%
+        - type: patch
+          target: 80%
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_head: true
+
+ignore:
+  - "**/*_test.go"
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/*.pb.go"
+  - "**/*.gen.go"
+  - "**/*.xml"

@@ -1,6 +1,8 @@
 export * from "./session/index.ts";
+export * from "./billing/index.ts";
 export { default as BaseModal } from "./components/BaseModal.vue";
 export { default as ApiKeyModal } from "./components/ApiKeyModal.vue";
+export { default as BillingBanner } from "./components/BillingBanner.vue";
 export { default as ConfirmActionModal } from "./components/ConfirmActionModal.vue";
 export { default as ConfirmDeleteModal } from "./components/ConfirmDeleteModal.vue";
 export { default as ContextJsonEditor } from "./components/ContextJsonEditor.vue";

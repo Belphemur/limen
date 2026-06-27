@@ -18,17 +18,47 @@ permissions:
 jobs:
   backend-unit:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-      - name: Run unit tests
-        run: go test -v ./...
+      - name: Run unit tests with coverage
+        run: |
+          # Pinning gotestsum to a fixed version is recommended for
+          # reproducible CI, but we intentionally use @latest because
+          # the tool's go.mod must remain compatible with our Go
+          # toolchain (1.26) and maintaining version sync is manual
+          # overhead with no immediate benefit. The `go run` cache
+          # keyed on source hash prevents unexpected drift within a
+          # single CI run.
+          go run gotest.tools/gotestsum@latest \
+            --junitfile go-unit-junit.xml \
+            -- -v -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          files: coverage.out
+          flags: backend
+          fail_ci_if_error: false
+      - name: Upload Go unit test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          files: go-unit-junit.xml
+          flags: backend
+          report_type: test_results
+          fail_ci_if_error: false
 
   backend-integration:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +66,34 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Run integration tests
-        run: go test -v -tags=integration ./...
+        run: |
+          # Same rationale as unit tests: @latest avoids Go toolchain
+          # compatibility churn. See comment in backend-unit for details.
+          go run gotest.tools/gotestsum@latest \
+            --junitfile go-integration-junit.xml \
+            -- -v -tags=integration -coverprofile=coverage-integration.out -covermode=atomic ./...
+      - name: Upload Go integration coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          files: coverage-integration.out
+          flags: backend,integration
+          fail_ci_if_error: false
+      - name: Upload Go integration test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          files: go-integration-junit.xml
+          flags: backend
+          report_type: test_results
+          fail_ci_if_error: false
 
   frontend-unit:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     strategy:
       matrix:
@@ -72,9 +126,16 @@ jobs:
       - name: Generate TypeScript protobuf bindings
         run: make proto
 
-      - name: Run ${{ matrix.package }} unit tests
+      - name: Run ${{ matrix.package }} unit tests with coverage
         working-directory: web/${{ matrix.package }}
-        run: pnpm test
+        run: pnpm test --coverage
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          flags: frontend
+          directory: web/${{ matrix.package }}
+          fail_ci_if_error: false
 
   frontend-e2e-portal:
     runs-on: ubuntu-latest
@@ -189,6 +250,7 @@ jobs:
     steps:
       - name: Check all dependency jobs passed
         run: |
+          set -euo pipefail
           echo "backend-unit:       ${{ needs.backend-unit.result }}"
           echo "backend-integration: ${{ needs.backend-integration.result }}"
           echo "frontend-unit:      ${{ needs.frontend-unit.result }}"
