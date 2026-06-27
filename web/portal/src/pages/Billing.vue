@@ -5,10 +5,6 @@ import { useBillingStore } from '@limen/shared/billing'
 const store = useBillingStore()
 const actionError = ref('')
 
-onMounted(() => {
-  void store.fetchBillingSummary()
-})
-
 // ---- ticker ----------------------------------------------------------
 // `store.countdown` reads `Date.now()` inside a Vue computed, so it only
 // re-evaluates when `graceUntil` changes — wall-clock movement is not a

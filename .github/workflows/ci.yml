@@ -14,11 +14,12 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   backend-unit:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +32,7 @@ jobs:
             --junitfile go-unit-junit.xml \
             -- -v -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload Go coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
         with:
           use_oidc: true
           files: coverage.out
@@ -39,7 +40,7 @@ jobs:
           fail_ci_if_error: false
       - name: Upload Go unit test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
         with:
           use_oidc: true
           files: go-unit-junit.xml
@@ -49,6 +50,8 @@ jobs:
 
   backend-integration:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -59,10 +62,18 @@ jobs:
         run: |
           go run gotest.tools/gotestsum@latest \
             --junitfile go-integration-junit.xml \
-            -- -v -tags=integration ./...
+            -- -v -tags=integration -coverprofile=coverage-integration.out -covermode=atomic ./...
+      - name: Upload Go integration coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
+        with:
+          use_oidc: true
+          files: coverage-integration.out
+          flags: backend,integration
+          fail_ci_if_error: false
       - name: Upload Go integration test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
         with:
           use_oidc: true
           files: go-integration-junit.xml
@@ -72,6 +83,8 @@ jobs:
 
   frontend-unit:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     timeout-minutes: 15
     strategy:
       matrix:
@@ -108,7 +121,7 @@ jobs:
         working-directory: web/${{ matrix.package }}
         run: pnpm test --coverage
       - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7  # v5.5.1
         with:
           use_oidc: true
           flags: frontend
@@ -228,6 +241,7 @@ jobs:
     steps:
       - name: Check all dependency jobs passed
         run: |
+          set -euo pipefail
           echo "backend-unit:       ${{ needs.backend-unit.result }}"
           echo "backend-integration: ${{ needs.backend-integration.result }}"
           echo "frontend-unit:      ${{ needs.frontend-unit.result }}"

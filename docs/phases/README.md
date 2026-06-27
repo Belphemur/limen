@@ -49,9 +49,9 @@ Limen becomes a multi-tenant B2B MCP gateway:
 | 12  | [Staff tenant & backoffice (super-admin, impersonation)](phase-12-staff-backoffice.md)                         | 0, 3, 4, 9a, 9b, 10, 11 | ☐            |
 | 13  | [Billing (two-plan SaaS, Stripe Entitlements)](phase-13-billing-stripe.md)                                                  | 4, 9b, 9c, 9i, 10, 11 | ☐            |
 | 13b | [Billing Metrics Pipeline (Valkey Streams)](phase-13b-billing-metrics-pipeline.md)                     | 7, 9c, 9i, 10               | 🔶 (71%)     |
-| 13d | [Plan Enforcement](phase-13d-plan-enforcement.md) | 13c | 🔶 (95%) |
+| 13d | [Plan Enforcement](phase-13d-plan-enforcement.md) | 13c | ✅ |
 | 13c | [Stripe Integration + Bootstrap](phase-13c-stripe-integration.md) | 4, 9b, 9c, 9i, 10, 11, 13b | ✅ |
-| 13e | [Portal Billing Page + Status Banner](phase-13e-portal-billing-page.md) | 13c, 13d | 🔶 (30%) |
+| 13e | [Portal Billing Page + Status Banner](phase-13e-portal-billing-page.md) | 13c, 13d | 🔶 (95%) |
 | 14  | [Upstream tool description normalization (speculative)](phase-14-upstream-tool-normalization.md)               | 8, 10                   | ☐ (deferred) |
 | 16  | [Observability (metrics, dashboards, Prometheus)](phase-16-observability-and-active-users.md)            | 6, 8, 8b, 9c, 11, 13b    | ☐            |
 | 17  | [Policy engine (tag-based IAM)](phase-17-policy-engine.md)                                                     | 4, 6, 7, 8, 9c, 16      | ☐            |
@@ -438,35 +438,35 @@ Mirror of the per-phase checklists. Tick a box here only when the corresponding 
 
 #### 13e-a: Pinia store + reactive banner (both SPAs)
 
-- [ ] `web/shared/src/billing/billingClient.ts` — `setBillingTransport` / `resetBillingTransport` / `createBillingClient(transport?)` with module-level pin; throws on missing transport when no override is given
-- [ ] `web/shared/src/stores/useBillingStore.ts` — Pinia store with all state fields, `bannerState` exhaustive over `(status, plan, cancelAtPeriodEnd, graceUntil)`, `needsAttention`, `countdown` (0 on past/empty/unparseable)
-- [ ] Actions implemented: `fetchBillingSummary` (swallows errors into `error`), `createCheckoutSession(returnTo)`, `openCustomerPortal(returnTo)`, `handleHeaderSignal`
-- [ ] `web/shared/src/billing/index.ts` re-exports client + store
-- [ ] `web/shared/package.json` adds `"./billing": "./src/billing/index.ts"` subpath export
-- [ ] `buf.gen.billing-ts.yaml` (modeled after `buf.gen.session-ts.yaml`) generates `proto/limen/portal` into `web/shared/src/gen` so the shared store can `import { BillingService }` without reaching into `web/portal` or `web/admin` (dependency direction preserved)
-- [ ] `web/shared/src/api/billingHeaderFetch.ts` — wraps cookie fetch, peeks `X-Limen-Billing: grace`, dynamic-imports `@limen/shared/billing`, calls `useBillingStore().handleHeaderSignal()`. Dynamic import keeps Pinia out of test renders.
-- [ ] `web/portal/src/api/client.ts` — `portalTransport` uses `billingHeaderFetch` (covers `SessionService` + `PortalService` + `BillingService`)
-- [ ] `web/admin/src/transport/adminClient.ts` — per-tenant `buildAdminTransport` uses `billingHeaderFetch`; signup transport stays plain cookie fetch (no tenant, no header)
-- [ ] `web/portal/src/main.ts` pins the per-tenant transport to `session` + `billing`, then fires `void useBillingStore().fetchBillingSummary()`
-- [ ] `web/admin/src/main.ts` pins `session` + `billing` + `admin` to one `perTenantTransport` const, then fires `void useBillingStore().fetchBillingSummary()`; dedupes the three `createConnectTransport` calls
-- [ ] 60s polling fallback started in both `main.ts` files, torn down on logout
-- [ ] `BillingBanner.vue` (portal + admin) — 4 states rendered, `setInterval(1s)` for live ticks, dismissable only on `downgraded-info`, "Refresh" link in footer on `error`
-- [ ] `<BillingBanner v-if="needsAttention" />` mounted above `<RouterView>` in both `App.vue` shells
-- [ ] `vue-tsc --noEmit` clean in both SPAs; shared billing module type-checks clean under a temp tsconfig
-- [ ] ESLint clean on changed files
-- [ ] Shared vitest pass (store unit tests for `bannerState` matrix + `countdown`)
+- [x] `web/shared/src/billing/billingClient.ts` — `setBillingTransport` / `resetBillingTransport` / `createBillingClient(transport?)` with module-level pin; throws on missing transport when no override is given
+- [x] `web/shared/src/stores/useBillingStore.ts` — Pinia store with all state fields, `bannerState` exhaustive over `(status, plan, cancelAtPeriodEnd, graceUntil)`, `needsAttention`, `countdown` (0 on past/empty/unparseable)
+- [x] Actions implemented: `fetchBillingSummary` (swallows errors into `error`), `createCheckoutSession(returnTo)`, `openCustomerPortal(returnTo)`, `handleHeaderSignal`
+- [x] `web/shared/src/billing/index.ts` re-exports client + store
+- [x] `web/shared/package.json` adds `"./billing": "./src/billing/index.ts"` subpath export
+- [x] `buf.gen.billing-ts.yaml` (modeled after `buf.gen.session-ts.yaml`) generates `proto/limen/portal` into `web/shared/src/gen` so the shared store can `import { BillingService }` without reaching into `web/portal` or `web/admin` (dependency direction preserved)
+- [x] `web/shared/src/api/billingHeaderFetch.ts` — wraps cookie fetch, peeks `X-Limen-Billing: grace`, dynamic-imports `@limen/shared/billing`, calls `useBillingStore().handleHeaderSignal()`. Dynamic import keeps Pinia out of test renders.
+- [x] `web/portal/src/api/client.ts` — `portalTransport` uses `billingHeaderFetch` (covers `SessionService` + `PortalService` + `BillingService`)
+- [x] `web/admin/src/transport/adminClient.ts` — per-tenant `buildAdminTransport` uses `billingHeaderFetch`; signup transport stays plain cookie fetch (no tenant, no header)
+- [x] `web/portal/src/main.ts` pins the per-tenant transport to `session` + `billing`, then fires `void useBillingStore().fetchBillingSummary()`
+- [x] `web/admin/src/main.ts` pins `session` + `billing` + `admin` to one `perTenantTransport` const, then fires `void useBillingStore().fetchBillingSummary()`; dedupes the three `createConnectTransport` calls
+- [x] 60s polling fallback started in both `main.ts` files, torn down on logout
+- [x] `BillingBanner.vue` (portal + admin) — 4 states rendered, `setInterval(1s)` for live ticks, dismissable only on `downgraded-info`, "Refresh" link in footer on `error`
+- [x] `<BillingBanner v-if="needsAttention" />` mounted above `<RouterView>` in both `App.vue` shells
+- [x] `vue-tsc --noEmit` clean in both SPAs; shared billing module type-checks clean under a temp tsconfig
+- [x] ESLint clean on changed files
+- [x] Shared vitest pass (store unit tests for `bannerState` matrix + `countdown`)
 
 #### 13e-b: Portal `/billing` page
 
-- [ ] `web/portal/src/pages/BillingPage.vue` — plan card, usage counters (active users / max active users, peak SA connections / max SA connections), period end, CTAs
-- [ ] Owner-only route guard: `role === 'owner'` or render a "Billing is only available to owners" notice (no redirect)
-- [ ] `web/portal/src/router/index.ts` adds `/billing` route
-- [ ] `web/portal/src/components/Sidebar.vue` — "Billing" link hidden for `admin` / `member`, visible for `owner`
-- [ ] "Open Customer Portal" / "Resubscribe" / "Upgrade" CTAs call the right store action with `returnTo` set to `/billing`
-- [ ] Reads reactive store (no second `GetBillingSummary` call on mount)
+- [x] `web/portal/src/pages/Billing.vue` — plan card, usage counters (active users / max active users, peak SA connections / max SA connections), period end, CTAs
+- [x] Owner-only route guard: `role === 'owner'` or render a "Billing is only available to owners" notice (no redirect)
+- [x] `web/portal/src/router/index.ts` adds `/billing` route
+- [x] `web/portal/src/components/Sidebar.vue` — "Billing" link hidden for `admin` / `member`, visible for `owner`
+- [x] "Open Customer Portal" / "Resubscribe" / "Upgrade" CTAs call the right store action with `returnTo` set to `/billing`
+- [x] Reads reactive store (no second `GetBillingSummary` call on mount)
 - [ ] `web/portal/tests/e2e/billing.spec.ts` Playwright spec: navigate to `/billing` as owner, see plan card + usage bars, click "Open Customer Portal" sees a 302 / stubbed redirect
-- [ ] `vue-tsc --noEmit`, ESLint clean
-- [ ] `pnpm test` and `pnpm build` green in both SPAs
+- [x] `vue-tsc --noEmit`, ESLint clean
+- [x] `pnpm test` and `pnpm build` green in both SPAs
 
 ### Phase 19 — CI Pipeline (Parallelized GHA tests and Gate checks)
 

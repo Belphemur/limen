@@ -190,7 +190,7 @@ const message = computed(() => {
     case 'grace-amber':
       return `Payment past due — ${formatCountdown()}. Update within grace.`
     case 'expired-red':
-      return 'Subscription suspended. Developer limits now in effect.'
+      return 'Subscription inactive. Update payment to restore access.'
     case 'canceling-amber':
       return `Plan ends ${formatPeriodEnd(store.currentPeriodEnd)}. Will downgrade to Developer.`
     case 'downgraded-info':

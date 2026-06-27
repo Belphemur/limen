@@ -105,9 +105,15 @@ export const useBillingStore = defineStore('billing', () => {
       if (graceMs !== null && graceMs > Date.now()) {
         return 'grace-amber'
       }
+      // After auto-downgrade, the plan is already "developer" but
+      // Stripe status may still be past_due/unpaid. Show the softer
+      // downgraded-info banner instead of the hard expired-red block.
+      if (plan.value === 'developer') {
+        return 'downgraded-info'
+      }
       return 'expired-red'
     }
-
+ 
     // Canceling: active Team subscription that will downgrade at
     // period end. Distinct from "grace" because there's no urgency —
     // the user explicitly canceled and the timer is current_period_end.
