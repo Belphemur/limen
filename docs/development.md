@@ -166,6 +166,27 @@ Stop with `Ctrl-C`; the stack keeps running. Re-launch Limen alone with
 | `make build`                          | `go build -o limen ./cmd/limen`.                                        |
 | `make test` / `make vet` / `make fmt` | Standard Go toolchain wrappers.                                         |
 
+## Dev billing subscription
+
+`make stripe-bootstrap` (run automatically as part of `make dev-bootstrap` and
+`make dev`) creates a Stripe Customer and an active Team-plan subscription for
+the `acme` dev tenant. This ensures the billing pages and lifecycle enforcement
+are testable without going through the Checkout flow.
+
+The subscription is created with:
+
+- Team plan (both active-user and SA-connection line items, quantity 1 each)
+- Stripe Customer metadata: `limen_dev_tenant=acme`
+- Subscription metadata: `limen_dev_tenant=acme`, `limen_managed=true`
+
+The matching `tenant_billing` row is seeded automatically by `limenctl
+create-tenant` when the `STRIPE_DEV_TENANT_CUSTOMER_ID` and
+`STRIPE_DEV_TENANT_SUBSCRIPTION_ID` env vars are present. They are output by
+`make stripe-bootstrap` to `scripts/stripe-bootstrap/.bootstrap-out.env`.
+
+To skip dev subscription creation, unset `LIMEN_DEV_TENANT_LABEL` or set it to
+empty before running the bootstrap.
+
 ## CLI commands
 
 `./cmd/limen` (the all-in-one binary) exposes these subcommands:

@@ -16,10 +16,12 @@ import (
 	"strings"
 
 	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/customer"
 	"github.com/stripe/stripe-go/v82/entitlements/feature"
 	"github.com/stripe/stripe-go/v82/price"
 	"github.com/stripe/stripe-go/v82/product"
 	"github.com/stripe/stripe-go/v82/productfeature"
+	"github.com/stripe/stripe-go/v82/subscription"
 	"github.com/stripe/stripe-go/v82/webhookendpoint"
 	"go.uber.org/zap"
 )
@@ -66,6 +68,12 @@ type DesiredWebhookEndpoint struct {
 type WebhookInfo struct {
 	ID     string
 	Secret string
+}
+
+// DevSubscriptionInfo holds the Stripe IDs for a dev subscription.
+type DevSubscriptionInfo struct {
+	CustomerID     string
+	SubscriptionID string
 }
 
 // bootstrap holds the Stripe client configuration.
@@ -400,6 +408,80 @@ func eventsEqual(a []string, b []string) bool {
 	return true
 }
 
+// ensureDevCustomer returns an existing Stripe customer matching the dev
+// label, or creates one. Idempotent: re-running is safe.
+func (b *bootstrap) ensureDevCustomer(label string) (string, error) {
+	// Search for existing customer by metadata.
+	searchParams := &stripe.CustomerSearchParams{
+		SearchParams: stripe.SearchParams{
+			Query: fmt.Sprintf("metadata['limen_dev_tenant']:'%s'", label),
+		},
+	}
+	iter := customer.Search(searchParams)
+	for iter.Next() {
+		return iter.Customer().ID, nil
+	}
+	if err := iter.Err(); err != nil {
+		return "", fmt.Errorf("search dev customer: %w", err)
+	}
+
+	// Create new customer.
+	params := &stripe.CustomerParams{
+		Params: stripe.Params{
+			Metadata: map[string]string{
+				"limen_dev_tenant":         label,
+				managedResourceMetadataKey: managedResourceMetadataValue,
+			},
+		},
+	}
+	cust, err := customer.New(params)
+	if err != nil {
+		return "", fmt.Errorf("create dev customer: %w", err)
+	}
+	return cust.ID, nil
+}
+
+// ensureDevSubscription returns an existing active subscription for the
+// given customer, or creates a Team-plan subscription. Idempotent.
+func (b *bootstrap) ensureDevSubscription(customerID, label string, priceIDs map[string]string) (string, error) {
+	// Check for existing active subscription (idempotency).
+	listParams := &stripe.SubscriptionListParams{
+		Customer: stripe.String(customerID),
+		Status:   stripe.String("active"),
+	}
+	listIter := subscription.List(listParams)
+	for listIter.Next() {
+		sub := listIter.Subscription()
+		// Verify this is our dev subscription, not an unrelated one.
+		if sub.Metadata["limen_dev_tenant"] == label {
+			return sub.ID, nil
+		}
+	}
+	if err := listIter.Err(); err != nil {
+		return "", fmt.Errorf("list dev subscriptions: %w", err)
+	}
+
+	// Create new subscription with Team prices.
+	params := &stripe.SubscriptionParams{
+		Customer: stripe.String(customerID),
+		Items: []*stripe.SubscriptionItemsParams{
+			{Price: stripe.String(priceIDs["team_active_user"]), Quantity: stripe.Int64(1)},
+			{Price: stripe.String(priceIDs["team_sa_connection"]), Quantity: stripe.Int64(1)},
+		},
+		Metadata: map[string]string{
+			"limen_dev_tenant":         label,
+			managedResourceMetadataKey: managedResourceMetadataValue,
+		},
+		PaymentBehavior:   stripe.String("default_incomplete"),
+		ProrationBehavior: stripe.String("none"),
+	}
+	sub, err := subscription.New(params)
+	if err != nil {
+		return "", fmt.Errorf("create dev subscription: %w", err)
+	}
+	return sub.ID, nil
+}
+
 var outputKeys = []string{
 	"STRIPE_DEVELOPER_PRODUCT_ID",
 	"STRIPE_TEAM_PRODUCT_ID",
@@ -407,6 +489,8 @@ var outputKeys = []string{
 	"STRIPE_TEAM_ACTIVE_USER_PRICE_ID",
 	"STRIPE_TEAM_SA_CONNECTION_PRICE_ID",
 	"STRIPE_WEBHOOK_SECRET",
+	"STRIPE_DEV_TENANT_CUSTOMER_ID",
+	"STRIPE_DEV_TENANT_SUBSCRIPTION_ID",
 }
 
 func main() {
@@ -430,6 +514,7 @@ func main() {
 	stripe.Key = apiKey
 
 	b := &bootstrap{}
+	var devInfo DevSubscriptionInfo
 
 	// --- Products ---
 	desiredProducts := []DesiredProduct{
@@ -483,6 +568,27 @@ func main() {
 	}
 	for k, id := range priceIDs {
 		logger.Info("price ensured", zap.String("key", k), zap.String("id", id))
+	}
+
+	// --- Dev Subscription (optional, gated by LIMEN_DEV_TENANT_LABEL) ---
+	devLabel := os.Getenv("LIMEN_DEV_TENANT_LABEL")
+	if devLabel != "" {
+		customerID, err := b.ensureDevCustomer(devLabel)
+		if err != nil {
+			logger.Fatal("ensure dev customer", zap.Error(err))
+		}
+		logger.Info("dev customer ensured", zap.String("customer_id", customerID))
+
+		subscriptionID, err := b.ensureDevSubscription(customerID, devLabel, priceIDs)
+		if err != nil {
+			logger.Fatal("ensure dev subscription", zap.Error(err))
+		}
+		logger.Info("dev subscription ensured", zap.String("subscription_id", subscriptionID))
+
+		devInfo = DevSubscriptionInfo{
+			CustomerID:     customerID,
+			SubscriptionID: subscriptionID,
+		}
 	}
 
 	// --- Features ---
@@ -583,6 +689,10 @@ func main() {
 	}
 	if webhookInfo.Secret != "" {
 		out["STRIPE_WEBHOOK_SECRET"] = webhookInfo.Secret
+	}
+	if devInfo.CustomerID != "" {
+		out["STRIPE_DEV_TENANT_CUSTOMER_ID"] = devInfo.CustomerID
+		out["STRIPE_DEV_TENANT_SUBSCRIPTION_ID"] = devInfo.SubscriptionID
 	}
 
 	outPath := os.Getenv("LIMEN_BOOTSTRAP_OUT")
