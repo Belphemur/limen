@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   backend-unit:
@@ -24,8 +25,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-      - name: Run unit tests
-        run: go test -v ./...
+      - name: Run unit tests with coverage
+        run: |
+          go run gotest.tools/gotestsum@latest \
+            --junitfile go-unit-junit.xml \
+            -- -v -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage.out
+          flags: backend
+          fail_ci_if_error: false
+      - name: Upload Go unit test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: go-unit-junit.xml
+          flags: backend
+          report_type: test_results
+          fail_ci_if_error: false
 
   backend-integration:
     runs-on: ubuntu-latest
@@ -36,7 +56,19 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Run integration tests
-        run: go test -v -tags=integration ./...
+        run: |
+          go run gotest.tools/gotestsum@latest \
+            --junitfile go-integration-junit.xml \
+            -- -v -tags=integration ./...
+      - name: Upload Go integration test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: go-integration-junit.xml
+          flags: backend
+          report_type: test_results
+          fail_ci_if_error: false
 
   frontend-unit:
     runs-on: ubuntu-latest
@@ -72,9 +104,16 @@ jobs:
       - name: Generate TypeScript protobuf bindings
         run: make proto
 
-      - name: Run ${{ matrix.package }} unit tests
+      - name: Run ${{ matrix.package }} unit tests with coverage
         working-directory: web/${{ matrix.package }}
-        run: pnpm test
+        run: pnpm test --coverage
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          flags: frontend
+          directory: web/${{ matrix.package }}
+          fail_ci_if_error: false
 
   frontend-e2e-portal:
     runs-on: ubuntu-latest
