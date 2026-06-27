@@ -99,26 +99,29 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 		//
 		// Per MCP 2025-03-26 §2.1.2 the Streamable HTTP transport
 		// exposes a long-lived GET on the same path that posts
-		// JSON-RPC. Mounting the handler with a method-agnostic
-		// Handle("/", ...) would gate GET behind the billing
-		// middleware too, which would break a past-due tenant's
-		// LLM from receiving the in-band billing-warning
-		// notifications that the middleware appends to the POST
-		// responses — exactly the channel a blocked tenant
-		// needs to recover. So we register the same Streamable
-		// handler twice: POST under the billing gate, GET outside
-		// it. Both still require a valid bearer (the group-level
-		// RequireMCPAuth above).
+		// JSON-RPC. We register the same Streamable handler twice
+		// under explicit method routing — POST behind the billing
+		// gate, GET outside it — so a past-due tenant's LLM can
+		// still open the notification stream and receive the
+		// in-band `notifications/billing_warning` events the
+		// middleware appends to the POST responses. Both still
+		// require a valid bearer (the group-level RequireMCPAuth
+		// above). `Method` is used over `Handle("POST /", ...)`
+		// because the method prefix parsing in chi's `Handle` is
+		// easy to misread on a long line; the explicit form makes
+		// the intent — and the middleware split — obvious at the
+		// call site.
 		mr.Group(func(ar chi.Router) {
 			ar.Use(deps.MCPAuth.RequireMCPAuth)
 			if deps.BillingMiddleware == nil {
-				ar.Handle("/message", deps.MCPServer.MessageHandler())
-				ar.Handle("/", deps.MCPServer.StreamableHandler())
+				ar.Method(http.MethodPost, "/message", deps.MCPServer.MessageHandler())
+				ar.Method(http.MethodPost, "/", deps.MCPServer.StreamableHandler())
+				ar.Method(http.MethodGet, "/", deps.MCPServer.StreamableHandler())
 				return
 			}
-			ar.With(deps.BillingMiddleware).Handle("POST /message", deps.MCPServer.MessageHandler())
-			ar.With(deps.BillingMiddleware).Handle("POST /", deps.MCPServer.StreamableHandler())
-			ar.Handle("GET /", deps.MCPServer.StreamableHandler())
+			ar.With(deps.BillingMiddleware).Method(http.MethodPost, "/message", deps.MCPServer.MessageHandler())
+			ar.With(deps.BillingMiddleware).Method(http.MethodPost, "/", deps.MCPServer.StreamableHandler())
+			ar.Method(http.MethodGet, "/", deps.MCPServer.StreamableHandler())
 		})
 	})
 

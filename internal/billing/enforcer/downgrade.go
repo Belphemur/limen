@@ -1,7 +1,6 @@
 package enforcer
 
 import (
-	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -21,27 +20,24 @@ import (
 // middleware does) and call Enforcer.Invalidate after a successful
 // commit so the next read bypasses the stale cache.
 //
-// Idempotent. If the tenant is already on the Developer plan, the
-// SELECT happens but nothing is written. A missing tenant_billing row
-// is also a no-op — there is nothing to downgrade (the middleware
+// Idempotent and atomic. The `plan != developer` guard in the WHERE
+// clause collapses the "load → check → save" sequence into a single
+// UPDATE; if the row is already on the Developer plan RowsAffected
+// is 0 and we skip the entitlement delete (there is nothing to
+// free — the loader will resolve the Developer defaults either way).
+// A missing tenant_billing row is also a no-op: the WHERE matches
+// nothing, RowsAffected is 0, and we return. The middleware
 // short-circuits before reaching here in that case, but the helper
-// stays safe for any future caller).
+// stays safe for any future caller.
 func DowngradeToDeveloper(tx *gorm.DB, tenantID int64) error {
-	var billing storage.TenantBilling
-	if err := tx.Where("tenant_id = ?", tenantID).First(&billing).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		return fmt.Errorf("enforcer: load tenant_billing for downgrade: %w", err)
+	res := tx.Model(&storage.TenantBilling{}).
+		Where("tenant_id = ? AND plan != ?", tenantID, DeveloperPlan).
+		Updates(map[string]any{"plan": DeveloperPlan, "grace_until": nil})
+	if res.Error != nil {
+		return fmt.Errorf("enforcer: downgrade tenant_billing: %w", res.Error)
 	}
-	if billing.Plan == DeveloperPlan {
-		return nil
-	}
-
-	billing.Plan = DeveloperPlan
-	billing.GraceUntil = nil
-	if err := tx.Where("tenant_id = ?", tenantID).Save(&billing).Error; err != nil {
-		return fmt.Errorf("enforcer: save tenant_billing downgrade: %w", err)
+	if res.RowsAffected == 0 {
+		return nil // already developer, or no billing row
 	}
 
 	// Hard-delete the entitlement rows so EntitlementsFromRows

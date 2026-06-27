@@ -68,6 +68,16 @@ export const useBillingStore = defineStore('billing', () => {
   // ---- request lifecycle ---------------------------------------------
   const isLoading = ref(false)
   const error = ref('')
+  // lastFetchedAt is the wall-clock timestamp of the most recent
+  // fetchBillingSummary call. handleHeaderSignal throttles against
+  // it so a tenant sitting in a grace window doesn't fan out one
+  // extra billing RPC per API request — during grace, every
+  // response carries `X-Limen-Billing: grace` and the SPA's
+  // response-header interceptor calls handleHeaderSignal on every
+  // one. 30s is short enough to catch a status flip quickly, long
+  // enough to collapse the burst of per-request signals into a
+  // single refresh.
+  const lastFetchedAt = ref(0)
 
   // ---- derived UI state ----------------------------------------------
   // bannerState is the single computed the rest of the app reads. It's
@@ -141,6 +151,11 @@ export const useBillingStore = defineStore('billing', () => {
   // truth — components read `plan` / `bannerState` and never call
   // BillingService directly.
   async function fetchBillingSummary(): Promise<void> {
+    // Stamp lastFetchedAt before issuing the RPC so an in-flight
+    // request already counts toward the throttle window. Without
+    // this, two concurrent callers could both pass the gate in
+    // handleHeaderSignal and double-fetch.
+    lastFetchedAt.value = Date.now()
     isLoading.value = true
     error.value = ''
     try {
@@ -188,11 +203,20 @@ export const useBillingStore = defineStore('billing', () => {
   // that as a hint to refresh the cached summary so the banner appears
   // without the user navigating away.
   //
+  // Throttled to once per 30s per store instance: during grace, every
+  // API response carries the header, so a naive implementation would
+  // fan out one extra billing RPC per request. 30s is short enough to
+  // catch a status flip promptly and long enough to collapse the
+  // per-request burst into a single refresh.
+  //
   // The function is fire-and-forget: the interceptor can't await
   // fetchBillingSummary (that would break streaming Connect responses
   // and reorder promise resolution), so we kick it off and let the
   // store's own loading flags track the in-flight refresh.
   function handleHeaderSignal(): void {
+    if (Date.now() - lastFetchedAt.value < 30_000) {
+      return
+    }
     void fetchBillingSummary()
   }
 
@@ -208,6 +232,7 @@ export const useBillingStore = defineStore('billing', () => {
     graceUntil,
     isLoading,
     error,
+    lastFetchedAt,
     // computed
     countdown,
     bannerState,
