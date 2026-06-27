@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -169,6 +170,21 @@ delegated to the Zitadel Console — they are not subcommands of this CLI.`,
 				return fmt.Errorf("persist tenant: %w", err)
 			}
 
+			// Seed billing row when the Stripe bootstrap created a dev subscription.
+			customerID := os.Getenv("STRIPE_DEV_TENANT_CUSTOMER_ID")
+			subscriptionID := os.Getenv("STRIPE_DEV_TENANT_SUBSCRIPTION_ID")
+			activeUserPriceID := os.Getenv("STRIPE_TEAM_ACTIVE_USER_PRICE_ID")
+			saConnectionPriceID := os.Getenv("STRIPE_TEAM_SA_CONNECTION_PRICE_ID")
+			if customerID != "" && subscriptionID != "" {
+				if err := seedDevBilling(ctx, store, tenant.ID, customerID, subscriptionID, activeUserPriceID, saConnectionPriceID); err != nil {
+					logger.Warn("failed to seed dev billing row", zap.Error(err))
+				} else {
+					logger.Info("seeded dev billing row",
+						zap.String("plan", "team"),
+						zap.String("stripe_customer_id", customerID))
+				}
+			}
+
 			// Mirror the Limen tenant PublicID into the Zitadel org metadata
 			// so operators can cross-reference the two systems from either
 			// side. A failure here does not invalidate the tenant row — the
@@ -268,4 +284,39 @@ func persistTenantAndOwner(ctx context.Context, store *storage.Store, tenant *st
 		return err
 	}
 	return commit()
+}
+
+// seedDevBilling creates a tenant_billing row for the dev tenant when
+// Stripe bootstrap already provisioned a customer and subscription.
+// Idempotent: if a row already exists for this tenant_id it is a no-op.
+func seedDevBilling(ctx context.Context, store *storage.Store, tenantID int64, customerID, subscriptionID, activeUserPriceID, saConnectionPriceID string) error {
+	tx, commit, err := store.Session(storage.WithSuperuser(ctx))
+	if err != nil {
+		return err
+	}
+
+	var existing storage.TenantBilling
+	switch err := tx.Where("tenant_id = ?", tenantID).First(&existing).Error; {
+	case err == nil:
+		_ = commit() // no-op read, safe to discard
+		return nil   // already exists, idempotent
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		billing := storage.TenantBilling{
+			TenantID:                  tenantID,
+			Plan:                      "team",
+			Status:                    "active",
+			StripeCustomerID:          &customerID,
+			StripeSubscriptionID:      &subscriptionID,
+			StripeActiveUserPriceID:   &activeUserPriceID,
+			StripeSAConnectionPriceID: &saConnectionPriceID,
+		}
+		if err := tx.Create(&billing).Error; err != nil {
+			_ = commit()
+			return fmt.Errorf("insert tenant_billing: %w", err)
+		}
+		return commit() // propagate commit error
+	default:
+		_ = commit()
+		return fmt.Errorf("lookup tenant_billing: %w", err)
+	}
 }
