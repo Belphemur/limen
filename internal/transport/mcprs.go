@@ -6,20 +6,21 @@
 //	GET  /t/{tenant}/mcp/.well-known/oauth-protected-resource  (public PRM)
 //	GET  /.well-known/oauth-protected-resource/t/{tenant}/mcp  (public PRM, RFC 9728 §3.2)
 //	GET  /t/{tenant}/mcp/sse        (SSE stream, bearer required, NOT billing-gated)
+//	GET  /t/{tenant}/mcp/           (Streamable HTTP notifications, bearer required, NOT billing-gated)
 //	POST /t/{tenant}/mcp/message    (JSON-RPC ingest, bearer required, billing-gated)
-//	POST /t/{tenant}/mcp/           (Streamable HTTP, bearer required, billing-gated)
+//	POST /t/{tenant}/mcp/           (Streamable HTTP requests, bearer required, billing-gated)
 //
 // All routes run behind tenancy.RequireTenant. The PRM endpoint is
 // intentionally public — RFC 9728 §3 mandates discovery without
 // authentication.
 //
-// SSE is deliberately split OUT of the billing-gated group: it is
-// read-only discovery / transport plumbing, and a past-due tenant's
-// tool-calling LLM still needs to be able to open the event stream
-// to receive the in-band `notifications/billing_warning` the billing
-// middleware appends to other responses. The only state-changing or
-// upstream-bound endpoints (POST /message, POST /) sit behind
-// BillingMiddleware.
+// SSE and the Streamable-HTTP GET stream are deliberately split OUT
+// of the billing-gated group: they are read-only transport plumbing,
+// and a past-due tenant's tool-calling LLM still needs to be able to
+// open the event stream to receive the in-band
+// `notifications/billing_warning` the billing middleware appends to
+// other responses. The only state-changing or upstream-bound
+// endpoints (POST /message, POST /) sit behind BillingMiddleware.
 package transport
 
 import (
@@ -95,16 +96,29 @@ func MountMCPRS(r chi.Router, deps MCPRSDeps) error {
 		// serve* binaries as RequireBillingActiveMCP so the verdict
 		// surfaces as a JSON-RPC error (block) or notification
 		// (grace) rather than an HTTP 402.
+		//
+		// Per MCP 2025-03-26 §2.1.2 the Streamable HTTP transport
+		// exposes a long-lived GET on the same path that posts
+		// JSON-RPC. Mounting the handler with a method-agnostic
+		// Handle("/", ...) would gate GET behind the billing
+		// middleware too, which would break a past-due tenant's
+		// LLM from receiving the in-band billing-warning
+		// notifications that the middleware appends to the POST
+		// responses — exactly the channel a blocked tenant
+		// needs to recover. So we register the same Streamable
+		// handler twice: POST under the billing gate, GET outside
+		// it. Both still require a valid bearer (the group-level
+		// RequireMCPAuth above).
 		mr.Group(func(ar chi.Router) {
 			ar.Use(deps.MCPAuth.RequireMCPAuth)
-			if deps.BillingMiddleware != nil {
-				ar.Use(deps.BillingMiddleware)
+			if deps.BillingMiddleware == nil {
+				ar.Handle("/message", deps.MCPServer.MessageHandler())
+				ar.Handle("/", deps.MCPServer.StreamableHandler())
+				return
 			}
-			ar.Handle("/message", deps.MCPServer.MessageHandler())
-			// Streamable HTTP (MCP 2025-03-26) — clients POST JSON-RPC
-			// to the tenant base URL itself. mcp-go's handler dispatches
-			// on method (POST/GET/DELETE) so a single mount serves all.
-			ar.Handle("/", deps.MCPServer.StreamableHandler())
+			ar.With(deps.BillingMiddleware).Handle("POST /message", deps.MCPServer.MessageHandler())
+			ar.With(deps.BillingMiddleware).Handle("POST /", deps.MCPServer.StreamableHandler())
+			ar.Handle("GET /", deps.MCPServer.StreamableHandler())
 		})
 	})
 

@@ -346,7 +346,7 @@ read tenant_billing + tenant_entitlements (single query with JOIN)
         ∧ now < grace_until                                                → pass with warning header (X-Limen-Billing: grace)
     → plan == 'team' AND status ∈ {'past_due','unpaid'}
         ∧ now ≥ grace_until                                                → 402 Payment Required
-    → plan == 'team' AND status == 'canceled'                              → 402 Payment Required
+    → plan == 'team' AND status == 'canceled'                              → auto-downgrade to Developer (pass)
 ```
 
 Mounted on:

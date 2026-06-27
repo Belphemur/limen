@@ -270,6 +270,12 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, event st
 		billing.GraceUntil = nil
 		if err := enforcer.DowngradeToDeveloper(tx, billing.TenantID); err != nil {
 			h.logger.Error("stripe webhook: failed to downgrade to developer", zap.Error(err))
+			// Do not Save() the mirrored in-memory state on failure —
+			// the entitlement rows are still on Team in the DB, so
+			// flipping the plan column here would leave the tenant in
+			// an inconsistent state. The deferred commit will roll the
+			// transaction back; the next webhook will retry cleanly.
+			return
 		}
 	}
 	if sub.Items != nil && len(sub.Items.Data) > 0 && sub.Items.Data[0].CurrentPeriodEnd > 0 {
@@ -337,6 +343,12 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event st
 	billing.GraceUntil = nil
 	if err := enforcer.DowngradeToDeveloper(tx, billing.TenantID); err != nil {
 		h.logger.Error("stripe webhook: failed to downgrade to developer", zap.Error(err))
+		// Do not Save() the mirrored in-memory state on failure —
+		// the entitlement rows are still on Team in the DB, so
+		// flipping the plan column here would leave the tenant in
+		// an inconsistent state. The deferred commit will roll the
+		// transaction back; the next webhook will retry cleanly.
+		return
 	}
 	billing.StripeSubscriptionID = nil
 	billing.StripeActiveUserPriceID = nil

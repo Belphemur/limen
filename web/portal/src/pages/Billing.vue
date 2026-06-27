@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useBillingStore } from '@shared/stores/useBillingStore'
+import { useBillingStore } from '@limen/shared/billing'
 
 const store = useBillingStore()
 const actionError = ref('')

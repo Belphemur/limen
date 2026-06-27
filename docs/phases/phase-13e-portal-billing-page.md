@@ -18,7 +18,7 @@ Give tenants direct visibility into their billing status. A `/billing` page in t
 
 ## Background
 
-Phase 13d implemented plan enforcement: tenants whose subscription is `past_due` / `unpaid` / `incomplete` / `paused` get a 402 at the gateway, and a one-time auto-downgrade to the Developer plan happens on cancellation. But there is **no in-product surface** that tells the tenant what happened. A 402 alone does not say "your card declined and you have 7 days to fix it." Stripe sends the customer emails, but the portal must echo that state in the UI it owns.
+Phase 13d implemented plan enforcement: tenants whose subscription is `past_due` / `unpaid` / `incomplete` / `paused` get a 402 at the gateway, and a one-time auto-downgrade to the Developer plan happens on cancellation. But there is **no in-product surface** that tells the tenant what happened. A 402 alone does not say "your card declined and you have 14 days to fix it." Stripe sends the customer emails, but the portal must echo that state in the UI it owns.
 
 Phase 13c shipped the `BillingService` RPCs (`GetBillingSummary`, `CreateCheckoutSession`, `OpenCustomerPortal`) and the Go-side middleware that stamps `X-Limen-Billing: grace` on responses during the grace window. This phase consumes both.
 

@@ -87,12 +87,15 @@ export const useBillingStore = defineStore('billing', () => {
 
     // Grace: past_due / unpaid with a future grace deadline. The
     // server still serves traffic until graceUntil; we tell the user
-    // access is about to end.
+    // access is about to end. A null/past grace means the server has
+    // already cut us off; fall through to expired-red so the banner
+    // actually shows the block state instead of resolving to 'none'.
     if (status.value === 'past_due' || status.value === 'unpaid') {
       const graceMs = parseGraceMs(graceUntil.value)
       if (graceMs !== null && graceMs > Date.now()) {
         return 'grace-amber'
       }
+      return 'expired-red'
     }
 
     // Canceling: active Team subscription that will downgrade at

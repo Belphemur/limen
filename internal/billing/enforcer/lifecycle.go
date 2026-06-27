@@ -227,12 +227,12 @@ func RequireBillingActiveMCP(store *storage.Store, enforcer *Enforcer, cfg confi
 
 			switch result.decision {
 			case decisionPassGrace:
-				// Auto-downgrade so the next per-tool-call entitlement
-				// check resolves Developer limits. Same best-effort
-				// contract as the portal middleware.
-				if enforcer != nil && isAutoDowngradeStatus(result.billing.Status) && result.billing.Plan != DeveloperPlan {
-					autoDowngradeTenant(r.Context(), store, enforcer, result.tenant.ID, logger)
-				}
+				// Grace period: forward the request untouched and append
+				// a soft-hint notification to the response. The tenant is
+				// still a paying customer — the grace window exists so they
+				// can fix their payment before entitlements flip to
+				// Developer. Do NOT auto-downgrade here (the decisionPass /
+				// decisionBlock cases own that contract).
 				notification := mcpBillingWarningNotification(portalOrigin)
 				bw := newJSONRPCBufferingWriter(w)
 				next.ServeHTTP(bw, r)

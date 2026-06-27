@@ -112,23 +112,32 @@ function formatPeriodEnd(raw: string): string {
 }
 
 // ---- CTA -------------------------------------------------------------
-// Both "Update Payment" and "Resubscribe" open the Stripe Customer
-// Portal — the SPA never collects card details. `returnTo` is the
+// The CTA target depends on the banner state. Active subscriptions
+// (`grace-amber`, `canceling-amber`) go to the Stripe Customer Portal
+// where the user can update payment or reverse a cancel. Blocked /
+// gone subscriptions (`expired-red`, `downgraded-info`) have no
+// portal session to resume, so we send the user to Stripe Checkout
+// instead — the SPA never collects card details. `returnTo` is the
 // current path so Stripe bounces the user back to wherever they were.
 const ctaBusy = ref(false)
 
 async function openPortal(): Promise<void> {
   if (ctaBusy.value) return
   ctaBusy.value = true
+  const returnTo = window.location.pathname
   try {
-    const url = await store.openCustomerPortal(window.location.pathname)
+    const url =
+      store.bannerState === 'downgraded-info' ||
+      store.bannerState === 'expired-red'
+        ? await store.createCheckoutSession(returnTo)
+        : await store.openCustomerPortal(returnTo)
     window.location.href = url
   } catch (err) {
     // Mirrors the store's "swallow into error" approach: a failed
     // handoff to Stripe shouldn't crash the SPA. The user can retry
     // by clicking the button again.
     ctaBusy.value = false
-    console.error('Failed to open customer portal:', err)
+    console.error('Failed to open Stripe handoff:', err)
   }
 }
 
