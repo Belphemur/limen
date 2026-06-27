@@ -301,14 +301,21 @@ func seedDevBilling(ctx context.Context, store *storage.Store, tenantID int64, c
 		_ = commit() // no-op read, safe to discard
 		return nil   // already exists, idempotent
 	case errors.Is(err, gorm.ErrRecordNotFound):
+		var activeUserPricePtr, saConnectionPricePtr *string
+		if activeUserPriceID != "" {
+			activeUserPricePtr = &activeUserPriceID
+		}
+		if saConnectionPriceID != "" {
+			saConnectionPricePtr = &saConnectionPriceID
+		}
 		billing := storage.TenantBilling{
 			TenantID:                  tenantID,
 			Plan:                      "team",
 			Status:                    "active",
 			StripeCustomerID:          &customerID,
 			StripeSubscriptionID:      &subscriptionID,
-			StripeActiveUserPriceID:   &activeUserPriceID,
-			StripeSAConnectionPriceID: &saConnectionPriceID,
+			StripeActiveUserPriceID:   activeUserPricePtr,
+			StripeSAConnectionPriceID: saConnectionPricePtr,
 		}
 		if err := tx.Create(&billing).Error; err != nil {
 			_ = commit()

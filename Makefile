@@ -45,7 +45,13 @@ set -a
 source scripts/zitadel-bootstrap/.bootstrap-out.env
 # Stripe bootstrap output is optional — present only after running `make stripe-bootstrap`.
 # Source it so `create-tenant` picks up STRIPE_DEV_TENANT_* env vars for billing row seed.
-test -f scripts/stripe-bootstrap/.bootstrap-out.env && source scripts/stripe-bootstrap/.bootstrap-out.env || true
+if [ -f scripts/stripe-bootstrap/.bootstrap-out.env ]; then \
+	test -r scripts/stripe-bootstrap/.bootstrap-out.env || { \
+		echo "scripts/stripe-bootstrap/.bootstrap-out.env is not readable" >&2; \
+		exit 1; \
+	}; \
+	source scripts/stripe-bootstrap/.bootstrap-out.env; \
+fi
 source .env.dev
 export LIMEN_BASE_URL=http://localhost:8000
 export LIMEN_DB_DSN='postgres://limen_app:limen_app_dev@localhost:5432/limen?sslmode=disable'
@@ -199,9 +205,16 @@ dev-bootstrap: stripe-bootstrap
 # Run the Stripe bootstrap script to set up Products, Prices, Features,
 # and webhook endpoints in Stripe. Reads STRIPE_API_KEY and optionally
 # STRIPE_WEBHOOK_URL from the environment. Idempotent — safe to re-run.
+# Skipped when STRIPE_API_KEY is unset (offline dev). LIMEN_DEV_TENANT_LABEL
+# defaults to "acme" so the same flag also flows into create-tenant's
+# billing-row seed via the generated .bootstrap-out.env.
 .PHONY: stripe-bootstrap
 stripe-bootstrap:
-	cd scripts/stripe-bootstrap && LIMEN_DEV_TENANT_LABEL=acme go run .
+	@if [ -z "$$STRIPE_API_KEY" ]; then \
+		echo "STRIPE_API_KEY is not set, skipping Stripe bootstrap."; \
+	else \
+		cd scripts/stripe-bootstrap && LIMEN_DEV_TENANT_LABEL="$${LIMEN_DEV_TENANT_LABEL:-acme}" go run .; \
+	fi
 
 # Stop services and wipe all volumes (Limen Postgres, Zitadel Postgres, PATs).
 # Also drops the pinned encryption key so the next `make dev` starts fresh.
