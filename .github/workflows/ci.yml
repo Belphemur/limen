@@ -28,7 +28,7 @@ jobs:
           go-version-file: 'go.mod'
       - name: Run unit tests with coverage
         run: |
-          go run gotest.tools/gotestsum@latest \
+          go run gotest.tools/gotestsum@v1.12.0 \
             --junitfile go-unit-junit.xml \
             -- -v -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload Go coverage to Codecov
@@ -60,7 +60,7 @@ jobs:
           go-version-file: 'go.mod'
       - name: Run integration tests
         run: |
-          go run gotest.tools/gotestsum@latest \
+          go run gotest.tools/gotestsum@v1.12.0 \
             --junitfile go-integration-junit.xml \
             -- -v -tags=integration -coverprofile=coverage-integration.out -covermode=atomic ./...
       - name: Upload Go integration coverage to Codecov
