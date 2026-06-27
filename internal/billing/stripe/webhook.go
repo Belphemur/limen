@@ -257,6 +257,11 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, event st
 		}
 	}()
 
+	if sub.Customer == nil {
+		h.logger.Error("stripe webhook: subscription updated event missing customer")
+		return
+	}
+
 	if err := tx.Where("stripe_customer_id = ?", sub.Customer.ID).First(&billing).Error; err != nil {
 		h.logger.Warn("stripe webhook: billing row not found for customer", zap.String("customer", sub.Customer.ID), zap.Error(err))
 		return
@@ -330,6 +335,11 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event st
 				zap.Int64("tenant_id", billing.TenantID), zap.Error(err))
 		}
 	}()
+
+	if sub.Customer == nil {
+		h.logger.Error("stripe webhook: subscription deleted event missing customer")
+		return
+	}
 
 	if err := tx.Where("stripe_customer_id = ?", sub.Customer.ID).First(&billing).Error; err != nil {
 		h.logger.Warn("stripe webhook: billing row not found for customer", zap.String("customer", sub.Customer.ID), zap.Error(err))
